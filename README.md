@@ -101,8 +101,8 @@ curl http://localhost:8080/actuator/health
 | Ledger architecture tests | ArchUnit | 1.5.0 | Layering, framework-freedom and the no-floating-point-money rule fail the build |
 | Store | PostgreSQL | 18.6 | `NUMERIC` for exact money, and real constraints behind the domain's own |
 
-Every version above is pinned in `ledger/pom.xml`, `assistant/pyproject.toml`,
-`assistant/uv.lock` or `docker-compose.yml` — not in this table.
+Every version above is pinned in `backend/ledger/pom.xml`, `backend/assistant/pyproject.toml`,
+`backend/assistant/uv.lock` or `docker-compose.yml` — not in this table.
 
 ## Architecture
 
@@ -140,11 +140,11 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 ## Project structure
 
 ```
-ledger/           Java 21 + Spring Boot - full tactical DDD; sole writer of the store
+backend/ledger/       Java 21 + Spring Boot - full tactical DDD; sole writer of the store
   domain/           account/ transaction/ shared/ event/ - aggregates and value objects
   application/      port/in/ port/out/ service/ - use cases and the ports they own
   adapter/          in/web/ out/persistence/ - entities are mapped, never aggregates
-assistant/        Python 3.13 + FastAPI - hexagonal, pure-function core, no aggregates
+backend/assistant/    Python 3.13 + FastAPI - hexagonal, pure-function core, no aggregates
   domain/           analysis/ (total functions) model/ (frozen dataclasses)
   application/      port/ (Protocols) usecase/ (orchestration only)
   adapters/         inbound/api/ outbound/ledger/ (the ACL) outbound/llm/
@@ -154,8 +154,8 @@ docs/             requirements/, architecture/, ADRs/ - read these before propos
 .github/          CI workflow and Dependabot configuration
 ```
 
-Java packages sit under `ledger/src/main/java/io/github/naimelijah/finassist/ledger/`;
-Python packages under `assistant/src/finassist_assistant/`.
+Java packages sit under `backend/ledger/src/main/java/io/github/naimelijah/finassist/ledger/`;
+Python packages under `backend/assistant/src/finassist_assistant/`.
 
 ## Development
 
@@ -180,7 +180,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
 behaviour they describe.
 
 > [!WARNING]
-> Editing `assistant/pyproject.toml` dependencies without running `make lock` will fail CI,
+> Editing `backend/assistant/pyproject.toml` dependencies without running `make lock` will fail CI,
 > which installs with `uv sync --locked` and refuses a stale lockfile.
 
 ## Testing
@@ -195,12 +195,12 @@ behaviour they describe.
 
 > [!NOTE]
 > The ledger's ArchUnit rules are **dormant** until there is production code:
-> `ledger/src/test/resources/archunit.properties` sets `archRule.failOnEmptyShould=false`,
+> `backend/ledger/src/test/resources/archunit.properties` sets `archRule.failOnEmptyShould=false`,
 > because a rule matching no classes fails rather than passes. Delete that line with the
 > first domain class.
 
 Tests are named `Given<scenario>_When<action>_Then<result>` — the reason Ruff's `N802` is
-disabled for `tests/**`, with the justification recorded in `assistant/pyproject.toml`.
+disabled for `tests/**`, with the justification recorded in `backend/assistant/pyproject.toml`.
 
 **What CI gates on:** every push and pull request to `main` and `dev` must pass three jobs —
 the ledger's format check and build, the assistant's lint, format check, `mypy --strict`,

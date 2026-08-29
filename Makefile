@@ -3,8 +3,8 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/sh
 
-LEDGER    := ledger
-ASSISTANT := assistant
+LEDGER    := backend/ledger
+ASSISTANT := backend/assistant
 MVNW      := ./mvnw -B
 UV        := uv
 
@@ -22,7 +22,7 @@ setup: ## Clean clone to ready: env file plus locked dependencies for both servi
 	cd $(LEDGER) && $(MVNW) -q dependency:go-offline
 	cd $(ASSISTANT) && $(UV) sync --locked --extra dev
 
-lock: ## Regenerate assistant/uv.lock after editing pyproject.toml
+lock: ## Regenerate backend/assistant/uv.lock after editing pyproject.toml
 	cd $(ASSISTANT) && $(UV) lock
 
 run: ## Start the stack

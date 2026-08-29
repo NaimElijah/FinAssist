@@ -44,11 +44,11 @@ jobs:
         with:
           enable-cache: true
           # The interpreter is deliberately not pinned here: `uv sync` resolves it from
-          # assistant/.python-version and requires-python, so that file stays the single
+          # backend/assistant/.python-version and requires-python, so that file stays the single
           # source of truth. setup-uv has no `python-version-file` input.
 
       - name: Install locked dependencies
-        run: cd assistant && uv sync --locked --extra dev
+        run: cd backend/assistant && uv sync --locked --extra dev
 
       - name: Lint, format check and types
         run: make lint-assistant

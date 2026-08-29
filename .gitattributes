@@ -19,4 +19,4 @@ mvnw.cmd        text eol=crlf
 *.pdf           binary
 
 # Generated; collapse in diffs and exclude from language statistics.
-assistant/uv.lock  linguist-generated=true -diff
+backend/assistant/uv.lock  linguist-generated=true -diff

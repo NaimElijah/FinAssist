@@ -42,7 +42,7 @@ structure inside them:
 | Upstream, Supplier | `ledger` | Owns the records and the vocabulary; free to evolve its schema |
 | Downstream, Customer | `assistant` | Must not depend on the ledger's internals |
 | Published Language | the OpenAPI document in [`contracts/`](../../contracts) | The only sanctioned way to read ledger data |
-| Anti-corruption layer | `assistant/src/finassist_assistant/adapters/outbound/ledger/` | Translates ledger DTOs into the assistant's own model |
+| Anti-corruption layer | `backend/assistant/src/finassist_assistant/adapters/outbound/ledger/` | Translates ledger DTOs into the assistant's own model |
 
 There is deliberately **no shared kernel**. `Money` is implemented once per language and
 pinned by equivalent tests on both sides; a shared kernel across two languages would mean
@@ -64,7 +64,7 @@ where the invariants are. The reasoning is in
 [ADR-007](../ADRs/ADR-007-asymmetric-hexagonal-architecture.md); the short version is that
 aggregates and value objects protect constraints, and the analysis side has none to protect.
 
-**Ledger** — `ledger/src/main/java/io/github/naimelijah/finassist/ledger/`
+**Ledger** — `backend/ledger/src/main/java/io/github/naimelijah/finassist/ledger/`
 
 | Package | Holds |
 |---|---|
@@ -78,7 +78,7 @@ aggregates and value objects protect constraints, and the analysis side has none
 | `adapter/in/web/` | Controllers and transport DTOs |
 | `adapter/out/persistence/` | Persistence entities, mapped to aggregates — an entity is not an aggregate |
 
-**Assistant** — `assistant/src/finassist_assistant/`
+**Assistant** — `backend/assistant/src/finassist_assistant/`
 
 | Package | Holds |
 |---|---|
@@ -119,9 +119,9 @@ packages carry no annotations and are wired by constructor, not by the container
 | Dependency | Used for | Pinned in |
 |---|---|---|
 | PostgreSQL 18.6 | Ledger store | `docker-compose.yml` (by hand — Dependabot does not cover Compose files) |
-| Anthropic API | The LLM behind the assistant | `assistant/pyproject.toml`, `assistant/uv.lock` |
-| Maven Central | Java dependencies | `ledger/pom.xml` |
-| PyPI | Python dependencies | `assistant/uv.lock` |
+| Anthropic API | The LLM behind the assistant | `backend/assistant/pyproject.toml`, `backend/assistant/uv.lock` |
+| Maven Central | Java dependencies | `backend/ledger/pom.xml` |
+| PyPI | Python dependencies | `backend/assistant/uv.lock` |
 
 Market data has no source yet; see the open questions in
 [requirements](../requirements/requirements.md#open-questions).
@@ -139,7 +139,7 @@ Market data has no source yet; see the open questions in
 | No inward assistant layer loads a framework | `test_architecture.py::Given_an_inward_layer_When_imported_Then_it_loads_no_framework` |
 | No inward assistant layer reaches the adapters | `test_architecture.py::Given_an_inward_layer_When_imported_Then_it_loads_no_adapter` |
 
-The ledger's rules are currently **dormant**: `ledger/src/test/resources/archunit.properties`
+The ledger's rules are currently **dormant**: `backend/ledger/src/test/resources/archunit.properties`
 sets `archRule.failOnEmptyShould=false` because the three layer packages are empty, and rules
 that match nothing fail rather than pass. That line is deleted with the first domain class.
 The Python rules are live now, because the packages exist.
@@ -163,4 +163,4 @@ local commands cannot drift ([ADR-005](../ADRs/ADR-005-docker-compose-as-the-run
 
 **Test naming overrides the linter.** Tests are named
 `Given<scenario>_When<action>_Then<result>`, which is not snake_case, so Ruff's `N802` is
-disabled for `tests/**` in `assistant/pyproject.toml` with the reason recorded inline.
+disabled for `tests/**` in `backend/assistant/pyproject.toml` with the reason recorded inline.

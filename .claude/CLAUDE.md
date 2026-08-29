@@ -34,9 +34,9 @@ Keep this list in sync with the Development table in `README.md`.
 
 ## Layout
 
-- `ledger/` — Java 21, Spring Boot. Full tactical DDD: `domain/{account,transaction,shared,event}`,
+- `backend/ledger/` — Java 21, Spring Boot. Full tactical DDD: `domain/{account,transaction,shared,event}`,
   `application/{port/in,port/out,service}`, `adapter/{in/web,out/persistence}`.
-- `assistant/` — Python 3.13, FastAPI. Hexagonal with a pure-function core and no aggregates:
+- `backend/assistant/` — Python 3.13, FastAPI. Hexagonal with a pure-function core and no aggregates:
   `domain/{analysis,model}`, `application/{port,usecase}`,
   `adapters/{inbound/api,outbound/ledger,outbound/llm}`.
 - `contracts/` — the versioned OpenAPI contract between the services. Empty until the first endpoint.
@@ -55,7 +55,7 @@ These are enforced by the build, not by review. Breaking one fails CI.
   aggregates or repositories to `assistant/`; its core is pure functions over frozen
   dataclasses.
 - **Dependencies point inward** in both services. `LedgerArchitectureTest` and
-  `assistant/tests/test_architecture.py` enforce this.
+  `backend/assistant/tests/test_architecture.py` enforce this.
 - **The ledger domain imports no framework.** No `org.springframework..`, no `jakarta..`.
   Persistence entities live in `adapter/out/persistence` and are mapped — an entity is not
   an aggregate.
@@ -69,6 +69,6 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **No shared kernel across languages.** `Money` is implemented twice and pinned by
   equivalent tests on each side; do not try to share it.
 
-`ledger/src/test/resources/archunit.properties` sets `archRule.failOnEmptyShould=false`
+`backend/ledger/src/test/resources/archunit.properties` sets `archRule.failOnEmptyShould=false`
 because the layer packages are still empty. **Delete that line with the first domain class**,
 or the ledger's rules stay dormant.
