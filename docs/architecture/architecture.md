@@ -4,163 +4,173 @@ The system as it actually is. *What it must do* is
 [requirements](../requirements/requirements.md); *why* a given solution was chosen is
 [the ADRs](../ADRs/).
 
-> **This document describes the present, which is currently a skeleton.** Both service
-> modules exist, build, lint and test, and their structural rules are enforced by the build.
-> The ledger boots and answers Actuator probes; the assistant has no entry point; neither has
-> domain code. Where a structure is defined but not yet inhabited, this document says so
-> rather than describing the intended end state as if it were real.
+> **This document describes the present, which is currently a skeleton.** Three codebases
+> build, lint, type-check and test, and their structural rules are enforced by the build. The
+> ledger boots and answers Actuator probes; the assistant has no entry point; the web client
+> builds and renders a placeholder. No context has domain code. Where a structure is defined
+> but not yet inhabited, this document says so.
 
 ## Architecture overview
 
-FinAssist is two independently deployable services in one repository, plus a database.
+Two independently deployable backend services, a web client, and a database.
 
 The **ledger** (Java) owns financial records and the rules that govern them. The
 **assistant** (Python) answers questions and computes analysis over those records, reading
-them through the ledger's published API rather than its database. The split is
-[ADR-001](../ADRs/ADR-001-polyglot-java-python-split.md); the internal shape of each side is
-[ADR-007](../ADRs/ADR-007-asymmetric-hexagonal-architecture.md).
+them through the ledger's published API rather than its database. The **web client**
+(TypeScript) is what a person talks to.
+
+The split is [ADR-001](../ADRs/ADR-001-polyglot-java-python-split.md); the shape inside each
+service is [ADR-007](../ADRs/ADR-007-asymmetric-hexagonal-architecture.md) as extended by
+[ADR-010](../ADRs/ADR-010-bounded-context-map.md); the root layout is
+[ADR-008](../ADRs/ADR-008-backend-frontend-root-layout.md).
 
 ```mermaid
 flowchart LR
-    Owner[Owner] -->|HTTP| Assistant[assistant - Python, FastAPI]
-    Assistant -->|HTTP, Published Language| Ledger[ledger - Java, Spring Boot]
+    Owner[Owner] -->|HTTPS| Web[frontend/web - React SPA]
+    Web -->|HTTP| Assistant[backend/assistant - Python, FastAPI]
+    Assistant -->|HTTP, Published Language| Ledger[backend/ledger - Java, Spring Boot]
     Assistant -->|HTTPS| Claude[Anthropic API]
+    Assistant -->|HTTPS| Feed[Price feed - not chosen]
     Ledger --> DB[(PostgreSQL 18)]
 ```
 
-Of the above, `DB` runs under Compose and `Ledger` boots natively with Actuator only. No
-edge in this diagram is implemented: the assistant has no entry point, and nothing connects
-to the database.
+`DB` runs under Compose and `Ledger` boots natively with Actuator only. No edge in this
+diagram is implemented.
+
+## Bounded contexts
+
+Five contexts, each owned by exactly one service
+([ADR-010](../ADRs/ADR-010-bounded-context-map.md)).
+
+| Context | Owner | Holds | UI feature |
+|---|---|---|---|
+| `accounting` | `backend/ledger` | `Account`, `Entry`, `Balance` — the record of truth | yes |
+| `budgeting` | `backend/ledger` | `Budget`, `Category`, `CategorisationRule` | yes |
+| `portfolio` | `backend/assistant` | `Holding`, `Position`, `Valuation` | yes |
+| `assistance` | `backend/assistant` | `Question`, `Evidence`, `GroundedAnswer` | yes |
+| `marketdata` | `backend/assistant` | `Instrument`, `Quote` — feed not chosen | no |
 
 ### The context map
 
-The relationship between the services, in strategic DDD terms, is what dictates the
-structure inside them:
-
-| Role | Service | Consequence |
+| Role | Where | Consequence |
 |---|---|---|
-| Upstream, Supplier | `ledger` | Owns the records and the vocabulary; free to evolve its schema |
-| Downstream, Customer | `assistant` | Must not depend on the ledger's internals |
+| Upstream, Supplier | `accounting` | Owns the records and the vocabulary; free to evolve its schema |
+| Downstream, Customer | `portfolio`, `assistance` | Must not depend on the ledger's internals |
 | Published Language | the OpenAPI document in [`contracts/`](../../contracts) | The only sanctioned way to read ledger data |
-| Anti-corruption layer | `backend/assistant/src/finassist_assistant/adapters/outbound/ledger/` | Translates ledger DTOs into the assistant's own model |
+| Anti-corruption layer | `portfolio/adapters/outbound/ledger/`, `marketdata/adapters/outbound/feed/`, `assistance/adapters/outbound/llm/` | Foreign shapes become local model types here and nowhere else |
 
-There is deliberately **no shared kernel**. `Money` is implemented once per language and
-pinned by equivalent tests on both sides; a shared kernel across two languages would mean
-two implementations obliged to stay bit-identical, which costs more than the duplication.
+`budgeting` references accounts **by identifier only**, never by object — separate lifecycles,
+separate invariants.
+
+There is deliberately **no shared kernel across languages**. `Money` is implemented once per
+language and pinned by equivalent tests on each side; two implementations obliged to stay
+bit-identical would cost more than the duplication.
 
 ## Components
 
 | Component | Responsibility | State |
 |---|---|---|
-| `ledger/` | Accounts, transactions, balances, and the invariants over them. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper pinned to 3.9.6 | Boots and answers Actuator probes; 4 architecture rules pass; no domain code |
-| `assistant/` | LLM assistant and portfolio analysis. Client of the ledger. Python 3.13, FastAPI, uv with a committed lockfile | Lints and type-checks; 12 architecture tests pass; no entry point and no domain code |
-| `contracts/` | The versioned wire contract between the two services | Directory and its README only |
+| `backend/ledger` | Accounting and budgeting. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Boots and answers Actuator probes; 5 architecture rules pass; no domain code |
+| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Lints and type-checks; 32 architecture tests pass; no entry point, no domain code |
+| `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder; 6 architecture tests pass; no feature implemented |
+| `contracts/` | The versioned wire contract | Directory and its README only |
 | PostgreSQL 18 | The ledger's store | Runs via Compose; nothing connects to it |
 
-## Structure: asymmetric by design
+## Structure: context first, hexagon inside
 
-Both services are hexagonal. **Tactical DDD is applied only in the ledger**, because that is
-where the invariants are. The reasoning is in
-[ADR-007](../ADRs/ADR-007-asymmetric-hexagonal-architecture.md); the short version is that
-aggregates and value objects protect constraints, and the analysis side has none to protect.
+A context is one directory, so it can be extracted by moving it. Tactical DDD — aggregates,
+value objects, domain events — is used **only in the ledger**, where the invariants are; the
+assistant's cores are pure functions over frozen dataclasses.
 
-**Ledger** — `backend/ledger/src/main/java/io/github/naimelijah/finassist/ledger/`
+```
+backend/ledger/src/main/java/io/github/naimelijah/finassist/ledger/
+  accounting/   domain/{account,entry,event}/  application/{port/in,port/out,service}/  adapter/{in/web,out/persistence}/
+  budgeting/    domain/{budget,category,event}/  application/…  adapter/…
+  shared/       Money, Currency — in-language kernel
+  LedgerApplication.java
 
-| Package | Holds |
-|---|---|
-| `domain/account/` | `Account` aggregate root, `AccountId` |
-| `domain/transaction/` | `Transaction` aggregate, sealed `TransactionState` |
-| `domain/shared/` | `Money`, `Currency`, `Period` — value objects |
-| `domain/event/` | Domain events |
-| `application/port/in/` | Use-case interfaces (commands) |
-| `application/port/out/` | Repository and gateway ports the domain owns |
-| `application/service/` | Use-case implementations |
-| `adapter/in/web/` | Controllers and transport DTOs |
-| `adapter/out/persistence/` | Persistence entities, mapped to aggregates — an entity is not an aggregate |
+backend/assistant/src/finassist_assistant/
+  portfolio/    domain/{model,analysis}/       application/{port,usecase}/  adapters/{inbound/api,outbound/ledger}/
+  assistance/   domain/{model,grounding}/      application/…                adapters/{inbound/api,outbound/llm}/
+  marketdata/   domain/{model,normalisation}/  application/…                adapters/outbound/feed/
+  shared/
 
-**Assistant** — `backend/assistant/src/finassist_assistant/`
+frontend/web/src/
+  features/{accounting,budgeting,portfolio,assistance}/{api,components,hooks,types}/
+  shared/{ui,api,lib}/
+  app/          the only place that knows every feature at once
+```
 
-| Package | Holds |
-|---|---|
-| `domain/analysis/` | Total, deterministic functions: returns, allocation, drawdown |
-| `domain/model/` | Frozen dataclasses: `Holding`, `Position`, `Series` |
-| `application/port/` | `LedgerPort`, `LlmPort` as `typing.Protocol` |
-| `application/usecase/` | Orchestration only |
-| `adapters/inbound/api/` | FastAPI routers and their transport models |
-| `adapters/outbound/ledger/` | **The anti-corruption layer** |
-| `adapters/outbound/llm/` | Anthropic client |
+`LedgerApplication` sits in the root package so component scanning covers every context; it is
+the only Spring-annotated class outside an adapter.
 
 ## Communication
 
-- **Owner to assistant** — HTTP. The assistant is the only service a person talks to.
-- **Assistant to ledger** — HTTP, request/response, described by an OpenAPI document under
-  `contracts/` and versioned in the URL path
-  ([ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md), still Proposed).
-- **Assistant to Anthropic** — HTTPS via the pinned `anthropic` SDK, behind `LlmPort`.
-- **Ledger to Postgres** — JDBC ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md),
-  still Proposed; no driver is on the classpath yet).
+- **Owner to web** — HTTPS.
+- **Web to assistant** — HTTP. Whether the web client may also call the ledger directly is an
+  [open question](../requirements/requirements.md#open-questions).
+- **Assistant to ledger** — HTTP, described by an OpenAPI document under `contracts/` and
+  versioned in the URL path ([ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md),
+  still Proposed).
+- **Assistant to Anthropic** — HTTPS via the pinned SDK, behind `LlmPort`.
+- **Assistant to price feed** — not chosen; the port and its ACL exist, the client does not.
+- **Ledger to Postgres** — JDBC
+  ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md), still Proposed; no driver on
+  the classpath).
 
-The ledger never calls the assistant. The dependency between services points one way, which
-is what allows the ledger to be extracted or replaced without touching the assistant's core.
+The ledger never calls the assistant, and the assistant never calls the web client.
 
 ## Data flow
 
-No business request path exists yet. The only live path is
-`GET /actuator/health` → Spring Boot's health contributors → `{"status":"UP"}`, which
-touches no FinAssist code. This section is filled in from the implementation in the same
-commit that creates it, not before.
-
-`LedgerApplication` in the root package is the only Spring-annotated class outside
-`adapter`. Component scanning covers the adapters beneath it; the domain and application
-packages carry no annotations and are wired by constructor, not by the container.
+No business request path exists. The only live path is `GET /actuator/health` → Spring Boot's
+health contributors → `{"status":"UP"}`, which touches no FinAssist code. This section is
+filled in from the implementation in the same commit that creates it.
 
 ## External dependencies and integration points
 
 | Dependency | Used for | Pinned in |
 |---|---|---|
-| PostgreSQL 18.6 | Ledger store | `docker-compose.yml` (by hand — Dependabot does not cover Compose files) |
-| Anthropic API | The LLM behind the assistant | `backend/assistant/pyproject.toml`, `backend/assistant/uv.lock` |
-| Maven Central | Java dependencies | `backend/ledger/pom.xml` |
-| PyPI | Python dependencies | `backend/assistant/uv.lock` |
-
-Market data has no source yet; see the open questions in
-[requirements](../requirements/requirements.md#open-questions).
+| PostgreSQL 18.6 | Ledger store | `docker-compose.yml` (by hand — Dependabot covers no Compose file) |
+| Anthropic API | The LLM behind `assistance` | `backend/assistant/pyproject.toml`, `uv.lock` |
+| Price feed | `marketdata` | **Not chosen** — see the open questions |
+| Maven Central / PyPI / npm | Dependencies | `pom.xml`, `uv.lock`, `package-lock.json` |
 
 ## Structural decisions not visible from the file layout
 
-**Dependency direction is enforced by the build, in both services.**
+**Every structural rule is enforced by a test, in all three codebases.** Each was verified by
+introducing a deliberate violation and confirming the build failed, then reverting.
 
 | Rule | Enforced by |
 |---|---|
-| Adapters → application → domain → nothing (ledger) | `LedgerArchitectureTest.layers_point_inward` |
+| Layers point inward, in every ledger context | `LedgerArchitectureTest.layers_point_inward` |
+| **No ledger context depends on another** (`shared` exempt) | `LedgerArchitectureTest.contexts_do_not_depend_on_each_other` |
 | The ledger domain imports no framework | `LedgerArchitectureTest.domain_depends_on_no_framework` |
-| No floating-point field in the ledger domain | `LedgerArchitectureTest.money_is_never_floating_point` |
-| No package cycles in the ledger | `LedgerArchitectureTest.packages_are_free_of_cycles` |
-| No inward assistant layer loads a framework | `test_architecture.py::Given_an_inward_layer_When_imported_Then_it_loads_no_framework` |
-| No inward assistant layer reaches the adapters | `test_architecture.py::Given_an_inward_layer_When_imported_Then_it_loads_no_adapter` |
+| No floating-point field in a ledger domain | `LedgerArchitectureTest.money_is_never_floating_point` |
+| No cycles between aggregates in a context | `LedgerArchitectureTest.aggregates_are_free_of_cycles` |
+| No inward assistant layer loads a framework | `test_architecture.py::…Then_it_loads_no_framework` |
+| No inward assistant layer reaches the adapters | `test_architecture.py::…Then_it_loads_no_adapter` |
+| **No assistant context imports another** | `test_architecture.py::…Then_it_loads_no_other_context` |
+| **No web feature imports another**, and `shared` imports no feature | `frontend/web/tests/architecture.test.ts` |
 
-The ledger's rules are currently **dormant**: `backend/ledger/src/test/resources/archunit.properties`
-sets `archRule.failOnEmptyShould=false` because the three layer packages are empty, and rules
-that match nothing fail rather than pass. That line is deleted with the first domain class.
-The Python rules are live now, because the packages exist.
+The ledger's rules are **dormant**: `backend/ledger/src/test/resources/archunit.properties`
+sets `archRule.failOnEmptyShould=false` because the context packages are empty, and a rule
+matching nothing fails rather than passes. That line is deleted with the first domain class.
+The Python and TypeScript rules are live, because their packages exist.
 
-**The anti-corruption layer is the boundary that matters.** A ledger DTO reaching the
-assistant's application or domain layer would make the ledger's wire shape the assistant's
-model, coupling two services across a language boundary and forfeiting what the split bought.
-This is asserted per package, not assumed.
+**Anti-corruption layers are per context, by design.** If `portfolio` and `assistance` both
+need ledger data, each translates it into its own vocabulary. The duplicated translation is
+the point: a shared translation would smuggle one context's model into the other.
 
-**Persistence entities are not aggregates.** JPA's requirements — no-arg constructors,
-mutable fields, lazy proxies — stay in `adapter/out/persistence`. Letting them into the
-domain produces an anemic model wearing DDD vocabulary.
+**Persistence entities are not aggregates.** JPA's requirements — no-arg constructors, mutable
+fields, lazy proxies — stay in `adapter/out/persistence`.
 
-**The database is private to the ledger.** The assistant has no connection string, by
-design; this is why [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) rejects a
-shared database.
+**The database is private to the ledger.** The assistant has no connection string, by design.
 
-**The Makefile is an interface, not a mechanism.** Every target is a thin wrapper over
-`docker compose`, `./mvnw` or `uv`, and CI calls the same targets, so the pipeline and the
-local commands cannot drift ([ADR-005](../ADRs/ADR-005-docker-compose-as-the-run-mechanism.md)).
+**The Makefile is an interface, not a mechanism.** Every target wraps `docker compose`,
+`./mvnw`, `uv` or `npm`, and CI calls the same targets, so the pipeline and the local commands
+cannot drift ([ADR-005](../ADRs/ADR-005-docker-compose-as-the-run-mechanism.md)).
 
-**Test naming overrides the linter.** Tests are named
-`Given<scenario>_When<action>_Then<result>`, which is not snake_case, so Ruff's `N802` is
-disabled for `tests/**` in `backend/assistant/pyproject.toml` with the reason recorded inline.
+**Two linter rules are relaxed with recorded reasons.** Ruff's `N802` for `tests/**`, because
+test names are `Given<scenario>_When<action>_Then<result>`; and TypeScript is pinned to 6.0.3
+rather than 7.x because `typescript-eslint` does not yet support 7
+([ADR-009](../ADRs/ADR-009-react-vite-spa-for-the-web-client.md)).

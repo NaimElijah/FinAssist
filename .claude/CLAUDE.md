@@ -4,42 +4,55 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## State of the repository
 
-Two service modules, both building and CI-gated, neither carrying domain code yet. The
-ledger boots and answers Actuator probes; the assistant has no entry point. Read
-`docs/requirements/requirements.md` and `docs/ADRs/` before proposing work — several
-decisions are recorded but not yet ratified.
+Three codebases — a Java ledger, a Python assistant, a React web client — all building and
+CI-gated, none carrying domain code yet. The ledger boots and answers Actuator probes; the
+assistant has no entry point; the web client renders a placeholder.
+
+Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. Several
+decisions are recorded but not yet ratified, and the requirements are deliberately `TODO`
+rather than inferred from code.
 
 ## Commands
 
 Every target below is a thin wrapper defined in `Makefile`; CI invokes the same ones. `make`
 is **not installed** on the development machine, so the raw command is given for each.
 
-- Build / setup: `make setup` — `cd ledger && ./mvnw -B dependency:go-offline`, then
-  `cd assistant && uv sync --locked --extra dev`
-- Run: `make run` — `docker compose up --build` (starts PostgreSQL only; the ledger runs
-  natively with `cd ledger && ./mvnw spring-boot:run`)
+- Build / setup: `make setup` — `cd backend/ledger && ./mvnw -B dependency:go-offline`;
+  `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci`
+- Run: `make run` — `docker compose up --build` (starts PostgreSQL only). The ledger runs
+  natively with `cd backend/ledger && ./mvnw spring-boot:run`; the web client with
+  `cd frontend/web && npm run dev`
 - Test (all): `make test`
-- Test (ledger): `cd ledger && ./mvnw -B verify`
-- Test (assistant): `cd assistant && uv run pytest`
-- Test (single, ledger): `cd ledger && ./mvnw -B test -Dtest=LedgerArchitectureTest`
-- Test (single, assistant): `cd assistant && uv run pytest tests/test_architecture.py -k <name>`
+- Test (ledger): `cd backend/ledger && ./mvnw -B verify`
+- Test (assistant): `cd backend/assistant && uv run pytest`
+- Test (web): `cd frontend/web && npm test`
+- Test (single, ledger): `cd backend/ledger && ./mvnw -B test -Dtest=LedgerArchitectureTest`
+- Test (single, assistant): `cd backend/assistant && uv run pytest tests/test_architecture.py -k <name>`
+- Test (single, web): `cd frontend/web && npx vitest run -t <name>`
 - Lint / types: `make lint` — `./mvnw -B spotless:check`; `uv run ruff check .`,
-  `uv run ruff format --check .`, `uv run mypy src tests`
-- Format: `make format` — `./mvnw -B spotless:apply`; `uv run ruff format .`
-- Audit: `make audit` — `cd assistant && uv run pip-audit`
-- Re-lock Python deps: `make lock` — `cd assistant && uv lock` (required after any
+  `uv run ruff format --check .`, `uv run mypy src tests`; `npm run lint`,
+  `npm run format:check`, `npm run typecheck`
+- Format: `make format` — `./mvnw -B spotless:apply`; `uv run ruff format .`; `npm run format`
+- Audit: `make audit` — `uv run pip-audit`; `npm audit --audit-level=high`
+- Re-lock Python deps: `make lock` — `cd backend/assistant && uv lock` (required after any
   `pyproject.toml` dependency edit, or CI's `uv sync --locked` fails)
 
 Keep this list in sync with the Development table in `README.md`.
 
 ## Layout
 
-- `backend/ledger/` — Java 21, Spring Boot. Full tactical DDD: `domain/{account,transaction,shared,event}`,
-  `application/{port/in,port/out,service}`, `adapter/{in/web,out/persistence}`.
-- `backend/assistant/` — Python 3.13, FastAPI. Hexagonal with a pure-function core and no aggregates:
-  `domain/{analysis,model}`, `application/{port,usecase}`,
-  `adapters/{inbound/api,outbound/ledger,outbound/llm}`.
-- `contracts/` — the versioned OpenAPI contract between the services. Empty until the first endpoint.
+Organised **context first**: a bounded context is one directory containing its own hexagon,
+so it can be extracted by moving it (ADR-010).
+
+- `backend/ledger/` — Java 21, Spring Boot. Contexts `accounting/` and `budgeting/`, each with
+  `domain/`, `application/{port/in,port/out,service}/`, `adapter/{in/web,out/persistence}/`,
+  plus a top-level `shared/` kernel and `LedgerApplication`.
+- `backend/assistant/` — Python 3.13, FastAPI. Contexts `portfolio/`, `assistance/`,
+  `marketdata/`, each with `domain/`, `application/{port,usecase}/`, `adapters/`, plus
+  `shared/`.
+- `frontend/web/` — React 19, Vite 8, TypeScript. `src/features/` holds one directory per
+  user-facing context; `src/shared/`; `src/app/` composes them.
+- `contracts/` — the versioned OpenAPI contract. Empty until the first endpoint.
 - `docs/ADRs/` — one file per decision, `ADR-NNN-short-kebab-title.md`, zero-padded and
   monotonically increasing. Append-only: supersede, never rewrite.
 - `docs/requirements/` — what the system must do. `docs/architecture/` — what it actually is.
@@ -50,25 +63,33 @@ Keep this list in sync with the Development table in `README.md`.
 
 These are enforced by the build, not by review. Breaking one fails CI.
 
+- **No context may depend on another.** Not in Java, not in Python, not in the web client. The
+  only common ground is each codebase's own `shared/`. Where two contexts must collaborate,
+  the answer is a published port and an explicit translation, never an import.
 - **The architecture is asymmetric on purpose** (ADR-007). Tactical DDD — aggregates, value
-  objects, domain events — belongs in `ledger/` only, where invariants exist. Do not add
-  aggregates or repositories to `assistant/`; its core is pure functions over frozen
+  objects, domain events — belongs in `backend/ledger/` only, where invariants exist. Do not
+  add aggregates or repositories to the assistant; its cores are pure functions over frozen
   dataclasses.
-- **Dependencies point inward** in both services. `LedgerArchitectureTest` and
-  `backend/assistant/tests/test_architecture.py` enforce this.
+- **Dependencies point inward** in every context. `LedgerArchitectureTest`,
+  `backend/assistant/tests/test_architecture.py` and
+  `frontend/web/tests/architecture.test.ts` enforce this.
 - **The ledger domain imports no framework.** No `org.springframework..`, no `jakarta..`.
-  Persistence entities live in `adapter/out/persistence` and are mapped — an entity is not
-  an aggregate.
+  Persistence entities live in `adapter/out/persistence` and are mapped — an entity is not an
+  aggregate.
 - **Money is never floating point.** `BigDecimal` in Java, `Decimal` in Python, `NUMERIC` in
-  Postgres. A `double` or `float` field in the ledger domain fails the build.
-- **Nothing inward may import `finassist_assistant.adapters`.** The anti-corruption layer in
-  `adapters/outbound/ledger` is the only place a ledger DTO becomes a domain value; letting
-  one leak inward couples the two services across a language boundary.
+  Postgres. A `double` or `float` field in a ledger domain fails the build.
+- **Foreign shapes stop at the anti-corruption layer.** Ledger DTOs, Anthropic responses and
+  price-feed payloads become local model types in `adapters/outbound/*` and nowhere else.
+- **No shared kernel across languages.** `Money` is implemented once per language and pinned
+  by equivalent tests on each side; do not try to share it.
 - **Test names are the specification:** `Given<scenario>_When<action>_Then<result>`. Ruff's
   `N802` is disabled for `tests/**` because of it.
-- **No shared kernel across languages.** `Money` is implemented twice and pinned by
-  equivalent tests on each side; do not try to share it.
+- **Prove a new architecture rule fails.** Introduce a deliberate violation, confirm the build
+  breaks, revert. A rule that has never failed is not evidence.
 
 `backend/ledger/src/test/resources/archunit.properties` sets `archRule.failOnEmptyShould=false`
-because the layer packages are still empty. **Delete that line with the first domain class**,
+because the context packages are still empty. **Delete that line with the first domain class**,
 or the ledger's rules stay dormant.
+
+TypeScript is pinned to 6.0.3, not 7.x, because `typescript-eslint` 8 declares
+`typescript: >=4.8.4 <6.1.0`. Lift the pin when it supports 7.
