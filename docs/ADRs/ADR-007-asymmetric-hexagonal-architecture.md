@@ -1,6 +1,6 @@
 # ADR-007: Asymmetric hexagonal architecture — tactical DDD in the ledger only
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by [ADR-010](ADR-010-bounded-context-map.md)
 - **Date:** 2026-08-29
 
 ## Context
