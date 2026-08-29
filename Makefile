@@ -16,8 +16,7 @@ UV        := uv
 
 help: ## List available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
-		| awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s
-", $$1, $$2}'
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s%s", $$1, $$2, ORS}'
 
 setup: ## Clean clone to ready: env file plus locked dependencies for every service
 	@test -f .env || cp .env.example .env
