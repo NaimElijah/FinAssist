@@ -3,7 +3,9 @@ name = "finassist-assistant"
 version = "0.1.0"
 description = "LLM assistant and portfolio analysis over the FinAssist ledger"
 requires-python = ">=3.13"
-license = { file = "../LICENSE" }
+# Not a file reference: the LICENSE lives at the repository root, outside this
+# project directory, and hatchling refuses to package a path that escapes it.
+license = { text = "Proprietary - all rights reserved. See LICENSE at the repository root." }
 
 # Exact pins only. Ranges make a lockfile a suggestion; see docs/ADRs/ADR-003.
 dependencies = [
