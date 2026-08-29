@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## State of the repository
 
 Three codebases — a Java ledger, a Python assistant, a React web client — all building and
-CI-gated. **All five bounded contexts now have a domain layer**, with tests. Nothing above the
+CI-gated. **All six bounded contexts now have a domain layer**, with tests. Nothing above the
 domain exists: no application services, no ports, no adapters, no persistence, no HTTP. The
 ledger boots and answers Actuator probes; the assistant has no entry point; the web client
 renders a placeholder.
@@ -46,9 +46,10 @@ Keep this list in sync with the Development table in `README.md`.
 Organised **context first**: a bounded context is one directory containing its own hexagon,
 so it can be extracted by moving it (ADR-010).
 
-- `backend/ledger/` — Java 21, Spring Boot. Contexts `accounting/` and `budgeting/`, each with
-  `domain/`, `application/{port/in,port/out,service}/`, `adapter/{in/web,out/persistence}/`,
-  plus a top-level `shared/` kernel and `LedgerApplication`.
+- `backend/ledger/` — Java 21, Spring Boot. Contexts `accounting/`, `budgeting/` and
+  `planning/`, each with `domain/`, `application/{port/in,port/out,service}/`,
+  `adapter/{in/web,out/persistence}/`, plus a top-level `shared/` kernel and
+  `LedgerApplication`.
 - `backend/assistant/` — Python 3.13, FastAPI. Contexts `portfolio/`, `assistance/`,
   `marketdata/`, each with `domain/`, `application/{port,usecase}/`, `adapters/`, plus
   `shared/`.
@@ -82,12 +83,17 @@ These are enforced by the build, not by review. Breaking one fails CI.
   Postgres. A `double` or `float` field in a ledger domain fails the build.
 - **The books balance.** A `Transaction` holds two or more entries summing to zero in one
   currency, checked in the constructor, so an unbalanced one is never constructed (ADR-011).
-- **Derived, never stored.** An account balance is summed from entries and a budget's spend is
-  passed in. If you find yourself adding a `balance` or `spent` field, that is the bug.
+- **Derived, never stored.** An account balance is summed from entries, a budget's spend is
+  passed in, and a projection is computed from its scenario. If you find yourself adding a
+  `balance`, `spent` or stored-projection field, that is the bug.
 - **Amounts in two currencies are never combined** — no rates exist (ADR-012). Adding ILS to
   USD throws.
 - **Pass the clock in.** No domain function calls `now()`. Transitions take a date, staleness
-  takes the current time as an argument.
+  takes the current time as an argument, and a projection takes its horizon.
+- **A plan is not a fact.** `planning/` holds what the owner intends; `accounting/` holds what
+  happened. They are separate contexts so the two can never be summed together (ADR-015).
+  A `PlannedFlow` amount is always positive and its `Direction` carries the sign — the opposite
+  of `Entry`, which is signed because double entry must balance.
 - **Foreign shapes stop at the anti-corruption layer.** Ledger DTOs, Anthropic responses and
   price-feed payloads become local model types in `adapters/outbound/*` and nowhere else.
 - **No shared kernel across languages.** `Money` is implemented once per language and pinned

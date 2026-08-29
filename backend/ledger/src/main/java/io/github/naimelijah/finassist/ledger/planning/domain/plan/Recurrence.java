@@ -1,0 +1,134 @@
+package io.github.naimelijah.finassist.ledger.planning.domain.plan;
+
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * How often a planned flow happens: once, or on a fixed cadence with an end.
+ *
+ * <p>A sealed interface rather than one record with a nullable {@code until} and a nullable
+ * {@code count}. That shape admits two states nobody wants — both set, and neither set, the second
+ * of which is an unbounded plan that no projection can terminate on. Here they are unrepresentable.
+ *
+ * <p>Occurrences are reported over a bare date range rather than a {@code Horizon}. A horizon is a
+ * forecasting idea, and having a plan reach for one would point this package at
+ * {@code planning.domain.forecast} and put a cycle between two aggregates —
+ * {@code LedgerArchitectureTest.aggregates_are_free_of_cycles} fails the build for exactly that.
+ */
+public sealed interface Recurrence {
+
+    /**
+     * Every date this recurrence lands on within {@code [fromInclusive, toExclusive)}.
+     *
+     * <p>Occurrences are always measured from {@code start}, never from the previous one; see
+     * {@link Cadence#advance} for why that matters at month ends.
+     *
+     * @param start the date the first occurrence falls on
+     */
+    List<LocalDate> occurrences(LocalDate start, LocalDate fromInclusive, LocalDate toExclusive);
+
+    /** A short name for messages. */
+    String name();
+
+    /** Happens once, on its own date. */
+    record Once() implements Recurrence {
+
+        @Override
+        public List<LocalDate> occurrences(LocalDate start, LocalDate fromInclusive, LocalDate toExclusive) {
+            requireRange(start, fromInclusive, toExclusive);
+            return within(start, fromInclusive, toExclusive) ? List.of(start) : List.of();
+        }
+
+        @Override
+        public String name() {
+            return "Once";
+        }
+    }
+
+    /** Repeats every {@code interval} cadences, up to but not including {@code until}. */
+    record Until(Cadence cadence, int interval, LocalDate until) implements Recurrence {
+
+        public Until {
+            Objects.requireNonNull(cadence, "cadence");
+            Objects.requireNonNull(until, "until");
+            requirePositiveInterval(interval);
+        }
+
+        @Override
+        public List<LocalDate> occurrences(LocalDate start, LocalDate fromInclusive, LocalDate toExclusive) {
+            requireRange(start, fromInclusive, toExclusive);
+            List<LocalDate> dates = new ArrayList<>();
+            for (long period = 0; ; period++) {
+                LocalDate date = cadence.advance(start, period * interval);
+                if (!date.isBefore(until) || !date.isBefore(toExclusive)) {
+                    return dates;
+                }
+                if (within(date, fromInclusive, toExclusive)) {
+                    dates.add(date);
+                }
+            }
+        }
+
+        @Override
+        public String name() {
+            return "Until " + until;
+        }
+    }
+
+    /** Repeats every {@code interval} cadences, exactly {@code count} times in total. */
+    record Times(Cadence cadence, int interval, int count) implements Recurrence {
+
+        public Times {
+            Objects.requireNonNull(cadence, "cadence");
+            requirePositiveInterval(interval);
+            if (count < 1) {
+                throw new IllegalArgumentException("A recurrence must happen at least once but was to happen " + count
+                        + " times; use Once for a single occurrence");
+            }
+        }
+
+        @Override
+        public List<LocalDate> occurrences(LocalDate start, LocalDate fromInclusive, LocalDate toExclusive) {
+            requireRange(start, fromInclusive, toExclusive);
+            List<LocalDate> dates = new ArrayList<>();
+            for (long period = 0; period < count; period++) {
+                LocalDate date = cadence.advance(start, period * interval);
+                if (!date.isBefore(toExclusive)) {
+                    return dates;
+                }
+                if (within(date, fromInclusive, toExclusive)) {
+                    dates.add(date);
+                }
+            }
+            return dates;
+        }
+
+        @Override
+        public String name() {
+            return count + " times";
+        }
+    }
+
+    private static void requirePositiveInterval(int interval) {
+        if (interval < 1) {
+            throw new IllegalArgumentException(
+                    "A recurrence interval must be at least one cadence but was " + interval);
+        }
+    }
+
+    private static void requireRange(LocalDate start, LocalDate fromInclusive, LocalDate toExclusive) {
+        Objects.requireNonNull(start, "start");
+        Objects.requireNonNull(fromInclusive, "fromInclusive");
+        Objects.requireNonNull(toExclusive, "toExclusive");
+        if (!fromInclusive.isBefore(toExclusive)) {
+            throw new IllegalArgumentException(
+                    "A range must start before it ends, but " + fromInclusive + " is not before " + toExclusive);
+        }
+    }
+
+    private static boolean within(LocalDate date, LocalDate fromInclusive, LocalDate toExclusive) {
+        return !date.isBefore(fromInclusive) && date.isBefore(toExclusive);
+    }
+}

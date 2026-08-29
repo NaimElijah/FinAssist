@@ -1,0 +1,147 @@
+package io.github.naimelijah.finassist.ledger.planning.domain.plan;
+
+import io.github.naimelijah.finassist.ledger.shared.Currency;
+import io.github.naimelijah.finassist.ledger.shared.Money;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * The planning aggregate root: money the owner <strong>intends</strong> to move, and when.
+ *
+ * <p>A planned flow is not a {@code Transaction} and this package is not
+ * {@code accounting.domain.entry}. The books record what happened; this records what is meant to
+ * happen, and the two must never be summed together. Keeping them in separate bounded contexts is
+ * what makes that mistake impossible rather than merely discouraged (ADR-011, ADR-015).
+ *
+ * <p>The amount is always positive and the {@link Direction} carries the sign. A planned purchase of
+ * minus fifty is not a thing anyone means.
+ *
+ * <p>The flow names no account. An {@code AccountId} belongs to the accounting context and importing
+ * one here would fail
+ * {@code LedgerArchitectureTest.contexts_do_not_depend_on_each_other}; when the application layer
+ * needs to know which account a plan draws on, planning will get its own reference type and
+ * translate at the boundary.
+ */
+public record PlannedFlow(
+        PlanId id,
+        String description,
+        Money amount,
+        Direction direction,
+        LocalDate startsOn,
+        Recurrence recurrence,
+        PlanState state) {
+
+    public PlannedFlow {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(amount, "amount");
+        Objects.requireNonNull(direction, "direction");
+        Objects.requireNonNull(startsOn, "startsOn");
+        Objects.requireNonNull(recurrence, "recurrence");
+        Objects.requireNonNull(state, "state");
+        Objects.requireNonNull(description, "description");
+
+        if (description.isBlank()) {
+            throw new IllegalArgumentException("A planned flow must say what it is for");
+        }
+        description = description.strip();
+
+        if (!amount.isPositive()) {
+            throw new IllegalArgumentException("A planned flow must be for a positive amount but was " + amount
+                    + "; the direction carries the sign");
+        }
+
+        // Checked here rather than inside Until, which knows its end date but not the start it is
+        // measured from. A recurrence ending before it begins yields no occurrences at all, so the
+        // plan would sit in the scenario contributing silently nothing.
+        if (recurrence instanceof Recurrence.Until until && !until.until().isAfter(startsOn)) {
+            throw new IllegalArgumentException("A recurrence cannot end on " + until.until() + ", before it starts on "
+                    + startsOn + "; it would never occur");
+        }
+    }
+
+    /** Records an intention. It starts {@code Planned} — nothing has been decided yet. */
+    public static PlannedFlow plan(
+            String description, Money amount, Direction direction, LocalDate startsOn, Recurrence recurrence) {
+        return new PlannedFlow(
+                PlanId.generate(), description, amount, direction, startsOn, recurrence, new PlanState.Planned());
+    }
+
+    public Currency currency() {
+        return amount.currency();
+    }
+
+    /**
+     * Whether this flow belongs in a projection of the future.
+     *
+     * <p>{@code Cancelled} is excluded because it will not happen. {@code Realised} is excluded
+     * because it already has: the money moved, so it is in the opening balance a projection starts
+     * from, and counting it again would spend it twice. Both are kept as history, neither is
+     * forecast.
+     */
+    public boolean countsTowardsProjection() {
+        return state instanceof PlanState.Planned || state instanceof PlanState.Committed;
+    }
+
+    /** Every date this flow lands on within {@code [fromInclusive, toExclusive)}. */
+    public List<LocalDate> occurrences(LocalDate fromInclusive, LocalDate toExclusive) {
+        return recurrence.occurrences(startsOn, fromInclusive, toExclusive);
+    }
+
+    /**
+     * Decides on the flow. Committing ahead of the date it is planned for is ordinary and allowed —
+     * deciding in January to buy something in March is the normal case.
+     */
+    public PlannedFlow commit(LocalDate committedOn) {
+        if (!(state instanceof PlanState.Planned planned)) {
+            throw new IllegalPlanTransitionException(state, "commit");
+        }
+        Objects.requireNonNull(committedOn, "committedOn");
+        return withState(planned.commit(committedOn));
+    }
+
+    /**
+     * Marks the money as actually moved, on a date that cannot precede the commitment.
+     *
+     * @throws IllegalArgumentException if {@code realisedOn} is before the date it was committed
+     */
+    public PlannedFlow realise(LocalDate realisedOn) {
+        if (!(state instanceof PlanState.Committed committed)) {
+            throw new IllegalPlanTransitionException(state, "realise");
+        }
+        requireNotBefore(realisedOn, committed.committedOn(), "realised", "committed");
+        return withState(committed.realise(realisedOn));
+    }
+
+    /**
+     * Abandons the flow. Legal from {@code Planned} and {@code Committed} only — a realised flow
+     * describes money that has already moved and cannot be un-spent by editing a plan.
+     */
+    public PlannedFlow cancel(LocalDate cancelledOn, String reason) {
+        Objects.requireNonNull(cancelledOn, "cancelledOn");
+        PlanState next =
+                switch (state) {
+                    case PlanState.Planned planned -> planned.cancel(cancelledOn, reason);
+                    case PlanState.Committed committed -> {
+                        requireNotBefore(cancelledOn, committed.committedOn(), "cancelled", "committed");
+                        yield committed.cancel(cancelledOn, reason);
+                    }
+                    case PlanState.Realised ignored -> throw new IllegalPlanTransitionException(state, "cancel");
+                    case PlanState.Cancelled ignored -> throw new IllegalPlanTransitionException(state, "cancel");
+                };
+        return withState(next);
+    }
+
+    private PlannedFlow withState(PlanState next) {
+        return new PlannedFlow(id, description, amount, direction, startsOn, recurrence, next);
+    }
+
+    /** A plan moves forward in time; a transition dated before the one it follows is not a state. */
+    private static void requireNotBefore(LocalDate later, LocalDate earlier, String laterName, String earlierName) {
+        Objects.requireNonNull(later, laterName);
+        if (later.isBefore(earlier)) {
+            throw new IllegalArgumentException("A plan cannot be " + laterName + " on " + later + ", before it was "
+                    + earlierName + " on " + earlier);
+        }
+    }
+}

@@ -24,6 +24,13 @@ history; write the commit message well and this file writes itself.
   Market data: quotes and staleness against a supplied clock. `Money` and `Currency` in both
   languages.
 
+- Planning: a sixth bounded context in the ledger, holding what the owner *intends* rather than
+  what happened. `PlannedFlow` with a positive amount, a direction, a recurrence and a
+  `Planned → Committed → Realised` lifecycle whose realised state is frozen; `Scenario` as a named
+  strategy; `Projection` as a derived, never-stored timeline of cash and invested balances with
+  shortfall detection; `Comparison`, which refuses strategies in different currencies, horizons or
+  step cadences rather than aligning them approximately.
+
 ### Changed
 
 - Services moved under `backend/`, and both are now packaged by bounded context rather than

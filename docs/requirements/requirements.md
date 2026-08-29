@@ -3,25 +3,28 @@
 What the system must do. *How* it is built is [architecture](../architecture/architecture.md);
 *why* a given solution was chosen is [the ADRs](../ADRs/).
 
-> **Status: skeleton.** The scope below is confirmed. The individual requirements are not
-> yet written, and none is enforced in code — there is no application code. Every `TODO`
-> is a decision waiting on its owner, not an omission to be filled in by inference.
-> Behaviour found in code is evidence of a requirement, never proof of one.
+> **Status: the domain layer is written; nothing above it is.** Requirements marked
+> **Enforced** name the class and the test that hold them today, so this document can be
+> checked rather than trusted. Everything still marked `TODO` is a decision waiting on its
+> owner, not an omission to be filled in by inference — behaviour found in code is evidence
+> of a requirement, never proof of one.
 
 ## Purpose and scope
 
 FinAssist is a personal finance system for a single owner managing their own money. It
-covers three capability areas, confirmed as all in scope:
+covers four capability areas, confirmed as all in scope:
 
 1. **Tracking** — accounts, transactions, categorisation and budgets.
 2. **Assistance** — natural-language questions answered over the owner's own financial
    data, backed by an LLM.
 3. **Analysis** — portfolio and market analysis over holdings.
+4. **Planning** — planned purchases, projected balances over time, and comparison of
+   financial strategies.
 
 These are reached through a **web client**, which is in scope. It is the only interface;
 there is no CLI and no mobile client.
 
-The three capability areas are realised as five bounded contexts, listed with their owning
+The four capability areas are realised as six bounded contexts, listed with their owning
 service in [ADR-010](../ADRs/ADR-010-bounded-context-map.md). Which capability a requirement
 belongs to, and which context enforces it, should agree — where they do not, one of the two is
 wrong.
@@ -81,12 +84,51 @@ Holdings are tracked as **lots with a FIFO cost basis**
 **Not yet decided:** where prices come from. The `marketdata` context has the shape a feed must
 be translated into and no client behind it.
 
+### Planning
+
+Plans are kept apart from the books: a planned purchase is an intention, not a fact, and the two
+are never summed ([ADR-015](../ADRs/ADR-015-planning-as-a-sixth-bounded-context.md)).
+
+- Record a planned flow — a positive amount, a direction (money in, money out, or into
+  investments), the date it starts, and how it repeats. `PlannedFlow`, `PlannedFlowTest`
+  ([#10](https://github.com/NaimElijah/FinAssist/issues/10))
+- Repeat a flow weekly, monthly or yearly, ending on a date or after a number of occurrences.
+  `Recurrence`, `RecurrenceTest`
+- Move a planned flow through its lifecycle: commit to it, mark it realised once the money has
+  moved, or cancel it with a reason. `PlanState`, `PlannedFlowTest`
+- Define a named strategy — a set of planned flows plus an assumption about investment growth —
+  including the do-nothing baseline, which has no flows at all. `Scenario`, `ScenarioTest`
+  ([#12](https://github.com/NaimElijah/FinAssist/issues/12))
+- Read a projected timeline of cash and invested balances across a horizon, derived from an
+  opening balance and a strategy. `Projection.of`, `ProjectionTest`
+  ([#11](https://github.com/NaimElijah/FinAssist/issues/11))
+- See the first date the projected cash balance goes negative, or that it never does.
+  `Projection.firstShortfall`, `ProjectionTest`
+- Compare two or more strategies over one horizon and read how far each diverges from a chosen
+  baseline, step by step and at the end. `Comparison`, `ComparisonTest`
+  ([#12](https://github.com/NaimElijah/FinAssist/issues/12))
+
+**A projection covers one currency, and this is a limitation rather than an oversight.** An owner
+with an ILS account and a USD account gets two timelines and no combined figure, because FinAssist
+holds no exchange rates ([ADR-012](../ADRs/ADR-012-multi-currency-without-conversion.md)).
+Producing a single net-worth line is the trigger for revisiting that decision, not something to
+work around here.
+
+**Projections are deterministic**
+([ADR-016](../ADRs/ADR-016-deterministic-per-currency-projection.md)): stated assumptions in, one
+reproducible line out. There is no probabilistic simulation, and a single line understates
+uncertainty by construction.
+
+**Not yet decided:** where a plan is stored, and whether visualising one is a web-client concern
+only. The domain computes the series; nothing draws it.
+
 ### Web client
 
 TODO (@NaimElijah) — enumerate. Expected to cover at least: viewing accounts and entries,
 setting a budget, seeing a portfolio, and asking a question. One screen area per user-facing
 context; `marketdata` has no surface of its own and is visible only through portfolio
-figures.
+figures. Charting a projection and putting two strategies side by side belong here, not in
+the domain, which computes the series and draws nothing.
 
 ## Business rules and invariants
 
@@ -109,6 +151,13 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | Disposing of more units than are held is refused | `consume_fifo`; `InsufficientHoldingError`; `test_portfolio.py` | **Enforced** |
 | A claim stating a figure must cite the evidence it came from | `ground`; `test_grounding.py` | **Enforced** |
 | A market quote carries an unambiguous instant, and staleness is judged against a supplied clock | `Quote`, `is_stale`; `test_marketdata.py` | **Enforced** |
+| A planned flow is for a positive amount; the direction carries the sign | `PlannedFlow` constructor; `PlannedFlowTest` | **Enforced** |
+| Legal plan state transitions; a realised plan is frozen and cannot be edited or cancelled | Sealed `PlanState`; `IllegalPlanTransitionException`; `PlannedFlowTest` | **Enforced** |
+| A realised or cancelled plan is kept as history but excluded from every projection | `PlannedFlow.countsTowardsProjection`; `ProjectionTest` | **Enforced** |
+| Every flow in a strategy is in the strategy's currency | `Scenario` constructor; `ScenarioTest` | **Enforced** |
+| A projection is derived from its strategy and opening balance, never stored | `Projection.of`; no settable point; `ProjectionTest` | **Enforced** |
+| A projection covers one currency, and its horizon is a whole number of steps | `Projection.of`; `BalancePoint`; `ProjectionTest` | **Enforced** |
+| A comparison refuses strategies in different currencies, horizons or step cadences | `Comparison.of`; `ComparisonTest` | **Enforced** |
 | No bounded context depends on another | `LedgerArchitectureTest.contexts_do_not_depend_on_each_other`; `test_architecture.py`; `architecture.test.ts` | **Enforced** |
 | The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) | Proposed — no persistence or client exists yet |
 | Uniqueness of an account name within the chart of accounts | — | TODO (@NaimElijah) — needs a repository to enforce against |
@@ -144,10 +193,11 @@ Stated so they are not re-proposed:
 | Question | Owner |
 |---|---|
 | Does the web client talk only to the assistant, or also to the ledger directly? Talking to both means two contracts and two auth stories; going through the assistant makes it a gateway for traffic that has nothing to do with assistance | @NaimElijah |
-| How do the three capability areas relate — one product, or a tracker with two features layered on? This drives whether the split in [ADR-001](../ADRs/ADR-001-polyglot-java-python-split.md) is carrying its weight | @NaimElijah |
+| How do the four capability areas relate — one product, or a tracker with features layered on? This drives whether the split in [ADR-001](../ADRs/ADR-001-polyglot-java-python-split.md) is carrying its weight, and it now also decides whether `planning` stays in the ledger ([ADR-015](../ADRs/ADR-015-planning-as-a-sixth-bounded-context.md)) | @NaimElijah |
 | Where does transaction data come from — manual entry, file import (CSV/OFX), or institution sync? | @NaimElijah |
 | Where does market data come from, and does its licence permit this use? The `marketdata` context exists with an anti-corruption layer and no client behind it, waiting on this | @NaimElijah |
 | Does the assistant send the owner's financial data to a third-party LLM API, and is that acceptable? This is the project's central privacy decision and it needs an ADR | @NaimElijah |
 | Is the ledger single-currency or multi-currency? Multi-currency changes the domain model fundamentally and is far cheaper to decide now than later | @NaimElijah |
 | What authenticates the assistant to the ledger? | @NaimElijah |
+| Where are plans stored, and does planned data belong in the same store as the books? They are deliberately separate contexts, so sharing a schema is a decision rather than a default | @NaimElijah |
 | Ratify or reject [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) and [ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md) before persistence or client code is written | @NaimElijah |
