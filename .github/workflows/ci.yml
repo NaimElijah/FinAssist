@@ -59,6 +59,30 @@ jobs:
       - name: Dependency audit
         run: make audit
 
+  web:
+    name: Web (TypeScript)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/web/package-lock.json
+
+      - name: Install locked dependencies
+        run: cd frontend/web && npm ci
+
+      - name: Lint, format check and types
+        run: make lint-web
+
+      - name: Test
+        run: make test-web
+
+      - name: Build
+        run: make build-web
+
   compose:
     name: Compose config
     runs-on: ubuntu-latest

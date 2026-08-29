@@ -26,6 +26,11 @@ htmlcov/
 dist/
 *.egg-info/
 
+# Node / frontend
+node_modules/
+dist/
+coverage/
+
 # Editors
 .idea/
 .vscode/
