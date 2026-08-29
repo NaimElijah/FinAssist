@@ -1,0 +1,22 @@
+# Normalise to LF in the repository. Without this, Windows checkouts commit CRLF into shell
+# scripts and Linux CI fails on `./mvnw` with a bad interpreter error.
+* text=auto eol=lf
+
+# Scripts that must be LF wherever they are checked out.
+mvnw            text eol=lf
+*.sh            text eol=lf
+Makefile        text eol=lf
+
+# Windows-only scripts keep CRLF.
+mvnw.cmd        text eol=crlf
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# Never normalise these.
+*.jar           binary
+*.png           binary
+*.jpg           binary
+*.pdf           binary
+
+# Generated; collapse in diffs and exclude from language statistics.
+assistant/uv.lock  linguist-generated=true -diff
