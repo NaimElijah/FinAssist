@@ -22,9 +22,9 @@ import com.tngtech.archunit.lang.ArchRule;
  * context-first packaging is only folders. See {@code
  * docs/ADRs/ADR-010-bounded-context-map.md}.
  *
- * <p>These rules are dormant while the context packages are empty: {@code archunit.properties} sets
- * {@code archRule.failOnEmptyShould=false} so a scaffold does not fail the build. Remove that
- * setting with the first domain class.
+ * <p>These rules are live. The {@code archRule.failOnEmptyShould=false} escape hatch that kept them
+ * dormant over an empty scaffold was deleted with the first domain class, so a rule that matches
+ * nothing now fails rather than passing quietly.
  */
 @AnalyzeClasses(packages = LedgerArchitectureTest.ROOT, importOptions = ImportOption.DoNotIncludeTests.class)
 class LedgerArchitectureTest {

@@ -4,11 +4,11 @@ The system as it actually is. *What it must do* is
 [requirements](../requirements/requirements.md); *why* a given solution was chosen is
 [the ADRs](../ADRs/).
 
-> **This document describes the present, which is currently a skeleton.** Three codebases
-> build, lint, type-check and test, and their structural rules are enforced by the build. The
-> ledger boots and answers Actuator probes; the assistant has no entry point; the web client
-> builds and renders a placeholder. No context has domain code. Where a structure is defined
-> but not yet inhabited, this document says so.
+> **All five contexts now have a domain layer, and nothing above it.** The models, their
+> invariants and their tests exist; application services, ports, adapters, HTTP and persistence
+> do not. The ledger boots and answers Actuator probes; the assistant has no entry point; the
+> web client renders a placeholder. Where a structure is defined but not yet inhabited, this
+> document says so.
 
 ## Architecture overview
 
@@ -70,8 +70,8 @@ bit-identical would cost more than the duplication.
 
 | Component | Responsibility | State |
 |---|---|---|
-| `backend/ledger` | Accounting and budgeting. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Boots and answers Actuator probes; 5 architecture rules pass; no domain code |
-| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Lints and type-checks; 81 architecture assertions pass over every source file; no entry point, no domain code |
+| `backend/ledger` | Accounting and budgeting. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain layer complete; 57 tests including 5 live architecture rules; nothing above the domain |
+| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain layer complete; 137 tests; no entry point, nothing above the domain |
 | `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder; 6 architecture tests pass; no feature implemented |
 | `contracts/` | The versioned wire contract | Directory and its README only |
 | PostgreSQL 18 | The ledger's store | Runs via Compose; nothing connects to it |
@@ -140,6 +140,11 @@ filled in from the implementation in the same commit that creates it.
 **Every structural rule is enforced by a test, in all three codebases.** Each was verified by
 introducing a deliberate violation and confirming the build failed, then reverting.
 
+Alongside them, the domain enforces its own rules — the balancing invariant, derived balances,
+currency isolation, the transaction lifecycle, and the grounding rule. Those are listed against
+the classes and tests that enforce them in
+[requirements](../requirements/requirements.md#business-rules-and-invariants).
+
 | Rule | Enforced by |
 |---|---|
 | Layers point inward, in every ledger context | `LedgerArchitectureTest.layers_point_inward` |
@@ -163,10 +168,13 @@ import inside `portfolio/domain/analysis/returns.py` was invisible. The rule pas
 file containing both a `pandas` import and a cross-context import. Reading the source is the
 only way these rules see code that has not been written yet.
 
-The ledger's rules remain **dormant** for a different and honest reason:
-`backend/ledger/src/test/resources/archunit.properties` sets `archRule.failOnEmptyShould=false`
-because the context packages hold no classes, and an ArchUnit rule matching nothing fails
-rather than passes. That line is deleted with the first domain class.
+**The ledger's rules are no longer dormant.** `archunit.properties`, and with it the
+`archRule.failOnEmptyShould=false` escape hatch, was deleted alongside the first domain class,
+exactly as every commit since the scaffold said it would be. Two rules became provable for the
+first time: a `double` field in an accounting domain class fails
+`money_is_never_floating_point`, and an accounting class importing
+`budgeting.domain.category.Category` fails `contexts_do_not_depend_on_each_other` — each with
+exactly one violation, both reverted.
 
 **Anti-corruption layers are per context, by design.** If `portfolio` and `assistance` both
 need ledger data, each translates it into its own vocabulary. The duplicated translation is
