@@ -61,6 +61,18 @@ def Given_an_amount_When_multiplied_by_a_quantity_Then_it_scales() -> None:
     assert Money.of("1.25", Currency.USD).times(Decimal("4")) == Money.of("5.00", Currency.USD)
 
 
+def Given_a_very_large_amount_When_constructed_Then_it_is_accepted() -> None:
+    # Mirrored deliberately: this raised decimal.InvalidOperation - an ArithmeticError, not a
+    # ValueError - past the default context precision, where Java's BigDecimal simply succeeds.
+    assert Money(Decimal("1E+30"), Currency.USD).amount == Decimal("1E+30")
+
+
+def Given_a_fractional_multiplier_When_times_rounded_Then_it_rounds_half_up() -> None:
+    assert Money.of("12.33", Currency.USD).times_rounded(Decimal("1.5")) == Money.of(
+        "18.50", Currency.USD
+    )
+
+
 def Given_a_multiplication_needing_rounding_When_applied_Then_it_is_rejected() -> None:
     with pytest.raises(ValueError):
         Money.of("0.01", Currency.USD).times(Decimal("0.5"))

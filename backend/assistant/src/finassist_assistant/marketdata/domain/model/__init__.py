@@ -37,8 +37,12 @@ class Instrument:
     name: str
 
     def __post_init__(self) -> None:
-        if not self.name.strip():
+        name = self.name.strip()
+        if not name:
             raise ValueError("An instrument must have a name")
+        # Normalised, not merely validated. Ticker, Symbol, Account, Category and Claim all strip
+        # and assign back; without it two instruments differing only in padding are not equal.
+        object.__setattr__(self, "name", name)
 
 
 @dataclass(frozen=True, slots=True)

@@ -51,8 +51,13 @@ class Lot:
 
     @property
     def cost(self) -> Money:
-        """What this lot cost in total."""
-        return self.unit_cost.times(self.quantity)
+        """What this lot cost in total, rounded to the currency's minor units.
+
+        Rounded rather than exact because fractional quantities are ordinary — 1.5 units at 12.33
+        is 18.495, which no two-decimal currency can hold. ``times`` would throw on it, making
+        fractional shares unrepresentable for no good reason.
+        """
+        return self.unit_cost.times_rounded(self.quantity)
 
     def with_quantity(self, quantity: Decimal) -> Lot:
         """The same purchase, part of it. Used when a sale consumes a lot only partly."""

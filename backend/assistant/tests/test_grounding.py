@@ -1,7 +1,5 @@
 """An answer is accepted only when every figure in it cites the ledger (ADR-014)."""
 
-from datetime import date
-
 import pytest
 
 from finassist_assistant.assistance.domain.grounding import (
@@ -11,12 +9,10 @@ from finassist_assistant.assistance.domain.grounding import (
 )
 from finassist_assistant.assistance.domain.model import (
     Claim,
-    Evidence,
     EvidenceRef,
     GroundedAnswer,
     Ungrounded,
 )
-from finassist_assistant.shared import Currency, Money
 
 BALANCE = EvidenceRef("balance", "b7f2")
 
@@ -75,7 +71,23 @@ def Given_an_evidence_ref_without_an_identifier_When_built_Then_it_is_refused() 
         EvidenceRef("balance", "  ")
 
 
-def Given_evidence_When_built_Then_it_carries_its_source_value_and_date() -> None:
-    evidence = Evidence(BALANCE, Money.of("1240.50", Currency.ILS), date(2026, 3, 31))
-    assert str(evidence.ref) == "balance:b7f2"
-    assert evidence.value == Money.of("1240.50", Currency.ILS)
+def Given_a_padded_evidence_ref_When_built_Then_it_is_normalised() -> None:
+    assert EvidenceRef("  balance  ", "  b7f2 ") == BALANCE
+    assert str(BALANCE) == "balance:b7f2"
+
+
+def Given_a_figure_written_in_words_When_uncited_Then_the_answer_is_rejected() -> None:
+    invented = Claim("You spent one thousand two hundred shekels on holidays.")
+    answer = ground((invented,))
+    assert isinstance(answer, Ungrounded)
+    assert answer.offending == (invented,)
+
+
+def Given_a_citation_that_is_not_an_evidence_ref_When_a_claim_is_built_Then_it_is_refused() -> None:
+    with pytest.raises(TypeError, match="EvidenceRef"):
+        Claim("You spent 12.50", ("not-an-evidence-ref",))  # type: ignore[arg-type]
+
+
+def Given_citations_as_a_list_When_a_claim_is_built_Then_it_is_refused() -> None:
+    with pytest.raises(TypeError, match="tuple"):
+        Claim("You spent 12.50", [BALANCE])  # type: ignore[arg-type]

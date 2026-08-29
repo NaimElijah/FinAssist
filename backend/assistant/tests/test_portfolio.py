@@ -113,6 +113,22 @@ def Given_a_position_and_a_price_When_valued_Then_gain_is_value_less_cost() -> N
     assert unrealised_gain(held, usd("90.00")) == usd("-100.00")
 
 
+def Given_a_fractional_quantity_When_cost_is_taken_Then_it_rounds_instead_of_throwing() -> None:
+    # Fractional shares are ordinary, and 1.5 at 12.33 is 18.495 - which no two-decimal currency
+    # can hold. Lot.cost used exact multiplication and raised on every fractional holding.
+    fractional = Lot(VWCE, Decimal("1.5"), usd("12.33"), date(2026, 1, 1))
+    assert fractional.cost == usd("18.50")
+
+
+def Given_fractional_lots_When_valued_and_disposed_Then_every_figure_is_computable() -> None:
+    lots = (Lot(VWCE, Decimal("1.5"), usd("12.33"), date(2026, 1, 1)),)
+    held = position(lots)
+    assert held.quantity == Decimal("1.5")
+    assert market_value(held, usd("20.00")) == usd("30.00")
+    assert unrealised_gain(held, usd("20.00")) == usd("11.50")
+    assert consume_fifo(lots, Decimal("0.5")).cost_of_sale == usd("6.17")
+
+
 def Given_lots_When_a_sale_is_consumed_Then_the_originals_are_unchanged() -> None:
     lots = (lot("10", "100.00", 1),)
     consume_fifo(lots, Decimal(4))

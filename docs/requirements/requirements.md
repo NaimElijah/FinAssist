@@ -102,7 +102,8 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | Account balance is derived, never set directly | `Balance.of`; `Account` has no balance field; `BalanceTest` | **Enforced** |
 | A voided transaction keeps its entries but does not count towards a balance | `Transaction.countsTowardsBalance`; `BalanceTest` | **Enforced** |
 | Legal transaction state transitions; a reconciled transaction is frozen | Sealed `TransactionState`; `IllegalTransitionException`; `TransactionTest` | **Enforced** |
-| An account, and every entry posted to it, has exactly one currency | `Account`; `Transaction` constructor | **Enforced** |
+| An account has exactly one currency, and a transaction's entries are all in one currency | `Account`; `Transaction` constructor | **Enforced** |
+| An entry's currency matches the currency of the account it is posted to | — | TODO (@NaimElijah) — an `Entry` holds an `AccountId`, not an `Account`, so the domain cannot look the currency up. Needs a repository, so it belongs to the application layer |
 | A budget has one limit per category, all in the budget's currency, each positive | `Budget` and `CategoryLimit` constructors; `BudgetTest` | **Enforced** |
 | A budget stores no spend; remaining is derived | `Budget.remaining` takes spend as an argument; `BudgetTest` | **Enforced** |
 | Disposing of more units than are held is refused | `consume_fifo`; `InsufficientHoldingError`; `test_portfolio.py` | **Enforced** |

@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from finassist_assistant.portfolio.domain.model import Lot, Position, Symbol
+from finassist_assistant.portfolio.domain.model import Lot, Position
 from finassist_assistant.shared import Money
 
 
@@ -79,7 +79,7 @@ def consume_fifo(lots: tuple[Lot, ...], quantity: Decimal) -> Disposal:
             cost_of_sale = cost_of_sale.plus(lot.cost)
             outstanding -= lot.quantity
         else:
-            cost_of_sale = cost_of_sale.plus(lot.unit_cost.times(outstanding))
+            cost_of_sale = cost_of_sale.plus(lot.unit_cost.times_rounded(outstanding))
             remaining.append(lot.with_quantity(lot.quantity - outstanding))
             outstanding = Decimal(0)
 
@@ -98,18 +98,18 @@ def unrealised_gain(held: Position, unit_price: Money) -> Money:
     ``marketdata`` context, and importing one here would couple two contexts — which the
     architecture tests fail the build for. Translating a quote into a price is the caller's job.
     """
-    return unit_price.times(held.quantity).minus(held.cost)
+    return unit_price.times_rounded(held.quantity).minus(held.cost)
 
 
 def market_value(held: Position, unit_price: Money) -> Money:
-    """What the position is worth at ``unit_price``."""
-    return unit_price.times(held.quantity)
+    """What the position is worth at ``unit_price``, rounded to the currency's minor units."""
+    return unit_price.times_rounded(held.quantity)
 
 
 __all__ = [
     "Disposal",
     "InsufficientHoldingError",
-    "Symbol",
+    "Position",
     "consume_fifo",
     "market_value",
     "position",

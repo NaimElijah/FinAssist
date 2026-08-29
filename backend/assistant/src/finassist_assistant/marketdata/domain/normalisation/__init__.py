@@ -22,8 +22,8 @@ def is_stale(quote: Quote, now: datetime, max_age: timedelta) -> bool:
 
     :raises ValueError: if ``now`` is naive, or ``max_age`` is not positive
     """
-    if now.tzinfo is None:
-        raise ValueError("now must carry a timezone; naive datetimes are ambiguous")
+    # The tzinfo guard lives in age(), which is the function that actually uses `now`; repeating
+    # it here would leave one of the two dead on every path.
     if max_age <= timedelta(0):
         raise ValueError(f"max_age must be positive but was {max_age}")
     return age(quote, now) > max_age

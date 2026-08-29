@@ -26,9 +26,13 @@ and an `Ungrounded` naming the offenders when any does not.
 model for numbers, not an exceptional one, and the caller has to decide what to show. Making it
 a value keeps that decision explicit at every call site.
 
-The figure detector is deliberately blunt: any digit counts. Asking for a citation that was not
-strictly needed costs a citation; missing one lets an invented number through. Those are not
-equally bad.
+The figure detector is deliberately blunt, and asymmetric on purpose: asking for a citation that
+was not strictly needed costs a citation, while missing one lets an invented number through.
+
+It matches digits **and a list of number words**. Digits alone were not enough — review of this
+decision found that "you spent one thousand two hundred shekels" was accepted as grounded with no
+citation at all, which is the exact failure this record exists to prevent. A model asked for
+figures writes them in prose as readily as in digits.
 
 `EvidenceRef` is a pair of strings — kind and identifier — rather than a typed accounting
 identifier. The accounting context owns those types, and importing one would couple two contexts
@@ -46,18 +50,21 @@ anti-corruption layer's job.
 
 **Makes hard**
 
-- The blunt detector over-reports. "There are 3 accounts" needs a citation it arguably does not,
-  and a caller will find that irritating before it saves them.
+- The detector over-reports. "There are 3 accounts" needs a citation it arguably does not, and a
+  caller will find that irritating before it saves them.
+- **It still under-reports.** A word list is not a number parser: "hundred" is caught, "a fair
+  bit more" is not, and no list closes that. The rule reduces the gap rather than eliminating it,
+  and this is the honest limit of a text-based check.
 - It only checks that a citation *exists*, not that the cited evidence actually supports the
-  figure. A model citing a real balance while stating a different number passes. Closing that
-  needs the claim to carry the value as data rather than as prose.
+  figure. A model citing a real balance while stating a different number passes.
 - Every use case that produces an answer now has to handle two outcomes.
 
 ## Revisit when
 
-Tighten the check when a claim carries its figure as a typed value rather than embedded in text
-— at that point the cited evidence can be compared against the number, which closes the gap
-above and would let the blunt regex go.
+Tighten the check when a claim carries its figure as a typed value rather than embedded in text.
+That closes **both** gaps at once: the cited evidence can be compared against the number, and the
+word list and regex can be deleted rather than extended. Extending the word list is not the fix;
+it is the thing to stop doing once claims carry values.
 
 Loosen it only with evidence that the false-positive rate is a real problem in use, not in
 anticipation of one.

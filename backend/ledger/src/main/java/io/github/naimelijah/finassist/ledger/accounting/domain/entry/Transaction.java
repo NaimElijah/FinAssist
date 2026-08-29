@@ -85,17 +85,29 @@ public record Transaction(
         return net;
     }
 
+    /**
+     * Confirms the transaction, on a date that cannot precede the day it happened.
+     *
+     * @throws IllegalArgumentException if {@code clearedOn} is before {@link #occurredOn}
+     */
     public Transaction clear(LocalDate clearedOn) {
         if (!(state instanceof TransactionState.Pending pending)) {
             throw new IllegalTransitionException(state, "clear");
         }
+        requireNotBefore(clearedOn, occurredOn, "cleared", "occurred");
         return withState(pending.clear(clearedOn));
     }
 
+    /**
+     * Matches the transaction to a statement, on a date that cannot precede the day it cleared.
+     *
+     * @throws IllegalArgumentException if {@code reconciledOn} is before the clearing date
+     */
     public Transaction reconcile(LocalDate reconciledOn) {
         if (!(state instanceof TransactionState.Cleared cleared)) {
             throw new IllegalTransitionException(state, "reconcile");
         }
+        requireNotBefore(reconciledOn, cleared.clearedOn(), "reconciled", "cleared");
         return withState(cleared.reconcile(reconciledOn));
     }
 
@@ -104,6 +116,7 @@ public record Transaction(
      * reconciled transaction is frozen and is corrected with a reversing transaction instead.
      */
     public Transaction markVoided(LocalDate voidedOn, String reason) {
+        requireNotBefore(voidedOn, occurredOn, "voided", "occurred");
         TransactionState next =
                 switch (state) {
                     case TransactionState.Pending pending -> pending.markVoided(voidedOn, reason);
@@ -116,5 +129,24 @@ public record Transaction(
 
     private Transaction withState(TransactionState next) {
         return new Transaction(id, occurredOn, description, entries, next);
+    }
+
+    /**
+     * A transaction moves forward in time. Clearing before the purchase happened, or reconciling
+     * before it cleared, are states the lifecycle should never have admitted; leaving them
+     * representable would make the ordering a convention rather than a rule.
+     */
+    private static void requireNotBefore(LocalDate later, LocalDate earlier, String laterName, String earlierName) {
+        Objects.requireNonNull(later, laterName);
+        if (later.isBefore(earlier)) {
+            throw new IllegalArgumentException("A transaction cannot be "
+                    + laterName
+                    + " on "
+                    + later
+                    + ", before it "
+                    + earlierName
+                    + " on "
+                    + earlier);
+        }
     }
 }

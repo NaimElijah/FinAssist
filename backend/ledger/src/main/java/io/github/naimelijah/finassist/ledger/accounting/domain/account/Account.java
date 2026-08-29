@@ -12,8 +12,11 @@ import java.util.Objects;
  * from the entries the first time anything goes wrong, and no amount of care prevents that — only
  * not having the field does.
  *
- * <p>One account, one currency (ADR-012). An entry in another currency is refused, so a
- * cross-currency amount cannot enter the books by accident.
+ * <p>One account, one currency (ADR-012). That an entry matches its account's currency is
+ * <strong>not</strong> checked here and cannot be: an {@code Entry} holds an {@code AccountId}, not
+ * an {@code Account}, so nothing in the domain can look the currency up. Enforcing it needs a
+ * repository, and belongs to the application layer that does not exist yet. Until then a
+ * mis-currencied entry is caught later and less helpfully, when a balance is taken.
  */
 public record Account(AccountId id, String name, AccountType type, Currency currency) {
 

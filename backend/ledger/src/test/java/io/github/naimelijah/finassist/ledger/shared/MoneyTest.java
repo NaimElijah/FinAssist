@@ -76,6 +76,20 @@ class MoneyTest {
     }
 
     @Test
+    void Given_a_very_large_amount_When_constructed_Then_it_is_accepted() {
+        // Mirrored deliberately: the Python kernel raised decimal.InvalidOperation here, past its
+        // default context precision, where BigDecimal has no such limit.
+        assertThat(Money.of("1E+30", Currency.USD).amount())
+                .isEqualByComparingTo(new BigDecimal("1000000000000000000000000000000.00"));
+    }
+
+    @Test
+    void Given_a_fractional_multiplier_When_times_rounded_Then_it_rounds_half_up() {
+        assertThat(Money.of("12.33", Currency.USD).timesRounded(new BigDecimal("1.5")))
+                .isEqualTo(Money.of("18.50", Currency.USD));
+    }
+
+    @Test
     void Given_a_multiplication_needing_rounding_When_applied_Then_it_is_rejected() {
         assertThatThrownBy(() -> Money.of("0.01", Currency.USD).times(new BigDecimal("0.5")))
                 .isInstanceOf(IllegalArgumentException.class);

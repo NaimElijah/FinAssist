@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_DOWN, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, localcontext
 
 from finassist_assistant.shared.currency import Currency
 
@@ -48,7 +48,17 @@ class Money:
             raise ValueError(f"Amount must be finite but was {self.amount}")
 
         exponent = Decimal(1).scaleb(-self.currency.minor_units)
-        normalised = self.amount.quantize(exponent, rounding=ROUND_DOWN)
+        # The context precision is widened to fit this particular value. Python's default of 28
+        # significant digits makes quantize raise InvalidOperation - an ArithmeticError, not a
+        # ValueError - for a large amount, while Java's BigDecimal has no such limit and simply
+        # succeeds. That divergence would have escaped every caller catching ValueError.
+        digits, value_exponent = self.amount.as_tuple()[1:]
+        # Significant digits the quantized value will need: every digit already present, plus the
+        # zeros a positive exponent implies (1E+30 is one digit and thirty zeros), plus the minor
+        # units. Sizing off len(digits) alone under-counts that case badly.
+        with localcontext() as context:
+            context.prec = len(digits) + max(int(value_exponent), 0) + self.currency.minor_units + 1
+            normalised = self.amount.quantize(exponent, rounding=ROUND_DOWN)
         if normalised != self.amount:
             raise ValueError(
                 f"Amount {self.amount} carries more precision than {self.currency.name} "
@@ -82,8 +92,28 @@ class Money:
         return Money(-self.amount, self.currency)
 
     def times(self, multiplier: Decimal) -> Money:
-        """Multiplies by a count. Never by another Money — that is not money."""
+        """Multiplies by a count, exactly. Never by another Money — that is not money.
+
+        :raises ValueError: if the product needs rounding to fit the currency
+        """
         return Money(self.amount * multiplier, self.currency)
+
+    def times_rounded(self, multiplier: Decimal) -> Money:
+        """Multiplies by a count, rounding the product to the currency's minor units.
+
+        The one place rounding is allowed, and it is explicit in the name. A fractional quantity —
+        1.5 units at 12.33 — has a mathematically exact product of 18.495 that no two-decimal
+        currency can express, so a total cost has to be rounded somewhere. Doing it here, half up,
+        in a method the caller has to choose, beats :meth:`times` throwing on perfectly ordinary
+        fractional holdings.
+        """
+        with localcontext() as context:
+            context.prec = 60
+            product = self.amount * multiplier
+            rounded = product.quantize(
+                Decimal(1).scaleb(-self.currency.minor_units), rounding=ROUND_HALF_UP
+            )
+        return Money(rounded, self.currency)
 
     @property
     def is_zero(self) -> bool:

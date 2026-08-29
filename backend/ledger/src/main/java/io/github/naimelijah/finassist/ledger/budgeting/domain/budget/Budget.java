@@ -21,12 +21,16 @@ import java.util.Optional;
  * Two limits for the same category are refused rather than merged — merging would guess at an intent
  * the owner never expressed.
  *
+ * <p>Limits are held as a map keyed by category, because "one limit per category" is precisely what
+ * makes a map the right shape. Validating with a map and then storing a list would throw that
+ * invariant away and leave every lookup a linear scan.
+ *
  * <p>This aggregate names no accounting type. It holds {@link Category} and {@link Money}, both of
  * which belong to budgeting or to the shared kernel;
  * {@code LedgerArchitectureTest.contexts_do_not_depend_on_each_other} fails the build if an
  * accounting class appears here.
  */
-public record Budget(BudgetId id, BudgetPeriod period, Currency currency, List<CategoryLimit> limits) {
+public record Budget(BudgetId id, BudgetPeriod period, Currency currency, Map<Category, Money> limits) {
 
     public Budget {
         Objects.requireNonNull(id, "id");
@@ -34,46 +38,40 @@ public record Budget(BudgetId id, BudgetPeriod period, Currency currency, List<C
         Objects.requireNonNull(currency, "currency");
         Objects.requireNonNull(limits, "limits");
 
-        limits = List.copyOf(limits);
+        limits = Map.copyOf(limits);
         if (limits.isEmpty()) {
             throw new IllegalArgumentException("A budget with no limits budgets nothing");
         }
+        for (Map.Entry<Category, Money> limit : limits.entrySet()) {
+            requireBudgetCurrency(limit.getKey(), limit.getValue(), currency);
+        }
+    }
 
-        Map<Category, CategoryLimit> seen = new LinkedHashMap<>();
+    /** Builds a budget from its limits, refusing two limits for one category. */
+    public static Budget of(BudgetPeriod period, Currency currency, List<CategoryLimit> limits) {
+        Objects.requireNonNull(limits, "limits");
+        Map<Category, Money> byCategory = new LinkedHashMap<>();
         for (CategoryLimit limit : limits) {
-            if (limit.limit().currency() != currency) {
-                throw new IllegalArgumentException("Limit for "
-                        + limit.category()
-                        + " is in "
-                        + limit.limit().currency()
-                        + " but the budget is in "
-                        + currency);
-            }
-            if (seen.putIfAbsent(limit.category(), limit) != null) {
+            requireBudgetCurrency(limit.category(), limit.limit(), currency);
+            if (byCategory.putIfAbsent(limit.category(), limit.limit()) != null) {
                 throw new IllegalArgumentException(
                         "Category " + limit.category() + " has more than one limit in this budget");
             }
         }
-    }
-
-    public static Budget of(BudgetPeriod period, Currency currency, List<CategoryLimit> limits) {
-        return new Budget(BudgetId.generate(), period, currency, limits);
+        return new Budget(BudgetId.generate(), period, currency, byCategory);
     }
 
     /** The limit set for a category, or empty when the budget says nothing about it. */
     public Optional<Money> limitFor(Category category) {
         Objects.requireNonNull(category, "category");
-        return limits.stream()
-                .filter(limit -> limit.category().equals(category))
-                .map(CategoryLimit::limit)
-                .findFirst();
+        return Optional.ofNullable(limits.get(category));
     }
 
     /** The total budgeted across every category. */
     public Money total() {
         Money total = Money.zero(currency);
-        for (CategoryLimit limit : limits) {
-            total = total.plus(limit.limit());
+        for (Money limit : limits.values()) {
+            total = total.plus(limit);
         }
         return total;
     }
@@ -82,10 +80,18 @@ public record Budget(BudgetId id, BudgetPeriod period, Currency currency, List<C
      * What is left in a category once {@code spent} is taken off its limit.
      *
      * <p>Negative when overspent — that is a fact worth reporting, not an error to reject. Empty when
-     * the budget sets no limit for the category, which is different from a limit of zero.
+     * the budget sets no limit for the category at all. A limit of zero is not a possible state,
+     * because {@link CategoryLimit} refuses one.
      */
     public Optional<Money> remaining(Category category, Money spent) {
         Objects.requireNonNull(spent, "spent");
         return limitFor(category).map(limit -> limit.minus(spent));
+    }
+
+    private static void requireBudgetCurrency(Category category, Money limit, Currency currency) {
+        if (limit.currency() != currency) {
+            throw new IllegalArgumentException(
+                    "Limit for " + category + " is in " + limit.currency() + " but the budget is in " + currency);
+        }
     }
 }

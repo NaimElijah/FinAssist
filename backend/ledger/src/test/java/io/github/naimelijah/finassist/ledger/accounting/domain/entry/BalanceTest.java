@@ -58,6 +58,25 @@ class BalanceTest {
     }
 
     @Test
+    void Given_a_book_holding_two_currencies_When_a_balance_is_taken_Then_the_other_is_skipped() {
+        AccountId dollarAccount = AccountId.generate();
+        AccountId dollarExpense = AccountId.generate();
+        Transaction inDollars = Transaction.record(
+                WHEN,
+                "Spend in USD",
+                List.of(
+                        new Entry(dollarExpense, Money.of("30.00", Currency.USD)),
+                        new Entry(dollarAccount, Money.of("-30.00", Currency.USD))));
+
+        assertThat(Balance.of(CHECKING, Currency.ILS, List.of(spend("12.50"), inDollars))
+                        .amount())
+                .isEqualTo(ils("-12.50"));
+        assertThat(Balance.of(dollarAccount, Currency.USD, List.of(spend("12.50"), inDollars))
+                        .amount())
+                .isEqualTo(Money.of("-30.00", Currency.USD));
+    }
+
+    @Test
     void Given_a_reconciled_transaction_When_a_balance_is_taken_Then_it_still_counts() {
         Transaction reconciled = spend("12.50").clear(WHEN).reconcile(WHEN);
         assertThat(Balance.of(CHECKING, Currency.ILS, List.of(reconciled)).amount())

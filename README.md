@@ -234,10 +234,9 @@ packages and read `sys.modules`, which was blind to anything outside an `__init_
 review caught it, and the fix is in this repository's history rather than in a comment.
 
 > [!NOTE]
-> The ledger's ArchUnit rules are **dormant** until there is production code:
-> `backend/ledger/src/test/resources/archunit.properties` sets `archRule.failOnEmptyShould=false`,
-> because a rule matching no classes fails rather than passes. Delete that line with the
-> first domain class.
+> The ledger's ArchUnit rules are **live**. `archunit.properties`, and with it the
+> `archRule.failOnEmptyShould=false` escape hatch, was deleted alongside the first domain class,
+> so a rule matching nothing now fails rather than passing quietly.
 
 Tests are named `Given<scenario>_When<action>_Then<result>` — the reason Ruff's `N802` is
 disabled for `tests/**`, with the justification recorded in `backend/assistant/pyproject.toml`.
@@ -364,8 +363,6 @@ Known limitations:
 - **Five contexts is a guess.** They are derived from the three capability areas, not from a
   working slice, and some may turn out to be wrong boundaries. ADR-010 names the signal:
   contexts that always change together should be merged.
-- **The ledger's test suite passes vacuously** — there are no tests, so a green build is not
-  yet evidence of anything.
 - **`consume_fifo` trusts the caller's lot order.** It consumes in the order given, so a
   caller holding lots in another order silently gets LIFO. Documented, not enforced — the
   sharpest edge in the domain ([ADR-013](docs/ADRs/ADR-013-fifo-lot-based-cost-basis.md)).

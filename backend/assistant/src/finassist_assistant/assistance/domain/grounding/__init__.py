@@ -14,15 +14,68 @@ import re
 
 from finassist_assistant.assistance.domain.model import Claim, GroundedAnswer, Ungrounded
 
-# Any digit counts as a figure. Deliberately blunt: over-reporting a claim as needing a citation
-# costs a citation, while under-reporting lets an invented number through, and those two are not
-# equally bad.
-_FIGURE = re.compile(r"\d")
+# Deliberately blunt: over-reporting a claim as needing a citation costs a citation, while
+# under-reporting lets an invented number through, and those two are not equally bad.
+_DIGIT = re.compile(r"\d")
+_WORD = re.compile(r"[a-z]+")
+
+# Digits alone missed the case that matters most. A model asked for figures writes them in prose
+# as readily as in digits, and "you spent one thousand two hundred shekels" was being accepted as
+# grounded with no citation at all - precisely the failure this context exists to prevent.
+_NUMBER_WORDS = frozenset(
+    {
+        "zero",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "eleven",
+        "twelve",
+        "thirteen",
+        "fourteen",
+        "fifteen",
+        "sixteen",
+        "seventeen",
+        "eighteen",
+        "nineteen",
+        "twenty",
+        "thirty",
+        "forty",
+        "fifty",
+        "sixty",
+        "seventy",
+        "eighty",
+        "ninety",
+        "hundred",
+        "thousand",
+        "million",
+        "billion",
+        "half",
+        "quarter",
+        "third",
+        "double",
+        "triple",
+        "dozen",
+    }
+)
 
 
 def states_a_figure(text: str) -> bool:
-    """True when the text contains a number, and therefore something that must be sourced."""
-    return _FIGURE.search(text) is not None
+    """True when the text contains a number, in digits or in words.
+
+    Still not exhaustive: "a couple of hundred" is caught by "hundred", but "a fair bit more" is
+    not, and no word list closes that. The real fix is a claim carrying its figure as a typed
+    value rather than embedded in prose, which ADR-014 names as the tightening to make.
+    """
+    if _DIGIT.search(text) is not None:
+        return True
+    return any(word in _NUMBER_WORDS for word in _WORD.findall(text.lower()))
 
 
 def is_grounded(claim: Claim) -> bool:

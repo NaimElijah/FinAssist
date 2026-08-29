@@ -118,6 +118,33 @@ class TransactionTest {
     }
 
     @Test
+    void Given_a_clearing_date_before_the_transaction_When_cleared_Then_it_is_refused() {
+        assertThatThrownBy(() -> coffee().clear(WHEN.minusDays(1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("before it occurred");
+    }
+
+    @Test
+    void Given_a_reconciliation_before_the_clearing_date_When_reconciled_Then_it_is_refused() {
+        Transaction cleared = coffee().clear(WHEN.plusDays(3));
+        assertThatThrownBy(() -> cleared.reconcile(WHEN.plusDays(1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("before it cleared");
+    }
+
+    @Test
+    void Given_a_void_date_before_the_transaction_When_voided_Then_it_is_refused() {
+        assertThatThrownBy(() -> coffee().markVoided(WHEN.minusDays(1), "mistake"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("before it occurred");
+    }
+
+    @Test
+    void Given_dates_on_the_same_day_When_transitioned_Then_they_are_allowed() {
+        assertThat(coffee().clear(WHEN).reconcile(WHEN).state()).isInstanceOf(TransactionState.Reconciled.class);
+    }
+
+    @Test
     void Given_a_transaction_When_a_transition_is_applied_Then_the_original_is_unchanged() {
         Transaction pending = coffee();
         Transaction cleared = pending.clear(WHEN);
