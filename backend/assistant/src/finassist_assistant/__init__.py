@@ -1,6 +1,9 @@
-"""LLM assistant and portfolio analysis for FinAssist.
+"""LLM assistant, portfolio analysis and market data for FinAssist.
 
-This service is the downstream side of the context map: it consumes ledger data and owns
-none of it. Unlike the ledger it carries no aggregates, because it protects no invariants —
-its core is pure transformation. See docs/ADRs/ADR-007-asymmetric-hexagonal-architecture.md.
+Organised by bounded context, one package each: portfolio, assistance, marketdata. A context
+owns a complete hexagon and may not import another context - only `shared`. See
+docs/ADRs/ADR-010-bounded-context-map.md, enforced by tests/test_architecture.py.
+
+Unlike the ledger this service carries no aggregates: its cores are pure functions over
+frozen dataclasses, because it protects no invariants (ADR-007).
 """

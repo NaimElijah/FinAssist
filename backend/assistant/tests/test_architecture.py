@@ -1,13 +1,15 @@
-"""Enforces the dependency direction declared in docs/architecture/architecture.md.
+"""Enforces the structural rules declared in docs/architecture/architecture.md.
 
-Dependencies point inward: adapters -> application -> domain -> nothing. The domain carries
-the analysis rules and must stay free of frameworks and I/O so that it is testable by calling
-it, and so that a later extraction is a move rather than a rewrite.
+Three rules, each checked by importing a package in a fresh interpreter and looking at what
+came with it:
 
-The second rule is the one that matters most in a polyglot system: neither the domain nor the
-application may reach an adapter, because the ledger's anti-corruption layer lives there. A
-ledger DTO that leaks inward makes the ledger's wire shape this service's model and couples
-the two services across a language boundary. See ADR-004 and ADR-007.
+1. Dependencies point inward - no inward layer loads a framework.
+2. No inward layer reaches its own adapters, where the anti-corruption layers live.
+3. No context imports another context. Only ``shared`` is common ground.
+
+Rule 3 is what makes context-first packaging more than folders: it is the difference between
+a context you can extract by moving a directory and one that merely looks that way. See
+ADR-007 and ADR-010.
 """
 
 import json
@@ -16,28 +18,36 @@ import sys
 
 import pytest
 
+ROOT = "finassist_assistant"
+
+# Bounded contexts. `shared` is deliberately absent - it is the one package all may use.
+CONTEXTS = ("portfolio", "assistance", "marketdata")
+
 # Top-level distributions no inward layer may load, directly or transitively.
 FORBIDDEN_FRAMEWORKS = frozenset(
-    {"fastapi", "starlette", "uvicorn", "httpx", "anthropic", "sqlalchemy"}
+    {"fastapi", "starlette", "uvicorn", "httpx", "anthropic", "sqlalchemy", "pandas"}
 )
 
-ADAPTERS_PACKAGE = "finassist_assistant.adapters"
+# Every inward (non-adapter) package, across every context.
+INWARD_PACKAGES = (
+    *(
+        f"{ROOT}.{context}.{suffix}"
+        for context in CONTEXTS
+        for suffix in ("domain", "application", "application.port", "application.usecase")
+    ),
+    f"{ROOT}.shared",
+)
 
-INWARD_PACKAGES = [
-    "finassist_assistant.domain",
-    "finassist_assistant.domain.analysis",
-    "finassist_assistant.domain.model",
-    "finassist_assistant.application",
-    "finassist_assistant.application.port",
-    "finassist_assistant.application.usecase",
-]
+CROSS_CONTEXT_PAIRS = tuple(
+    (importer, other) for importer in CONTEXTS for other in CONTEXTS if importer != other
+)
 
 
 def _modules_loaded_by(package: str) -> set[str]:
     """Import ``package`` in a fresh interpreter and return every module it pulled in.
 
-    A subprocess is used so the result cannot depend on what another test imported first;
-    an in-process check would pass or fail according to test ordering.
+    A subprocess is used so the result cannot depend on what another test imported first; an
+    in-process check would pass or fail according to test ordering.
     """
     probe = (
         "import importlib, json, sys; "
@@ -62,8 +72,20 @@ def Given_an_inward_layer_When_imported_Then_it_loads_no_framework(package: str)
 @pytest.mark.parametrize("package", INWARD_PACKAGES)
 def Given_an_inward_layer_When_imported_Then_it_loads_no_adapter(package: str) -> None:
     loaded = _modules_loaded_by(package)
-    leaked = sorted(m for m in loaded if m.startswith(ADAPTERS_PACKAGE))
+    leaked = sorted(m for m in loaded if ".adapters" in m and m.startswith(ROOT))
     assert not leaked, (
-        f"{package} imported the adapter layer: {leaked}. "
-        "The anti-corruption layer lives there; nothing inward may depend on it."
+        f"{package} imported an adapter layer: {leaked}. "
+        "The anti-corruption layers live there; nothing inward may depend on one."
+    )
+
+
+@pytest.mark.parametrize(("importer", "other"), CROSS_CONTEXT_PAIRS)
+def Given_a_context_When_imported_Then_it_loads_no_other_context(importer: str, other: str) -> None:
+    loaded = _modules_loaded_by(f"{ROOT}.{importer}")
+    prefix = f"{ROOT}.{other}"
+    leaked = sorted(m for m in loaded if m == prefix or m.startswith(prefix + "."))
+    assert not leaked, (
+        f"context '{importer}' imported context '{other}': {leaked}. "
+        "Contexts collaborate through a published port and an explicit translation, "
+        "never through an import."
     )
