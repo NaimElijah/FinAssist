@@ -1,0 +1,26 @@
+# The one entry point for running FinAssist locally and in CI (see docs/ADRs/ADR-005).
+# Only the database exists so far; ledger and assistant services join this file in the
+# same commit that gives each one something to serve.
+name: finassist
+
+services:
+  db:
+    image: postgres:18.6-trixie
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-finassist}
+      POSTGRES_USER: ${POSTGRES_USER:-finassist}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # 18+ moved the volume up from .../data; PGDATA is /var/lib/postgresql/18/docker.
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-finassist} -d ${POSTGRES_DB:-finassist}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  db-data:
