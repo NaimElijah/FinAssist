@@ -7,11 +7,16 @@
 # the services have Dockerfiles.
 version: 2
 
+# Every update targets `dev`, not the default branch. Dependabot defaults to `main`, which
+# would put dependency bumps straight onto it and bypass the dev -> main flow the rest of the
+# repository follows.
+
 updates:
   - package-ecosystem: maven
     directory: /backend/ledger
     schedule:
       interval: weekly
+    target-branch: dev
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
@@ -20,6 +25,7 @@ updates:
     directory: /backend/assistant
     schedule:
       interval: weekly
+    target-branch: dev
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
@@ -28,13 +34,21 @@ updates:
     directory: /frontend/web
     schedule:
       interval: weekly
+    target-branch: dev
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      # typescript-eslint 8.68.0 declares `typescript: >=4.8.4 <6.1.0`. A bump past that makes
+      # `npm ci` fail outright with ERESOLVE - PR #5 proved it, the Web job could not install.
+      # Delete this entry the moment typescript-eslint declares support for 7 (ADR-009).
+      - dependency-name: "typescript"
+        versions: [">=6.1.0"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    target-branch: dev
     commit-message:
       prefix: "chore(ci)"

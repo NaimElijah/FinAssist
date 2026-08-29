@@ -98,4 +98,6 @@ because the context packages are still empty. **Delete that line with the first 
 or the ledger's rules stay dormant.
 
 TypeScript is pinned to 6.0.3, not 7.x, because `typescript-eslint` 8 declares
-`typescript: >=4.8.4 <6.1.0`. Lift the pin when it supports 7.
+`typescript: >=4.8.4 <6.1.0` — past that, `npm ci` fails with ERESOLVE. Dependabot is
+configured to ignore `typescript >=6.1.0` so it stops proposing the bump every week. Lift
+both the pin and that ignore entry together, once typescript-eslint supports 7.
