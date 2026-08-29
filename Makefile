@@ -12,7 +12,7 @@ UV        := uv
 .PHONY: help setup lock run stop \
         test test-ledger test-assistant test-web \
         lint lint-ledger lint-assistant lint-web \
-        build-web format audit clean
+        build-web format audit audit-assistant audit-web clean
 
 help: ## List available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -68,8 +68,12 @@ format: ## Rewrite sources to match the formatters
 	cd $(ASSISTANT) && $(UV) run ruff check --fix .
 	cd $(WEB) && npm run format
 
-audit: ## Fail on a known vulnerability in a pinned dependency
+audit: audit-assistant audit-web ## Fail on a known vulnerability in a pinned dependency
+
+audit-assistant:
 	cd $(ASSISTANT) && $(UV) run pip-audit
+
+audit-web:
 	cd $(WEB) && npm audit --audit-level=high
 
 clean: ## Remove build output; leaves .env and Docker volumes alone

@@ -85,7 +85,13 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **Test names are the specification:** `Given<scenario>_When<action>_Then<result>`. Ruff's
   `N802` is disabled for `tests/**` because of it.
 - **Prove a new architecture rule fails.** Introduce a deliberate violation, confirm the build
-  breaks, revert. A rule that has never failed is not evidence.
+  breaks, revert. A rule that has never failed is not evidence — and put the violation in a
+  deep module, not a package `__init__.py`, which is where an earlier version of these rules
+  was found to be blind.
+- **Architecture rules are static.** ArchUnit reads bytecode; the assistant parses sources
+  with `ast`; the web client walks the file tree. Do not implement one by importing the code
+  and inspecting `sys.modules` — Python does not import subpackages, so such a rule sees
+  almost nothing.
 
 `backend/ledger/src/test/resources/archunit.properties` sets `archRule.failOnEmptyShould=false`
 because the context packages are still empty. **Delete that line with the first domain class**,

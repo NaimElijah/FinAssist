@@ -28,7 +28,6 @@ dist/
 
 # Node / frontend
 node_modules/
-dist/
 coverage/
 
 # Editors

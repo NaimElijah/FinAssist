@@ -220,13 +220,18 @@ behaviour they describe.
 |---|---|---|
 | Ledger architecture | Layering, **context isolation**, framework-free domain, no floating-point money, no aggregate cycles (ArchUnit, 5 rules) | `make test-ledger` |
 | Ledger unit | Domain rules; none yet | `make test-ledger` |
-| Assistant architecture | Every inward package loads no framework, never reaches the adapters, and **never imports another context**, each checked in a subprocess (32 cases) | `make test-assistant` |
+| Assistant architecture | Every source file is parsed: no inward module imports a framework or the adapters, and no module imports another context (81 cases) | `make test-assistant` |
 | Assistant unit | Analysis functions; none yet | `make test-assistant` |
 | Web architecture | No feature imports another; `shared` imports no feature (6 cases) | `make test-web` |
 | Web unit | Components; none yet | `make test-web` |
 
 Every architecture rule above was verified by introducing a deliberate violation, confirming
 the build failed, and reverting — a rule that has never failed is not evidence of anything.
+
+All three are **static**: ArchUnit scans bytecode, the assistant parses sources with `ast`,
+the web client walks the file tree. An earlier version of the assistant's rules imported
+packages and read `sys.modules`, which was blind to anything outside an `__init__.py` —
+review caught it, and the fix is in this repository's history rather than in a comment.
 
 > [!NOTE]
 > The ledger's ArchUnit rules are **dormant** until there is production code:

@@ -15,8 +15,9 @@ export default defineConfig({
     },
     test: {
         globals: true,
-        environment: 'jsdom',
-        setupFiles: ['./tests/setup.ts'],
+        // Node, not jsdom: the only test reads the source tree. A DOM environment and a
+        // testing-library stack arrive with the first component test that needs them.
+        environment: 'node',
         include: [
             'tests/**/*.test.ts',
             'tests/**/*.test.tsx',

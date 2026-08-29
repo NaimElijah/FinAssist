@@ -20,8 +20,23 @@ import { describe, expect, it } from 'vitest';
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
 const FEATURES_DIR = join(SRC, 'features');
 
-/** Matches the specifier of any static or dynamic import, and of a re-export. */
-const IMPORT_SPECIFIER = /(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g;
+/**
+ * Matches the specifier of a static or dynamic import, a re-export, a `require`, or a
+ * `vi.mock`. The last two carry no `from`/`import` token and would otherwise slip through.
+ */
+const IMPORT_SPECIFIER = /(?:from|import|require|vi\.mock)\s*\(?\s*['"]([^'"]+)['"]/g;
+
+/**
+ * Blanks out comments so a specifier mentioned in prose is not read as a dependency.
+ *
+ * Replacing with spaces rather than deleting keeps offsets intact, and the regex above only
+ * ever reads the captured specifier, never a position.
+ */
+function withoutComments(text: string): string {
+    return text
+        .replace(/\/\*[\s\S]*?\*\//g, (match) => ' '.repeat(match.length))
+        .replace(/\/\/.*/g, (match) => ' '.repeat(match.length));
+}
 
 function sourceFilesUnder(dir: string): string[] {
     return readdirSync(dir).flatMap((entry) => {
@@ -32,7 +47,7 @@ function sourceFilesUnder(dir: string): string[] {
 }
 
 function importSpecifiers(file: string): string[] {
-    const text = readFileSync(file, 'utf8');
+    const text = withoutComments(readFileSync(file, 'utf8'));
     return [...text.matchAll(IMPORT_SPECIFIER)].map((match) => match[1] ?? '');
 }
 

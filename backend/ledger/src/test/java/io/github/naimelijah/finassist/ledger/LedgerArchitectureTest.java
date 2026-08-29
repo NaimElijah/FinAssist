@@ -106,8 +106,17 @@ class LedgerArchitectureTest {
             .haveRawType(Float.class)
             .because("monetary amounts use BigDecimal; see docs/requirements/requirements.md");
 
-    /** A cycle between aggregates inside one context means an aggregate boundary is wrong. */
+    /**
+     * A cycle between aggregates inside one context means an aggregate boundary is wrong.
+     *
+     * <p>Both the context and the aggregate are captured. Matching on the aggregate alone would
+     * merge {@code accounting.domain.event} and {@code budgeting.domain.event} into one slice
+     * named "event", which can hide a real intra-context cycle behind the merge and report a
+     * cross-context dependency as an aggregate cycle.
+     */
     @ArchTest
-    static final ArchRule aggregates_are_free_of_cycles =
-            slices().matching(ROOT + "..domain.(*)..").should().beFreeOfCycles();
+    static final ArchRule aggregates_are_free_of_cycles = slices().matching(ROOT + ".(*).domain.(*)..")
+            .namingSlices("$1.$2")
+            .should()
+            .beFreeOfCycles();
 }

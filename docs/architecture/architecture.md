@@ -71,7 +71,7 @@ bit-identical would cost more than the duplication.
 | Component | Responsibility | State |
 |---|---|---|
 | `backend/ledger` | Accounting and budgeting. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Boots and answers Actuator probes; 5 architecture rules pass; no domain code |
-| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Lints and type-checks; 32 architecture tests pass; no entry point, no domain code |
+| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Lints and type-checks; 81 architecture assertions pass over every source file; no entry point, no domain code |
 | `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder; 6 architecture tests pass; no feature implemented |
 | `contracts/` | The versioned wire contract | Directory and its README only |
 | PostgreSQL 18 | The ledger's store | Runs via Compose; nothing connects to it |
@@ -147,15 +147,26 @@ introducing a deliberate violation and confirming the build failed, then reverti
 | The ledger domain imports no framework | `LedgerArchitectureTest.domain_depends_on_no_framework` |
 | No floating-point field in a ledger domain | `LedgerArchitectureTest.money_is_never_floating_point` |
 | No cycles between aggregates in a context | `LedgerArchitectureTest.aggregates_are_free_of_cycles` |
-| No inward assistant layer loads a framework | `test_architecture.py::…Then_it_loads_no_framework` |
-| No inward assistant layer reaches the adapters | `test_architecture.py::…Then_it_loads_no_adapter` |
-| **No assistant context imports another** | `test_architecture.py::…Then_it_loads_no_other_context` |
+| No inward assistant layer imports a framework | `test_architecture.py::…Then_it_imports_no_framework` |
+| No inward assistant layer imports the adapters | `test_architecture.py::…Then_it_imports_no_adapter` |
+| **No assistant context imports another** | `test_architecture.py::…Then_it_imports_no_other_context` |
 | **No web feature imports another**, and `shared` imports no feature | `frontend/web/tests/architecture.test.ts` |
 
-The ledger's rules are **dormant**: `backend/ledger/src/test/resources/archunit.properties`
-sets `archRule.failOnEmptyShould=false` because the context packages are empty, and a rule
-matching nothing fails rather than passes. That line is deleted with the first domain class.
-The Python and TypeScript rules are live, because their packages exist.
+All three are **static**: ArchUnit scans bytecode, the assistant's rules parse every source
+file with `ast`, and the web client's walk the source tree. None of them import the code they
+check.
+
+That matters, and was got wrong once. An earlier version of the assistant's rules imported a
+package and inspected `sys.modules`; because Python does not import subpackages on its own,
+importing `finassist_assistant.portfolio` executed only its `__init__.py`, and a forbidden
+import inside `portfolio/domain/analysis/returns.py` was invisible. The rule passed green on a
+file containing both a `pandas` import and a cross-context import. Reading the source is the
+only way these rules see code that has not been written yet.
+
+The ledger's rules remain **dormant** for a different and honest reason:
+`backend/ledger/src/test/resources/archunit.properties` sets `archRule.failOnEmptyShould=false`
+because the context packages hold no classes, and an ArchUnit rule matching nothing fails
+rather than passes. That line is deleted with the first domain class.
 
 **Anti-corruption layers are per context, by design.** If `portfolio` and `assistance` both
 need ledger data, each translates it into its own vocabulary. The duplicated translation is
