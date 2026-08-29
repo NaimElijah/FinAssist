@@ -18,8 +18,13 @@ covers three capability areas, confirmed as all in scope:
    data, backed by an LLM.
 3. **Analysis** — portfolio and market analysis over holdings.
 
-The boundary between these three is the largest open question in the project; see
-[Open questions](#open-questions). Nothing here commits to a delivery order.
+These are reached through a **web client**, which is in scope. It is the only interface;
+there is no CLI and no mobile client.
+
+The three capability areas are realised as five bounded contexts, listed with their owning
+service in [ADR-010](../ADRs/ADR-010-bounded-context-map.md). Which capability a requirement
+belongs to, and which context enforces it, should agree — where they do not, one of the two is
+wrong.
 
 ## Functional requirements
 
@@ -41,6 +46,13 @@ on made visible.
 
 TODO (@NaimElijah) — enumerate. Expected to cover at least: recording holdings, and
 reporting portfolio composition and performance over a period.
+
+### Web client
+
+TODO (@NaimElijah) — enumerate. Expected to cover at least: viewing accounts and entries,
+setting a budget, seeing a portfolio, and asking a question. One screen area per user-facing
+context; `marketdata` has no surface of its own and is visible only through portfolio
+figures.
 
 ## Business rules and invariants
 
@@ -85,9 +97,10 @@ Stated so they are not re-proposed:
 
 | Question | Owner |
 |---|---|
+| Does the web client talk only to the assistant, or also to the ledger directly? Talking to both means two contracts and two auth stories; going through the assistant makes it a gateway for traffic that has nothing to do with assistance | @NaimElijah |
 | How do the three capability areas relate — one product, or a tracker with two features layered on? This drives whether the split in [ADR-001](../ADRs/ADR-001-polyglot-java-python-split.md) is carrying its weight | @NaimElijah |
 | Where does transaction data come from — manual entry, file import (CSV/OFX), or institution sync? | @NaimElijah |
-| Where does market data come from, and does its licence permit this use? | @NaimElijah |
+| Where does market data come from, and does its licence permit this use? The `marketdata` context exists with an anti-corruption layer and no client behind it, waiting on this | @NaimElijah |
 | Does the assistant send the owner's financial data to a third-party LLM API, and is that acceptable? This is the project's central privacy decision and it needs an ADR | @NaimElijah |
 | Is the ledger single-currency or multi-currency? Multi-currency changes the domain model fundamentally and is far cheaper to decide now than later | @NaimElijah |
 | What authenticates the assistant to the ledger? | @NaimElijah |

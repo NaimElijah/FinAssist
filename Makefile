@@ -3,26 +3,28 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/sh
 
-LEDGER    := ledger
-ASSISTANT := assistant
+LEDGER    := backend/ledger
+ASSISTANT := backend/assistant
+WEB       := frontend/web
 MVNW      := ./mvnw -B
 UV        := uv
 
 .PHONY: help setup lock run stop \
-        test test-ledger test-assistant \
-        lint lint-ledger lint-assistant \
-        format audit clean
+        test test-ledger test-assistant test-web \
+        lint lint-ledger lint-assistant lint-web \
+        build-web format audit audit-assistant audit-web clean
 
 help: ## List available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
-		| awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s%s", $$1, $$2, ORS}'
 
-setup: ## Clean clone to ready: env file plus locked dependencies for both services
+setup: ## Clean clone to ready: env file plus locked dependencies for every service
 	@test -f .env || cp .env.example .env
 	cd $(LEDGER) && $(MVNW) -q dependency:go-offline
 	cd $(ASSISTANT) && $(UV) sync --locked --extra dev
+	cd $(WEB) && npm ci
 
-lock: ## Regenerate assistant/uv.lock after editing pyproject.toml
+lock: ## Regenerate backend/assistant/uv.lock after editing pyproject.toml
 	cd $(ASSISTANT) && $(UV) lock
 
 run: ## Start the stack
@@ -31,7 +33,7 @@ run: ## Start the stack
 stop: ## Stop the stack, keeping volumes
 	docker compose down
 
-test: test-ledger test-assistant ## Full suite - exactly what CI gates on
+test: test-ledger test-assistant test-web ## Full suite - exactly what CI gates on
 
 test-ledger:
 	cd $(LEDGER) && $(MVNW) verify
@@ -39,7 +41,10 @@ test-ledger:
 test-assistant:
 	cd $(ASSISTANT) && $(UV) run pytest
 
-lint: lint-ledger lint-assistant ## Format check and static analysis; never rewrites a file
+test-web:
+	cd $(WEB) && npm test
+
+lint: lint-ledger lint-assistant lint-web ## Format check and static analysis; never rewrites a file
 
 lint-ledger:
 	cd $(LEDGER) && $(MVNW) spotless:check
@@ -49,14 +54,29 @@ lint-assistant:
 	cd $(ASSISTANT) && $(UV) run ruff format --check .
 	cd $(ASSISTANT) && $(UV) run mypy src tests
 
+lint-web:
+	cd $(WEB) && npm run lint
+	cd $(WEB) && npm run format:check
+	cd $(WEB) && npm run typecheck
+
+build-web: ## Production bundle
+	cd $(WEB) && npm run build
+
 format: ## Rewrite sources to match the formatters
 	cd $(LEDGER) && $(MVNW) spotless:apply
 	cd $(ASSISTANT) && $(UV) run ruff format .
 	cd $(ASSISTANT) && $(UV) run ruff check --fix .
+	cd $(WEB) && npm run format
 
-audit: ## Fail on a known vulnerability in a pinned Python dependency
+audit: audit-assistant audit-web ## Fail on a known vulnerability in a pinned dependency
+
+audit-assistant:
 	cd $(ASSISTANT) && $(UV) run pip-audit
+
+audit-web:
+	cd $(WEB) && npm audit --audit-level=high
 
 clean: ## Remove build output; leaves .env and Docker volumes alone
 	cd $(LEDGER) && $(MVNW) -q clean
 	rm -rf $(ASSISTANT)/.pytest_cache $(ASSISTANT)/.mypy_cache $(ASSISTANT)/.ruff_cache
+	rm -rf $(WEB)/dist $(WEB)/coverage

@@ -13,9 +13,9 @@ language, and analyse the portfolio behind it.**
 </div>
 
 > [!IMPORTANT]
-> **This is a skeleton.** The repository builds, lints, type-checks and tests on both
-> toolchains, and CI gates all of it. The ledger boots and answers its Actuator health
-> probes; it has no business endpoints, and the assistant has no entry point at all.
+> **This is a skeleton.** Three codebases build, lint, type-check and test, and CI gates all
+> of it. The ledger boots and answers its Actuator health probes; the assistant has no entry
+> point; the web client renders a placeholder. No bounded context has domain code yet.
 > Everything below describes what exists on `main`. Planned work appears only under
 > [Status and limitations](#status-and-limitations).
 
@@ -75,9 +75,15 @@ far. Success looks like `pg_isready` passing on the `db` container within a few 
 The ledger runs natively, and answers health probes and nothing else:
 
 ```bash
-cd ledger && ./mvnw spring-boot:run
+cd backend/ledger && ./mvnw spring-boot:run
 curl http://localhost:8080/actuator/health
 # {"groups":["liveness","readiness"],"status":"UP"}
+```
+
+The web client runs too, and renders a placeholder:
+
+```bash
+cd frontend/web && npm ci && npm run dev   # http://localhost:5173
 ```
 
 > [!NOTE]
@@ -98,11 +104,14 @@ curl http://localhost:8080/actuator/health
 | Assistant framework | FastAPI | 0.141.1 | Typed request and response validation from the same Pydantic models the domain uses |
 | Assistant packaging | uv | 0.12.7 | Resolves, locks and fetches the interpreter in one pinned tool |
 | Assistant lint, format, types | Ruff + mypy | 0.16.5 / 2.3.1 | Ruff replaces flake8 + isort + black; mypy runs `--strict` |
-| Ledger architecture tests | ArchUnit | 1.5.0 | Layering, framework-freedom and the no-floating-point-money rule fail the build |
+| Ledger architecture tests | ArchUnit | 1.5.0 | Layering, context isolation and the no-floating-point-money rule fail the build |
+| Web framework | React + Vite | 19.2 / 8.2 | A static bundle; no Node server to operate for a single-owner tool |
+| Web language | TypeScript | 6.0.3 | Pinned below 7 because `typescript-eslint` caps at `<6.1.0`; type-aware linting is worth more than the newer compiler |
+| Web test, lint, format | Vitest + ESLint + Prettier | 4.1 / 10.9 / 3.9 | Type-aware rules; they caught a `HeadersInit` bug before any code used it |
 | Store | PostgreSQL | 18.6 | `NUMERIC` for exact money, and real constraints behind the domain's own |
 
-Every version above is pinned in `ledger/pom.xml`, `assistant/pyproject.toml`,
-`assistant/uv.lock` or `docker-compose.yml` — not in this table.
+Every version above is pinned in `backend/ledger/pom.xml`, `backend/assistant/pyproject.toml`,
+`backend/assistant/uv.lock` or `docker-compose.yml` — not in this table.
 
 ## Architecture
 
@@ -111,14 +120,26 @@ assistant reads them through the ledger's API, never its database.
 
 ```mermaid
 flowchart LR
-    Owner[Owner] -->|HTTP| Assistant[assistant - Python, FastAPI]
-    Assistant -->|HTTP, OpenAPI contract| Ledger[ledger - Java, Spring Boot]
+    Owner[Owner] -->|HTTPS| Web[frontend/web - React SPA]
+    Web -->|HTTP| Assistant[backend/assistant - Python, FastAPI]
+    Assistant -->|HTTP, Published Language| Ledger[backend/ledger - Java, Spring Boot]
     Assistant -->|HTTPS| Claude[Anthropic API]
     Ledger --> DB[(PostgreSQL 18)]
 ```
 
-Only `DB` currently runs. The service boxes are modules that compile and test but expose no
-endpoints, and no edge in that diagram is implemented.
+`DB` runs under Compose and the ledger boots with Actuator only. No edge in that diagram is
+implemented.
+
+**Five bounded contexts**, each owned by exactly one service, each one directory
+([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md)):
+
+| Context | Owner | UI feature |
+|---|---|---|
+| `accounting` — accounts, entries, balances | ledger | yes |
+| `budgeting` — budgets, categories, rules | ledger | yes |
+| `portfolio` — holdings, positions, valuation | assistant | yes |
+| `assistance` — questions and grounded answers | assistant | yes |
+| `marketdata` — instruments and quotes, feed not chosen | assistant | no |
 
 Both services are hexagonal, but **only the ledger uses tactical DDD** — aggregates,
 value objects and domain events protect invariants, and the analysis side has none to
@@ -139,23 +160,31 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 
 ## Project structure
 
+Context first, hexagon inside: a context is one directory and can be extracted by moving it.
+
 ```
-ledger/           Java 21 + Spring Boot - full tactical DDD; sole writer of the store
-  domain/           account/ transaction/ shared/ event/ - aggregates and value objects
-  application/      port/in/ port/out/ service/ - use cases and the ports they own
-  adapter/          in/web/ out/persistence/ - entities are mapped, never aggregates
-assistant/        Python 3.13 + FastAPI - hexagonal, pure-function core, no aggregates
-  domain/           analysis/ (total functions) model/ (frozen dataclasses)
-  application/      port/ (Protocols) usecase/ (orchestration only)
-  adapters/         inbound/api/ outbound/ledger/ (the ACL) outbound/llm/
-  tests/            The architecture tests that enforce the direction
-contracts/        Versioned OpenAPI contract - the Published Language
-docs/             requirements/, architecture/, ADRs/ - read these before proposing work
-.github/          CI workflow and Dependabot configuration
+backend/ledger/         Java 21 + Spring Boot - full tactical DDD; sole writer of the store
+  accounting/             domain/{account,entry,event}/ application/{port/in,port/out,service}/
+                          adapter/{in/web,out/persistence}/
+  budgeting/              same hexagon, its own aggregates
+  shared/                 Money, Currency - in-language kernel
+backend/assistant/      Python 3.13 + FastAPI - pure-function cores, no aggregates
+  portfolio/              domain/{model,analysis}/ application/{port,usecase}/
+                          adapters/{inbound/api,outbound/ledger}/   <- the ACL
+  assistance/             ... adapters/outbound/llm/
+  marketdata/             ... adapters/outbound/feed/               <- ACL, no feed chosen
+  shared/
+frontend/web/           React 19 + Vite 8 - one feature per user-facing context
+  src/features/           accounting/ budgeting/ portfolio/ assistance/
+  src/shared/             ui/ api/ lib/
+  src/app/                the only place that knows every feature at once
+contracts/              Versioned OpenAPI contract - the Published Language
+docs/                   requirements/, architecture/, ADRs/ - read before proposing work
+.github/                CI workflow and Dependabot configuration
 ```
 
-Java packages sit under `ledger/src/main/java/io/github/naimelijah/finassist/ledger/`;
-Python packages under `assistant/src/finassist_assistant/`.
+Java packages sit under `backend/ledger/src/main/java/io/github/naimelijah/finassist/ledger/`;
+Python packages under `backend/assistant/src/finassist_assistant/`.
 
 ## Development
 
@@ -164,15 +193,17 @@ pipeline and the local commands cannot drift.
 
 | Task | Make target | Raw command |
 |---|---|---|
-| Set up | `make setup` | `cd ledger && ./mvnw -B dependency:go-offline` then `cd assistant && uv sync --locked --extra dev` |
+| Set up | `make setup` | `cd backend/ledger && ./mvnw -B dependency:go-offline`; `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci` |
 | Run | `make run` | `docker compose up --build` |
-| Test everything | `make test` | the two test rows below |
-| Test the ledger | `make test-ledger` | `cd ledger && ./mvnw -B verify` |
-| Test the assistant | `make test-assistant` | `cd assistant && uv run pytest` |
-| Lint and types | `make lint` | `./mvnw -B spotless:check`; `uv run ruff check .`, `ruff format --check .`, `mypy src tests` |
-| Format | `make format` | `./mvnw -B spotless:apply`; `uv run ruff format .` |
-| Audit | `make audit` | `cd assistant && uv run pip-audit` |
-| Re-lock Python deps | `make lock` | `cd assistant && uv lock` |
+| Test everything | `make test` | the three test rows below |
+| Test the ledger | `make test-ledger` | `cd backend/ledger && ./mvnw -B verify` |
+| Test the assistant | `make test-assistant` | `cd backend/assistant && uv run pytest` |
+| Test the web client | `make test-web` | `cd frontend/web && npm test` |
+| Build the web bundle | `make build-web` | `cd frontend/web && npm run build` |
+| Lint and types | `make lint` | `./mvnw -B spotless:check`; `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; `npm run lint`, `format:check`, `typecheck` |
+| Format | `make format` | `./mvnw -B spotless:apply`; `uv run ruff format .`; `npm run format` |
+| Audit | `make audit` | `cd backend/assistant && uv run pip-audit`; `cd frontend/web && npm audit --audit-level=high` |
+| Re-lock Python deps | `make lock` | `cd backend/assistant && uv lock` |
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
 (`type(scope): imperative subject`, subject under 72 characters); branches are
@@ -180,32 +211,42 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
 behaviour they describe.
 
 > [!WARNING]
-> Editing `assistant/pyproject.toml` dependencies without running `make lock` will fail CI,
+> Editing `backend/assistant/pyproject.toml` dependencies without running `make lock` will fail CI,
 > which installs with `uv sync --locked` and refuses a stale lockfile.
 
 ## Testing
 
 | Layer | Covers | Command |
 |---|---|---|
-| Ledger architecture | Layering, framework-free domain, no floating-point money, no package cycles (ArchUnit, 4 rules) | `make test-ledger` |
+| Ledger architecture | Layering, **context isolation**, framework-free domain, no floating-point money, no aggregate cycles (ArchUnit, 5 rules) | `make test-ledger` |
 | Ledger unit | Domain rules; none yet | `make test-ledger` |
-| Ledger context | That the Spring context starts; none yet | `make test-ledger` |
-| Assistant architecture | Every inward package loads no framework and never reaches the adapters, checked in a subprocess (12 cases) | `make test-assistant` |
+| Assistant architecture | Every source file is parsed: no inward module imports a framework or the adapters, and no module imports another context (81 cases) | `make test-assistant` |
 | Assistant unit | Analysis functions; none yet | `make test-assistant` |
+| Web architecture | No feature imports another; `shared` imports no feature (6 cases) | `make test-web` |
+| Web unit | Components; none yet | `make test-web` |
+
+Every architecture rule above was verified by introducing a deliberate violation, confirming
+the build failed, and reverting — a rule that has never failed is not evidence of anything.
+
+All three are **static**: ArchUnit scans bytecode, the assistant parses sources with `ast`,
+the web client walks the file tree. An earlier version of the assistant's rules imported
+packages and read `sys.modules`, which was blind to anything outside an `__init__.py` —
+review caught it, and the fix is in this repository's history rather than in a comment.
 
 > [!NOTE]
 > The ledger's ArchUnit rules are **dormant** until there is production code:
-> `ledger/src/test/resources/archunit.properties` sets `archRule.failOnEmptyShould=false`,
+> `backend/ledger/src/test/resources/archunit.properties` sets `archRule.failOnEmptyShould=false`,
 > because a rule matching no classes fails rather than passes. Delete that line with the
 > first domain class.
 
 Tests are named `Given<scenario>_When<action>_Then<result>` — the reason Ruff's `N802` is
-disabled for `tests/**`, with the justification recorded in `assistant/pyproject.toml`.
+disabled for `tests/**`, with the justification recorded in `backend/assistant/pyproject.toml`.
 
-**What CI gates on:** every push and pull request to `main` and `dev` must pass three jobs —
-the ledger's format check and build, the assistant's lint, format check, `mypy --strict`,
-tests and `pip-audit`, and a `docker compose config` validation. There is no coverage
-threshold; coverage is a diagnostic here, not a target.
+**What CI gates on:** every push and pull request to `main` and `dev` must pass four jobs —
+the ledger's format check and build; the assistant's lint, format check, `mypy --strict`,
+tests and `pip-audit`; the web client's lint, format check, typecheck, tests and production
+build; and a `docker compose config` validation. There is no coverage threshold; coverage is
+a diagnostic here, not a target.
 
 ## Configuration
 
@@ -261,6 +302,14 @@ owner chose the split knowingly. Cost: two toolchains, two CI jobs and a version
 contract before any feature exists. The ADR records the concrete threshold for collapsing
 back to one language.
 
+**Context first, hexagon inside**
+([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md)) — five bounded contexts, each one
+directory with its own hexagon, so a context is extractable by moving it. No context may
+depend on another; that rule is enforced in all three codebases and was proved by making it
+fail. The alternative — layers on top, contexts nested inside — leaves a context's code in
+three distant trees and lets cross-context imports accumulate unopposed. Cost: deeper nesting,
+and `shared` is exempt, so it is where coupling can still accrue quietly.
+
 **Tactical DDD in the ledger only**
 ([ADR-007](docs/ADRs/ADR-007-asymmetric-hexagonal-architecture.md)) — aggregates and value
 objects exist to protect invariants. The ledger is dense with them; computing a rolling
@@ -275,6 +324,12 @@ machine has no `make`, no `just` and no `bash` on `PATH`, so a Makefile alone wo
 commands that do not run where they were written. Cost: the logic is split across two files,
 and containers iterate more slowly than native runs.
 
+**`backend/` and `frontend/` at the root**
+([ADR-008](docs/ADRs/ADR-008-backend-frontend-root-layout.md)) — one home per tier, once a web
+client joined. The cost was accepted knowingly: the grouping carries no domain meaning and
+implies the ledger and assistant are one layer, when they are separate contexts in separate
+languages talking over a versioned contract.
+
 **The assistant never touches the ledger's database**
 ([ADR-004](docs/ADRs/ADR-004-http-openapi-service-contract.md), Proposed) — a shared
 database would be the cheapest thing to build and the most expensive to own. Cost: JSON over
@@ -282,10 +337,11 @@ HTTP carries no runtime schema, and contract drift is silent until CI compares t
 
 ## Status and limitations
 
-**Pre-alpha skeleton.** Shipped: the repository baseline — pinned toolchains for both
-services, a committed `uv.lock`, formatter and linter configuration, requirements,
-architecture and seven ADRs, a Compose entry point, architecture tests enforcing the
-layering on both sides, and CI gating build, lint, format and dependency audit.
+**Pre-alpha skeleton.** Shipped: the repository baseline and its architecture — pinned
+toolchains for three codebases with committed lockfiles, five bounded contexts packaged
+context-first, architecture tests enforcing layering and context isolation in all three,
+requirements, architecture and ten ADRs, a Compose entry point, and CI gating build, lint,
+format and dependency audit across four jobs.
 
 Planned next, in order: resolve the
 [open questions](docs/requirements/requirements.md#open-questions), ratify or reject
@@ -296,15 +352,23 @@ tracking slice end to end.
 Known limitations:
 
 - **No business endpoint exists.** The ledger boots and answers Actuator probes; the
-  assistant has no ASGI entry point at all. Neither has domain code.
+  assistant has no ASGI entry point; the web client renders a placeholder. No context has
+  domain code.
+- **Five contexts is a guess.** They are derived from the three capability areas, not from a
+  working slice, and some may turn out to be wrong boundaries. ADR-010 names the signal:
+  contexts that always change together should be merged.
 - **The ledger's test suite passes vacuously** — there are no tests, so a green build is not
   yet evidence of anything.
 - **The ledger's architecture rules are dormant.** They are written and passing, but with
   no production classes they match nothing; they begin to bite when
   `archRule.failOnEmptyShould=false` is removed alongside the first domain class.
-- **Aggregate boundaries are undesigned.** The ledger's package names anticipate `Account`
-  and `Transaction` aggregates that do not exist. Getting those boundaries wrong is the
-  most expensive available mistake and no test catches it.
+- **Aggregate boundaries are undesigned.** The package names anticipate `Account`, `Entry`,
+  `Budget` and `Category` aggregates that do not exist. Getting those wrong is the most
+  expensive available mistake and no test catches it.
+- **`marketdata` has no feed.** The anti-corruption layer exists; nothing sits behind it,
+  because no price source has been chosen or licence-checked.
+- **TypeScript is one minor behind.** Pinned to 6.0.3 because `typescript-eslint` 8 caps at
+  `<6.1.0`; lifts when it supports 7.
 - **Two ADRs are unratified.** Persistence and the service contract are both still open, so
   the database in Compose has no client and `contracts/` is empty.
 - **`docker compose up` has not been executed** — the file validates with
