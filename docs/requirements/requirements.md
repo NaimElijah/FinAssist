@@ -33,19 +33,53 @@ that enforces it once one exists.
 
 ### Tracking
 
-TODO (@NaimElijah) — enumerate. Expected to cover at least: recording a transaction,
-categorising it, reconciling an account balance, and defining a budget.
+The ledger keeps books by **double entry** ([ADR-011](../ADRs/ADR-011-double-entry-bookkeeping.md)).
+
+- Open an account with a name, one of five accounting types, and exactly one currency.
+  `Account`
+- Record a transaction as two or more entries that sum to zero. An unbalanced set cannot be
+  recorded. `Transaction`, `TransactionTest`
+- Move a transaction through its lifecycle: clear it once the institution confirms it,
+  reconcile it once it is matched to a statement, or void it with a reason.
+  `TransactionState`, `TransactionTest`
+- Read the balance of an account, derived from its entries. `Balance`, `BalanceTest`
+- Define a budget for a period, with one spending limit per category. `Budget`, `BudgetTest`
+- See what remains in a budgeted category once spend is taken off, including when overspent.
+  `Budget.remaining`, `BudgetTest`
+- Assign a category to a transaction by matching its description. `CategorisationRule`
+
+**Not yet decided:** where transactions come from. Manual entry, file import and institution
+sync all satisfy the requirements above and none is chosen; see
+[Open questions](#open-questions).
 
 ### Assistance
 
-TODO (@NaimElijah) — enumerate. Expected to cover at least: asking a question in natural
-language and receiving an answer grounded in the owner's ledger data, with the data it drew
-on made visible.
+One rule holds already ([ADR-014](../ADRs/ADR-014-grounded-answers-require-citations.md)):
+
+- Any claim in an answer that states a figure must cite the ledger record it came from. An
+  answer containing an uncited figure is rejected as `Ungrounded`, naming the offending claims.
+  `ground`, `test_grounding.py`
+
+TODO (@NaimElijah) — the rest. Expected to cover at least: asking a question in natural
+language, and seeing the evidence an answer drew on. Both depend on the privacy question below
+being answered first.
 
 ### Analysis
 
-TODO (@NaimElijah) — enumerate. Expected to cover at least: recording holdings, and
-reporting portfolio composition and performance over a period.
+Holdings are tracked as **lots with a FIFO cost basis**
+([ADR-013](../ADRs/ADR-013-fifo-lot-based-cost-basis.md)).
+
+- Record a purchase as a lot: quantity, unit cost, acquisition date. `Lot`
+- Read a position — total quantity and total cost — across the lots of one instrument.
+  `position`, `test_portfolio.py`
+- Dispose of units, oldest lots first, and read what those units cost. Selling more than is
+  held is refused. `consume_fifo`, `InsufficientHoldingError`
+- Read realised gain on a sale, and unrealised gain and market value at a given unit price.
+  `realised_gain`, `unrealised_gain`, `market_value`
+- Judge whether a market quote is too old to use, against a supplied clock. `is_stale`
+
+**Not yet decided:** where prices come from. The `marketdata` context has the shape a feed must
+be translated into and no client behind it.
 
 ### Web client
 
@@ -61,11 +95,23 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 
 | Rule | Enforced by | Status |
 |---|---|---|
-| Money is exact decimal — never a floating-point type | `BigDecimal` in the ledger, `NUMERIC` in Postgres ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md)) | Committed, nothing to enforce yet |
-| The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) | Proposed |
-| Legal transaction state transitions | Sealed types in the ledger domain ([ADR-002](../ADRs/ADR-002-java-spring-boot-for-the-ledger.md)) | TODO (@NaimElijah) — the states are not defined |
-| Account balance is derived, never set directly | — | TODO (@NaimElijah) |
-| Uniqueness and identity rules for accounts and transactions | — | TODO (@NaimElijah) |
+| A transaction's entries must sum to zero, in one currency, with at least two of them | `Transaction` constructor; `TransactionTest` | **Enforced** |
+| Money is exact decimal — never a floating-point type | `Money` (Java and Python); `LedgerArchitectureTest.money_is_never_floating_point`; `MoneyTest`, `test_money.py` | **Enforced** |
+| Amounts in two currencies are never combined | `Money.plus/minus/compareTo`; `CurrencyMismatchException` | **Enforced** |
+| An amount more precise than its currency admits is rejected, not rounded | `Money` constructor; `MoneyTest`, `test_money.py` | **Enforced** |
+| Account balance is derived, never set directly | `Balance.of`; `Account` has no balance field; `BalanceTest` | **Enforced** |
+| A voided transaction keeps its entries but does not count towards a balance | `Transaction.countsTowardsBalance`; `BalanceTest` | **Enforced** |
+| Legal transaction state transitions; a reconciled transaction is frozen | Sealed `TransactionState`; `IllegalTransitionException`; `TransactionTest` | **Enforced** |
+| An account has exactly one currency, and a transaction's entries are all in one currency | `Account`; `Transaction` constructor | **Enforced** |
+| An entry's currency matches the currency of the account it is posted to | — | TODO (@NaimElijah) — an `Entry` holds an `AccountId`, not an `Account`, so the domain cannot look the currency up. Needs a repository, so it belongs to the application layer |
+| A budget has one limit per category, all in the budget's currency, each positive | `Budget` and `CategoryLimit` constructors; `BudgetTest` | **Enforced** |
+| A budget stores no spend; remaining is derived | `Budget.remaining` takes spend as an argument; `BudgetTest` | **Enforced** |
+| Disposing of more units than are held is refused | `consume_fifo`; `InsufficientHoldingError`; `test_portfolio.py` | **Enforced** |
+| A claim stating a figure must cite the evidence it came from | `ground`; `test_grounding.py` | **Enforced** |
+| A market quote carries an unambiguous instant, and staleness is judged against a supplied clock | `Quote`, `is_stale`; `test_marketdata.py` | **Enforced** |
+| No bounded context depends on another | `LedgerArchitectureTest.contexts_do_not_depend_on_each_other`; `test_architecture.py`; `architecture.test.ts` | **Enforced** |
+| The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) | Proposed — no persistence or client exists yet |
+| Uniqueness of an account name within the chart of accounts | — | TODO (@NaimElijah) — needs a repository to enforce against |
 
 ## Non-functional requirements
 

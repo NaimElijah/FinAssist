@@ -5,8 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## State of the repository
 
 Three codebases — a Java ledger, a Python assistant, a React web client — all building and
-CI-gated, none carrying domain code yet. The ledger boots and answers Actuator probes; the
-assistant has no entry point; the web client renders a placeholder.
+CI-gated. **All five bounded contexts now have a domain layer**, with tests. Nothing above the
+domain exists: no application services, no ports, no adapters, no persistence, no HTTP. The
+ledger boots and answers Actuator probes; the assistant has no entry point; the web client
+renders a placeholder.
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. Several
 decisions are recorded but not yet ratified, and the requirements are deliberately `TODO`
@@ -78,6 +80,14 @@ These are enforced by the build, not by review. Breaking one fails CI.
   aggregate.
 - **Money is never floating point.** `BigDecimal` in Java, `Decimal` in Python, `NUMERIC` in
   Postgres. A `double` or `float` field in a ledger domain fails the build.
+- **The books balance.** A `Transaction` holds two or more entries summing to zero in one
+  currency, checked in the constructor, so an unbalanced one is never constructed (ADR-011).
+- **Derived, never stored.** An account balance is summed from entries and a budget's spend is
+  passed in. If you find yourself adding a `balance` or `spent` field, that is the bug.
+- **Amounts in two currencies are never combined** — no rates exist (ADR-012). Adding ILS to
+  USD throws.
+- **Pass the clock in.** No domain function calls `now()`. Transitions take a date, staleness
+  takes the current time as an argument.
 - **Foreign shapes stop at the anti-corruption layer.** Ledger DTOs, Anthropic responses and
   price-feed payloads become local model types in `adapters/outbound/*` and nowhere else.
 - **No shared kernel across languages.** `Money` is implemented once per language and pinned
@@ -93,9 +103,9 @@ These are enforced by the build, not by review. Breaking one fails CI.
   and inspecting `sys.modules` — Python does not import subpackages, so such a rule sees
   almost nothing.
 
-`backend/ledger/src/test/resources/archunit.properties` sets `archRule.failOnEmptyShould=false`
-because the context packages are still empty. **Delete that line with the first domain class**,
-or the ledger's rules stay dormant.
+The ledger's five ArchUnit rules are **live**. The `archRule.failOnEmptyShould=false` escape
+hatch was deleted with the first domain class, so a rule matching nothing now fails rather than
+passing quietly. Do not reintroduce it.
 
 TypeScript is pinned to 6.0.3, not 7.x, because `typescript-eslint` 8 declares
 `typescript: >=4.8.4 <6.1.0` — past that, `npm ci` fails with ERESOLVE. Dependabot is

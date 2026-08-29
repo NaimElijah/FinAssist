@@ -1,0 +1,139 @@
+package io.github.naimelijah.finassist.ledger.shared;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.Objects;
+
+/**
+ * An exact monetary amount in one currency.
+ *
+ * <p>Backed by {@link BigDecimal}. There is no constructor taking a {@code double} and there never
+ * will be: a binary floating-point type cannot represent 0.10, and a ledger that loses a cent per
+ * thousand transactions is wrong in a way no test written after the fact will find.
+ * {@code LedgerArchitectureTest.money_is_never_floating_point} fails the build if a floating-point
+ * field appears anywhere in a domain package.
+ *
+ * <p>The amount is normalised to the currency's minor units on construction, so {@code 12.5 ILS} and
+ * {@code 12.50 ILS} are the same value and compare equal. An amount carrying more precision than the
+ * currency admits is rejected rather than rounded — rounding here would be a silent decision about
+ * someone's money.
+ *
+ * <p>Arithmetic is closed over a single currency. Combining two currencies throws
+ * {@link CurrencyMismatchException}; see ADR-012 for why no conversion exists.
+ *
+ * <p>Deliberately <strong>not</strong> {@link Comparable}. That interface promises a total order
+ * over the type, and there is no order between an ILS amount and a USD one. Implementing it would
+ * put a throwing {@code compareTo} inside {@code TreeSet}, {@code Collections.sort} and
+ * {@code Stream.sorted}, where the failure surfaces from JDK internals with nothing in the
+ * signature having warned the caller. {@link #compareTo(Money)} is a plain method instead: usable
+ * within one currency, and honest about being partial.
+ */
+public record Money(BigDecimal amount, Currency currency) {
+
+    public Money {
+        Objects.requireNonNull(amount, "amount");
+        Objects.requireNonNull(currency, "currency");
+        try {
+            amount = amount.setScale(currency.minorUnits(), RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException cause) {
+            throw new IllegalArgumentException(
+                    "Amount "
+                            + amount.toPlainString()
+                            + " carries more precision than "
+                            + currency
+                            + " admits ("
+                            + currency.minorUnits()
+                            + " decimal places); round it deliberately before constructing Money",
+                    cause);
+        }
+    }
+
+    /**
+     * Builds an amount from its decimal text, e.g. {@code Money.of("12.50", Currency.ILS)}.
+     *
+     * <p>Text rather than a numeric literal on purpose: {@code new BigDecimal(12.50)} captures the
+     * floating-point approximation of 12.5, which is not 12.50.
+     */
+    public static Money of(String amount, Currency currency) {
+        return new Money(new BigDecimal(amount), currency);
+    }
+
+    public static Money zero(Currency currency) {
+        return new Money(BigDecimal.ZERO, currency);
+    }
+
+    public Money plus(Money other) {
+        requireSameCurrency(other);
+        return new Money(amount.add(other.amount), currency);
+    }
+
+    public Money minus(Money other) {
+        requireSameCurrency(other);
+        return new Money(amount.subtract(other.amount), currency);
+    }
+
+    public Money negate() {
+        return new Money(amount.negate(), currency);
+    }
+
+    /**
+     * Multiplies by a count, exactly. Never by another Money — that is not money.
+     *
+     * @throws IllegalArgumentException if the product needs rounding to fit the currency
+     */
+    public Money times(BigDecimal multiplier) {
+        Objects.requireNonNull(multiplier, "multiplier");
+        return new Money(amount.multiply(multiplier), currency);
+    }
+
+    /**
+     * Multiplies by a count, rounding the product to the currency's minor units.
+     *
+     * <p>The one place rounding is allowed, and it is explicit in the name. A fractional quantity —
+     * 1.5 units at 12.33 — has a mathematically exact product of 18.495 that no currency with two
+     * decimal places can express, so a total cost has to be rounded somewhere. Doing it here, half
+     * up, in a method the caller has to choose, beats {@link #times} throwing on perfectly ordinary
+     * fractional holdings.
+     */
+    public Money timesRounded(BigDecimal multiplier) {
+        Objects.requireNonNull(multiplier, "multiplier");
+        BigDecimal product = amount.multiply(multiplier);
+        return new Money(product.setScale(currency.minorUnits(), RoundingMode.HALF_UP), currency);
+    }
+
+    public boolean isZero() {
+        return amount.signum() == 0;
+    }
+
+    public boolean isPositive() {
+        return amount.signum() > 0;
+    }
+
+    public boolean isNegative() {
+        return amount.signum() < 0;
+    }
+
+    /**
+     * Orders two amounts of the same currency.
+     *
+     * <p>Not an implementation of {@link Comparable}: see the note on this class.
+     *
+     * @throws CurrencyMismatchException if the currencies differ; there is no cross-currency order
+     */
+    public int compareTo(Money other) {
+        requireSameCurrency(other);
+        return amount.compareTo(other.amount);
+    }
+
+    @Override
+    public String toString() {
+        return amount.toPlainString() + " " + currency;
+    }
+
+    private void requireSameCurrency(Money other) {
+        Objects.requireNonNull(other, "other");
+        if (currency != other.currency) {
+            throw new CurrencyMismatchException(currency, other.currency);
+        }
+    }
+}
