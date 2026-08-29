@@ -16,7 +16,12 @@ append-only history: to change course, add a new record and mark the old one
 | [008](ADR-008-backend-frontend-root-layout.md) | `backend/` and `frontend/` as the root split | Accepted |
 | [009](ADR-009-react-vite-spa-for-the-web-client.md) | React + Vite SPA for the web client | Accepted |
 | [010](ADR-010-bounded-context-map.md) | The context map, and context-first packaging | Accepted |
+| [011](ADR-011-double-entry-bookkeeping.md) | Double-entry, five account types, transaction lifecycle | Accepted |
+| [012](ADR-012-multi-currency-without-conversion.md) | Multi-currency amounts, with no conversion | Accepted |
+| [013](ADR-013-fifo-lot-based-cost-basis.md) | Lot-based holdings with FIFO cost basis | Accepted |
+| [014](ADR-014-grounded-answers-require-citations.md) | An answer stating a figure must cite the ledger | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
-still change cheaply. Resolve 004 and 006 before the first line of persistence or client
-code is written.
+still change cheaply. 004 and 006 remain Proposed: the domain layer needs neither a wire
+contract nor a database, so ratifying them was deliberately deferred rather than guessed.
+Resolve both before the first line of persistence or client code.

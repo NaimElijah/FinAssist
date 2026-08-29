@@ -13,11 +13,11 @@ language, and analyse the portfolio behind it.**
 </div>
 
 > [!IMPORTANT]
-> **This is a skeleton.** Three codebases build, lint, type-check and test, and CI gates all
-> of it. The ledger boots and answers its Actuator health probes; the assistant has no entry
-> point; the web client renders a placeholder. No bounded context has domain code yet.
-> Everything below describes what exists on `main`. Planned work appears only under
-> [Status and limitations](#status-and-limitations).
+> **All five bounded contexts have a domain layer; nothing above it exists yet.** The models,
+> their invariants and their tests are real — no application services, ports, adapters, HTTP or
+> persistence. The ledger boots and answers its Actuator health probes; the assistant has no
+> entry point; the web client renders a placeholder. Everything below describes what exists on
+> `main`. Planned work appears only under [Status and limitations](#status-and-limitations).
 
 ## Contents
 
@@ -218,10 +218,10 @@ behaviour they describe.
 
 | Layer | Covers | Command |
 |---|---|---|
-| Ledger architecture | Layering, **context isolation**, framework-free domain, no floating-point money, no aggregate cycles (ArchUnit, 5 rules) | `make test-ledger` |
-| Ledger unit | Domain rules; none yet | `make test-ledger` |
+| Ledger architecture | Layering, **context isolation**, framework-free domain, no floating-point money, no aggregate cycles (ArchUnit, 5 rules — now live, not dormant) | `make test-ledger` |
+| Ledger domain | The balancing invariant, the transaction lifecycle, derived balances, budget limits, Money (52 tests) | `make test-ledger` |
 | Assistant architecture | Every source file is parsed: no inward module imports a framework or the adapters, and no module imports another context (81 cases) | `make test-assistant` |
-| Assistant unit | Analysis functions; none yet | `make test-assistant` |
+| Assistant domain | FIFO cost basis, the grounding rule, quote staleness, Money (137 tests in total) | `make test-assistant` |
 | Web architecture | No feature imports another; `shared` imports no feature (6 cases) | `make test-web` |
 | Web unit | Components; none yet | `make test-web` |
 
@@ -302,6 +302,14 @@ owner chose the split knowingly. Cost: two toolchains, two CI jobs and a version
 contract before any feature exists. The ADR records the concrete threshold for collapsing
 back to one language.
 
+**Double-entry bookkeeping**
+([ADR-011](docs/ADRs/ADR-011-double-entry-bookkeeping.md)) — a transaction's entries must sum to
+zero, checked in the constructor, so an unbalanced one is never constructed. Balances are
+derived by summing entries; there is no balance field to drift. Single entry was rejected
+because it leaves the domain almost nothing to enforce, which would make ADR-001's reason for
+choosing Java here hollow. Cost: every purchase needs a category account to balance against, so
+a bare "I spent 12.50" is not expressible.
+
 **Context first, hexagon inside**
 ([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md)) — five bounded contexts, each one
 directory with its own hexagon, so a context is extractable by moving it. No context may
@@ -337,11 +345,11 @@ HTTP carries no runtime schema, and contract drift is silent until CI compares t
 
 ## Status and limitations
 
-**Pre-alpha skeleton.** Shipped: the repository baseline and its architecture — pinned
-toolchains for three codebases with committed lockfiles, five bounded contexts packaged
-context-first, architecture tests enforcing layering and context isolation in all three,
-requirements, architecture and ten ADRs, a Compose entry point, and CI gating build, lint,
-format and dependency audit across four jobs.
+**Pre-alpha.** Shipped: the repository baseline and architecture, plus the **domain layer of
+all five bounded contexts** with the invariants and tests that make them real — double-entry
+accounting, periodic budgets, FIFO cost basis, grounded answers, quote staleness, and `Money` in
+both languages. Fourteen ADRs. The ledger's architecture rules are live rather than dormant. CI
+gates build, lint, format and dependency audit across four jobs.
 
 Planned next, in order: resolve the
 [open questions](docs/requirements/requirements.md#open-questions), ratify or reject
@@ -351,20 +359,22 @@ tracking slice end to end.
 
 Known limitations:
 
-- **No business endpoint exists.** The ledger boots and answers Actuator probes; the
-  assistant has no ASGI entry point; the web client renders a placeholder. No context has
-  domain code.
+- **Nothing above the domain exists.** No application services, ports, adapters, HTTP or
+  persistence, so the domain models cannot yet be reached by anything.
 - **Five contexts is a guess.** They are derived from the three capability areas, not from a
   working slice, and some may turn out to be wrong boundaries. ADR-010 names the signal:
   contexts that always change together should be merged.
 - **The ledger's test suite passes vacuously** — there are no tests, so a green build is not
   yet evidence of anything.
-- **The ledger's architecture rules are dormant.** They are written and passing, but with
-  no production classes they match nothing; they begin to bite when
-  `archRule.failOnEmptyShould=false` is removed alongside the first domain class.
-- **Aggregate boundaries are undesigned.** The package names anticipate `Account`, `Entry`,
-  `Budget` and `Category` aggregates that do not exist. Getting those wrong is the most
-  expensive available mistake and no test catches it.
+- **`consume_fifo` trusts the caller's lot order.** It consumes in the order given, so a
+  caller holding lots in another order silently gets LIFO. Documented, not enforced — the
+  sharpest edge in the domain ([ADR-013](docs/ADRs/ADR-013-fifo-lot-based-cost-basis.md)).
+- **The grounding rule checks a citation exists, not that it supports the figure.** A model
+  citing a real balance while stating a different number passes
+  ([ADR-014](docs/ADRs/ADR-014-grounded-answers-require-citations.md)).
+- **No cross-currency total is possible**, by design — so there is no single net-worth figure
+  across accounts in different currencies
+  ([ADR-012](docs/ADRs/ADR-012-multi-currency-without-conversion.md)).
 - **`marketdata` has no feed.** The anti-corruption layer exists; nothing sits behind it,
   because no price source has been chosen or licence-checked.
 - **TypeScript is one minor behind.** Pinned to 6.0.3 because `typescript-eslint` 8 caps at

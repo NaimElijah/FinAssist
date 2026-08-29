@@ -17,6 +17,13 @@ history; write the commit message well and this file writes itself.
 - Web client (`frontend/web`): React 19 on Vite 8 with TypeScript, Vitest, ESLint and
   Prettier, one feature directory per user-facing bounded context.
 
+- Domain layer for all five bounded contexts. Accounting: double-entry `Transaction` with a
+  balancing invariant, five account types, a sealed lifecycle, and a derived `Balance`.
+  Budgeting: periodic `Budget` with per-category limits and derived remaining. Portfolio:
+  lot-based FIFO cost basis. Assistance: an answer stating a figure must cite its evidence.
+  Market data: quotes and staleness against a supplied clock. `Money` and `Currency` in both
+  languages.
+
 ### Changed
 
 - Services moved under `backend/`, and both are now packaged by bounded context rather than
@@ -24,5 +31,7 @@ history; write the commit message well and this file writes itself.
   `marketdata` in the assistant. A context is one directory with its own hexagon.
 - Architecture tests extended to enforce context isolation in all three codebases; each rule
   was verified by making it fail.
+- The ledger's ArchUnit rules are no longer dormant: `archRule.failOnEmptyShould=false` was
+  deleted with the first domain class, and all five now run against real code.
 
 [Unreleased]: https://github.com/NaimElijah/FinAssist/commits/main
