@@ -1,0 +1,19 @@
+# Only what the baseline requires of any service: a configurable port, and health and
+# readiness endpoints. Everything else arrives with the code that needs it.
+server:
+  port: ${LEDGER_PORT:8080}
+
+spring:
+  application:
+    name: finassist-ledger
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      # Splits health into /actuator/health/liveness and /actuator/health/readiness.
+      probes:
+        enabled: true
