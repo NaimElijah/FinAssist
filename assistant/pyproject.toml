@@ -1,0 +1,74 @@
+[project]
+name = "finassist-assistant"
+version = "0.1.0"
+description = "LLM assistant and portfolio analysis over the FinAssist ledger"
+requires-python = ">=3.13"
+license = { file = "../LICENSE" }
+
+# Exact pins only. Ranges make a lockfile a suggestion; see docs/ADRs/ADR-003.
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.4",
+    "pydantic==2.13.5",
+    "pydantic-settings==2.15.0",
+    "httpx==0.28.1",          # talks to the ledger over its OpenAPI contract
+    "anthropic==1.2.0",
+    "pandas==3.0.5",
+    "structlog==26.1.0",      # structured logging; never `print`
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "ruff==0.16.5",
+    "mypy==2.3.1",
+    "pip-audit==2.10.1",
+]
+
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/finassist_assistant"]
+
+# --- Formatter and linter: authoritative, per the repository conventions ------
+[tool.ruff]
+line-length = 100          # matches .editorconfig
+src = ["src", "tests"]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # import sorting
+    "N",        # pep8-naming
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "A",        # builtin shadowing
+    "C4",       # comprehensions
+    "T20",      # flake8-print — no print() in committed code
+    "SIM",      # simplify
+    "PTH",      # pathlib over os.path
+    "RUF",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test names are the specification and follow Given_When_Then, which is not snake_case;
+# N802 would otherwise force the convention out of the repository.
+"tests/**" = ["S101", "N802"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+# The domain has no framework imports; nothing here may weaken that.
+disallow_any_generics = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+# Test names are the specification: Given<scenario>_When<action>_Then<result>.
+python_functions = ["test_*", "Given*"]
