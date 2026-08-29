@@ -1,0 +1,32 @@
+# Java has no `pip-audit` equivalent wired into CI; Dependabot is what keeps the Maven
+# tree, the Python tree and the workflows themselves current.
+#
+# The postgres image tag in docker-compose.yml is NOT covered: Dependabot's `docker`
+# ecosystem fetches Dockerfiles, Containerfiles and Kubernetes manifests only, and there is
+# no `docker-compose` ecosystem. Bump that tag by hand, or add a `docker` entry here once
+# the services have Dockerfiles.
+version: 2
+
+updates:
+  - package-ecosystem: maven
+    directory: /ledger
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: uv
+    directory: /assistant
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(ci)"

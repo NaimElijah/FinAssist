@@ -1,0 +1,71 @@
+# Gates every push and pull request. Jobs call the Makefile targets a developer runs
+# locally, so the pipeline and the local commands cannot drift apart.
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ledger:
+    name: Ledger (Java)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-java@v6.0.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Format check
+        run: make lint-ledger
+
+      - name: Build and test
+        run: make test-ledger
+
+  assistant:
+    name: Assistant (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+          # Honour assistant/.python-version rather than the runner's default interpreter.
+          python-version-file: assistant/.python-version
+
+      - name: Install locked dependencies
+        run: cd assistant && uv sync --locked --extra dev
+
+      - name: Lint, format check and types
+        run: make lint-assistant
+
+      - name: Test
+        run: make test-assistant
+
+      - name: Dependency audit
+        run: make audit
+
+  compose:
+    name: Compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Validate docker-compose.yml
+        run: |
+          cp .env.example .env
+          sed -i 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=ci-only/' .env
+          docker compose config --quiet
