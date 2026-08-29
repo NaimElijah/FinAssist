@@ -43,8 +43,9 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
-          # Honour assistant/.python-version rather than the runner's default interpreter.
-          python-version-file: assistant/.python-version
+          # The interpreter is deliberately not pinned here: `uv sync` resolves it from
+          # assistant/.python-version and requires-python, so that file stays the single
+          # source of truth. setup-uv has no `python-version-file` input.
 
       - name: Install locked dependencies
         run: cd assistant && uv sync --locked --extra dev
