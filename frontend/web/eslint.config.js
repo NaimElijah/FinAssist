@@ -27,6 +27,9 @@ export default tseslint.config(
         rules: {
             ...reactHooks.configs.recommended.rules,
             'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+            // Structured records go through src/shared/lib/logger.ts, which is the only file
+            // that disables this. Mirrors ruff's T20 ban on `print` in the backend (ADR-019).
+            'no-console': 'error',
         },
     },
 );
