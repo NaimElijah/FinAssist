@@ -33,9 +33,7 @@ class CurrencyTest {
     @Test
     void Given_the_currency_table_When_counted_Then_it_holds_exactly_the_currencies_python_holds() {
         assertThat(Currency.values()).hasSize(5);
-        assertThat(Currency.values())
-                .extracting(Enum::name)
-                .containsExactly("ILS", "USD", "EUR", "GBP", "JPY");
+        assertThat(Currency.values()).extracting(Enum::name).containsExactly("ILS", "USD", "EUR", "GBP", "JPY");
     }
 
     @Test

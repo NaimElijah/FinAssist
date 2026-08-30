@@ -218,4 +218,27 @@ class TransactionTest {
                         .description())
                 .isEqualTo("Coffee");
     }
+
+    /**
+     * A void reverses the clearing, so it cannot predate it. {@code reconcile} already guards
+     * against its own predecessor this way; {@code markVoided} compared only against
+     * {@code occurredOn}, which let a transaction cleared on the 20th be voided on the 10th.
+     */
+    @Test
+    void Given_a_cleared_transaction_When_voided_before_it_cleared_Then_it_is_refused() {
+        Transaction cleared = coffee().clear(LocalDate.of(2026, 3, 20));
+
+        assertThatThrownBy(() -> cleared.markVoided(LocalDate.of(2026, 3, 10), "Charged twice"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cleared");
+    }
+
+    @Test
+    void Given_a_cleared_transaction_When_voided_on_the_day_it_cleared_Then_it_is_allowed() {
+        LocalDate clearedOn = LocalDate.of(2026, 3, 20);
+        Transaction cleared = coffee().clear(clearedOn);
+
+        assertThat(cleared.markVoided(clearedOn, "Charged twice").countsTowardsBalance())
+                .isFalse();
+    }
 }

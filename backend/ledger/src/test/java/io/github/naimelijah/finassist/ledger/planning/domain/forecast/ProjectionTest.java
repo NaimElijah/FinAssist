@@ -314,13 +314,11 @@ class ProjectionTest {
     @Test
     void Given_points_in_two_currencies_When_a_projection_is_built_Then_it_is_refused() {
         BalancePoint january = new BalancePoint(JANUARY, ils("1000.00"), Money.zero(Currency.ILS));
-        BalancePoint february =
-                new BalancePoint(FEBRUARY, Money.of("1000.00", Currency.USD), Money.zero(Currency.USD));
+        BalancePoint february = new BalancePoint(FEBRUARY, Money.of("1000.00", Currency.USD), Money.zero(Currency.USD));
         BalancePoint march = new BalancePoint(MARCH, ils("1000.00"), Money.zero(Currency.ILS));
         BalancePoint april = new BalancePoint(APRIL, ils("1000.00"), Money.zero(Currency.ILS));
 
-        assertThatThrownBy(
-                        () -> new Projection(QUARTER, Cadence.MONTHLY, List.of(january, february, march, april)))
+        assertThatThrownBy(() -> new Projection(QUARTER, Cadence.MONTHLY, List.of(january, february, march, april)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

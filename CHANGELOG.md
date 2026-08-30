@@ -9,6 +9,13 @@ history; write the commit message well and this file writes itself.
 
 ## [Unreleased]
 
+### Fixed
+
+- Voiding a *cleared* transaction no longer accepts a date before it cleared. The guard
+  compared the void date against the date the transaction occurred only, so a transaction
+  cleared on the 20th could be voided on the 10th and the void predated the clearing it
+  reverses. `reconcile` already guarded against its own predecessor this way.
+
 ### Added
 
 - Repository baseline: requirements, architecture and ADR documents, licence, editor and
