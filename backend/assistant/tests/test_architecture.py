@@ -388,6 +388,18 @@ def Given_an_uncalled_clock_reference_When_scanned_Then_it_is_still_a_violation(
     assert _clock_reads_in("from time import time" + chr(10) + "x = time()")
 
 
+def Given_a_field_named_after_the_clock_When_scanned_Then_it_is_flagged_deliberately() -> None:
+    # A false positive, and an intended one. Matching an attribute by name is what catches
+    # `field(default_factory=datetime.now)`, which produces no Call node and is how a clock
+    # read enters a value object; the price is that an ordinary attribute sharing the name is
+    # flagged too. In a domain whose entire convention is that time arrives as an argument, a
+    # field called `now` or `time` deserves the second look, and the message names the file and
+    # line. Pinned so that narrowing the rule back is a deliberate act rather than a tidy-up -
+    # the narrower version had exactly the hole described above.
+    assert _clock_reads_in("x = quote.now")
+    assert _clock_reads_in("x = instrument.time")
+
+
 def Given_a_parameter_named_now_When_scanned_Then_it_is_not_a_violation() -> None:
     # is_stale and age both take a parameter called `now` and subtract with it. A rule matching
     # every bare name would fail the build on the very convention it exists to enforce.
