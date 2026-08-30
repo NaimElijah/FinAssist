@@ -80,3 +80,49 @@ def Given_a_price_that_is_not_a_number_When_normalised_Then_it_is_refused() -> N
 def Given_a_price_too_precise_for_the_currency_When_normalised_Then_it_is_refused() -> None:
     with pytest.raises(ValueError, match="more precision"):
         normalise("VWCE", "120.5051", Currency.USD, NOON)
+
+
+def Given_a_blank_ticker_When_normalised_Then_it_is_refused() -> None:
+    with pytest.raises(ValueError, match="must not be blank"):
+        normalise("   ", "412.55", Currency.USD, NOON)
+
+
+def Given_a_negative_price_When_normalised_Then_it_is_refused() -> None:
+    with pytest.raises(ValueError, match="cannot be negative"):
+        normalise("VWCE", "-1.00", Currency.USD, NOON)
+
+
+def Given_a_naive_timestamp_When_normalised_Then_it_is_refused() -> None:
+    with pytest.raises(ValueError, match="timezone"):
+        normalise("VWCE", "412.55", Currency.USD, datetime(2026, 3, 1, 12, 0))
+
+
+def Given_a_price_that_is_not_finite_When_normalised_Then_it_is_refused() -> None:
+    # Decimal accepts "NaN" and "Infinity", so these slip past the InvalidOperation handler and
+    # are caught by Money's own finiteness check instead - a different message, same refusal.
+    with pytest.raises(ValueError, match="finite"):
+        normalise("VWCE", "NaN", Currency.USD, NOON)
+
+
+def Given_a_quote_dated_in_the_future_When_aged_Then_the_age_is_negative_and_it_is_not_stale() -> (
+    None
+):
+    future = quote_at(NOON + timedelta(hours=1))
+
+    assert age(future, NOON) == timedelta(hours=-1)
+    assert is_stale(future, NOON, timedelta(hours=1)) is False
+
+
+def Given_a_negative_maximum_age_When_staleness_is_judged_Then_it_is_refused() -> None:
+    with pytest.raises(ValueError, match="must be positive"):
+        is_stale(quote_at(NOON), NOON, timedelta(hours=-1))
+
+
+def Given_an_instrument_name_padded_with_spaces_When_built_Then_it_is_stripped() -> None:
+    assert (
+        Instrument(Ticker("VWCE"), "  Vanguard FTSE All-World  ").name == "Vanguard FTSE All-World"
+    )
+
+
+def Given_a_quote_priced_at_zero_When_built_Then_it_is_allowed() -> None:
+    assert Quote(Ticker("VWCE"), Money.of("0.00", Currency.USD), NOON).price.is_zero
