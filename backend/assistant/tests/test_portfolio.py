@@ -187,7 +187,8 @@ def Given_a_foreign_price_When_a_position_is_valued_Then_it_answers_in_that_curr
     # amounts, so ADR-012's guard has nothing to fire on: valuing a USD holding at an ILS price
     # yields an ILS figure with no complaint, even though the Position carries its own currency
     # and could be checked against. unrealised_gain, which does combine, refuses the same pair.
-    # Left as it stands because tightening it is a domain decision, not a testing one.
+    # Left as it stands because tightening it is a domain decision, not a testing one:
+    # https://github.com/NaimElijah/FinAssist/issues/17 (@NaimElijah).
     held = position((lot("2", "10.00", 1),))
 
     assert market_value(held, ils("12.00")) == ils("24.00")

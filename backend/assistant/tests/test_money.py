@@ -120,8 +120,17 @@ def Given_two_currencies_When_ordered_with_le_Then_it_is_refused() -> None:
         _ = Money.of("10.00", Currency.ILS) <= Money.of("10.00", Currency.USD)
 
 
-def Given_a_non_finite_multiplier_When_times_rounded_Then_it_is_refused() -> None:
-    # The product is NaN, which Money's own finiteness guard refuses - so the caller sees the
-    # ValueError this module promises rather than a decimal.InvalidOperation.
+@pytest.mark.parametrize("multiplier", ["NaN", "sNaN", "Infinity", "-Infinity"])
+@pytest.mark.parametrize("operation", ["times", "times_rounded"])
+def Given_a_non_finite_multiplier_When_multiplied_Then_it_is_refused(
+    operation: str, multiplier: str
+) -> None:
+    # Parametrised over all four non-finite values because the first version of this test used
+    # NaN alone and passed: a quiet NaN reached Money's own finiteness check, while an infinity
+    # or a signalling NaN escaped as decimal.InvalidOperation - an ArithmeticError, not the
+    # ValueError this module's contract promises. Java has no counterpart case; BigDecimal
+    # cannot represent any of these.
+    money = Money.of("10.00", Currency.USD)
+
     with pytest.raises(ValueError, match="finite"):
-        Money.of("10.00", Currency.USD).times_rounded(Decimal("NaN"))
+        getattr(money, operation)(Decimal(multiplier))

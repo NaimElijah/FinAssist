@@ -43,6 +43,11 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- `Money.times` and `Money.times_rounded` now refuse every non-finite multiplier with the
+  `ValueError` their contract promises. An infinity or a signalling NaN escaped as
+  `decimal.InvalidOperation` - an `ArithmeticError` a caller catching `ValueError` never
+  sees. Only a quiet NaN happened to reach `Money`'s own finiteness check, which made the
+  gap look closed when it was not.
 - `Money.times_rounded` in the Python kernel no longer fails on a large product. Its decimal
   context precision was a fixed 60 rather than sized to the value, so multiplying two large
   amounts raised `decimal.InvalidOperation` - an `ArithmeticError`, not the `ValueError` the

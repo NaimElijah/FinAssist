@@ -45,17 +45,34 @@ class MoneyVectorsTest {
 
     private static final JsonNode VECTORS = load();
 
+    private static final String VECTORS_FILE = "money-vectors.v1.json";
+
     /**
-     * Injected by Maven as {@code ${project.basedir}/../../contracts}, so it is correct however the
-     * build was invoked rather than being a claim about the working directory.
+     * Surefire injects {@code finassist.contracts.dir} as {@code ${project.basedir}/../../contracts},
+     * which is correct however Maven was invoked. Other runners do not: PIT executes the suite in
+     * its own JVM outside surefire, and an IDE may not pass it either, so the property alone made
+     * this class fail everywhere except {@code mvn test} — it broke {@code make mutation-ledger}
+     * outright. The search is the fallback, and both paths still fail loudly rather than skipping.
      */
-    private static JsonNode load() {
-        String directory = System.getProperty("finassist.contracts.dir");
-        if (directory == null) {
-            throw new IllegalStateException("finassist.contracts.dir is not set; surefire must pass it so"
-                    + " this test can find the shared Money vectors");
+    private static Path locateVectors() {
+        String configured = System.getProperty("finassist.contracts.dir");
+        if (configured != null) {
+            return Path.of(configured, VECTORS_FILE);
         }
-        Path path = Path.of(directory, "money-vectors.v1.json");
+        for (Path directory = Path.of("").toAbsolutePath(); directory != null; directory = directory.getParent()) {
+            Path candidate = directory.resolve("contracts").resolve(VECTORS_FILE);
+            if (Files.isRegularFile(candidate)) {
+                return candidate;
+            }
+        }
+        throw new IllegalStateException("could not find contracts/" + VECTORS_FILE + " above "
+                + Path.of("").toAbsolutePath()
+                + ", and finassist.contracts.dir was not set. Both language suites read this file;"
+                + " a missing one must fail loudly rather than silently check nothing.");
+    }
+
+    private static JsonNode load() {
+        Path path = locateVectors();
         if (!Files.isRegularFile(path)) {
             throw new IllegalStateException("shared Money vectors not found at " + path
                     + ". Both language suites read this file; a missing one must fail loudly rather than"

@@ -106,14 +106,14 @@ def Given_any_disposal_When_consumed_Then_the_oldest_lots_go_first(
 
     remaining = consume_fifo(holding, Decimal(sold)).remaining
 
-    # Whatever survives is a tail of the original: FIFO consumes from the front, so no lot
-    # older than a surviving one can still be there.
-    assert [lot.acquired_on for lot in remaining] == sorted(lot.acquired_on for lot in remaining)
-    if remaining:
-        consumed_dates = [
-            lot.acquired_on for lot in holding if lot.acquired_on < remaining[0].acquired_on
-        ]
-        assert all(date_ < remaining[0].acquired_on for date_ in consumed_dates)
+    # Whatever survives is a *suffix* of the input: FIFO consumes from the front, so the
+    # remaining acquisition dates must be the last N of the original, in order.
+    #
+    # The previous version filtered the input by `date < remaining[0].date` and then
+    # asserted that same predicate over the result - true for every input by construction,
+    # so the property named here could not fail.
+    dates = [lot.acquired_on for lot in holding]
+    assert [lot.acquired_on for lot in remaining] == dates[len(dates) - len(remaining) :]
 
 
 @given(lots(), st.data())

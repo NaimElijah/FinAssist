@@ -8,6 +8,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -38,13 +39,25 @@ class LedgerApplicationTest {
     @LocalServerPort
     private int port;
 
+    /**
+     * One client for the class, closed afterwards. {@link HttpClient} owns a selector thread and
+     * an executor and is {@link AutoCloseable} on Java 21, so building one per request left four
+     * of them running until the JVM exited.
+     */
+    private static final HttpClient CLIENT = HttpClient.newHttpClient();
+
+    @AfterAll
+    static void closeClient() {
+        CLIENT.close();
+    }
+
     private HttpResponse<String> get(String path) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + path))
                 .timeout(TIMEOUT)
                 .GET()
                 .build();
-        return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        return CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     @Test

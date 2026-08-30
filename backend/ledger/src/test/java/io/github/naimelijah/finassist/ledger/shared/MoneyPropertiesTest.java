@@ -120,18 +120,23 @@ class MoneyPropertiesTest {
 
     /**
      * {@code timesRounded} may round, but only to the currency's own precision — so it can never
-     * land more than one minor unit away from the exact product.
+     * land more than <em>half</em> a minor unit away from the exact product.
+     *
+     * <p>Half, not a whole unit: the looser bound this originally asserted is satisfied by
+     * {@code CEILING} and {@code UP} as well as {@code HALF_UP}, so it could not detect the
+     * rounding mode being changed.
      */
     @ParameterizedTest
     @MethodSource("amounts")
-    void Given_any_amount_When_scaled_with_rounding_Then_it_stays_within_one_minor_unit(Money money) {
+    void Given_any_amount_When_scaled_with_rounding_Then_it_stays_within_half_a_minor_unit(Money money) {
         BigDecimal multiplier = new BigDecimal("1.005");
         Money rounded = money.timesRounded(multiplier);
         BigDecimal exact = money.amount().multiply(multiplier);
-        BigDecimal oneMinorUnit = BigDecimal.ONE.movePointLeft(money.currency().minorUnits());
+        BigDecimal halfAMinorUnit =
+                BigDecimal.ONE.movePointLeft(money.currency().minorUnits()).divide(BigDecimal.TWO);
 
         assertThat(rounded.currency()).isEqualTo(money.currency());
-        assertThat(rounded.amount().subtract(exact).abs()).isLessThanOrEqualTo(oneMinorUnit);
+        assertThat(rounded.amount().subtract(exact).abs()).isLessThanOrEqualTo(halfAMinorUnit);
     }
 
     @ParameterizedTest

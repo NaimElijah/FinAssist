@@ -129,9 +129,15 @@
 
   <profiles>
     <!--
-      Mutation testing, opt in with `./mvnw -Pmutation test`. Deliberately not bound to any
-      lifecycle phase: it re-runs the suite once per mutant and would multiply CI's runtime for a
-      number nothing gates on. Coverage says which lines ran; this says whether the tests would
+      Mutation testing, opt in with:
+
+        ./mvnw -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
+
+      The goal is named explicitly because it is deliberately not bound to any
+      lifecycle phase: it re-runs the suite once per mutant and would multiply CI's runtime for
+      a number nothing gates on. `test-compile` comes first because a direct goal invocation
+      runs no lifecycle, so on a clean tree PIT finds no classes and aborts with "No mutations
+      found". Coverage says which lines ran; this says whether the tests would
       notice if those lines were wrong, which is the question worth asking of a domain whose whole
       job is refusing things. See docs/ADRs/ADR-017-test-strategy.md.
 

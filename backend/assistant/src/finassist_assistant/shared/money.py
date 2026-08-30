@@ -27,11 +27,24 @@ def _precision_for(value: Decimal) -> int:
 
     Every digit already present, plus the zeros a positive exponent implies — ``1E+30`` is one
     digit and thirty zeros. Sizing off the digit tuple alone under-counts that case badly.
+
+    Callers guarantee ``value`` is finite: the constructor checks the amount before this is
+    reached, and both multiplications check the multiplier.
     """
-    if not value.is_finite():
-        return 1
     digits, exponent = value.as_tuple()[1:]
     return len(digits) + max(int(exponent), 0) + 1
+
+
+def _require_finite_multiplier(multiplier: Decimal) -> None:
+    """Refuses a multiplier that is not a finite number.
+
+    Both multiplications promise ``ValueError``. Without this the decimal module raises
+    ``InvalidOperation`` for an infinity or a signalling NaN — an ``ArithmeticError``, which a
+    caller catching ``ValueError`` never sees. A quiet NaN happened to reach ``Money``'s own
+    finiteness check and so looked handled; the other three did not.
+    """
+    if not multiplier.is_finite():
+        raise ValueError(f"A multiplier must be a finite number but was {multiplier}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,8 +115,10 @@ class Money:
     def times(self, multiplier: Decimal) -> Money:
         """Multiplies by a count, exactly. Never by another Money — that is not money.
 
-        :raises ValueError: if the product needs rounding to fit the currency
+        :raises ValueError: if the multiplier is not finite, or the product needs rounding to
+            fit the currency
         """
+        _require_finite_multiplier(multiplier)
         return Money(self.amount * multiplier, self.currency)
 
     def times_rounded(self, multiplier: Decimal) -> Money:
@@ -114,7 +129,10 @@ class Money:
         currency can express, so a total cost has to be rounded somewhere. Doing it here, half up,
         in a method the caller has to choose, beats :meth:`times` throwing on perfectly ordinary
         fractional holdings.
+
+        :raises ValueError: if the multiplier is not finite
         """
+        _require_finite_multiplier(multiplier)
         with localcontext() as context:
             # Sized to this particular product, for the reason __post_init__ is sized to its
             # particular value. A fixed precision raises decimal.InvalidOperation - an

@@ -166,7 +166,7 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | Two strategies in one comparison cannot share a name | `Comparison` constructor; `ComparisonTest` | **Enforced** |
 | A recurrence that would end before it begins is refused, not answered with nothing | `Recurrence.Until`; `PlannedFlow` constructor; `RecurrenceTest` | **Enforced** |
 | No bounded context depends on another | `LedgerArchitectureTest.contexts_do_not_depend_on_each_other`; `test_architecture.py`; `architecture.test.ts` | **Enforced** |
-| A domain function is given the current time rather than reading it | `test_architecture.py::…Then_it_reads_no_clock`; `is_stale`, `Projection.of`, `Transaction.clear` all take a date | **Enforced** on the Python side; a convention in the ledger |
+| A domain function is given the current time rather than reading it | `test_architecture.py::…Then_it_reads_no_clock`, which matches an uncalled `datetime.now` reference too; `is_stale`, `Projection.of`, `Transaction.clear` all take a date | **Enforced** on the Python side; a convention in the ledger |
 | The currency table is the same in both languages | `CurrencyTest`, `test_currency.py` | **Enforced** |
 | The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) | Proposed — no persistence or client exists yet |
 | Uniqueness of an account name within the chart of accounts | — | TODO (@NaimElijah) — needs a repository to enforce against |
