@@ -76,4 +76,8 @@ disallow_any_generics = true
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
 # Test names are the specification: Given<scenario>_When<action>_Then<result>.
-python_functions = ["test_*", "Given*"]
+# The trailing underscore matters. pytest matches these with fnmatch, which is case-insensitive
+# on Windows, so a bare "Given*" also matches Hypothesis's `given` decorator wherever it is
+# imported - collecting it as a test locally but not on Linux CI, which is exactly the kind of
+# drift between the two that ADR-005 exists to prevent.
+python_functions = ["test_*", "Given_*"]
