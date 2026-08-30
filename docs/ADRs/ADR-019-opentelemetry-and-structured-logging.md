@@ -41,9 +41,16 @@ repeats it. Nothing enforced either statement.
 ratifies it and names the consequence: instrumentation is vendor-neutral, and a backend is chosen
 by pointing `OTEL_EXPORTER_OTLP_ENDPOINT` somewhere, not by changing code.
 
-**Telemetry degrades to a no-op when unconfigured.** With no endpoint set, both services start
-normally and drop their spans. This is not a convenience: it is the contract `.env.example` already
-published, and the ledger has a test that fails if a future change makes the exporter mandatory.
+**Telemetry degrades to a no-op when unconfigured.** With export off, both services start
+normally and emit nothing outward — no spans, and no metrics push. This is not a convenience: it
+is the contract `.env.example` already published, and the ledger has a test that reads the
+shipped configuration and fails if a future change flips either default on.
+
+**The OTLP endpoint is never set in application configuration.** Spring Boot 4.1 registers
+`OpenTelemetryEnvironmentVariableEnvironmentPostProcessor`, which maps the standard
+`OTEL_EXPORTER_OTLP_ENDPOINT` — and the signal-specific variants — onto its own properties with
+`addFirst`. A hand-written value would be discarded whenever the standard variable is set, and
+would silently ignore the signal-specific one where it is not.
 
 **Logs are JSON on stdout, and the process writes no log files.** The ledger uses Spring Boot 4.1's
 built-in structured logging (`logging.structured.format.console: ecs`), so no JSON encoder
@@ -51,10 +58,19 @@ dependency is added; SLF4J 2.0.18 and Logback 1.5.38 already arrive with `spring
 The assistant uses `structlog`, which was already pinned. Rotation, shipping and retention belong
 to whatever runs the container, not to the application.
 
-**One redaction boundary per service, never a call site.** The assistant's logging pipeline carries
-a redaction processor that removes secret material by key before a record is rendered. Redaction at
-each call site is what the requirement already rejected, and it fails the first time somebody
-forgets.
+**One redaction boundary per service that handles secrets, never a call site.** The assistant's
+pipeline carries a redaction processor, and the web client's logger does the same; both remove
+secret-named keys and scrub registered values. Redaction at each call site is what the requirement
+already rejected, and it fails the first time somebody forgets.
+
+The processor runs *after* the traceback is rendered, not before. An exception is one of the
+likeliest carriers of a secret — a client raising with the key in its message or URL — and until
+`format_exc_info` has turned it into a string there is nothing to scrub. Reversing those two
+leaks every secret an exception carries, which a test now prevents.
+
+The ledger has no such boundary and needs none: it holds no secret, reaches no third-party API,
+and does not expose `/actuator/env`. Claiming otherwise in the README was an overstatement
+corrected in the same change.
 
 **The correlation id is a W3C trace context, not a bespoke header.** The ledger gets `traceId` and
 `spanId` in the MDC from Micrometer Tracing and into every log line through the ECS format; the
@@ -62,8 +78,12 @@ assistant carries the same ids in a `contextvar`; the web client generates a `tr
 it on every request. One standard the whole way, so a browser request and the span the ledger
 records are the same trace rather than two ids someone has to join by hand.
 
-**Metrics are exposed for scraping and pushed over OTLP.** `micrometer-registry-prometheus` puts
-`/actuator/prometheus` on the ledger. Actuator exposure stays an explicit allow-list —
+**Metrics are exposed for scraping, and their OTLP push is gated by the same flag as traces.**
+`micrometer-registry-prometheus` puts `/actuator/prometheus` on the ledger, which is how
+Prometheus reads them. `spring-boot-starter-opentelemetry` also drags in
+`micrometer-registry-otlp`, which would otherwise POST to `localhost:4318/v1/metrics` every
+minute forever on a machine with no collector — so one variable, `OTEL_EXPORT_ENABLED`, gates
+both signals. Actuator exposure stays an explicit allow-list —
 `health,info,metrics,prometheus`, never `"*"` — and the existing test asserting `/actuator/env`
 returns 404 is what stops that widening by accident.
 

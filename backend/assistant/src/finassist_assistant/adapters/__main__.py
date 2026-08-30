@@ -6,22 +6,24 @@ README instead of hiding behind an entry point that has to be installed first.
 
 from __future__ import annotations
 
-import os
-
 import uvicorn
 
 from finassist_assistant.adapters.app import create_app
-
-DEFAULT_PORT = 8000
+from finassist_assistant.adapters.settings import Settings
 
 
 def main() -> None:
-    """Serve the application on ``ASSISTANT_PORT``."""
+    """Serve the application on the configured host and port.
+
+    Host and port come from ``Settings`` rather than from ``os.environ`` here, so a malformed
+    ``ASSISTANT_PORT`` is refused by pydantic with the field named, instead of a bare
+    ``ValueError`` from ``int("")`` that says nothing about which variable is wrong.
+    """
+    settings = Settings()
     uvicorn.run(
-        create_app(),
-        # Every interface, because the process is reached from outside its container (ADR-005).
-        host="0.0.0.0",
-        port=int(os.environ.get("ASSISTANT_PORT", DEFAULT_PORT)),
+        create_app(settings),
+        host=settings.host,
+        port=settings.port,
         # Logging is configured by create_app; uvicorn's own dictConfig would replace the
         # structured handler with its plain-text one and quietly bypass the redaction boundary.
         log_config=None,

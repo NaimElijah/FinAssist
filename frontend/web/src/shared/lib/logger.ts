@@ -31,13 +31,19 @@ export const REDACTED = '[redacted]';
  * Key fragments whose values never reach the output. Matched as substrings on a
  * separator-insensitive form, so `apiKey`, `api_key` and `X-Api-Key` are all caught.
  */
+// Deliberately no bare 'token': the assistance feature's whole job is to report LLM usage,
+// and `inputTokens` is the natural way to log it. A fragment that redacted a token count would
+// destroy the measurement while protecting nothing.
 const SECRET_KEY_FRAGMENTS = [
     'apikey',
+    'authtoken',
     'authorization',
+    'accesstoken',
     'credential',
+    'idtoken',
     'password',
+    'refreshtoken',
     'secret',
-    'token',
 ] as const;
 
 /** Guards against a cyclic structure turning redaction into an infinite descent. */
@@ -107,10 +113,13 @@ export function setLogSink(replacement: LogSink): () => void {
 
 function write(level: LogLevel, event: string, fields: LogFields = {}): void {
     sink({
+        // Caller fields are spread first so the record's own metadata always wins. Spreading
+        // them last let `log.error('http failed', { event: 'click' })` replace the stable event
+        // name every filter and alert keys on.
+        ...redactFields(fields),
         timestamp: new Date().toISOString(),
         level,
         event,
-        ...redactFields(fields),
     });
 }
 

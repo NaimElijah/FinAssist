@@ -120,7 +120,8 @@ These are enforced by the build, not by review. Breaking one fails CI.
   `adapters/observability.py`, `shared/lib/logger.ts`, or Logback's ECS format (ADR-019).
   Redaction lives at that boundary, never at a call site.
 - **Telemetry is a no-op when unconfigured.** A service must start with no collector named. An
-  endpoint alone never enables export; `OTEL_TRACES_EXPORT_ENABLED` does.
+  endpoint alone never enables export; `OTEL_EXPORT_ENABLED` does, for traces and metrics
+  alike.
 - **The assistant's composition root is `src/finassist_assistant/adapters/`.** It is the only
   package that may import FastAPI, structlog or OpenTelemetry outside a context's own
   `adapters`. No context may import it.

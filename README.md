@@ -307,8 +307,9 @@ in the repository, the logs or an error message.
 | `LEDGER_BASE_URL` | Where the assistant reaches the ledger | `http://ledger:8080` |
 | `POSTGRES_PORT` | Host port mapped to Postgres | `5432` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; each service appends its own signal path | `http://localhost:4318` |
-| `OTEL_TRACES_EXPORT_ENABLED` | Whether to export spans at all. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` |
-| `ASSISTANT_LOG_LEVEL` | Threshold for the assistant's structured logger | `INFO` |
+| `OTEL_EXPORT_ENABLED` | Whether to export telemetry at all — traces and metrics both. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` |
+| `ASSISTANT_LOG_LEVEL` | Threshold for the assistant's structured logger; one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
+| `ASSISTANT_HOST` | Interface the assistant binds. Loopback by default — nothing runs it in a container yet | `127.0.0.1` |
 | `OTLP_HTTP_PORT`, `OTLP_GRPC_PORT` | Host ports for the collector | `4318`, `4317` |
 | `PROMETHEUS_PORT`, `GRAFANA_PORT` | Host ports for the monitoring profile | `9090`, `3000` |
 
@@ -325,8 +326,8 @@ only build artefact that exists.
 | Liveness | `GET /actuator/health/liveness` (ledger), `GET /health` (assistant) | Live, returns `UP` |
 | Readiness | `GET /actuator/health/readiness` (ledger), `GET /ready` (assistant) | Live, returns `UP` |
 | Metrics | `GET /actuator/metrics`, `GET /actuator/prometheus` | Live, and scraped by the monitoring profile; no domain metric yet |
-| Traces | OTLP to `$OTEL_EXPORTER_OTLP_ENDPOINT` | Live when `OTEL_TRACES_EXPORT_ENABLED=true`; dropped otherwise, and the services start either way |
-| Logs | JSON on stdout, carrying a W3C trace id | Live — ECS in the ledger, structlog in the assistant, both through one redacting boundary |
+| Traces | OTLP to `$OTEL_EXPORTER_OTLP_ENDPOINT` | Live when `OTEL_EXPORT_ENABLED=true`; dropped otherwise, and the services start either way |
+| Logs | JSON on stdout, carrying a W3C trace id | Live — ECS in the ledger, structlog in the assistant. Redaction is enforced in the assistant and the web client, where the secrets are; the ledger holds none and does not expose `/actuator/env` |
 | Dashboards | Grafana, provisioned from `ops/grafana/` | Live under the `monitoring` profile |
 | Audit trail | The append-only journal | Not implemented — needs a store ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)) |
 
@@ -334,7 +335,7 @@ Run the telemetry backend with `docker compose --profile monitoring up`: Grafana
 [localhost:3000](http://localhost:3000), Prometheus on
 [localhost:9090](http://localhost:9090), and an OTLP collector on `localhost:4318`. Point the
 ledger at it with `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-OTEL_TRACES_EXPORT_ENABLED=true ./mvnw spring-boot:run`. Traces are printed by the collector
+OTEL_EXPORT_ENABLED=true ./mvnw spring-boot:run`. Traces are printed by the collector
 (`docker compose logs otel-collector`) rather than stored — there is no trace backend, which
 [ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md) records as a deliberate
 limit.

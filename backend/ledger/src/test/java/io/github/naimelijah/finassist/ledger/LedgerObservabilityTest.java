@@ -5,24 +5,30 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.micrometer.tracing.ScopedSpan;
 import io.micrometer.tracing.Tracer;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Objects;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.core.env.Environment;
+import org.springframework.core.env.PropertySource;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.io.ClassPathResource;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -54,9 +60,6 @@ class LedgerObservabilityTest {
 
     @Autowired
     private Tracer tracer;
-
-    @Autowired
-    private Environment environment;
 
     private static final HttpClient CLIENT = HttpClient.newHttpClient();
 
@@ -128,15 +131,56 @@ class LedgerObservabilityTest {
     }
 
     /**
-     * ADR-019's no-op contract. Export stays off unless a collector is named, so a developer
-     * without one is not given an export error for every span, and the endpoint still resolves to
-     * the documented default rather than to an empty string that would fail to parse as a URL.
+     * ADR-019's no-op contract, read from the shipped file rather than from the running
+     * context.
+     *
+     * <p>Two reasons it is done this way. {@link AutoConfigureTracing} on this class turns
+     * export back on, so the live {@code Environment} would answer for the test rather than for
+     * production. And Spring Boot 4.1's {@code
+     * OpenTelemetryEnvironmentVariableEnvironmentPostProcessor} maps {@code
+     * OTEL_EXPORTER_OTLP_ENDPOINT} onto these properties with {@code addFirst} — so a developer
+     * who exports the variable this project now documents would fail an assertion made against
+     * the ambient environment. A test whose result depends on the machine it runs on is not a
+     * test.
+     *
+     * <p>Loading {@code application.yml} into an environment with no system property sources
+     * asserts what the repository ships: both exporters off unless someone opts in.
      */
     @Test
-    void Given_no_collector_is_configured_When_the_export_settings_are_read_Then_export_is_off_and_the_url_is_valid() {
-        assertThat(environment.getProperty("management.opentelemetry.tracing.export.otlp.endpoint"))
-                .isEqualTo("http://localhost:4318/v1/traces");
-        assertThat(URI.create(environment.getRequiredProperty("management.opentelemetry.tracing.export.otlp.endpoint")))
-                .hasScheme("http");
+    void Given_the_shipped_configuration_When_read_without_the_environment_Then_export_is_off() throws Exception {
+        StandardEnvironment shipped = new StandardEnvironment();
+        shipped.getPropertySources().remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
+        shipped.getPropertySources().remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
+        for (PropertySource<?> loaded :
+                new YamlPropertySourceLoader().load("application.yml", new ClassPathResource("application.yml"))) {
+            shipped.getPropertySources().addLast(loaded);
+        }
+
+        assertThat(shipped.getProperty("management.tracing.export.enabled")).isEqualTo("false");
+        assertThat(shipped.getProperty("management.otlp.metrics.export.enabled"))
+                .isEqualTo("false");
+    }
+
+    /**
+     * The endpoint must come from Spring Boot's own environment-variable mapping.
+     *
+     * <p>Setting it in {@code application.yml} looks harmless and is not: the post-processor
+     * installs its property source with {@code addFirst}, so a hand-built value is computed and
+     * discarded whenever the standard variable is set, and it ignores the signal-specific
+     * {@code OTEL_EXPORTER_OTLP_TRACES_ENDPOINT} entirely.
+     */
+    @Test
+    void Given_the_shipped_configuration_When_read_Then_it_hard_codes_no_otlp_endpoint() throws IOException {
+        String yaml;
+        try (InputStream source =
+                Objects.requireNonNull(getClass().getResourceAsStream("/application.yml"), "application.yml")) {
+            yaml = new String(source.readAllBytes(), StandardCharsets.UTF_8);
+        }
+
+        assertThat(yaml)
+                .as("Spring Boot maps OTEL_EXPORTER_OTLP_ENDPOINT itself; setting it here overrides"
+                        + " the signal-specific variable and is discarded when the standard one is set")
+                .doesNotContain("export.otlp")
+                .doesNotContain("v1/traces");
     }
 }

@@ -30,6 +30,22 @@ describe('redaction', () => {
         });
     });
 
+    it('Given_llm_token_counts_When_redacted_Then_they_survive', () => {
+        // The assistance feature exists to report usage. A bare 'token' fragment would redact
+        // the measurement while protecting nothing.
+        expect(redactFields({ inputTokens: 1200, output_tokens: 340 })).toEqual({
+            inputTokens: 1200,
+            output_tokens: 340,
+        });
+    });
+
+    it('Given_a_real_bearer_token_field_When_redacted_Then_it_is_removed', () => {
+        expect(redactFields({ accessToken: 'abc', refresh_token: 'def' })).toEqual({
+            accessToken: REDACTED,
+            refresh_token: REDACTED,
+        });
+    });
+
     it('Given_a_secret_nested_in_a_payload_When_redacted_Then_it_is_still_removed', () => {
         const redacted = redactFields({
             request: { headers: { authorization: 'Bearer abc' }, path: '/v1/accounts' },
@@ -41,8 +57,10 @@ describe('redaction', () => {
     });
 
     it('Given_a_secret_inside_an_array_When_redacted_Then_it_is_still_removed', () => {
-        expect(redactFields({ attempts: [{ token: 'abc' }, { token: 'def' }] })).toEqual({
-            attempts: [{ token: REDACTED }, { token: REDACTED }],
+        expect(
+            redactFields({ attempts: [{ accessToken: 'abc' }, { accessToken: 'def' }] }),
+        ).toEqual({
+            attempts: [{ accessToken: REDACTED }, { accessToken: REDACTED }],
         });
     });
 
@@ -84,9 +102,21 @@ describe('records', () => {
     });
 
     it('Given_a_secret_field_When_logged_Then_the_record_never_carries_the_value', () => {
-        log.error('outbound call', { token: 'super-secret-value' });
+        log.error('outbound call', { authToken: 'super-secret-value' });
 
         expect(JSON.stringify(written)).not.toContain('super-secret-value');
+    });
+
+    it('Given_a_field_named_like_the_metadata_When_logged_Then_the_metadata_wins', () => {
+        // Spreading caller fields last let `{ event: 'click' }` replace the stable event name
+        // every filter and alert keys on, and `{ level: 'debug' }` downgrade an error.
+        log.error('http request failed', { event: 'click', level: 'debug', timestamp: 'nope' });
+
+        expect(written[0]).toMatchObject({
+            event: 'http request failed',
+            level: 'error',
+        });
+        expect(Date.parse(String(written[0]?.timestamp))).not.toBeNaN();
     });
 
     it('Given_each_level_When_logged_Then_the_record_reports_it', () => {

@@ -7,7 +7,7 @@ it for free.
 
 Redaction works two ways, because one is not enough. Keys are matched by name, which catches
 ``{"api_key": ...}`` however it was built. Values are scrubbed by registration, which catches a
-secret that has been interpolated into a message or a URL where no key names it.
+secret that has been interpolated into a message, a URL, or an exception traceback.
 
 See ADR-019.
 """
@@ -18,7 +18,7 @@ import logging
 import sys
 from collections.abc import Iterable, MutableMapping
 from contextvars import ContextVar
-from typing import Any, Final
+from typing import Any, Final, TextIO
 
 import structlog
 from opentelemetry import trace
@@ -32,9 +32,24 @@ from finassist_assistant.adapters.settings import Settings
 REDACTED: Final = "[redacted]"
 
 # Substrings, not exact names, so `anthropic_api_key` and `x-api-key` are both caught without
-# listing every spelling anyone might use.
+# listing every spelling anyone might use. Matched against a form with `-` folded to `_`.
+#
+# Deliberately NOT a bare `token`: the assistance context's whole job is to record LLM usage,
+# and `input_tokens=1200` is the natural way to log it. A fragment that redacted a token count
+# would destroy the measurement while protecting nothing.
 _SECRET_KEY_FRAGMENTS: Final = frozenset(
-    {"api_key", "apikey", "authorization", "credential", "password", "secret", "token"}
+    {
+        "api_key",
+        "apikey",
+        "auth_token",
+        "authorization",
+        "access_token",
+        "credential",
+        "id_token",
+        "password",
+        "refresh_token",
+        "secret",
+    }
 )
 
 # Registered secret values, scrubbed wherever they appear in a rendered string. Populated at
@@ -49,14 +64,36 @@ _correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=N
 TRACEPARENT_HEADER: Final = "traceparent"
 CORRELATION_ID_FIELD: Final = "correlation_id"
 
+# Shortest value worth scrubbing. A two-character secret would match inside ordinary words and
+# turn every message into redaction markers, destroying the logs without protecting anything.
+_MIN_SECRET_LENGTH: Final = 8
+
+# Redaction descends nested structures; this bounds it. A cyclic payload would otherwise turn a
+# log call into a RecursionError, which is strictly worse than the line it failed to write.
+_MAX_REDACTION_DEPTH: Final = 6
+
+_root_handlers_before: list[logging.Handler] | None = None
+_root_level_before: int | None = None
+
+
+class _LazyStdout:
+    """A stdout proxy that resolves ``sys.stdout`` at write time, not at configuration time.
+
+    Binding the stream object directly pins whatever ``sys.stdout`` was when logging was
+    configured. Under pytest that is the capture object belonging to one test, and later
+    writes then go to a stream the framework has already moved on from.
+    """
+
+    def write(self, message: str) -> int:
+        return sys.stdout.write(message)
+
+    def flush(self) -> None:
+        sys.stdout.flush()
+
 
 def register_secret(value: str | None) -> None:
-    """Register a value to be scrubbed from every log event.
-
-    Short values are ignored: a one- or two-character secret would match constantly and turn
-    every message into redaction markers, which destroys the logs without protecting anything.
-    """
-    if value and len(value) >= 8:
+    """Register a value to be scrubbed from every log event."""
+    if value and len(value) >= _MIN_SECRET_LENGTH:
         _secret_values.add(value)
 
 
@@ -91,17 +128,19 @@ def _scrub(value: str) -> str:
     return value
 
 
-def _redact_value(value: Any) -> Any:
+def _redact_value(value: Any, depth: int = 0) -> Any:
     """Redact recursively, so a secret nested in a payload is not missed."""
+    if depth >= _MAX_REDACTION_DEPTH:
+        return REDACTED
     if isinstance(value, str):
         return _scrub(value)
     if isinstance(value, dict):
         return {
-            key: REDACTED if _is_secret_key(str(key)) else _redact_value(item)
+            key: REDACTED if _is_secret_key(str(key)) else _redact_value(item, depth + 1)
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
-        rebuilt = [_redact_value(item) for item in value]
+        rebuilt = [_redact_value(item, depth + 1) for item in value]
         return tuple(rebuilt) if isinstance(value, tuple) else rebuilt
     return value
 
@@ -110,6 +149,10 @@ def redact_secrets(
     _logger: Any, _method_name: str, event_dict: MutableMapping[str, Any]
 ) -> MutableMapping[str, Any]:
     """structlog processor: remove secret material before anything is rendered.
+
+    Must run *after* ``format_exc_info``. An exception is one of the likeliest carriers of a
+    secret — a client that raises with the key in its message or URL — and until the traceback
+    has been rendered into a string there is nothing here to scrub.
 
     :param event_dict: the event being logged, mutated in place and returned.
     :returns: the same mapping with secret-named keys replaced and registered values scrubbed.
@@ -127,18 +170,31 @@ def add_correlation_id(
 ) -> MutableMapping[str, Any]:
     """structlog processor: put the current correlation id on every line.
 
-    Prefers the active span's trace id, so a log line and the span it happened inside carry the
-    same value, and falls back to the id bound by the middleware when no span is recording.
+    Reads only the bound id. The middleware seeds that id *from* the active span where there is
+    one, so this stays the single source: a caller quoting the id from a response header finds
+    the same value in the logs.
     """
-    span = trace.get_current_span()
-    context = span.get_span_context()
-    if context.is_valid:
-        event_dict[CORRELATION_ID_FIELD] = format(context.trace_id, "032x")
-    else:
-        correlation_id = _correlation_id.get()
-        if correlation_id is not None:
-            event_dict[CORRELATION_ID_FIELD] = correlation_id
+    correlation_id = _correlation_id.get()
+    if correlation_id is not None:
+        event_dict[CORRELATION_ID_FIELD] = correlation_id
     return event_dict
+
+
+def _processors() -> Iterable[structlog.typing.Processor]:
+    """The shared chain, in the order the ordering matters for.
+
+    ``format_exc_info`` renders the traceback into a string; ``redact_secrets`` follows so that
+    string is scrubbed. Reversing these two silently leaks every secret an exception carries.
+    """
+    return (
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso", utc=True),
+        add_correlation_id,
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        redact_secrets,
+    )
 
 
 def configure_logging(settings: Settings) -> None:
@@ -147,55 +203,87 @@ def configure_logging(settings: Settings) -> None:
     Rebinds the stdlib root logger too, so a library that logs through ``logging`` is rendered
     in the same format instead of bypassing the boundary with its own.
     """
-    register_secret(settings.anthropic_api_key)
+    global _root_handlers_before, _root_level_before
 
-    shared_processors: Iterable[structlog.typing.Processor] = (
-        structlog.contextvars.merge_contextvars,
-        structlog.processors.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso", utc=True),
-        add_correlation_id,
-        redact_secrets,
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-    )
+    register_secret(settings.anthropic_api_key_value)
+
+    stream: TextIO = _LazyStdout()  # type: ignore[assignment]
+    shared = _processors()
 
     structlog.configure(
-        processors=[*shared_processors, structlog.processors.JSONRenderer()],
+        processors=[*shared, structlog.processors.JSONRenderer()],
         wrapper_class=structlog.make_filtering_bound_logger(
-            logging.getLevelNamesMapping()[settings.log_level.upper()]
+            logging.getLevelNamesMapping()[settings.log_level]
         ),
-        logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
+        logger_factory=structlog.PrintLoggerFactory(file=stream),
         cache_logger_on_first_use=True,
     )
 
-    handler = logging.StreamHandler(stream=sys.stdout)
+    handler = logging.StreamHandler(stream=stream)
     handler.setFormatter(
         structlog.stdlib.ProcessorFormatter(
             processors=[
                 structlog.stdlib.ProcessorFormatter.remove_processors_meta,
                 structlog.processors.JSONRenderer(),
             ],
-            foreign_pre_chain=list(shared_processors),
+            foreign_pre_chain=list(shared),
         )
     )
     root = logging.getLogger()
+    if _root_handlers_before is None:
+        _root_handlers_before = list(root.handlers)
+        _root_level_before = root.level
     for existing in list(root.handlers):
         root.removeHandler(existing)
     root.addHandler(handler)
-    root.setLevel(settings.log_level.upper())
+    root.setLevel(settings.log_level)
+
+
+def reset_logging() -> None:
+    """Restore the root logger to what it was before ``configure_logging``.
+
+    The root logger is process-wide state. Without this a test that configures logging leaves
+    every later test writing through its handler, which is the sort of ordering dependence the
+    test conventions rule out.
+    """
+    global _root_handlers_before, _root_level_before
+
+    if _root_handlers_before is None:
+        return
+    root = logging.getLogger()
+    for existing in list(root.handlers):
+        root.removeHandler(existing)
+    for previous in _root_handlers_before:
+        root.addHandler(previous)
+    if _root_level_before is not None:
+        root.setLevel(_root_level_before)
+    _root_handlers_before = None
+    _root_level_before = None
 
 
 def configure_tracing(settings: Settings) -> TracerProvider | None:
     """Install an OTLP tracer provider, or none at all.
 
-    :returns: the provider when export is enabled, otherwise ``None``.
+    :returns: the provider that is actually installed, or ``None`` when export is disabled.
+    :raises RuntimeError: if a different tracer provider is already installed.
 
     Returning ``None`` rather than installing a provider with no exporter is deliberate: it
     makes "telemetry is off" observable to a test, and it keeps the OpenTelemetry default no-op
     tracer in place, which costs nothing per span.
+
+    The already-installed check exists because ``set_tracer_provider`` refuses to override and
+    only logs a warning. Returning the provider we tried to install would hand the caller a
+    handle to a pipeline that is not running.
     """
     if not settings.traces_enabled:
         return None
+
+    installed = trace.get_tracer_provider()
+    if isinstance(installed, TracerProvider):
+        raise RuntimeError(
+            "a TracerProvider is already installed; OpenTelemetry refuses to replace it, so "
+            "configuring tracing twice in one process would leave spans going to the first one"
+        )
 
     endpoint = f"{str(settings.otlp_endpoint).rstrip('/')}/v1/traces"
     provider = TracerProvider(resource=Resource.create({"service.name": settings.service_name}))

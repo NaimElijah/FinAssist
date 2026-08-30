@@ -47,11 +47,18 @@ management:
       # of for gaps in the only traces that exist.
       probability: 1.0
     export:
-      # Off unless a collector is configured, so a developer without one gets no export
-      # errors on every span. `.env.example` pairs this with the endpoint below.
-      enabled: ${OTEL_TRACES_EXPORT_ENABLED:false}
-  opentelemetry:
-    tracing:
+      # Both signals are gated by one flag. Metrics need it as much as traces:
+      # spring-boot-starter-opentelemetry drags in micrometer-registry-otlp, which otherwise
+      # POSTs to localhost:4318/v1/metrics every minute forever on a machine with no
+      # collector — exactly the noise ADR-019's no-op promise exists to avoid.
+      enabled: ${OTEL_EXPORT_ENABLED:false}
+  otlp:
+    metrics:
       export:
-        otlp:
-          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+        enabled: ${OTEL_EXPORT_ENABLED:false}
+
+# The OTLP endpoint is deliberately not set here. Spring Boot 4.1 registers
+# OpenTelemetryEnvironmentVariableEnvironmentPostProcessor, which maps the standard
+# OTEL_EXPORTER_OTLP_ENDPOINT (and the signal-specific OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) onto
+# these properties itself, with addFirst. A hand-built value here would be discarded whenever
+# the variable is set, and would silently ignore the signal-specific one where it is not.
