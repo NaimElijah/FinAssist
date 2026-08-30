@@ -1,19 +1,50 @@
-# Only what the baseline requires of any service: a configurable port, and health and
-# readiness endpoints. Everything else arrives with the code that needs it.
+# Only what the baseline requires of any service: a configurable port, health and readiness
+# endpoints, and the observability wiring ADR-019 records. Everything else arrives with the
+# code that needs it.
 server:
   port: ${LEDGER_PORT:8080}
 
 spring:
   application:
+    # Becomes OpenTelemetry's service.name. Fixed per service on purpose: one shared name
+    # across two services would merge their telemetry into one stream (ADR-019).
     name: finassist-ledger
+
+logging:
+  structured:
+    format:
+      # JSON on stdout, never a log file. Rotation and shipping belong to whatever runs the
+      # container (ADR-019). ECS carries MDC entries, which is how the trace id reaches a line.
+      console: ecs
+  pattern:
+    # Only used when the structured format is turned off; kept so a plain-text run still
+    # correlates rather than silently losing the ids.
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-}] "
+  include-application-name: false
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        # An explicit allow-list, never "*". LedgerApplicationTest asserts /actuator/env is 404,
+        # which is what stops this being widened by accident.
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       # Splits health into /actuator/health/liveness and /actuator/health/readiness.
       probes:
         enabled: true
+  tracing:
+    sampling:
+      # Single-owner system with no traffic: sampling would trade a resource nobody is short
+      # of for gaps in the only traces that exist.
+      probability: 1.0
+    export:
+      # Off unless a collector is configured, so a developer without one gets no export
+      # errors on every span. `.env.example` pairs this with the endpoint below.
+      enabled: ${OTEL_TRACES_EXPORT_ENABLED:false}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
