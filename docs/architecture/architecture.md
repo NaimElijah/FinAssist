@@ -167,11 +167,19 @@ the classes and tests that enforce them in
 | No inward assistant layer imports a framework | `test_architecture.py::…Then_it_imports_no_framework` |
 | No inward assistant layer imports the adapters | `test_architecture.py::…Then_it_imports_no_adapter` |
 | **No assistant context imports another** | `test_architecture.py::…Then_it_imports_no_other_context` |
+| No floating point in an assistant domain module | `test_architecture.py::…Then_it_names_no_float` |
+| No assistant domain module reads the wall clock | `test_architecture.py::…Then_it_reads_no_clock` |
 | **No web feature imports another**, and `shared` imports no feature | `frontend/web/tests/architecture.test.ts` |
 
 All three are **static**: ArchUnit scans bytecode, the assistant's rules parse every source
 file with `ast`, and the web client's walk the source tree. None of them import the code they
 check.
+
+The assistant's scanner is itself under test. Its rules are only as good as the helper that
+resolves imports, and nothing checked that helper — so a refactor could have neutered every
+rule while all of them stayed green, which is the same failure the `sys.modules` version below
+had. Dropping the `ImportFrom` branch now fails four helper cases and none of the parametrised
+rule cases, which is why the helper cases exist.
 
 That matters, and was got wrong once. An earlier version of the assistant's rules imported a
 package and inspected `sys.modules`; because Python does not import subpackages on its own,
