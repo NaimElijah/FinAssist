@@ -109,6 +109,21 @@
           </execution>
         </executions>
       </plugin>
+
+      <!--
+        The shared Money vectors live outside this module, so the path is injected by Maven
+        rather than resolved from the working directory: ${project.basedir} is correct however
+        the build was invoked, and the test fails loudly if the property is absent.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <finassist.contracts.dir>${project.basedir}/../../contracts</finassist.contracts.dir>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 
