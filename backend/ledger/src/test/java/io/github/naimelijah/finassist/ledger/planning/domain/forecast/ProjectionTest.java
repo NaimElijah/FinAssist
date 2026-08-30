@@ -283,4 +283,44 @@ class ProjectionTest {
         assertThat(projection.points()).hasSize(5);
         assertThat(projection.endState().date()).isEqualTo(JANUARY.plusWeeks(4));
     }
+
+    @Test
+    void Given_opening_investments_in_another_currency_When_projected_Then_it_is_refused() {
+        Scenario baseline = Scenario.baseline("Do nothing", Currency.ILS, GrowthAssumption.none());
+
+        assertThatThrownBy(() -> Projection.of(
+                        baseline, QUARTER, Cadence.MONTHLY, ils("1000.00"), Money.of("500.00", Currency.USD)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("opening investments");
+    }
+
+    @Test
+    void Given_no_points_at_all_When_a_projection_is_built_Then_it_is_refused() {
+        assertThatThrownBy(() -> new Projection(QUARTER, Cadence.MONTHLY, List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at least its opening point");
+    }
+
+    @Test
+    void Given_points_that_start_late_When_a_projection_is_built_Then_it_is_refused() {
+        BalancePoint february = new BalancePoint(FEBRUARY, ils("1000.00"), Money.zero(Currency.ILS));
+        BalancePoint april = new BalancePoint(APRIL, ils("1000.00"), Money.zero(Currency.ILS));
+
+        assertThatThrownBy(() -> new Projection(QUARTER, Cadence.MONTHLY, List.of(february, april)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must open on");
+    }
+
+    @Test
+    void Given_points_in_two_currencies_When_a_projection_is_built_Then_it_is_refused() {
+        BalancePoint january = new BalancePoint(JANUARY, ils("1000.00"), Money.zero(Currency.ILS));
+        BalancePoint february =
+                new BalancePoint(FEBRUARY, Money.of("1000.00", Currency.USD), Money.zero(Currency.USD));
+        BalancePoint march = new BalancePoint(MARCH, ils("1000.00"), Money.zero(Currency.ILS));
+        BalancePoint april = new BalancePoint(APRIL, ils("1000.00"), Money.zero(Currency.ILS));
+
+        assertThatThrownBy(
+                        () -> new Projection(QUARTER, Cadence.MONTHLY, List.of(january, february, march, april)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

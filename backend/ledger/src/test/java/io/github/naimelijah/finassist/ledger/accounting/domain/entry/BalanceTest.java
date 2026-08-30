@@ -1,9 +1,11 @@
 package io.github.naimelijah.finassist.ledger.accounting.domain.entry;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
+import io.github.naimelijah.finassist.ledger.shared.CurrencyMismatchException;
 import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.LocalDate;
 import java.util.List;
@@ -80,6 +82,49 @@ class BalanceTest {
     void Given_a_reconciled_transaction_When_a_balance_is_taken_Then_it_still_counts() {
         Transaction reconciled = spend("12.50").clear(WHEN).reconcile(WHEN);
         assertThat(Balance.of(CHECKING, Currency.ILS, List.of(reconciled)).amount())
+                .isEqualTo(ils("-12.50"));
+    }
+
+    /**
+     * The failure path {@link Balance} documents and nothing exercised. A book holding two
+     * currencies is fine — those transactions are skipped — but an entry posted <em>to this
+     * account</em> in another currency is a data error, and summing it must fail rather than
+     * quietly produce a figure in the wrong denomination.
+     */
+    @Test
+    void Given_a_foreign_entry_posted_to_the_account_When_a_balance_is_taken_Then_it_is_refused() {
+        Transaction misposted = Transaction.record(
+                WHEN,
+                "Posted to an ILS account in USD",
+                List.of(
+                        new Entry(EXPENSE, Money.of("30.00", Currency.USD)),
+                        new Entry(CHECKING, Money.of("-30.00", Currency.USD))));
+
+        assertThatThrownBy(() -> Balance.of(CHECKING, Currency.ILS, List.of(misposted)))
+                .isInstanceOf(CurrencyMismatchException.class)
+                .hasMessageContaining("no conversion");
+    }
+
+    @Test
+    void Given_two_entries_on_one_account_in_a_transaction_When_a_balance_is_taken_Then_both_count() {
+        AccountId groceries = AccountId.generate();
+        Transaction split = Transaction.record(
+                WHEN,
+                "Two lines against the same account",
+                List.of(
+                        new Entry(groceries, ils("10.00")),
+                        new Entry(groceries, ils("5.00")),
+                        new Entry(CHECKING, ils("-15.00"))));
+
+        assertThat(Balance.of(groceries, Currency.ILS, List.of(split)).amount()).isEqualTo(ils("15.00"));
+    }
+
+    @Test
+    void Given_a_pending_transaction_When_a_balance_is_taken_Then_it_already_counts() {
+        assertThat(Balance.of(CHECKING, Currency.ILS, List.of(spend("12.50"))).amount())
+                .isEqualTo(ils("-12.50"));
+        assertThat(Balance.of(CHECKING, Currency.ILS, List.of(spend("12.50").clear(WHEN)))
+                        .amount())
                 .isEqualTo(ils("-12.50"));
     }
 }

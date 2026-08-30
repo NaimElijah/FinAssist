@@ -7,7 +7,9 @@ import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.CurrencyMismatchException;
 import io.github.naimelijah.finassist.ledger.shared.Money;
+import java.lang.reflect.Method;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -166,5 +168,54 @@ class TransactionTest {
         Transaction transaction = Transaction.record(WHEN, "Coffee", mutable);
         mutable.clear();
         assertThat(transaction.entries()).hasSize(2);
+    }
+
+    @Test
+    void Given_a_cleared_transaction_When_voided_Then_it_keeps_its_entries_and_stops_counting() {
+        Transaction voided = coffee().clear(WHEN).markVoided(WHEN, "Charged twice");
+
+        assertThat(voided.state()).isInstanceOf(TransactionState.Voided.class);
+        assertThat(voided.countsTowardsBalance()).isFalse();
+        assertThat(voided.entries()).hasSize(2);
+    }
+
+    /**
+     * The mirror of {@code PlannedFlowTest}'s freeze test for {@code PlanState.Realised}. The
+     * compiler already refuses {@code reconciled.clear(...)}, because {@code Reconciled} declares no
+     * such method — but a compile-time guarantee leaves no trace in the suite, so nothing would stop
+     * someone restoring one and unfreezing a reconciled transaction.
+     */
+    @Test
+    void Given_the_reconciled_state_When_inspected_Then_it_declares_no_transition_at_all() {
+        assertThat(Arrays.stream(TransactionState.Reconciled.class.getDeclaredMethods())
+                        .filter(method -> TransactionState.class.isAssignableFrom(method.getReturnType()))
+                        .map(Method::getName))
+                .as("Reconciled is frozen by the absence of a transition; see ADR-011")
+                .isEmpty();
+    }
+
+    @Test
+    void Given_three_entries_that_balance_When_recorded_Then_a_split_transaction_is_created() {
+        AccountId groceries = AccountId.generate();
+        Transaction split = Transaction.record(
+                WHEN,
+                "Groceries and coffee on one receipt",
+                List.of(
+                        new Entry(groceries, ils("20.00")),
+                        new Entry(COFFEE, ils("12.50")),
+                        new Entry(CHECKING, ils("-32.50"))));
+
+        assertThat(split.entries()).hasSize(3);
+        assertThat(split.netFor(CHECKING)).isEqualTo(ils("-32.50"));
+    }
+
+    @Test
+    void Given_a_description_padded_with_spaces_When_recorded_Then_it_is_stripped() {
+        assertThat(Transaction.record(
+                                WHEN,
+                                "  Coffee  ",
+                                List.of(new Entry(COFFEE, ils("12.50")), new Entry(CHECKING, ils("-12.50"))))
+                        .description())
+                .isEqualTo("Coffee");
     }
 }
