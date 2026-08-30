@@ -51,9 +51,9 @@ public record PlannedFlow(
                     + "; the direction carries the sign");
         }
 
-        // Checked here rather than inside Until, which knows its end date but not the start it is
-        // measured from. A recurrence ending before it begins yields no occurrences at all, so the
-        // plan would sit in the scenario contributing silently nothing.
+        // Also checked in Until.occurrences, which is public API a caller can reach directly.
+        // Repeating it here is deliberate: this refuses the plan at construction, where the mistake
+        // was made, rather than at the projection that would otherwise be the first thing to notice.
         if (recurrence instanceof Recurrence.Until until && !until.until().isAfter(startsOn)) {
             throw new IllegalArgumentException("A recurrence cannot end on " + until.until() + ", before it starts on "
                     + startsOn + "; it would never occur");

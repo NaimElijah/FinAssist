@@ -102,8 +102,11 @@ are never summed ([ADR-015](../ADRs/ADR-015-planning-as-a-sixth-bounded-context.
 - Read a projected timeline of cash and invested balances across a horizon, derived from an
   opening balance and a strategy. `Projection.of`, `ProjectionTest`
   ([#11](https://github.com/NaimElijah/FinAssist/issues/11))
-- See the first date the projected cash balance goes negative, or that it never does.
-  `Projection.firstShortfall`, `ProjectionTest`
+- See the first **step boundary** at which the projected cash balance is negative, or that none
+  is. `Projection.firstShortfall`, `ProjectionTest`. A dip that opens and closes inside a single
+  step is not reported — a large payment covered by a salary later the same month looks
+  untroubled at a monthly cadence. Projecting at a finer cadence narrows the window; nothing
+  closes it.
 - Compare two or more strategies over one horizon and read how far each diverges from a chosen
   baseline, step by step and at the end. `Comparison`, `ComparisonTest`
   ([#12](https://github.com/NaimElijah/FinAssist/issues/12))
@@ -158,6 +161,9 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | A projection is derived from its strategy and opening balance, never stored | `Projection.of`; no settable point; `ProjectionTest` | **Enforced** |
 | A projection covers one currency, and its horizon is a whole number of steps | `Projection.of`; `BalancePoint`; `ProjectionTest` | **Enforced** |
 | A comparison refuses strategies in different currencies, horizons or step cadences | `Comparison.of`; `ComparisonTest` | **Enforced** |
+| A strategy cannot list the same planned flow twice | `Scenario` constructor; `ScenarioTest` | **Enforced** |
+| Two strategies in one comparison cannot share a name | `Comparison` constructor; `ComparisonTest` | **Enforced** |
+| A recurrence that would end before it begins is refused, not answered with nothing | `Recurrence.Until`; `PlannedFlow` constructor; `RecurrenceTest` | **Enforced** |
 | No bounded context depends on another | `LedgerArchitectureTest.contexts_do_not_depend_on_each_other`; `test_architecture.py`; `architecture.test.ts` | **Enforced** |
 | The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) | Proposed — no persistence or client exists yet |
 | Uniqueness of an account name within the chart of accounts | — | TODO (@NaimElijah) — needs a repository to enforce against |

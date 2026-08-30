@@ -21,9 +21,4 @@ public record Horizon(LocalDate from, LocalDate to) {
                     "A horizon must start before it ends, but " + from + " is not before " + to);
         }
     }
-
-    public boolean contains(LocalDate date) {
-        Objects.requireNonNull(date, "date");
-        return !date.isBefore(from) && date.isBefore(to);
-    }
 }

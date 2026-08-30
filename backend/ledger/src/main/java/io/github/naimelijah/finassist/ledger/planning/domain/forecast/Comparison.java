@@ -25,6 +25,12 @@ import java.util.Set;
  * <p>A comparison reports differences and stops there. It does not rank scenarios or nominate a
  * winner — FinAssist is explicitly not a recommendation engine, and the arithmetic here has no
  * opinion about what the owner should want.
+ *
+ * <p><strong>Equality ignores the order the scenarios were given in.</strong> The constructor keeps
+ * that order, because it is the order a reader will see them in, but two comparisons over the same
+ * named projections are the same comparison whichever way round they were listed — presentation
+ * order is not identity. The generated {@code equals} compares the underlying map, which is exactly
+ * that behaviour.
  */
 public record Comparison(Map<String, Projection> projections) {
 
@@ -32,11 +38,6 @@ public record Comparison(Map<String, Projection> projections) {
 
     public Comparison {
         Objects.requireNonNull(projections, "projections");
-        if (projections.size() < MINIMUM_SCENARIOS) {
-            throw new IllegalArgumentException(
-                    "A comparison needs at least " + MINIMUM_SCENARIOS + " projections but was given "
-                            + projections.size() + "; compare a scenario against the do-nothing baseline");
-        }
 
         // Insertion order is the order the caller chose to present them in, and Map.copyOf does not
         // keep it. A comparison whose columns reshuffle between calls is a poor thing to read.
@@ -53,7 +54,22 @@ public record Comparison(Map<String, Projection> projections) {
             } else {
                 requireComparable(first, projection, name);
             }
-            ordered.put(name.strip(), projection);
+            // Names are stripped before use, so two keys the caller saw as distinct can collide
+            // here. Refusing beats letting one silently replace the other: the caller asked to
+            // compare two scenarios and would otherwise get a comparison holding one, reporting no
+            // differences at all.
+            if (ordered.put(name.strip(), projection) != null) {
+                throw new IllegalArgumentException(
+                        "Two scenarios in this comparison are both named '" + name.strip() + "'");
+            }
+        }
+
+        // Counted after normalisation rather than before, so a map that collapsed to a single
+        // scenario cannot satisfy a check made against the caller's own key count.
+        if (ordered.size() < MINIMUM_SCENARIOS) {
+            throw new IllegalArgumentException("A comparison needs at least " + MINIMUM_SCENARIOS
+                    + " projections but was given " + ordered.size()
+                    + "; compare a scenario against the do-nothing baseline");
         }
         projections = Collections.unmodifiableMap(ordered);
     }
@@ -77,11 +93,6 @@ public record Comparison(Map<String, Projection> projections) {
 
     public Cadence step() {
         return any().step();
-    }
-
-    /** The dates every projection reports on, in order. */
-    public List<LocalDate> dates() {
-        return any().points().stream().map(BalancePoint::date).toList();
     }
 
     /**
@@ -110,14 +121,14 @@ public record Comparison(Map<String, Projection> projections) {
      * How far every other scenario drifts from {@code baseline}, step by step.
      *
      * <p>Each {@link Divergence} is that scenario minus the baseline, so a positive figure means the
-     * scenario is ahead. The baseline itself is absent from the result: its divergence from itself is
-     * zero at every step and reporting it would be noise.
+     * scenario is ahead. The baseline itself is absent from the result: its divergence from itself
+     * is zero at every step and reporting it would be noise.
      *
      * @throws IllegalArgumentException if {@code baseline} names no scenario here
      */
     public Map<String, List<Divergence>> divergenceFrom(String baseline) {
         Projection reference = projection(baseline);
-        String referenceName = Objects.requireNonNull(baseline, "baseline").strip();
+        String referenceName = baseline.strip();
 
         Map<String, List<Divergence>> divergences = new LinkedHashMap<>();
         projections.forEach((name, projection) -> {
@@ -155,13 +166,17 @@ public record Comparison(Map<String, Projection> projections) {
             throw new IllegalArgumentException(
                     "Scenario '" + name + "' steps " + other.step() + " but the comparison" + " steps " + first.step());
         }
-        // Horizon and cadence being equal makes this true for anything built by Projection.of, but a
-        // Projection can also be constructed directly, and a series with a missing interior point
-        // would silently compare the wrong dates against each other.
-        if (other.points().size() != first.points().size()) {
-            throw new IllegalArgumentException(
-                    "Scenario '" + name + "' reports " + other.points().size() + " points where the comparison reports "
-                            + first.points().size());
+        // Projection guarantees its points sit on the step boundaries of its horizon, so agreeing on
+        // horizon and cadence should already mean agreeing on dates. Checked anyway, because
+        // divergenceFrom subtracts these series index by index: a mismatch there would not throw, it
+        // would quietly report the difference between two different dates.
+        if (!datesOf(other).equals(datesOf(first))) {
+            throw new IllegalArgumentException("Scenario '" + name + "' does not report the same dates as the"
+                    + " comparison, so its points cannot be set against them");
         }
+    }
+
+    private static List<LocalDate> datesOf(Projection projection) {
+        return projection.points().stream().map(BalancePoint::date).toList();
     }
 }

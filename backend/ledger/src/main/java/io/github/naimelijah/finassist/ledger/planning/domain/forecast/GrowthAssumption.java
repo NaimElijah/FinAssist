@@ -28,6 +28,12 @@ public record GrowthAssumption(BigDecimal ratePerStep) {
             throw new IllegalArgumentException("A growth rate of " + ratePerStep.toPlainString()
                     + " would destroy or invert the balance; it must be greater than -1");
         }
+        // Normalised for the same reason Money normalises its amount: a record's generated equals
+        // compares BigDecimal with equals, which is scale-sensitive, so 0.1 and 0.10 would be two
+        // different assumptions that compute identically - and Scenario, holding one, would inherit
+        // the split. Citing Money's discipline while reproducing the hazard it exists to remove
+        // would be worse than not citing it.
+        ratePerStep = ratePerStep.stripTrailingZeros();
     }
 
     /** No growth at all — the assumption to use when modelling cash only. */

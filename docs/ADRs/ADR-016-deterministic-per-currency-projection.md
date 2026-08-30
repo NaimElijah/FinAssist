@@ -79,6 +79,12 @@ not compound in the step it arrives in.
   is. A 7% assumption produces a precise-looking number for 2056 that is precise about nothing.
 - Rounding at every step accumulates drift over a long horizon — a few minor units over three
   hundred monthly steps — where a single exact compounding would not.
+- **Shortfall detection sees only the step boundaries.** A balance that goes negative after one
+  flow and recovers after another within the same step is never reported: no point of the series
+  stands between them. A large payment on the 1st covered by a salary on the 20th reads as
+  untroubled at a monthly cadence while the account is overdrawn for nineteen days. This is the
+  most misleading thing a projection can do, and it is pinned by a test so that narrowing it is a
+  deliberate change.
 - Per-step rates are less natural than annual ones, and pushing the conversion to the caller
   means it will be done inconsistently until something above the domain standardises it.
 - The whole-number-of-steps rule makes "project to the end of next March" refuse rather than
@@ -100,6 +106,10 @@ project says it does not offer.
 
 **Offer an annual-rate factory** once there is a defensible convention for the conversion, stated
 in one place rather than repeated at each call site.
+
+**Report shortfalls between step boundaries** when the blind spot above bites in practice. The
+series would keep its cadence and a shortfall would be evaluated at every flow date, so the
+answer stops depending on how coarsely the owner happened to project.
 
 ## Alternatives considered
 

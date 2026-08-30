@@ -209,6 +209,70 @@ class ProjectionTest {
     }
 
     @Test
+    void Given_points_off_the_step_boundaries_When_a_projection_is_built_Then_it_is_refused() {
+        List<BalancePoint> drifted = List.of(
+                new BalancePoint(JANUARY, ils("1.00"), Money.zero(Currency.ILS)),
+                new BalancePoint(LocalDate.of(2026, 2, 15), ils("1.00"), Money.zero(Currency.ILS)),
+                new BalancePoint(MARCH, ils("1.00"), Money.zero(Currency.ILS)),
+                new BalancePoint(APRIL, ils("1.00"), Money.zero(Currency.ILS)));
+
+        assertThatThrownBy(() -> new Projection(QUARTER, Cadence.MONTHLY, drifted))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("boundary there is 2026-02-01");
+    }
+
+    /**
+     * The month-end case that a plain calendar count gets wrong: 31 January to 28 February is one
+     * month by {@code Cadence.advance}, which clamps, and zero by {@code ChronoUnit.MONTHS}, which
+     * counts whole periods. The horizon tiles, so it must be accepted.
+     */
+    @Test
+    void Given_a_horizon_from_the_31st_to_a_clamped_month_end_When_projected_Then_it_tiles() {
+        Scenario baseline = Scenario.baseline("Do nothing", Currency.ILS, GrowthAssumption.none());
+        Horizon endOfMonth = new Horizon(LocalDate.of(2026, 1, 31), LocalDate.of(2026, 2, 28));
+
+        Projection projection =
+                Projection.of(baseline, endOfMonth, Cadence.MONTHLY, ils("10.00"), Money.zero(Currency.ILS));
+
+        assertThat(projection.points())
+                .extracting(BalancePoint::date)
+                .containsExactly(LocalDate.of(2026, 1, 31), LocalDate.of(2026, 2, 28));
+    }
+
+    @Test
+    void Given_several_occurrences_inside_one_step_When_projected_Then_all_of_them_land() {
+        PlannedFlow weekly = PlannedFlow.plan(
+                "Weekly shop", ils("100.00"), Direction.OUTFLOW, JANUARY, new Recurrence.Times(Cadence.WEEKLY, 1, 4));
+        Scenario scenario = Scenario.of("Shopping", Currency.ILS, List.of(weekly), GrowthAssumption.none());
+
+        Projection projection = Projection.of(
+                scenario, new Horizon(JANUARY, FEBRUARY), Cadence.MONTHLY, ils("1000.00"), Money.zero(Currency.ILS));
+
+        assertThat(projection.endState().cash()).isEqualTo(ils("600.00"));
+    }
+
+    /**
+     * A documented blind spot rather than an accepted behaviour: the series has no point between the
+     * two flows, so the nineteen days of overdraft between them are invisible. Pinned by a test so
+     * that narrowing it later is a deliberate change and not a surprise. See ADR-016.
+     */
+    @Test
+    void Given_an_overdraft_opening_and_closing_inside_one_step_When_projected_Then_it_goes_unreported() {
+        PlannedFlow bigPayment =
+                PlannedFlow.plan("Tax bill", ils("5000.00"), Direction.OUTFLOW, JANUARY, new Recurrence.Once());
+        PlannedFlow salary = PlannedFlow.plan(
+                "Salary", ils("5000.00"), Direction.INFLOW, LocalDate.of(2026, 1, 20), new Recurrence.Once());
+        Scenario scenario =
+                Scenario.of("Tight month", Currency.ILS, List.of(bigPayment, salary), GrowthAssumption.none());
+
+        Projection projection = Projection.of(
+                scenario, new Horizon(JANUARY, FEBRUARY), Cadence.MONTHLY, ils("100.00"), Money.zero(Currency.ILS));
+
+        assertThat(projection.firstShortfall()).isEmpty();
+        assertThat(projection.endState().cash()).isEqualTo(ils("100.00"));
+    }
+
+    @Test
     void Given_a_weekly_step_When_projected_Then_a_point_falls_on_every_week() {
         Scenario baseline = Scenario.baseline("Do nothing", Currency.ILS, GrowthAssumption.none());
         Horizon fourWeeks = new Horizon(JANUARY, JANUARY.plusWeeks(4));

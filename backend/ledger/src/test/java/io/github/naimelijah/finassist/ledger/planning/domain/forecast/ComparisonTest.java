@@ -160,6 +160,34 @@ class ComparisonTest {
                 .hasMessageContaining("must be named");
     }
 
+    /**
+     * Names are stripped before use, so two keys the caller saw as distinct collide here. Letting
+     * one replace the other would leave a comparison holding a single projection and reporting no
+     * differences — a confident "these are the same" for two scenarios never compared.
+     */
+    @Test
+    void Given_two_names_differing_only_in_whitespace_When_compared_Then_it_is_refused() {
+        Map<String, Projection> colliding = new LinkedHashMap<>();
+        colliding.put(BASELINE, baselineProjection());
+        colliding.put(BASELINE + " ", spendingProjection());
+
+        assertThatThrownBy(() -> Comparison.of(colliding))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("both named");
+    }
+
+    @Test
+    void Given_the_same_scenarios_listed_the_other_way_round_When_compared_Then_the_comparisons_are_equal() {
+        Map<String, Projection> reversed = new LinkedHashMap<>();
+        reversed.put(SPEND, spendingProjection());
+        reversed.put(BASELINE, baselineProjection());
+
+        assertThat(Comparison.of(reversed))
+                .as("presentation order is not identity; see the class doc")
+                .isEqualTo(aComparison());
+        assertThat(Comparison.of(reversed).names()).containsExactly(SPEND, BASELINE);
+    }
+
     @Test
     void Given_a_comparison_When_read_Then_it_keeps_the_order_it_was_given() {
         assertThat(aComparison().names()).containsExactly(BASELINE, SPEND);

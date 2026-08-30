@@ -91,6 +91,20 @@ class RecurrenceTest {
                 .hasMessageContaining("must start before it ends");
     }
 
+    /**
+     * Refused rather than answered with an empty list. {@code Recurrence} is public API that a
+     * caller can reach without going through {@code PlannedFlow}, and a silently empty series would
+     * surface as a projection that simply came out flat.
+     */
+    @Test
+    void Given_a_recurrence_ending_before_it_starts_When_expanded_Then_it_is_refused() {
+        Recurrence endsBeforeItBegins = new Recurrence.Until(Cadence.MONTHLY, 1, JANUARY);
+
+        assertThatThrownBy(() -> endsBeforeItBegins.occurrences(LocalDate.of(2026, 3, 1), JANUARY, NEXT_JANUARY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("never occur");
+    }
+
     @Test
     void Given_a_yearly_recurrence_When_expanded_over_one_year_Then_it_yields_only_the_first() {
         Recurrence yearly = new Recurrence.Times(Cadence.YEARLY, 1, 5);

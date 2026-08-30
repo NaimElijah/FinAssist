@@ -374,6 +374,10 @@ Known limitations:
 - **A projection is a single deterministic line.** It states no uncertainty, so a long-horizon
   figure looks far more precise than it is
   ([ADR-016](docs/ADRs/ADR-016-deterministic-per-currency-projection.md)).
+- **Shortfall detection sees only step boundaries.** An overdraft that opens and closes within
+  one step goes unreported — a big payment covered by a salary later the same month reads as
+  untroubled at a monthly cadence. Pinned by a test, narrowed by projecting more finely, closed
+  by nothing yet.
 - **`consume_fifo` trusts the caller's lot order.** It consumes in the order given, so a
   caller holding lots in another order silently gets LIFO. Documented, not enforced — the
   sharpest edge in the domain ([ADR-013](docs/ADRs/ADR-013-fifo-lot-based-cost-basis.md)).

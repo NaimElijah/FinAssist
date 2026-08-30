@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger.planning.domain.plan;
 
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 
 /**
  * How often something repeats.
@@ -28,6 +29,22 @@ public enum Cadence {
             case WEEKLY -> start.plusWeeks(periods);
             case MONTHLY -> start.plusMonths(periods);
             case YEARLY -> start.plusYears(periods);
+        };
+    }
+
+    /**
+     * How many <strong>complete</strong> cadences separate two dates.
+     *
+     * <p>Not the inverse of {@link #advance}, and deliberately not treated as one: 31 January to 28
+     * February is one month by {@code advance}, which clamps, and zero by this, which counts whole
+     * periods. Callers that need the number of steps {@code advance} would take must check the
+     * answer rather than trust it.
+     */
+    public long between(LocalDate start, LocalDate end) {
+        return switch (this) {
+            case WEEKLY -> ChronoUnit.WEEKS.between(start, end);
+            case MONTHLY -> ChronoUnit.MONTHS.between(start, end);
+            case YEARLY -> ChronoUnit.YEARS.between(start, end);
         };
     }
 }

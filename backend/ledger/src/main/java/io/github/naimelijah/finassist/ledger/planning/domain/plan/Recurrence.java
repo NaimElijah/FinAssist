@@ -20,7 +20,8 @@ import java.util.Objects;
 public sealed interface Recurrence {
 
     /**
-     * Every date this recurrence lands on within {@code [fromInclusive, toExclusive)}.
+     * Every date this recurrence lands on within {@code [fromInclusive, toExclusive)}, in ascending
+     * order.
      *
      * <p>Occurrences are always measured from {@code start}, never from the previous one; see
      * {@link Cadence#advance} for why that matters at month ends.
@@ -29,9 +30,6 @@ public sealed interface Recurrence {
      */
     List<LocalDate> occurrences(LocalDate start, LocalDate fromInclusive, LocalDate toExclusive);
 
-    /** A short name for messages. */
-    String name();
-
     /** Happens once, on its own date. */
     record Once() implements Recurrence {
 
@@ -39,11 +37,6 @@ public sealed interface Recurrence {
         public List<LocalDate> occurrences(LocalDate start, LocalDate fromInclusive, LocalDate toExclusive) {
             requireRange(start, fromInclusive, toExclusive);
             return within(start, fromInclusive, toExclusive) ? List.of(start) : List.of();
-        }
-
-        @Override
-        public String name() {
-            return "Once";
         }
     }
 
@@ -59,6 +52,14 @@ public sealed interface Recurrence {
         @Override
         public List<LocalDate> occurrences(LocalDate start, LocalDate fromInclusive, LocalDate toExclusive) {
             requireRange(start, fromInclusive, toExclusive);
+            // Refused rather than answered with an empty list. This is public API that a caller can
+            // reach without going through PlannedFlow, and a recurrence ending before it begins is
+            // a mistake in the plan, not a plan with nothing in it - returning [] would hide it
+            // inside a projection that simply came out flat.
+            if (!until.isAfter(start)) {
+                throw new IllegalArgumentException("A recurrence cannot end on " + until + ", before it starts on "
+                        + start + "; it would never occur");
+            }
             List<LocalDate> dates = new ArrayList<>();
             for (long period = 0; ; period++) {
                 LocalDate date = cadence.advance(start, period * interval);
@@ -69,11 +70,6 @@ public sealed interface Recurrence {
                     dates.add(date);
                 }
             }
-        }
-
-        @Override
-        public String name() {
-            return "Until " + until;
         }
     }
 
@@ -103,11 +99,6 @@ public sealed interface Recurrence {
                 }
             }
             return dates;
-        }
-
-        @Override
-        public String name() {
-            return count + " times";
         }
     }
 

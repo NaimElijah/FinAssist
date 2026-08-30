@@ -59,6 +59,37 @@ class ScenarioTest {
     }
 
     @Test
+    void Given_the_same_flow_listed_twice_When_a_scenario_is_built_Then_it_is_refused() {
+        PlannedFlow rent = purchaseOf("500.00", Currency.ILS);
+
+        assertThatThrownBy(() -> Scenario.of("Double rent", Currency.ILS, List.of(rent, rent), GrowthAssumption.none()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("appears twice");
+    }
+
+    @Test
+    void Given_two_separate_flows_of_the_same_amount_When_a_scenario_is_built_Then_both_are_kept() {
+        Scenario scenario = Scenario.of(
+                "Two payments",
+                Currency.ILS,
+                List.of(purchaseOf("500.00", Currency.ILS), purchaseOf("500.00", Currency.ILS)),
+                GrowthAssumption.none());
+
+        assertThat(scenario.flows()).hasSize(2);
+    }
+
+    /**
+     * BigDecimal equality is scale-sensitive, so an unnormalised rate would make two assumptions
+     * that compute identically unequal — and Scenario, holding one, would inherit the split.
+     */
+    @Test
+    void Given_growth_rates_differing_only_in_scale_When_compared_Then_they_are_one_assumption() {
+        assertThat(GrowthAssumption.perStep("0.1")).isEqualTo(GrowthAssumption.perStep("0.10"));
+        assertThat(GrowthAssumption.none()).isEqualTo(GrowthAssumption.perStep("0.00"));
+        assertThat(GrowthAssumption.perStep("0.1")).hasSameHashCodeAs(GrowthAssumption.perStep("0.10"));
+    }
+
+    @Test
     void Given_a_growth_rate_at_minus_one_When_an_assumption_is_built_Then_it_is_refused() {
         assertThatThrownBy(() -> GrowthAssumption.perStep("-1"))
                 .isInstanceOf(IllegalArgumentException.class)

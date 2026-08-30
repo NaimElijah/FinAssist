@@ -1,9 +1,12 @@
 package io.github.naimelijah.finassist.ledger.planning.domain.forecast;
 
+import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanId;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlannedFlow;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * A named strategy: the flows it assumes, and what it assumes investments will do.
@@ -35,10 +38,18 @@ public record Scenario(
         name = name.strip();
 
         flows = List.copyOf(flows);
+        Set<PlanId> seen = new HashSet<>();
         for (PlannedFlow flow : flows) {
             if (flow.currency() != currency) {
                 throw new IllegalArgumentException("Flow '" + flow.description() + "' is in " + flow.currency()
                         + " but the scenario is in " + currency);
+            }
+            // The same plan listed twice would be spent twice by every projection, with nothing in
+            // the output to show for it. Two genuinely separate payments are two PlannedFlows with
+            // two identities; one plan repeated is a mistake in assembling the list.
+            if (!seen.add(flow.id())) {
+                throw new IllegalArgumentException(
+                        "Flow '" + flow.description() + "' appears twice in this scenario; it would be counted twice");
             }
         }
     }

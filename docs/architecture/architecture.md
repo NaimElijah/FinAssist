@@ -80,8 +80,8 @@ bit-identical would cost more than the duplication.
 
 | Component | Responsibility | State |
 |---|---|---|
-| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain layer complete; 125 tests including 5 live architecture rules; nothing above the domain |
-| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain layer complete; 144 tests; no entry point, nothing above the domain |
+| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain layer complete; 135 tests including 5 live architecture rules; nothing above the domain |
+| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain layer complete; 144 tests pass and 30 skip (parametrised architecture rules that do not apply to a given file); no entry point, nothing above the domain |
 | `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder; 6 architecture tests pass; no feature implemented |
 | `contracts/` | The versioned wire contract | Directory and its README only |
 | PostgreSQL 18 | The ledger's store | Runs via Compose; nothing connects to it |
