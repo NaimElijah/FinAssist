@@ -33,7 +33,7 @@ run: ## Start the stack
 stop: ## Stop the stack, keeping volumes
 	docker compose down
 
-test: test-ledger test-assistant test-web ## Full suite - exactly what CI gates on
+test: test-ledger test-assistant test-web ## Every test, with coverage. CI also gates lint, build and audit
 
 test-ledger:
 	cd $(LEDGER) && $(MVNW) verify
@@ -43,6 +43,9 @@ test-assistant:
 
 test-web:
 	cd $(WEB) && npm run test:coverage
+
+mutation-ledger: ## Mutation testing over the ledger domain; a diagnostic, gated on nothing (ADR-017)
+	cd $(LEDGER) && $(MVNW) -Pmutation org.pitest:pitest-maven:mutationCoverage
 
 lint: lint-ledger lint-assistant lint-web ## Format check and static analysis; never rewrites a file
 

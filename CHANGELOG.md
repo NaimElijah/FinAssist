@@ -9,20 +9,17 @@ history; write the commit message well and this file writes itself.
 
 ## [Unreleased]
 
-### Fixed
-
-- `Money.times_rounded` in the Python kernel no longer fails on a large product. Its decimal
-  context precision was a fixed 60 rather than sized to the value, so multiplying two large
-  amounts raised `decimal.InvalidOperation` - an `ArithmeticError`, not the `ValueError` the
-  module's contract promises - where the Java kernel's unbounded `BigDecimal` succeeded. The
-  constructor had already been given this fix; `times_rounded` had not. Both now share one
-  sizing rule.
-- Voiding a *cleared* transaction no longer accepts a date before it cleared. The guard
-  compared the void date against the date the transaction occurred only, so a transaction
-  cleared on the 20th could be voided on the 10th and the void predated the clearing it
-  reverses. `reconcile` already guarded against its own predecessor this way.
-
 ### Added
+
+- Test infrastructure across all three codebases: coverage measured everywhere and gated
+  nowhere, an opt-in PIT mutation profile for the ledger, property-based tests on both
+  backends (a seeded generator in Java, Hypothesis run derandomised in Python), the first
+  unit tests for the web client, and `contracts/money-vectors.v1.json`, which both `Money`
+  implementations are checked against so a divergence fails a build. Two new architecture
+  rules forbid `float` and wall-clock reads in an assistant domain module, and the import
+  scanner the rules rest on is now itself tested. See
+  [ADR-017](docs/ADRs/ADR-017-test-strategy.md) and
+  [ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md).
 
 - Repository baseline: requirements, architecture and ADR documents, licence, editor and
   formatter configuration, pinned toolchains for both services, Docker Compose entry point,
@@ -43,6 +40,19 @@ history; write the commit message well and this file writes itself.
   strategy; `Projection` as a derived, never-stored timeline of cash and invested balances with
   shortfall detection at step boundaries; `Comparison`, which refuses strategies in different
   currencies, horizons, step cadences or names rather than aligning them approximately.
+
+### Fixed
+
+- `Money.times_rounded` in the Python kernel no longer fails on a large product. Its decimal
+  context precision was a fixed 60 rather than sized to the value, so multiplying two large
+  amounts raised `decimal.InvalidOperation` - an `ArithmeticError`, not the `ValueError` the
+  module's contract promises - where the Java kernel's unbounded `BigDecimal` succeeded. The
+  constructor had already been given this fix; `times_rounded` had not. Both now share one
+  sizing rule.
+- Voiding a *cleared* transaction no longer accepts a date before it cleared. The guard
+  compared the void date against the date the transaction occurred only, so a transaction
+  cleared on the 20th could be voided on the 10th and the void predated the clearing it
+  reverses. `reconcile` already guarded against its own predecessor this way.
 
 ### Changed
 

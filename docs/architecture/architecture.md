@@ -73,17 +73,20 @@ put there by choice rather than by ADR-007's criterion; see
 creates and the trigger for moving it.
 
 There is deliberately **no shared kernel across languages**. `Money` is implemented once per
-language and pinned by equivalent tests on each side; two implementations obliged to stay
-bit-identical would cost more than the duplication.
+language; two implementations obliged to stay bit-identical would cost more than the
+duplication. What keeps them equivalent is `contracts/money-vectors.v1.json`, read by both
+suites, so a behavioural difference fails a build rather than waiting to be noticed — which it
+had been: `times_rounded` raised on a large product in Python where Java returned a value
+([ADR-018](../ADRs/ADR-018-cross-language-money-vectors.md)).
 
 ## Components
 
 | Component | Responsibility | State |
 |---|---|---|
-| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain layer complete; 135 tests including 5 live architecture rules; nothing above the domain |
-| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain layer complete; 144 tests pass and 30 skip (parametrised architecture rules that do not apply to a given file); no entry point, nothing above the domain |
-| `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder; 6 architecture tests pass; no feature implemented |
-| `contracts/` | The versioned wire contract | Directory and its README only |
+| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain layer complete, with unit, seeded-property and shared-vector tests, 5 live architecture rules, and one Spring smoke test of the Actuator probes; nothing above the domain |
+| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain layer complete, with unit, Hypothesis-property and shared-vector tests, and 5 architecture rules parametrised over every source file (those that do not apply to a given file skip); no entry point, nothing above the domain |
+| `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder; architecture rules, HTTP-client tests and a jsdom render test of the shell; no feature implemented |
+| `contracts/` | The versioned wire contract, and the cross-language `Money` conformance vectors | `money-vectors.v1.json` and the README; no OpenAPI document yet |
 | PostgreSQL 18 | The ledger's store | Runs via Compose; nothing connects to it |
 
 ## Structure: context first, hexagon inside
