@@ -5,10 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## State of the repository
 
 Three codebases — a Java ledger, a Python assistant, a React web client — all building and
-CI-gated. **All six bounded contexts now have a domain layer**, with tests. Nothing above the
-domain exists: no application services, no ports, no adapters, no persistence, no HTTP. The
-ledger boots and answers Actuator probes; the assistant has no entry point; the web client
-renders a placeholder.
+CI-gated. **All six bounded contexts now have a domain layer**, with tests. Almost nothing above
+the domain exists: no application services, no ports, no persistence, and no business endpoint
+in either service. The exception is observability (ADR-019): the ledger boots and answers
+Actuator probes, the assistant now has a composition root serving `/health` and `/ready`, and
+the web client renders a placeholder behind an error boundary. Both services emit structured
+JSON logs and OTLP traces.
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. Several
 decisions are recorded but not yet ratified, and the requirements are deliberately `TODO`
@@ -41,6 +43,8 @@ is **not installed** on the development machine, so the raw command is given for
 - Audit: `make audit` — `uv run pip-audit`; `npm audit --audit-level=high`
 - Re-lock Python deps: `make lock` — `cd backend/assistant && uv lock` (required after any
   `pyproject.toml` dependency edit, or CI's `uv sync --locked` fails)
+- Run with telemetry: `make run-monitoring` — `docker compose --profile monitoring up --build`
+  (collector, Prometheus, Grafana). `make stop-monitoring` tears the profile down
 
 Keep this list in sync with the Development table in `README.md`.
 
@@ -111,6 +115,22 @@ These are enforced by the build, not by review. Breaking one fails CI.
   with `ast`; the web client walks the file tree. Do not implement one by importing the code
   and inspecting `sys.modules` — Python does not import subpackages, so such a rule sees
   almost nothing.
+- **Nothing writes output except the logging boundary.** No `print` (ruff `T20`), no
+  `console.log` (ESLint `no-console`), no `System.out`. Structured JSON on stdout, through
+  `adapters/observability.py`, `shared/lib/logger.ts`, or Logback's ECS format (ADR-019).
+  Redaction lives at that boundary, never at a call site.
+- **Telemetry is a no-op when unconfigured.** A service must start with no collector named. An
+  endpoint alone never enables export; `OTEL_EXPORT_ENABLED` does, for traces and metrics
+  alike.
+- **The assistant's composition root is `src/finassist_assistant/adapters/`.** It is the only
+  package that may import FastAPI, structlog or OpenTelemetry outside a context's own
+  `adapters`. No context may import it.
+- **Adding a Python dependency can widen an architecture rule silently.** The forbidden list is
+  derived from `pyproject.toml` and mangles `-` to `_`, so a distribution whose import root
+  differs from its name (`opentelemetry-sdk` → `opentelemetry`) is missed unless named in the
+  explicit set in `tests/test_architecture.py`.
+- **Logs are diagnostics, never the audit trail.** They are dropped when no collector is
+  attached. The append-only journal is the audit record (ADR-020).
 
 The ledger's five ArchUnit rules are **live**. The `archRule.failOnEmptyShould=false` escape
 hatch was deleted with the first domain class, so a rule matching nothing now fails rather than

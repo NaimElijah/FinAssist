@@ -4,9 +4,11 @@ The system as it actually is. *What it must do* is
 [requirements](../requirements/requirements.md); *why* a given solution was chosen is
 [the ADRs](../ADRs/).
 
-> **All six contexts now have a domain layer, and nothing above it.** The models, their
-> invariants and their tests exist; application services, ports, adapters, HTTP and persistence
-> do not. The ledger boots and answers Actuator probes; the assistant has no entry point; the
+> **All six contexts now have a domain layer, and almost nothing above it.** The models, their
+> invariants and their tests exist; application services, ports, persistence and every business
+> endpoint do not. The one exception is observability: the ledger boots and answers Actuator
+> probes, the assistant has a composition root serving `/health` and `/ready`, and both emit
+> structured logs and OTLP traces — see [Cross-cutting concerns](#cross-cutting-concerns). The
 > web client renders a placeholder. Where a structure is defined but not yet inhabited, this
 > document says so.
 
@@ -83,9 +85,9 @@ had been: `times_rounded` raised on a large product in Python where Java returne
 
 | Component | Responsibility | State |
 |---|---|---|
-| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain layer complete, with unit, seeded-property and shared-vector tests, 5 live architecture rules, and one Spring smoke test of the Actuator probes; nothing above the domain |
-| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain layer complete, with unit, Hypothesis-property and shared-vector tests, and 5 architecture rules parametrised over every source file (those that do not apply to a given file skip); no entry point, nothing above the domain |
-| `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder; architecture rules, HTTP-client tests and a jsdom render test of the shell; no feature implemented |
+| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain layer complete, with unit, seeded-property and shared-vector tests, 5 live architecture rules, and two Spring tests covering the Actuator probes and the observability wiring; structured logs, OTLP traces and Prometheus metrics, and nothing else above the domain |
+| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain layer complete, with unit, Hypothesis-property and shared-vector tests, and 6 architecture rules parametrised over every source file (those that do not apply to a given file skip); a composition root serving `/health` and `/ready`, and nothing else above the domain |
+| `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder behind an error boundary; architecture rules, HTTP-client tests, a jsdom render test of the shell, and a structured logger that generates the `traceparent` every request carries; no feature implemented |
 | `contracts/` | The versioned wire contract, and the cross-language `Money` conformance vectors | `money-vectors.v1.json` and the README; no OpenAPI document yet |
 | PostgreSQL 18 | The ledger's store | Runs via Compose; nothing connects to it |
 
@@ -108,6 +110,7 @@ backend/assistant/src/finassist_assistant/
   assistance/   domain/{model,grounding}/      application/…                adapters/{inbound/api,outbound/llm}/
   marketdata/   domain/{model,normalisation}/  application/…                adapters/outbound/feed/
   shared/
+  adapters/     the composition root: settings, observability, the FastAPI app. Not a context
 
 frontend/web/src/
   features/{accounting,budgeting,portfolio,assistance}/{api,components,hooks,types}/
@@ -118,6 +121,14 @@ frontend/web/src/
 
 `LedgerApplication` sits in the root package so component scanning covers every context; it is
 the only Spring-annotated class outside an adapter.
+
+The assistant's top-level `adapters/` is its composition root — the one package that imports
+FastAPI, structlog and OpenTelemetry. It sits beside the contexts because it belongs to none,
+and it is named `adapters` because that is what it is: the architecture rules key on that path
+segment, so the exemption it needs is one it already earns rather than a special case.
+
+Operational configuration lives in `ops/` — the collector, Prometheus and Grafana provisioning
+that the `monitoring` Compose profile mounts.
 
 ## Communication
 
@@ -137,9 +148,50 @@ The ledger never calls the assistant, and the assistant never calls the web clie
 
 ## Data flow
 
-No business request path exists. The only live path is `GET /actuator/health` → Spring Boot's
-health contributors → `{"status":"UP"}`, which touches no FinAssist code. This section is
-filled in from the implementation in the same commit that creates it.
+No business request path exists. The two live paths are `GET /actuator/health` on the ledger →
+Spring Boot's health contributors → `{"status":"UP"}`, and `GET /health` on the assistant →
+a constant response. Neither touches any FinAssist domain code. This section is filled in from
+the implementation in the same commit that creates it.
+
+The telemetry path, by contrast, is real end to end and is described below.
+
+## Cross-cutting concerns
+
+Logging, correlation and telemetry are the same decision applied three times, recorded in
+[ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md).
+
+| Concern | Ledger | Assistant | Web client |
+|---|---|---|---|
+| Log format | ECS JSON on stdout, from Spring Boot's built-in structured logging | JSON on stdout, from `structlog` | JSON on the console, from `shared/lib/logger.ts` |
+| Boundary | Logback, configured in `application.yml` | `adapters/observability.py` | `shared/lib/logger.ts`, the only file allowed to call `console` |
+| Redaction | No secret reaches it — Actuator's `env` endpoint is not exposed | Key names plus registered values, as a `structlog` processor | Key names, depth-bounded |
+| Correlation | `traceId` in the MDC, from Micrometer Tracing | `contextvar`, seeded from an inbound `traceparent` | Generates the `traceparent` every request carries |
+| Traces | OTLP over HTTP, off unless a collector is configured | The same | None; no browser SDK |
+| Metrics | Micrometer, scraped at `/actuator/prometheus` | None yet | None |
+
+**The correlation id is a W3C trace context.** The browser generates a `traceparent`; the
+assistant reads its trace-id field and binds it for the request; the ledger's OpenTelemetry
+instrumentation continues the same trace. One id spans all three, which is the reason for using
+the standard rather than a private header.
+
+**Telemetry is a no-op when unconfigured.** With no collector named, both services start
+normally and drop their spans — asserted by `LedgerObservabilityTest` and
+`test_observability.py`, because a service that refused to start without a collector would make
+the collector a production dependency of local development.
+
+**Redaction is a property of the boundary, not a duty of the caller.** Every event passes
+through a processor that removes secret-named keys, so a new call site inherits it. This is what
+the requirements mean by "redacted at the logging boundary, not at each call site".
+
+**Diagnostics are not an audit trail.** Logs are dropped when no collector is attached and are
+explicitly not a record anyone may rely on after the fact.
+[ADR-020](../ADRs/ADR-020-audit-trail-follows-persistence.md) makes the append-only journal the
+audit record and defers its implementation to the first repository.
+
+**The composition root is a package, not a framework.** The assistant's
+`src/finassist_assistant/adapters/` wires FastAPI, structlog and OpenTelemetry together and is
+the only place allowed to. It is not a bounded context; `tests/test_architecture.py` forbids any
+context from importing it.
 
 ## External dependencies and integration points
 
@@ -149,6 +201,7 @@ filled in from the implementation in the same commit that creates it.
 | Anthropic API | The LLM behind `assistance` | `backend/assistant/pyproject.toml`, `uv.lock` |
 | Price feed | `marketdata` | **Not chosen** — see the open questions |
 | Maven Central / PyPI / npm | Dependencies | `pom.xml`, `uv.lock`, `package-lock.json` |
+| OTel Collector, Prometheus, Grafana | Local telemetry backend, `monitoring` Compose profile | `docker-compose.yml`, configured in `ops/` |
 
 ## Structural decisions not visible from the file layout
 
@@ -170,6 +223,7 @@ the classes and tests that enforce them in
 | No inward assistant layer imports a framework | `test_architecture.py::…Then_it_imports_no_framework` |
 | No inward assistant layer imports the adapters | `test_architecture.py::…Then_it_imports_no_adapter` |
 | **No assistant context imports another** | `test_architecture.py::…Then_it_imports_no_other_context` |
+| **No assistant context imports the composition root** | `test_architecture.py::…Then_it_imports_no_composition_root` |
 | No floating point in an assistant domain module | `test_architecture.py::…Then_it_names_no_float` |
 | No assistant domain module reads the wall clock | `test_architecture.py::…Then_it_reads_no_clock` |
 | **No web feature imports another**, and `shared` imports no feature | `frontend/web/tests/architecture.test.ts` |

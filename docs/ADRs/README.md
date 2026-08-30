@@ -24,6 +24,8 @@ append-only history: to change course, add a new record and mark the old one
 | [016](ADR-016-deterministic-per-currency-projection.md) | Deterministic, per-currency projections | Accepted |
 | [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted |
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
+| [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted |
+| [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. 004 and 006 remain Proposed: the domain layer needs neither a wire

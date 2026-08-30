@@ -1,0 +1,43 @@
+# OpenTelemetry Collector: the single endpoint the services push telemetry to.
+#
+# The services talk OTLP and nothing else, so swapping a backend is a change here rather than a
+# change in application code. That is the point of ADR-019's "OpenTelemetry, never a vendor SDK".
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        # 0.0.0.0 because the sender is outside this container: both services run natively on
+        # the host today, and only the ports mapped in docker-compose.yml are reachable.
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  # Batching is the one processor worth having from the start: it bounds how often the
+  # exporters are called, and its absence is felt as one export per span.
+  batch:
+    timeout: 5s
+
+exporters:
+  # Metrics are re-exposed for Prometheus to scrape rather than pushed onward, so there is one
+  # scrape target for collector-received metrics and one for the ledger itself.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+  # Traces have no store. Adding Tempo or Jaeger would be a fourth service and a second data
+  # store; until something reads traces regularly, printing them is enough to prove the pipe
+  # works. `docker compose logs otel-collector` is where a span shows up.
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]

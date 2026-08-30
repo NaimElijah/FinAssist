@@ -1,0 +1,26 @@
+# Scrape configuration for the local monitoring profile.
+#
+# The ledger is scraped directly rather than pushing metrics through the collector: Actuator
+# already serves /actuator/prometheus, and one hop is easier to debug than two. The collector is
+# scraped as well, for anything a service pushes over OTLP.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: otel-collector
+    static_configs:
+      - targets: ['otel-collector:8889']
+
+  # The ledger runs natively on the host, not in Compose - README's Quick start starts it with
+  # `./mvnw spring-boot:run`. host.docker.internal is how a container reaches back out; the
+  # extra_hosts entry in docker-compose.yml is what makes that name resolve on Linux.
+  - job_name: finassist-ledger
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8080']

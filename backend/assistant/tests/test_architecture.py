@@ -1,12 +1,13 @@
 """Enforces the structural rules declared in docs/architecture/architecture.md.
 
-Five rules:
+Six rules:
 
 1. Dependencies point inward - no inward layer imports a framework.
 2. No inward layer imports the adapter layer, where the anti-corruption layers live.
 3. No context imports another context. Only ``shared`` is common ground.
-4. No domain module names ``float``. Money is exact decimal, in both languages.
-5. No domain module reads the wall clock. The caller passes the time in.
+4. No context imports the composition root, where the frameworks are wired.
+5. No domain module names ``float``. Money is exact decimal, in both languages.
+6. No domain module reads the wall clock. The caller passes the time in.
 
 Rules 4 and 5 mirror commitments the ledger already enforces or documents:
 ``LedgerArchitectureTest.money_is_never_floating_point`` for the first, and the "pass the
@@ -62,10 +63,19 @@ def _declared_runtime_distributions() -> frozenset[str]:
 
 
 # Top-level distributions no inward layer may import, directly. Derived from the declared
-# runtime dependencies, plus two transitives worth naming: starlette arrives under fastapi and
-# is just as much a framework, and sqlalchemy is refused on the day it is added rather than the
-# day someone notices.
-FORBIDDEN_FRAMEWORKS = _declared_runtime_distributions() | frozenset({"starlette", "sqlalchemy"})
+# runtime dependencies, plus three worth naming explicitly: starlette arrives under fastapi and
+# is just as much a framework, sqlalchemy is refused on the day it is added rather than the day
+# someone notices, and `opentelemetry` is the import root that the derivation cannot reach.
+#
+# That last one is the interesting case. The distributions are named opentelemetry-sdk and
+# opentelemetry-instrumentation-fastapi, which the derivation turns into `opentelemetry_sdk`
+# and `opentelemetry_instrumentation_fastapi` - and code imports neither. It imports
+# `opentelemetry.trace`, whose root is `opentelemetry`, matching nothing. Adding the OTel
+# dependencies would otherwise have left this rule silently blind to them.
+FORBIDDEN_FRAMEWORKS = _declared_runtime_distributions() | frozenset(
+    {"opentelemetry", "starlette", "sqlalchemy"}
+)
+
 
 DOMAIN_SEGMENT = "domain"
 
@@ -217,6 +227,31 @@ def Given_the_forbidden_framework_list_When_derived_Then_it_covers_the_dependenc
     assert declared <= FORBIDDEN_FRAMEWORKS
 
 
+def Given_the_opentelemetry_packages_When_derived_Then_the_derivation_alone_would_miss_them() -> (
+    None
+):
+    """Pins why `opentelemetry` is listed explicitly rather than left to the derivation.
+
+    The distributions are `opentelemetry-sdk` and friends, which the derivation turns into
+    `opentelemetry_sdk`; the code imports `opentelemetry.trace`, whose root is `opentelemetry`.
+    Those never match, so before this entry existed an inward module could import the OTel API
+    and the framework rule passed - verified by removing the entry and watching a planted
+    violation go green.
+
+    This test fails if someone deletes the explicit entry believing the derivation covers it.
+    """
+    derived = _declared_runtime_distributions()
+
+    assert any(name.startswith("opentelemetry_") for name in derived), (
+        "no opentelemetry distribution is declared; this test no longer guards anything"
+    )
+    assert "opentelemetry" not in derived, (
+        "the derivation now produces the import root on its own, so the explicit entry below "
+        "may be redundant - check before removing it"
+    )
+    assert "opentelemetry" in FORBIDDEN_FRAMEWORKS
+
+
 @pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
 def Given_an_inward_module_When_parsed_Then_it_imports_no_framework(path: Path) -> None:
     if not _is_inward(path):
@@ -262,6 +297,30 @@ def Given_a_module_When_parsed_Then_it_imports_no_other_context(path: Path) -> N
     assert not leaked, (
         f"{path.relative_to(SRC)} (context '{own}') imports {leaked}. Contexts collaborate "
         "through a published port and an explicit translation, never through an import."
+    )
+
+
+@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
+def Given_a_context_module_When_parsed_Then_it_imports_no_composition_root(path: Path) -> None:
+    """The composition root wires frameworks; a context must not reach back into it.
+
+    ``src/finassist_assistant/adapters/`` is the one package allowed to import FastAPI,
+    structlog and OpenTelemetry. It is not a bounded context, so the cross-context rule skips
+    it, and it lives under an ``adapters`` path, so the framework rule skips it too - which
+    would leave nothing at all watching the direction of this dependency.
+    """
+    if _context_of(path) is None and not _is_domain(path):
+        pytest.skip("the composition root and the root package may wire themselves")
+
+    composition_root = f"{ROOT_PACKAGE}.{ADAPTER_SEGMENT}"
+    leaked = sorted(
+        module
+        for module in _imported_modules(path)
+        if module == composition_root or module.startswith(f"{composition_root}.")
+    )
+    assert not leaked, (
+        f"{path.relative_to(SRC)} imports the composition root: {leaked}. Frameworks travel "
+        "inward only through the ports a context declares."
     )
 
 

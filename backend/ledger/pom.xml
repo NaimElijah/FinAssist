@@ -41,10 +41,27 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-validation</artifactId>
     </dependency>
+    <!-- OTLP traces and metrics. Exports nothing when OTEL_EXPORTER_OTLP_ENDPOINT is unset,
+         which is the contract .env.example publishes (ADR-019). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-opentelemetry</artifactId>
+    </dependency>
+    <!-- Puts /actuator/prometheus on the wire; version managed by the imported micrometer-bom. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
 
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- InMemorySpanExporter, so a test can assert a span was recorded without a collector. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-opentelemetry-test</artifactId>
       <scope>test</scope>
     </dependency>
     <!-- Layering and dependency direction are enforced by the build, not by review. -->

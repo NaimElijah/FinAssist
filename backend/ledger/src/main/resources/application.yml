@@ -1,19 +1,64 @@
-# Only what the baseline requires of any service: a configurable port, and health and
-# readiness endpoints. Everything else arrives with the code that needs it.
+# Only what the baseline requires of any service: a configurable port, health and readiness
+# endpoints, and the observability wiring ADR-019 records. Everything else arrives with the
+# code that needs it.
 server:
   port: ${LEDGER_PORT:8080}
 
 spring:
   application:
+    # Becomes OpenTelemetry's service.name. Fixed per service on purpose: one shared name
+    # across two services would merge their telemetry into one stream (ADR-019).
     name: finassist-ledger
+
+logging:
+  structured:
+    format:
+      # JSON on stdout, never a log file. Rotation and shipping belong to whatever runs the
+      # container (ADR-019). ECS carries MDC entries, which is how the trace id reaches a line.
+      console: ecs
+  pattern:
+    # Only used when the structured format is turned off; kept so a plain-text run still
+    # correlates rather than silently losing the ids.
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-}] "
+  include-application-name: false
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        # An explicit allow-list, never "*". LedgerApplicationTest asserts /actuator/env is 404,
+        # which is what stops this being widened by accident.
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       # Splits health into /actuator/health/liveness and /actuator/health/readiness.
       probes:
         enabled: true
+  metrics:
+    distribution:
+      # Publishes _bucket series for HTTP timings, which is what a latency quantile is
+      # computed from. Without this the collector and the Grafana panel both see a count and a
+      # sum and can only show an average, which hides exactly the tail worth looking at.
+      percentiles-histogram:
+        http.server.requests: true
+  tracing:
+    sampling:
+      # Single-owner system with no traffic: sampling would trade a resource nobody is short
+      # of for gaps in the only traces that exist.
+      probability: 1.0
+    export:
+      # Both signals are gated by one flag. Metrics need it as much as traces:
+      # spring-boot-starter-opentelemetry drags in micrometer-registry-otlp, which otherwise
+      # POSTs to localhost:4318/v1/metrics every minute forever on a machine with no
+      # collector — exactly the noise ADR-019's no-op promise exists to avoid.
+      enabled: ${OTEL_EXPORT_ENABLED:false}
+  otlp:
+    metrics:
+      export:
+        enabled: ${OTEL_EXPORT_ENABLED:false}
+
+# The OTLP endpoint is deliberately not set here. Spring Boot 4.1 registers
+# OpenTelemetryEnvironmentVariableEnvironmentPostProcessor, which maps the standard
+# OTEL_EXPORTER_OTLP_ENDPOINT (and the signal-specific OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) onto
+# these properties itself, with addFirst. A hand-built value here would be discarded whenever
+# the variable is set, and would silently ignore the signal-specific one where it is not.

@@ -1,6 +1,11 @@
 # The one entry point for running FinAssist locally and in CI (see docs/ADRs/ADR-005).
 # Only the database exists so far; ledger and assistant services join this file in the
 # same commit that gives each one something to serve.
+#
+# The monitoring services sit behind a `monitoring` profile, so `docker compose up` stays
+# database-only and `docker compose --profile monitoring up` adds the telemetry backend
+# (ADR-019). They serve something the day they are added: the ledger and the assistant both
+# push OTLP, and Prometheus scrapes the ledger directly.
 name: finassist
 
 services:
@@ -22,5 +27,53 @@ services:
       timeout: 3s
       retries: 10
 
+  # --- Monitoring (profile: monitoring) ---------------------------------------------------
+  # Receives OTLP from both services and re-exposes metrics for Prometheus to scrape. The
+  # services talk OTLP and nothing else, so replacing this backend never touches their code.
+  otel-collector:
+    profiles: [monitoring]
+    image: otel/opentelemetry-collector-contrib:0.139.0
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./ops/otel-collector.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "${OTLP_HTTP_PORT:-4318}:4318"
+      - "${OTLP_GRPC_PORT:-4317}:4317"
+
+  prometheus:
+    profiles: [monitoring]
+    image: prom/prometheus:v3.7.3
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    # The ledger runs natively on the host, so the scrape target is outside this network.
+    # Docker Desktop resolves this name already; Linux needs it stated.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    profiles: [monitoring]
+    image: grafana/grafana:12.3.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      # Local-only tool with one operator; an anonymous sign-up flow would be a login screen
+      # protecting nothing. It is still password-protected rather than open.
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   db-data:
+  prometheus-data:
+  grafana-data:

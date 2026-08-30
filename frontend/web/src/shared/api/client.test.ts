@@ -3,9 +3,11 @@
 // neither document nor window. Keeping this out of jsdom keeps the suite honest about what
 // the code under test actually depends on.
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiBodyError, ApiError, requestJson } from './client';
+import { traceIdOf } from '../lib/correlation';
+import { type LogRecord, setLogSink } from '../lib/logger';
+import { ApiBodyError, ApiError, requestJson, TRACEPARENT_HEADER } from './client';
 
 const URL = 'https://ledger.test/api/v1/accounts';
 
@@ -129,5 +131,109 @@ describe('the Accept header', () => {
 
         expect(new Headers(sent?.headers).get('X-Trace-Id')).toBe('abc');
         expect(sent?.method).toBe('POST');
+    });
+});
+
+describe('correlation', () => {
+    async function sentHeaders(init?: RequestInit): Promise<Headers> {
+        const stub = stubFetch(jsonResponse({}));
+        await requestJson(URL, init);
+        const [, sent] = stub.mock.calls[0] ?? [];
+        return new Headers(sent?.headers);
+    }
+
+    it('Given_no_traceparent_When_requested_Then_one_is_generated', async () => {
+        const traceparent = (await sentHeaders()).get(TRACEPARENT_HEADER);
+
+        expect(traceIdOf(traceparent)).toMatch(/^[0-9a-f]{32}$/);
+    });
+
+    it('Given_a_caller_supplied_traceparent_When_requested_Then_it_is_not_replaced', async () => {
+        // Replacing it would break the trace at the boundary it exists to cross.
+        const existing = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+
+        const headers = await sentHeaders({ headers: { traceparent: existing } });
+
+        expect(headers.get(TRACEPARENT_HEADER)).toBe(existing);
+    });
+
+    it('Given_two_requests_When_made_Then_each_carries_its_own_trace', async () => {
+        const first = traceIdOf((await sentHeaders()).get(TRACEPARENT_HEADER));
+        vi.unstubAllGlobals();
+        const second = traceIdOf((await sentHeaders()).get(TRACEPARENT_HEADER));
+
+        expect(first).not.toBe(second);
+    });
+});
+
+describe('failure logging', () => {
+    let written: LogRecord[] = [];
+    let restore: () => void = () => undefined;
+
+    beforeEach(() => {
+        written = [];
+        restore = setLogSink((record) => written.push(record));
+    });
+
+    afterEach(() => {
+        restore();
+    });
+
+    function events(): unknown[] {
+        return written.map((record) => record.event);
+    }
+
+    it('Given_an_error_status_When_requested_Then_it_is_logged_with_the_trace_id', async () => {
+        stubFetch(jsonResponse({}, 500));
+
+        await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiError);
+
+        expect(events()).toEqual(['http request returned an error status']);
+        expect(written[0]).toMatchObject({ level: 'error', url: URL, status: 500 });
+        expect(String(written[0]?.traceId)).toMatch(/^[0-9a-f]{32}$/);
+    });
+
+    it('Given_a_transport_failure_When_requested_Then_it_is_logged_and_rethrown', async () => {
+        // The one failure mode that reaches none of the status checks, so without its own
+        // branch it would be the only one producing no record at all.
+        const boom = new TypeError('network down');
+        vi.stubGlobal(
+            'fetch',
+            vi.fn<typeof fetch>().mockImplementation(() => Promise.reject(boom)),
+        );
+
+        await expect(requestJson(URL)).rejects.toBe(boom);
+
+        expect(events()).toEqual(['http request failed']);
+    });
+
+    it('Given_a_204_When_requested_Then_the_missing_body_is_logged', async () => {
+        stubFetch(() => new Response(null, { status: 204 }));
+
+        await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiBodyError);
+
+        expect(events()).toEqual(['http response carried no body']);
+    });
+
+    it('Given_a_non_json_body_When_requested_Then_it_is_logged', async () => {
+        stubFetch(
+            () =>
+                new Response('<html>a proxy error page</html>', {
+                    status: 200,
+                    headers: { 'Content-Type': 'text/html' },
+                }),
+        );
+
+        await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiBodyError);
+
+        expect(events()).toEqual(['http response body was not json']);
+    });
+
+    it('Given_a_successful_request_When_made_Then_nothing_is_logged', async () => {
+        stubFetch(jsonResponse({ ok: true }));
+
+        await requestJson(URL);
+
+        expect(written).toEqual([]);
     });
 });
