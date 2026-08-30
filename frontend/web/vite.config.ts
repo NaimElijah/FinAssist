@@ -15,8 +15,12 @@ export default defineConfig({
     },
     test: {
         globals: true,
-        // Node, not jsdom: the only test reads the source tree. A DOM environment and a
-        // testing-library stack arrive with the first component test that needs them.
+        // Node stays the default and jsdom is opted into per file with
+        // `// @vitest-environment jsdom`. Flipping the default would put every test that reads
+        // the filesystem one forgotten pragma away from failing: under jsdom `import.meta.url`
+        // is an http: URL and fileURLToPath rejects it, which tests/architecture.test.ts
+        // already records having hit. Vitest 3 removed environmentMatchGlobs, so the choice is
+        // per-file pragmas or a projects split, and four DOM tests do not justify the latter.
         environment: 'node',
         include: [
             'tests/**/*.test.ts',
@@ -24,5 +28,13 @@ export default defineConfig({
             'src/**/*.test.ts',
             'src/**/*.test.tsx',
         ],
+        coverage: {
+            provider: 'v8',
+            reporter: ['text', 'html', 'lcov'],
+            include: ['src/**/*.{ts,tsx}'],
+            // No thresholds. Coverage is a diagnostic here, never a gate; see
+            // docs/ADRs/ADR-017-test-strategy.md.
+            exclude: ['src/**/*.test.{ts,tsx}', 'src/**/index.ts'],
+        },
     },
 });

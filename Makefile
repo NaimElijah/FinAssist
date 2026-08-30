@@ -42,7 +42,7 @@ test-assistant:
 	cd $(ASSISTANT) && $(UV) run pytest --cov --cov-report=term-missing --cov-report=xml
 
 test-web:
-	cd $(WEB) && npm test
+	cd $(WEB) && npm run test:coverage
 
 lint: lint-ledger lint-assistant lint-web ## Format check and static analysis; never rewrites a file
 
