@@ -108,6 +108,8 @@ cd frontend/web && npm ci && npm run dev   # http://localhost:5173
 | Coverage | JaCoCo + pytest-cov + coverage-v8 | 0.8.13 / 7.1.0 / 4.1.11 | Measured in all three codebases, published by CI, gating nothing ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
 | Mutation testing | PIT | 1.19.1 | Answers what coverage cannot: would a test notice this line being wrong? Opt-in profile, not in CI |
 | Property-based tests | Seeded `Random` (Java) + Hypothesis (Python) | — / 6.167.0 | Deterministic on both sides. jqwik is unusable on JUnit Platform 6; see ADR-017 |
+| Telemetry | OpenTelemetry + Micrometer | 1.44.0 (Python) / 4.1.1 starter (Java) | Vendor-neutral by decision: the backend is an environment variable, not a rewrite ([ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
+| Monitoring | OTel Collector + Prometheus + Grafana | 0.139.0 / v3.7.3 / 12.3.1 | Local only, behind a Compose profile; dashboards provisioned from files, never clicked in |
 | Web framework | React + Vite | 19.2 / 8.2 | A static bundle; no Node server to operate for a single-owner tool |
 | Web language | TypeScript | 6.0.3 | Pinned below 7 because `typescript-eslint` caps at `<6.1.0`; type-aware linting is worth more than the newer compiler |
 | Web test, lint, format | Vitest + Testing Library + ESLint + Prettier | 4.1 / 16.3 / 10.9 / 3.9 | Type-aware rules; they caught a `HeadersInit` bug before any code used it, and there is now a test for it |
@@ -201,6 +203,7 @@ pipeline and the local commands cannot drift.
 |---|---|---|
 | Set up | `make setup` | `cd backend/ledger && ./mvnw -B dependency:go-offline`; `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci` |
 | Run | `make run` | `docker compose up --build` |
+| Run with monitoring | `make run-monitoring` | `docker compose --profile monitoring up --build` |
 | Test everything | `make test` | the three test rows below; all three measure coverage |
 | Test the ledger | `make test-ledger` | `cd backend/ledger && ./mvnw -B verify` |
 | Test the assistant | `make test-assistant` | `cd backend/assistant && uv run pytest --cov --cov-report=term-missing --cov-report=xml` |
@@ -288,6 +291,7 @@ in the repository, the logs or an error message.
 | `POSTGRES_DB` | Database name | `finassist` | No |
 | `POSTGRES_USER` | Database user | `finassist` | No |
 | `ANTHROPIC_API_KEY` | The LLM behind the assistant | none | Once the assistant exists |
+| `GRAFANA_ADMIN_PASSWORD` | Grafana admin password | none | **Yes** when using the `monitoring` profile |
 
 <details>
 
@@ -302,8 +306,11 @@ in the repository, the logs or an error message.
 | `ASSISTANT_PORT` | Assistant HTTP port | `8000` |
 | `LEDGER_BASE_URL` | Where the assistant reaches the ledger | `http://ledger:8080` |
 | `POSTGRES_PORT` | Host port mapped to Postgres | `5432` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector endpoint; traces are dropped when unset | none |
-| `OTEL_SERVICE_NAME` | Service name on emitted telemetry | `finassist` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; each service appends its own signal path | `http://localhost:4318` |
+| `OTEL_TRACES_EXPORT_ENABLED` | Whether to export spans at all. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` |
+| `ASSISTANT_LOG_LEVEL` | Threshold for the assistant's structured logger | `INFO` |
+| `OTLP_HTTP_PORT`, `OTLP_GRPC_PORT` | Host ports for the collector | `4318`, `4317` |
+| `PROMETHEUS_PORT`, `GRAFANA_PORT` | Host ports for the monitoring profile | `9090`, `3000` |
 
 </details>
 
@@ -315,11 +322,22 @@ only build artefact that exists.
 
 | Concern | Endpoint or format | State |
 |---|---|---|
-| Liveness | `GET /actuator/health/liveness` | Live, returns `UP` |
-| Readiness | `GET /actuator/health/readiness` | Live, returns `UP` |
-| Metrics | `GET /actuator/metrics` | Live; no domain metric yet |
-| Traces | OTLP to `$OTEL_EXPORTER_OTLP_ENDPOINT` | Not wired |
-| Logs | Structured, with a correlation id on every line | Not wired — Spring's default console format is what you get today |
+| Liveness | `GET /actuator/health/liveness` (ledger), `GET /health` (assistant) | Live, returns `UP` |
+| Readiness | `GET /actuator/health/readiness` (ledger), `GET /ready` (assistant) | Live, returns `UP` |
+| Metrics | `GET /actuator/metrics`, `GET /actuator/prometheus` | Live, and scraped by the monitoring profile; no domain metric yet |
+| Traces | OTLP to `$OTEL_EXPORTER_OTLP_ENDPOINT` | Live when `OTEL_TRACES_EXPORT_ENABLED=true`; dropped otherwise, and the services start either way |
+| Logs | JSON on stdout, carrying a W3C trace id | Live — ECS in the ledger, structlog in the assistant, both through one redacting boundary |
+| Dashboards | Grafana, provisioned from `ops/grafana/` | Live under the `monitoring` profile |
+| Audit trail | The append-only journal | Not implemented — needs a store ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)) |
+
+Run the telemetry backend with `docker compose --profile monitoring up`: Grafana on
+[localhost:3000](http://localhost:3000), Prometheus on
+[localhost:9090](http://localhost:9090), and an OTLP collector on `localhost:4318`. Point the
+ledger at it with `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+OTEL_TRACES_EXPORT_ENABLED=true ./mvnw spring-boot:run`. Traces are printed by the collector
+(`docker compose logs otel-collector`) rather than stored — there is no trace backend, which
+[ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md) records as a deliberate
+limit.
 
 ## Design decisions
 

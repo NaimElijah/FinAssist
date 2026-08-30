@@ -177,12 +177,13 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 |---|---|---|
 | Authentication | TODO (@NaimElijah) — single-owner system, but the assistant reaches the ledger over the network, so that hop needs a decided answer | Undecided |
 | Secrets | Never in the repository, logs or error messages. `.env` is git-ignored; `.env.example` carries keys with no values | Holds |
-| Data handling | The owner's financial data and `ANTHROPIC_API_KEY` are redacted at the logging boundary, not at each call site | TODO (@NaimElijah) — no logging boundary exists |
+| Data handling | The owner's financial data and `ANTHROPIC_API_KEY` are redacted at the logging boundary, not at each call site | **Enforced** for secrets — `observability.redact_secrets`, `logger.ts`; `test_observability.py`, `logger.test.ts`. Financial data is redacted only where a field name marks it, and no code logs a record yet ([ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 | Persistence | Ledger data survives restart; migrations are append-only once released | TODO (@NaimElijah) — no schema yet |
-| Observability | Structured logs, health and readiness endpoints, OpenTelemetry rather than a vendor SDK | Actuator is on the ledger's classpath; nothing is wired |
+| Observability | Structured logs, health and readiness endpoints, OpenTelemetry rather than a vendor SDK | **Enforced** — `LedgerObservabilityTest`, `test_observability.py`. Both services emit JSON carrying a W3C trace id and export OTLP; telemetry is a no-op when no collector is configured. Traces describe Actuator and probe traffic only, since no business endpoint exists ([ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 | Performance and scale | TODO (@NaimElijah) — single owner, so this is likely a non-requirement; state it explicitly rather than leaving it open | Undecided |
 | Availability | TODO (@NaimElijah) — no deployment target chosen; it runs locally only | Undecided |
 | Compliance | TODO (@NaimElijah) — depends on whether data ever leaves the owner's machine | Undecided |
+| Auditing | The append-only journal is the audit record; a recorded transaction is never rewritten | Decided, not implemented — needs a store. Lands with the first repository ([ADR-020](../ADRs/ADR-020-audit-trail-follows-persistence.md)) |
 
 ## Non-goals
 

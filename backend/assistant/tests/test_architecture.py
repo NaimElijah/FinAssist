@@ -1,12 +1,13 @@
 """Enforces the structural rules declared in docs/architecture/architecture.md.
 
-Five rules:
+Six rules:
 
 1. Dependencies point inward - no inward layer imports a framework.
 2. No inward layer imports the adapter layer, where the anti-corruption layers live.
 3. No context imports another context. Only ``shared`` is common ground.
-4. No domain module names ``float``. Money is exact decimal, in both languages.
-5. No domain module reads the wall clock. The caller passes the time in.
+4. No context imports the composition root, where the frameworks are wired.
+5. No domain module names ``float``. Money is exact decimal, in both languages.
+6. No domain module reads the wall clock. The caller passes the time in.
 
 Rules 4 and 5 mirror commitments the ledger already enforces or documents:
 ``LedgerArchitectureTest.money_is_never_floating_point`` for the first, and the "pass the

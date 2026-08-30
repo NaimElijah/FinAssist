@@ -11,6 +11,18 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- Observability across all three codebases: JSON logs on stdout carrying a W3C trace id, OTLP
+  trace export that degrades to a no-op when no collector is configured, and Prometheus metrics
+  on the ledger. The assistant gained its first entry point — a composition root serving
+  `/health` and `/ready` — and with it the redacting logging boundary the requirements had
+  listed as missing. The web client generates the `traceparent` the backends continue, logs
+  through a single boundary, and no longer blanks the page silently on a render error. A
+  collector, Prometheus and Grafana run behind a `monitoring` Compose profile with the
+  dashboard provisioned from files. See
+  [ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md) and
+  [ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md), which records that the
+  append-only journal is the audit trail and that it lands with the first repository.
+
 - Test infrastructure across all three codebases: coverage measured everywhere and gated
   nowhere, an opt-in PIT mutation profile for the ledger, property-based tests on both
   backends (a seeded generator in Java, Hypothesis run derandomised in Python), the first
