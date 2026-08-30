@@ -23,6 +23,8 @@
     <palantir-java-format.version>2.97.0</palantir-java-format.version>
     <archunit.version>1.5.0</archunit.version>
     <jacoco.version>0.8.13</jacoco.version>
+    <pitest.version>1.19.1</pitest.version>
+    <pitest-junit5.version>1.2.2</pitest-junit5.version>
   </properties>
 
   <dependencies>
@@ -109,4 +111,54 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!--
+      Mutation testing, opt in with `./mvnw -Pmutation test`. Deliberately not bound to any
+      lifecycle phase: it re-runs the suite once per mutant and would multiply CI's runtime for a
+      number nothing gates on. Coverage says which lines ran; this says whether the tests would
+      notice if those lines were wrong, which is the question worth asking of a domain whose whole
+      job is refusing things. See docs/ADRs/ADR-017-test-strategy.md.
+
+      Scoped to the domain and shared kernel. LedgerApplicationTest is excluded because PIT reruns
+      tests per mutant and booting Spring each time buys nothing - the wiring it checks has no
+      mutable logic in it.
+    -->
+    <profile>
+      <id>mutation</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>${pitest.version}</version>
+            <configuration>
+              <targetClasses>
+                <param>io.github.naimelijah.finassist.ledger.*.domain.*</param>
+                <param>io.github.naimelijah.finassist.ledger.shared.*</param>
+              </targetClasses>
+              <excludedTestClasses>
+                <param>io.github.naimelijah.finassist.ledger.LedgerApplicationTest</param>
+                <param>io.github.naimelijah.finassist.ledger.LedgerArchitectureTest</param>
+              </excludedTestClasses>
+              <outputFormats>
+                <param>HTML</param>
+                <param>CSV</param>
+              </outputFormats>
+              <timestampedReports>false</timestampedReports>
+            </configuration>
+            <dependencies>
+              <!-- PIT needs a plugin matching the test library; this module is on JUnit Platform 6. -->
+              <dependency>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-junit5-plugin</artifactId>
+                <version>${pitest-junit5.version}</version>
+              </dependency>
+            </dependencies>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
 </project>
