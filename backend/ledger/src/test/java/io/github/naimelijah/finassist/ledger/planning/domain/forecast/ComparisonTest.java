@@ -192,4 +192,38 @@ class ComparisonTest {
     void Given_a_comparison_When_read_Then_it_keeps_the_order_it_was_given() {
         assertThat(aComparison().names()).containsExactly(BASELINE, SPEND);
     }
+
+    @Test
+    void Given_a_comparison_When_asked_its_shape_Then_it_answers_from_the_reference_projection() {
+        Comparison comparison = Comparison.of(Map.of(BASELINE, baselineProjection(), SPEND, spendingProjection()));
+
+        assertThat(comparison.currency()).isEqualTo(Currency.ILS);
+        assertThat(comparison.horizon()).isEqualTo(QUARTER);
+        assertThat(comparison.step()).isEqualTo(Cadence.MONTHLY);
+    }
+
+    @Test
+    void Given_an_unknown_baseline_When_divergence_is_taken_Then_it_is_refused() {
+        Comparison comparison = Comparison.of(Map.of(BASELINE, baselineProjection(), SPEND, spendingProjection()));
+
+        assertThatThrownBy(() -> comparison.divergenceFrom("Never planned"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * {@link Divergence} is not a {@link BalancePoint} precisely because both of its amounts may be
+     * negative, so its own {@code total()} needs asserting rather than inheriting the guarantee.
+     */
+    @Test
+    void Given_a_divergence_When_totalled_Then_cash_and_investments_are_summed_even_when_negative() {
+        Divergence behind = new Divergence(JANUARY, ils("-400.00"), ils("150.00"));
+
+        assertThat(behind.total()).isEqualTo(ils("-250.00"));
+    }
+
+    @Test
+    void Given_a_divergence_in_two_currencies_When_built_Then_it_is_refused() {
+        assertThatThrownBy(() -> new Divergence(JANUARY, ils("-400.00"), Money.of("150.00", Currency.USD)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

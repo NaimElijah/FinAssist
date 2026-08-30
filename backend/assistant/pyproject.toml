@@ -23,6 +23,9 @@ dependencies = [
 dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
+    # Property-based testing for the pure-function cores. Run derandomised (see
+    # tests/conftest.py) so a commit that changed nothing can never go red on CI.
+    "hypothesis==6.167.0",
     "ruff==0.16.5",
     "mypy==2.3.1",
     "pip-audit==2.10.1",
@@ -73,4 +76,25 @@ disallow_any_generics = true
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
 # Test names are the specification: Given<scenario>_When<action>_Then<result>.
-python_functions = ["test_*", "Given*"]
+# The trailing underscore matters. pytest matches these with fnmatch, which is case-insensitive
+# on Windows, so a bare "Given*" also matches Hypothesis's `given` decorator wherever it is
+# imported - collecting it as a test locally but not on Linux CI, which is exactly the kind of
+# drift between the two that ADR-005 exists to prevent.
+python_functions = ["test_*", "Given_*"]
+
+
+[tool.coverage.run]
+source_pkgs = ["finassist_assistant"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+# No fail_under, deliberately. Coverage is a diagnostic here: it says which lines ran, never
+# whether a test would have noticed them being wrong. A percentage gate rewards tests written
+# to reach lines. See docs/ADRs/ADR-017-test-strategy.md.
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    '\.\.\.',
+]
+

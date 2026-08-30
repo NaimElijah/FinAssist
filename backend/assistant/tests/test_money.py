@@ -13,8 +13,19 @@ from finassist_assistant.shared import Currency, CurrencyMismatchError, Money
 
 
 def Given_an_amount_with_fewer_decimals_When_constructed_Then_it_is_normalised() -> None:
-    assert Money.of("12.5", Currency.ILS).amount == Decimal("12.50")
+    # Asserted through str(), not ==. Decimal equality is numeric, so
+    # Decimal("12.5") == Decimal("12.50") is True and an equality assertion here passes
+    # whether or not the amount was ever normalised - it survived deleting the
+    # object.__setattr__ that does the work. The Java mirror does pin this, because
+    # BigDecimal.equals is scale-sensitive; only the string form pins it on this side.
+    assert str(Money.of("12.5", Currency.ILS)) == "12.50 ILS"
+    assert Money.of("12.5", Currency.ILS).amount.as_tuple().exponent == -2
     assert Money.of("12.5", Currency.ILS) == Money.of("12.50", Currency.ILS)
+
+
+def Given_a_zero_decimal_currency_When_constructed_Then_it_carries_no_decimals() -> None:
+    assert str(Money.of("120", Currency.JPY)) == "120 JPY"
+    assert Money.of("120", Currency.JPY).amount.as_tuple().exponent == 0
 
 
 def Given_an_amount_with_too_many_decimals_When_constructed_Then_it_is_rejected() -> None:
@@ -81,3 +92,36 @@ def Given_a_multiplication_needing_rounding_When_applied_Then_it_is_rejected() -
 def Given_a_non_finite_amount_When_constructed_Then_it_is_rejected() -> None:
     with pytest.raises(ValueError, match="finite"):
         Money(Decimal("NaN"), Currency.ILS)
+
+
+def Given_a_very_large_product_When_times_rounded_Then_it_is_accepted() -> None:
+    # Mirrors the Java kernel, whose timesRounded uses unbounded BigDecimal arithmetic and
+    # simply succeeds. times() already handles this; times_rounded did not, because its
+    # context precision was a fixed 60 rather than sized to the value the way __post_init__
+    # sizes it. The failure was decimal.InvalidOperation - an ArithmeticError, not the
+    # ValueError this module's contract promises - so a caller catching ValueError missed it.
+    huge = Money(Decimal("1E+30"), Currency.USD)
+
+    assert str(huge.times_rounded(Decimal("1E+30"))) == "1" + "0" * 60 + ".00 USD"
+
+
+def Given_two_amounts_in_one_currency_When_ordered_Then_both_comparisons_answer() -> None:
+    ten = Money.of("10.00", Currency.ILS)
+    twelve = Money.of("12.00", Currency.ILS)
+
+    assert ten < twelve
+    assert ten <= twelve
+    assert ten <= Money.of("10.00", Currency.ILS)
+    assert not twelve <= ten
+
+
+def Given_two_currencies_When_ordered_with_le_Then_it_is_refused() -> None:
+    with pytest.raises(CurrencyMismatchError, match="no conversion"):
+        _ = Money.of("10.00", Currency.ILS) <= Money.of("10.00", Currency.USD)
+
+
+def Given_a_non_finite_multiplier_When_times_rounded_Then_it_is_refused() -> None:
+    # The product is NaN, which Money's own finiteness guard refuses - so the caller sees the
+    # ValueError this module promises rather than a decimal.InvalidOperation.
+    with pytest.raises(ValueError, match="finite"):
+        Money.of("10.00", Currency.USD).times_rounded(Decimal("NaN"))

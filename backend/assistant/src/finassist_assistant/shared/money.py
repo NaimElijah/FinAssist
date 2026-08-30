@@ -22,6 +22,18 @@ class CurrencyMismatchError(ValueError):
         )
 
 
+def _precision_for(value: Decimal) -> int:
+    """Significant digits an exact representation of ``value`` needs.
+
+    Every digit already present, plus the zeros a positive exponent implies — ``1E+30`` is one
+    digit and thirty zeros. Sizing off the digit tuple alone under-counts that case badly.
+    """
+    if not value.is_finite():
+        return 1
+    digits, exponent = value.as_tuple()[1:]
+    return len(digits) + max(int(exponent), 0) + 1
+
+
 @dataclass(frozen=True, slots=True)
 class Money:
     """A ``Decimal`` amount and its currency.
@@ -52,12 +64,8 @@ class Money:
         # significant digits makes quantize raise InvalidOperation - an ArithmeticError, not a
         # ValueError - for a large amount, while Java's BigDecimal has no such limit and simply
         # succeeds. That divergence would have escaped every caller catching ValueError.
-        digits, value_exponent = self.amount.as_tuple()[1:]
-        # Significant digits the quantized value will need: every digit already present, plus the
-        # zeros a positive exponent implies (1E+30 is one digit and thirty zeros), plus the minor
-        # units. Sizing off len(digits) alone under-counts that case badly.
         with localcontext() as context:
-            context.prec = len(digits) + max(int(value_exponent), 0) + self.currency.minor_units + 1
+            context.prec = _precision_for(self.amount) + self.currency.minor_units
             normalised = self.amount.quantize(exponent, rounding=ROUND_DOWN)
         if normalised != self.amount:
             raise ValueError(
@@ -108,7 +116,15 @@ class Money:
         fractional holdings.
         """
         with localcontext() as context:
-            context.prec = 60
+            # Sized to this particular product, for the reason __post_init__ is sized to its
+            # particular value. A fixed precision raises decimal.InvalidOperation - an
+            # ArithmeticError, not the ValueError this module's contract promises - once the
+            # product outgrows it, while Java's timesRounded uses unbounded BigDecimal and
+            # succeeds. An exact product needs at most the significant digits of both operands,
+            # plus the zeros their positive exponents imply, plus the minor units.
+            context.prec = (
+                _precision_for(self.amount) + _precision_for(multiplier) + self.currency.minor_units
+            )
             product = self.amount * multiplier
             rounded = product.quantize(
                 Decimal(1).scaleb(-self.currency.minor_units), rounding=ROUND_HALF_UP

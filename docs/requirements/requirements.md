@@ -141,12 +141,13 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | Rule | Enforced by | Status |
 |---|---|---|
 | A transaction's entries must sum to zero, in one currency, with at least two of them | `Transaction` constructor; `TransactionTest` | **Enforced** |
-| Money is exact decimal — never a floating-point type | `Money` (Java and Python); `LedgerArchitectureTest.money_is_never_floating_point`; `MoneyTest`, `test_money.py` | **Enforced** |
+| Money is exact decimal — never a floating-point type | `Money` (Java and Python); `LedgerArchitectureTest.money_is_never_floating_point`; `test_architecture.py::…Then_it_names_no_float`; `MoneyTest`, `test_money.py` | **Enforced** |
 | Amounts in two currencies are never combined | `Money.plus/minus/compareTo`; `CurrencyMismatchException` | **Enforced** |
 | An amount more precise than its currency admits is rejected, not rounded | `Money` constructor; `MoneyTest`, `test_money.py` | **Enforced** |
 | Account balance is derived, never set directly | `Balance.of`; `Account` has no balance field; `BalanceTest` | **Enforced** |
 | A voided transaction keeps its entries but does not count towards a balance | `Transaction.countsTowardsBalance`; `BalanceTest` | **Enforced** |
 | Legal transaction state transitions; a reconciled transaction is frozen | Sealed `TransactionState`; `IllegalTransitionException`; `TransactionTest` | **Enforced** |
+| A transaction moves forward in time: it cannot clear before it occurred, reconcile before it cleared, or be voided before either | `Transaction.clear/reconcile/markVoided`; `TransactionTest` | **Enforced** |
 | An account has exactly one currency, and a transaction's entries are all in one currency | `Account`; `Transaction` constructor | **Enforced** |
 | An entry's currency matches the currency of the account it is posted to | — | TODO (@NaimElijah) — an `Entry` holds an `AccountId`, not an `Account`, so the domain cannot look the currency up. Needs a repository, so it belongs to the application layer |
 | A budget has one limit per category, all in the budget's currency, each positive | `Budget` and `CategoryLimit` constructors; `BudgetTest` | **Enforced** |
@@ -165,6 +166,8 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | Two strategies in one comparison cannot share a name | `Comparison` constructor; `ComparisonTest` | **Enforced** |
 | A recurrence that would end before it begins is refused, not answered with nothing | `Recurrence.Until`; `PlannedFlow` constructor; `RecurrenceTest` | **Enforced** |
 | No bounded context depends on another | `LedgerArchitectureTest.contexts_do_not_depend_on_each_other`; `test_architecture.py`; `architecture.test.ts` | **Enforced** |
+| A domain function is given the current time rather than reading it | `test_architecture.py::…Then_it_reads_no_clock`; `is_stale`, `Projection.of`, `Transaction.clear` all take a date | **Enforced** on the Python side; a convention in the ledger |
+| The currency table is the same in both languages | `CurrencyTest`, `test_currency.py` | **Enforced** |
 | The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) | Proposed — no persistence or client exists yet |
 | Uniqueness of an account name within the chart of accounts | — | TODO (@NaimElijah) — needs a repository to enforce against |
 

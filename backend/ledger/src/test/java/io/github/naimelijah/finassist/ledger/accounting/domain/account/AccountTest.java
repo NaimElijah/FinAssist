@@ -48,4 +48,13 @@ class AccountTest {
         AccountId generated = AccountId.generate();
         assertThat(AccountId.of(generated.toString())).isEqualTo(generated);
     }
+
+    @Test
+    void Given_an_account_type_When_asked_its_normal_balance_Then_the_side_is_named() {
+        assertThat(AccountType.ASSET.normalBalance()).isEqualTo(AccountType.NormalBalance.DEBIT);
+        assertThat(AccountType.EXPENSE.normalBalance()).isEqualTo(AccountType.NormalBalance.DEBIT);
+        assertThat(AccountType.LIABILITY.normalBalance()).isEqualTo(AccountType.NormalBalance.CREDIT);
+        assertThat(AccountType.INCOME.normalBalance()).isEqualTo(AccountType.NormalBalance.CREDIT);
+        assertThat(AccountType.EQUITY.normalBalance()).isEqualTo(AccountType.NormalBalance.CREDIT);
+    }
 }

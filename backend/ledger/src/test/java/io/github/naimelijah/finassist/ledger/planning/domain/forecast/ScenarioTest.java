@@ -102,4 +102,12 @@ class ScenarioTest {
 
         assertThat(after).isEqualTo(Money.of("900.00", Currency.ILS));
     }
+
+    @Test
+    void Given_a_scenario_id_When_rendered_and_parsed_Then_the_round_trip_holds() {
+        ScenarioId id = ScenarioId.generate();
+
+        assertThat(ScenarioId.of(id.toString())).isEqualTo(id);
+        assertThat(id.toString()).isEqualTo(id.value().toString());
+    }
 }

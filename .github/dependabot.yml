@@ -38,6 +38,13 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      # @vitest/coverage-v8 peer-depends on an exact vitest version, so a PR bumping one
+      # without the other fails `npm ci` with ERESOLVE - the same way PR #5 did for TypeScript.
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
     ignore:
       # typescript-eslint 8.68.0 declares `typescript: >=4.8.4 <6.1.0`. A bump past that makes
       # `npm ci` fail outright with ERESOLVE - PR #5 proved it, the Web job could not install.

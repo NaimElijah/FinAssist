@@ -104,4 +104,21 @@ class BudgetTest {
         assertThat(MARCH.contains(LocalDate.of(2026, 4, 1))).isFalse();
         assertThat(MARCH.contains(LocalDate.of(2026, 2, 28))).isFalse();
     }
+
+    @Test
+    void Given_a_budget_id_When_rendered_Then_it_reads_as_its_value() {
+        BudgetId id = BudgetId.generate();
+
+        assertThat(id.toString()).isEqualTo(id.value().toString());
+    }
+
+    @Test
+    void Given_a_calendar_month_When_a_period_is_built_Then_it_spans_that_month_half_open() {
+        BudgetPeriod march = BudgetPeriod.of(YearMonth.of(2026, 3));
+
+        assertThat(march.start()).isEqualTo(LocalDate.of(2026, 3, 1));
+        assertThat(march.end()).isEqualTo(LocalDate.of(2026, 4, 1));
+        assertThat(march.contains(LocalDate.of(2026, 3, 31))).isTrue();
+        assertThat(march.contains(march.end())).isFalse();
+    }
 }

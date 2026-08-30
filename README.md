@@ -105,9 +105,12 @@ cd frontend/web && npm ci && npm run dev   # http://localhost:5173
 | Assistant packaging | uv | 0.12.7 | Resolves, locks and fetches the interpreter in one pinned tool |
 | Assistant lint, format, types | Ruff + mypy | 0.16.5 / 2.3.1 | Ruff replaces flake8 + isort + black; mypy runs `--strict` |
 | Ledger architecture tests | ArchUnit | 1.5.0 | Layering, context isolation and the no-floating-point-money rule fail the build |
+| Coverage | JaCoCo + pytest-cov + coverage-v8 | 0.8.13 / 7.1.0 / 4.1.11 | Measured in all three codebases, published by CI, gating nothing ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
+| Mutation testing | PIT | 1.19.1 | Answers what coverage cannot: would a test notice this line being wrong? Opt-in profile, not in CI |
+| Property-based tests | Seeded `Random` (Java) + Hypothesis (Python) | — / 6.167.0 | Deterministic on both sides. jqwik is unusable on JUnit Platform 6; see ADR-017 |
 | Web framework | React + Vite | 19.2 / 8.2 | A static bundle; no Node server to operate for a single-owner tool |
 | Web language | TypeScript | 6.0.3 | Pinned below 7 because `typescript-eslint` caps at `<6.1.0`; type-aware linting is worth more than the newer compiler |
-| Web test, lint, format | Vitest + ESLint + Prettier | 4.1 / 10.9 / 3.9 | Type-aware rules; they caught a `HeadersInit` bug before any code used it |
+| Web test, lint, format | Vitest + Testing Library + ESLint + Prettier | 4.1 / 16.3 / 10.9 / 3.9 | Type-aware rules; they caught a `HeadersInit` bug before any code used it, and there is now a test for it |
 | Store | PostgreSQL | 18.6 | `NUMERIC` for exact money, and real constraints behind the domain's own |
 
 Every version above is pinned in `backend/ledger/pom.xml`, `backend/assistant/pyproject.toml`,
@@ -198,11 +201,12 @@ pipeline and the local commands cannot drift.
 |---|---|---|
 | Set up | `make setup` | `cd backend/ledger && ./mvnw -B dependency:go-offline`; `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci` |
 | Run | `make run` | `docker compose up --build` |
-| Test everything | `make test` | the three test rows below |
+| Test everything | `make test` | the three test rows below; all three measure coverage |
 | Test the ledger | `make test-ledger` | `cd backend/ledger && ./mvnw -B verify` |
-| Test the assistant | `make test-assistant` | `cd backend/assistant && uv run pytest` |
-| Test the web client | `make test-web` | `cd frontend/web && npm test` |
+| Test the assistant | `make test-assistant` | `cd backend/assistant && uv run pytest --cov --cov-report=term-missing --cov-report=xml` |
+| Test the web client | `make test-web` | `cd frontend/web && npm run test:coverage` |
 | Build the web bundle | `make build-web` | `cd frontend/web && npm run build` |
+| Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -Pmutation org.pitest:pitest-maven:mutationCoverage` |
 | Lint and types | `make lint` | `./mvnw -B spotless:check`; `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; `npm run lint`, `format:check`, `typecheck` |
 | Format | `make format` | `./mvnw -B spotless:apply`; `uv run ruff format .`; `npm run format` |
 | Audit | `make audit` | `cd backend/assistant && uv run pip-audit`; `cd frontend/web && npm audit --audit-level=high` |
@@ -221,12 +225,20 @@ behaviour they describe.
 
 | Layer | Covers | Command |
 |---|---|---|
-| Ledger architecture | Layering, **context isolation**, framework-free domain, no floating-point money, no aggregate cycles (ArchUnit, 5 rules — now live, not dormant) | `make test-ledger` |
-| Ledger domain | The balancing invariant, the transaction lifecycle, derived balances, budget limits, Money (52 tests) | `make test-ledger` |
-| Assistant architecture | Every source file is parsed: no inward module imports a framework or the adapters, and no module imports another context (81 cases) | `make test-assistant` |
-| Assistant domain | FIFO cost basis, the grounding rule, quote staleness, Money (137 tests in total) | `make test-assistant` |
-| Web architecture | No feature imports another; `shared` imports no feature (6 cases) | `make test-web` |
-| Web unit | Components; none yet | `make test-web` |
+| Ledger architecture | Layering, **context isolation**, framework-free domain, no floating-point money, no aggregate cycles (ArchUnit, 5 rules — live, not dormant) | `make test-ledger` |
+| Ledger domain | The balancing invariant, the transaction lifecycle, derived balances, budget limits, planned flows, projections and comparison, Money and Currency | `make test-ledger` |
+| Ledger properties | Money's algebraic laws and Recurrence's date arithmetic, over generated inputs from a fixed seed | `make test-ledger` |
+| Ledger smoke | The context loads and the Actuator health, liveness and readiness probes answer `UP` — the only test that starts Spring | `make test-ledger` |
+| Assistant architecture | Every source file is parsed: no inward module imports a framework or the adapters, no module imports another context, no domain module names `float` or reads the wall clock. The scanner itself is unit-tested | `make test-assistant` |
+| Assistant domain | FIFO cost basis, the grounding rule, quote staleness, Money and Currency | `make test-assistant` |
+| Assistant properties | The same Money laws, plus FIFO conservation, via Hypothesis run derandomised | `make test-assistant` |
+| Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
+| Web architecture | No feature imports another; `shared` imports no feature | `make test-web` |
+| Web unit | The HTTP client's failure contracts and `Accept` header, and a jsdom render of the app shell | `make test-web` |
+
+Deliberately absent are running test counts. Every commit that adds a source file changes the
+parametrised architecture case count, so a number here would be wrong by the next pull request
+and nothing checks it.
 
 Every architecture rule above was verified by introducing a deliberate violation, confirming
 the build failed, and reverting — a rule that has never failed is not evidence of anything.
@@ -247,8 +259,23 @@ disabled for `tests/**`, with the justification recorded in `backend/assistant/p
 **What CI gates on:** every push and pull request to `main` and `dev` must pass four jobs —
 the ledger's format check and build; the assistant's lint, format check, `mypy --strict`,
 tests and `pip-audit`; the web client's lint, format check, typecheck, tests and production
-build; and a `docker compose config` validation. There is no coverage threshold; coverage is
-a diagnostic here, not a target.
+build; and a `docker compose config` validation.
+
+**Coverage is measured everywhere and gates nothing.** JaCoCo, `pytest-cov` and
+`@vitest/coverage-v8` run as part of the test targets, and each CI job publishes its report as
+a build artefact. There is no threshold in any of the three, by decision rather than by
+oversight ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) — coverage counts lines that ran, and
+says nothing about whether a test would notice them being wrong.
+
+**What answers that question is mutation testing**, on demand and also gated on nothing:
+
+```bash
+cd backend/ledger && ./mvnw -Pmutation org.pitest:pitest-maven:mutationCoverage
+```
+
+It earned its place on the first run, finding that deleting `requireSameCurrency` from
+`Money.minus` broke no test — the cross-currency refusal was asserted for `plus` and
+`compareTo` and never for `minus`, in either language.
 
 ## Configuration
 
@@ -350,9 +377,10 @@ HTTP carries no runtime schema, and contract drift is silent until CI compares t
 **Pre-alpha.** Shipped: the repository baseline and architecture, plus the **domain layer of
 all six bounded contexts** with the invariants and tests that make them real — double-entry
 accounting, periodic budgets, FIFO cost basis, grounded answers, quote staleness, deterministic
-projections and strategy comparison, and `Money` in both languages. Sixteen ADRs. The ledger's
+projections and strategy comparison, and `Money` in both languages. Eighteen ADRs. The ledger's
 architecture rules are live rather than dormant, and each one was confirmed to fail against a
-planted violation. CI gates build, lint, format and dependency audit across four jobs.
+planted violation. CI gates build, lint, format and dependency audit across four jobs, and
+publishes a coverage report from each.
 
 Planned next, in order: resolve the
 [open questions](docs/requirements/requirements.md#open-questions), ratify or reject
