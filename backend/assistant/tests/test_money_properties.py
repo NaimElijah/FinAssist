@@ -100,15 +100,18 @@ def Given_two_amounts_When_ordered_Then_the_ordering_agrees_with_their_differenc
 
 
 @given(money())
-def Given_any_amount_When_scaled_with_rounding_Then_it_stays_within_one_minor_unit(
+def Given_any_amount_When_scaled_with_rounding_Then_it_stays_within_half_a_minor_unit(
     amount: Money,
 ) -> None:
     multiplier = Decimal("1.005")
     rounded = amount.times_rounded(multiplier)
-    one_minor_unit = Decimal(1).scaleb(-amount.currency.minor_units)
+    # Half a minor unit, not a whole one. Rounding half up to N places can never land further
+    # than half a unit from the exact product, and asserting the looser bound let a mutation to
+    # ROUND_UP or ROUND_CEILING pass every generated case.
+    half_a_minor_unit = Decimal(1).scaleb(-amount.currency.minor_units) / 2
 
     assert rounded.currency is amount.currency
-    assert abs(rounded.amount - amount.amount * multiplier) <= one_minor_unit
+    assert abs(rounded.amount - amount.amount * multiplier) <= half_a_minor_unit
 
 
 @given(money())

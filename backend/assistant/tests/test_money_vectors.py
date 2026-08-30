@@ -11,6 +11,7 @@ forms rather than expressions, so it creates no shared kernel - only a shared sp
 """
 
 import json
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -25,10 +26,28 @@ VECTORS_PATH = Path(__file__).resolve().parents[3] / "contracts" / "money-vector
 
 # Language-neutral categories to this language's exception types. Java raises
 # IllegalArgumentException where this raises ValueError; the file names neither.
+#
+# Matched on the exact type, not with isinstance. CurrencyMismatchError subclasses ValueError,
+# so `pytest.raises(ValueError)` accepts a currency mismatch too - which would let the vectors
+# report agreement between the two languages where there is none. Java's types are disjoint
+# (IllegalArgumentException vs CurrencyMismatchException) and discriminate on their own; this
+# is what gives the Python side the same strength.
 ERRORS: dict[str, type[Exception]] = {
     "PRECISION_EXCEEDED": ValueError,
     "CURRENCY_MISMATCH": CurrencyMismatchError,
 }
+
+
+def _assert_raises_exactly(category: str, call: Callable[[], object]) -> None:
+    expected = ERRORS[category]
+    with pytest.raises(expected) as raised:
+        call()
+
+    assert type(raised.value) is expected, (
+        f"vector expects {category}, which is {expected.__name__}, but got "
+        f"{type(raised.value).__name__}. The categories must discriminate, or the vectors "
+        "report agreement between the two languages where there is none."
+    )
 
 
 def _load() -> dict[str, Any]:
@@ -92,8 +111,7 @@ def Given_a_construction_vector_When_applied_Then_it_matches(case: Any) -> None:
     currency = Currency[case["currency"]]
 
     if "error" in case:
-        with pytest.raises(ERRORS[case["error"]]):
-            Money(Decimal(case["amount"]), currency)
+        _assert_raises_exactly(case["error"], lambda: Money(Decimal(case["amount"]), currency))
         return
 
     assert str(Money(Decimal(case["amount"]), currency)) == case["expect"]
@@ -106,8 +124,7 @@ def Given_a_binary_vector_When_applied_Then_it_matches(case: Any) -> None:
     operation = {"plus": Money.plus, "minus": Money.minus}[case["op"]]
 
     if "error" in case:
-        with pytest.raises(ERRORS[case["error"]]):
-            operation(left, right)
+        _assert_raises_exactly(case["error"], lambda: operation(left, right))
         return
 
     assert str(operation(left, right)) == case["expect"]
@@ -120,8 +137,7 @@ def Given_a_scalar_vector_When_applied_Then_it_matches(case: Any) -> None:
     operation = {"times": Money.times, "timesRounded": Money.times_rounded}[case["op"]]
 
     if "error" in case:
-        with pytest.raises(ERRORS[case["error"]]):
-            operation(amount, multiplier)
+        _assert_raises_exactly(case["error"], lambda: operation(amount, multiplier))
         return
 
     assert str(operation(amount, multiplier)) == case["expect"]

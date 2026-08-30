@@ -26,6 +26,8 @@ See ADR-007 and ADR-010.
 """
 
 import ast
+import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -36,23 +38,34 @@ SRC = Path(__file__).resolve().parent.parent / "src" / ROOT_PACKAGE
 # Bounded contexts. `shared` is deliberately absent - it is the one package all may use.
 CONTEXTS = frozenset({"portfolio", "assistance", "marketdata"})
 
-# Top-level distributions no inward layer may import, directly. Every declared runtime
-# dependency of this service belongs here: the list is what stops one leaking inward, so a
-# dependency missing from it is a hole rather than an omission. `sqlalchemy` was listed and is
-# not a dependency at all, which made the rule look wider than it was.
-FORBIDDEN_FRAMEWORKS = frozenset(
-    {
-        "fastapi",
-        "starlette",
-        "uvicorn",
-        "httpx",
-        "anthropic",
-        "pandas",
-        "pydantic",
-        "pydantic_settings",
-        "structlog",
-    }
-)
+PYPROJECT = SRC.parent.parent / "pyproject.toml"
+
+
+def _declared_runtime_distributions() -> frozenset[str]:
+    """Every runtime dependency, as the name it is imported by.
+
+    Read from pyproject.toml rather than copied here. A hand-kept list is a second place to
+    remember, and it fails silently in the wrong direction: a dependency missing from it leaves
+    an inward module free to import a framework, which is exactly what this rule exists to
+    stop. Adding a dependency now widens the rule on its own.
+    """
+    with PYPROJECT.open("rb") as handle:
+        project = tomllib.load(handle)["project"]
+
+    names = set()
+    for requirement in project["dependencies"]:
+        # "uvicorn[standard]==0.52.4" -> "uvicorn". Distribution names are hyphenated where
+        # import names are underscored.
+        name = re.split(r"[\[<>=!~;\s]", requirement, maxsplit=1)[0]
+        names.add(name.strip().replace("-", "_"))
+    return frozenset(names)
+
+
+# Top-level distributions no inward layer may import, directly. Derived from the declared
+# runtime dependencies, plus two transitives worth naming: starlette arrives under fastapi and
+# is just as much a framework, and sqlalchemy is refused on the day it is added rather than the
+# day someone notices.
+FORBIDDEN_FRAMEWORKS = _declared_runtime_distributions() | frozenset({"starlette", "sqlalchemy"})
 
 DOMAIN_SEGMENT = "domain"
 
@@ -62,6 +75,8 @@ DOMAIN_SEGMENT = "domain"
 CLOCK_READS = frozenset({"now", "today", "utcnow", "time", "monotonic", "time_ns"})
 
 ADAPTER_SEGMENT = "adapters"
+
+SHARED_PACKAGE = "shared"
 
 SOURCE_FILES = sorted(SRC.rglob("*.py"))
 
@@ -106,7 +121,15 @@ def _imports_in(source: str, package: str, filename: str = "<test>") -> set[str]
 
 
 def _is_domain(path: Path) -> bool:
-    return DOMAIN_SEGMENT in path.relative_to(SRC).parts
+    """A context's domain, or the shared kernel.
+
+    ``shared`` is included deliberately. It sits inside no context's ``domain`` directory, but
+    it is where ``Money`` and ``Currency`` live - so a rule about exact arithmetic that skipped
+    it would skip the one module it exists for, while the requirements table claimed otherwise.
+    The ledger's ArchUnit mirror covers its own ``shared`` package for the same reason.
+    """
+    parts = path.relative_to(SRC).parts
+    return DOMAIN_SEGMENT in parts or (bool(parts) and parts[0] == SHARED_PACKAGE)
 
 
 def _float_uses_in(source: str, filename: str = "<test>") -> list[str]:
@@ -126,16 +149,27 @@ def _float_uses_in(source: str, filename: str = "<test>") -> list[str]:
 
 
 def _clock_reads_in(source: str, filename: str = "<test>") -> list[str]:
-    """Every call that reads the wall clock, matched by call shape rather than by name."""
+    """Every reference to a wall-clock reader.
+
+    An attribute is matched by name whether or not it is called, because
+    ``field(default_factory=datetime.now)`` produces no ``Call`` node at that point and is
+    exactly how a clock read enters a value object. Bare calls are matched too, so
+    ``from time import time`` followed by ``time()`` does not slip past.
+
+    A parameter *named* ``now`` is still not a violation - ``is_stale`` and ``age`` both take
+    one - so a bare name is flagged only where it is being called.
+    """
     tree = ast.parse(source, filename=filename)
     found: list[str] = []
     for node in ast.walk(tree):
-        if (
+        if isinstance(node, ast.Attribute) and node.attr in CLOCK_READS:
+            found.append(f"{node.attr} at line {node.lineno}")
+        elif (
             isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr in CLOCK_READS
+            and isinstance(node.func, ast.Name)
+            and node.func.id in CLOCK_READS
         ):
-            found.append(f"{node.func.attr}() at line {node.lineno}")
+            found.append(f"{node.func.id}() at line {node.lineno}")
     return found
 
 
@@ -160,6 +194,27 @@ def _context_imported_by(module: str) -> str | None:
 def Given_the_source_tree_When_collected_Then_it_is_not_empty() -> None:
     """Guards every rule below from passing because it found nothing to check."""
     assert SOURCE_FILES, f"no Python sources found under {SRC}"
+
+
+def Given_the_source_tree_When_collected_Then_some_of_it_is_domain() -> None:
+    """The same guard for the two domain-scoped rules, which skip everything else.
+
+    Without it, renaming ``portfolio/domain/`` to ``portfolio/core/`` would make every case of
+    both rules skip and the suite stay green - the behaviour the ledger deliberately removed
+    when it deleted ``archRule.failOnEmptyShould=false``.
+    """
+    assert any(_is_domain(path) for path in SOURCE_FILES), (
+        f"no domain or shared module found under {SRC}; the float and clock rules would skip "
+        "every file and pass without checking anything"
+    )
+
+
+def Given_the_forbidden_framework_list_When_derived_Then_it_covers_the_dependencies() -> None:
+    """The list is derived now, so this asserts the derivation still finds something."""
+    declared = _declared_runtime_distributions()
+
+    assert declared, f"no runtime dependencies parsed from {PYPROJECT}"
+    assert declared <= FORBIDDEN_FRAMEWORKS
 
 
 @pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
@@ -300,9 +355,11 @@ def Given_a_module_name_When_asked_Then_the_context_it_belongs_to_is_returned() 
     assert _context_imported_by("decimal") is None
 
 
-def Given_a_domain_path_When_asked_Then_only_domain_modules_are_matched() -> None:
+def Given_a_domain_path_When_asked_Then_the_domain_and_the_kernel_are_matched() -> None:
     assert _is_domain(SRC / "portfolio" / "domain" / "model" / "__init__.py")
-    assert not _is_domain(SRC / "shared" / "money.py")
+    # shared holds Money and Currency, so the exact-arithmetic rule must reach it.
+    assert _is_domain(SRC / "shared" / "money.py")
+    assert not _is_domain(SRC / "portfolio" / "adapters" / "outbound" / "ledger" / "__init__.py")
 
 
 def Given_source_using_float_When_scanned_Then_the_annotation_and_the_literal_are_found() -> None:
@@ -324,9 +381,15 @@ def Given_source_reading_the_clock_When_scanned_Then_the_call_is_found() -> None
     assert _clock_reads_in("import time\nx = time.time()")
 
 
+def Given_an_uncalled_clock_reference_When_scanned_Then_it_is_still_a_violation() -> None:
+    # How a clock read actually enters a frozen value object: no Call node at that point, so a
+    # call-shape-only rule saw nothing at all.
+    assert _clock_reads_in("taken_at: datetime = field(default_factory=datetime.now)")
+    assert _clock_reads_in("from time import time" + chr(10) + "x = time()")
+
+
 def Given_a_parameter_named_now_When_scanned_Then_it_is_not_a_violation() -> None:
-    # is_stale and age both take a parameter called `now` and subtract with it. A name-based
-    # rule would fail the build on the very convention it exists to enforce, so the rule
-    # matches call shape instead. This is the case that pins that choice.
+    # is_stale and age both take a parameter called `now` and subtract with it. A rule matching
+    # every bare name would fail the build on the very convention it exists to enforce.
     assert _clock_reads_in("def is_stale(now, other):\n    return now - other") == []
     assert _clock_reads_in("age = now - quote.as_of") == []
