@@ -34,6 +34,14 @@ jobs:
       - name: Build and test
         run: make test-ledger
 
+      # Published for reading, never gated on. See docs/ADRs/ADR-017-test-strategy.md.
+      - name: Publish coverage
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-ledger
+          path: backend/ledger/target/site/jacoco
+          if-no-files-found: error
+
   assistant:
     name: Assistant (Python)
     runs-on: ubuntu-latest
@@ -55,6 +63,13 @@ jobs:
 
       - name: Test
         run: make test-assistant
+
+      - name: Publish coverage
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-assistant
+          path: backend/assistant/coverage.xml
+          if-no-files-found: error
 
       - name: Dependency audit
         run: make audit-assistant
@@ -79,6 +94,13 @@ jobs:
 
       - name: Test
         run: make test-web
+
+      - name: Publish coverage
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-web
+          path: frontend/web/coverage
+          if-no-files-found: error
 
       - name: Build
         run: make build-web
