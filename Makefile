@@ -9,7 +9,7 @@ WEB       := frontend/web
 MVNW      := ./mvnw -B
 UV        := uv
 
-.PHONY: help setup lock run stop \
+.PHONY: help setup lock run run-monitoring stop stop-monitoring \
         test test-ledger test-assistant test-web \
         lint lint-ledger lint-assistant lint-web \
         build-web format audit audit-assistant audit-web clean
@@ -30,8 +30,14 @@ lock: ## Regenerate backend/assistant/uv.lock after editing pyproject.toml
 run: ## Start the stack
 	docker compose up --build
 
+run-monitoring: ## Start the stack plus the collector, Prometheus and Grafana
+	docker compose --profile monitoring up --build
+
 stop: ## Stop the stack, keeping volumes
 	docker compose down
+
+stop-monitoring: ## Stop the monitoring profile too, keeping volumes
+	docker compose --profile monitoring down
 
 test: test-ledger test-assistant test-web ## Every test, with coverage. CI also gates lint, build and audit
 

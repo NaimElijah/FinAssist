@@ -1,0 +1,12 @@
+# Provisioned as code so the datasource is never clicked into existence and lost on a volume
+# reset. See the repository baseline: dashboards and their wiring live in the repo.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

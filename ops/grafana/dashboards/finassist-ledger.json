@@ -1,0 +1,110 @@
+{
+  "uid": "finassist-ledger",
+  "title": "FinAssist ledger",
+  "tags": ["finassist"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "description": "Every panel here is a metric that exists today. The ledger serves Actuator and nothing else, so HTTP panels describe probe traffic until the first business endpoint ships (ADR-019).",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Ledger reachable",
+      "description": "Prometheus scrape success. 0 means the ledger is not running natively on the host, which is the usual cause of every other panel being empty.",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "up{job=\"finassist-ledger\"}", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "DOWN", "color": "red", "index": 0 },
+                "1": { "text": "UP", "color": "green", "index": 1 }
+              }
+            }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "JVM uptime",
+      "description": "Resets on restart, which is the quickest way to spot a crash loop.",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "process_uptime_seconds{job=\"finassist-ledger\"}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Request rate by outcome",
+      "description": "Split by outcome so a rising error rate is visible rather than hidden inside a total.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(http_server_requests_seconds_count{job=\"finassist-ledger\"}[5m]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "JVM heap used",
+      "description": "Heap only. Non-heap grows once and then sits still, and averaging the two together hides a leak.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "sum by (id) (jvm_memory_used_bytes{job=\"finassist-ledger\", area=\"heap\"})",
+          "legendFormat": "{{id}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Request latency, p95 and p99",
+      "description": "Quantiles rather than an average: an average request time is the one number that never describes a user's experience. Needs management.metrics.distribution.percentiles-histogram, which application.yml enables for this meter.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job=\"finassist-ledger\"}[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{job=\"finassist-ledger\"}[5m])))",
+          "legendFormat": "p99",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Live threads",
+      "description": "Saturation. A thread count that climbs and never falls is the shape of a leaked executor.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        {
+          "expr": "jvm_threads_live_threads{job=\"finassist-ledger\"}",
+          "legendFormat": "live",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    }
+  ]
+}

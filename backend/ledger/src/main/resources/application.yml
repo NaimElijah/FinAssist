@@ -34,6 +34,13 @@ management:
       # Splits health into /actuator/health/liveness and /actuator/health/readiness.
       probes:
         enabled: true
+  metrics:
+    distribution:
+      # Publishes _bucket series for HTTP timings, which is what a latency quantile is
+      # computed from. Without this the collector and the Grafana panel both see a count and a
+      # sum and can only show an average, which hides exactly the tail worth looking at.
+      percentiles-histogram:
+        http.server.requests: true
   tracing:
     sampling:
       # Single-owner system with no traffic: sampling would trade a resource nobody is short
