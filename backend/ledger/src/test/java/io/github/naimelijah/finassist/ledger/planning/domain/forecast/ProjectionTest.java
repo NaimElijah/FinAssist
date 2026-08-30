@@ -139,7 +139,10 @@ class ProjectionTest {
                         Money.of("1000.00", Currency.USD),
                         Money.zero(Currency.ILS)))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("performs no conversion");
+                // Names the guard that refused it, not merely that something refused it: without
+                // this, deleting the opening-cash check still failed downstream with the same
+                // words, and mutation testing showed the assertion could not tell the difference.
+                .hasMessageContaining("opening cash");
     }
 
     @Test
@@ -320,5 +323,24 @@ class ProjectionTest {
 
         assertThatThrownBy(() -> new Projection(QUARTER, Cadence.MONTHLY, List.of(january, february, march, april)))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * The bucketing loop stops advancing at {@code steps - 1}, so an occurrence in the final step
+     * lands in the last bucket rather than running off the end. Mutation testing found the
+     * boundary unpinned: moving it broke no test.
+     */
+    @Test
+    void Given_a_flow_falling_in_the_final_step_When_projected_Then_it_lands_in_the_closing_point() {
+        PlannedFlow inMarch =
+                PlannedFlow.plan("Last month only", ils("100.00"), Direction.OUTFLOW, MARCH, new Recurrence.Once());
+        Scenario scenario = Scenario.of("Late spend", Currency.ILS, List.of(inMarch), GrowthAssumption.none());
+
+        Projection projection =
+                Projection.of(scenario, QUARTER, Cadence.MONTHLY, ils("1000.00"), Money.zero(Currency.ILS));
+
+        assertThat(projection.points())
+                .extracting(BalancePoint::cash)
+                .containsExactly(ils("1000.00"), ils("1000.00"), ils("1000.00"), ils("900.00"));
     }
 }

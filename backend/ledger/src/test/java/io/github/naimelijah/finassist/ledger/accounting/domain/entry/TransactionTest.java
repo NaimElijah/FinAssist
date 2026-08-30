@@ -241,4 +241,25 @@ class TransactionTest {
         assertThat(cleared.markVoided(clearedOn, "Charged twice").countsTowardsBalance())
                 .isFalse();
     }
+
+    @Test
+    void Given_a_transaction_id_When_rendered_and_parsed_Then_the_round_trip_holds() {
+        TransactionId id = TransactionId.generate();
+
+        assertThat(TransactionId.of(id.toString())).isEqualTo(id);
+        assertThat(id.toString()).isEqualTo(id.value().toString());
+    }
+
+    @Test
+    void Given_text_that_is_not_a_transaction_id_When_parsed_Then_it_is_refused() {
+        assertThatThrownBy(() -> TransactionId.of("not-a-uuid")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void Given_each_transaction_state_When_named_Then_the_name_is_the_one_used_in_refusals() {
+        assertThat(new TransactionState.Pending().name()).isEqualTo("Pending");
+        assertThat(new TransactionState.Cleared(WHEN).name()).isEqualTo("Cleared");
+        assertThat(new TransactionState.Reconciled(WHEN).name()).isEqualTo("Reconciled");
+        assertThat(new TransactionState.Voided(WHEN, "Charged twice").name()).isEqualTo("Voided");
+    }
 }

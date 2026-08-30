@@ -94,4 +94,23 @@ class MoneyTest {
         assertThatThrownBy(() -> Money.of("0.01", Currency.USD).times(new BigDecimal("0.5")))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    /**
+     * Asserted for {@code plus} and {@code compareTo} since the beginning, and never for
+     * {@code minus} - mutation testing found that deleting its {@code requireSameCurrency} call
+     * broke nothing. The same blind spot existed in the Python mirror.
+     */
+    @Test
+    void Given_two_currencies_When_subtracted_Then_it_is_refused() {
+        assertThatThrownBy(() -> Money.of("10.00", Currency.ILS).minus(Money.of("3.00", Currency.USD)))
+                .isInstanceOf(CurrencyMismatchException.class)
+                .hasMessageContaining("no conversion");
+    }
+
+    @Test
+    void Given_an_amount_that_is_not_zero_When_asked_Then_it_says_so() {
+        assertThat(Money.of("0.01", Currency.ILS).isZero()).isFalse();
+        assertThat(Money.of("-0.01", Currency.ILS).isZero()).isFalse();
+        assertThat(Money.of("12.50", Currency.ILS).isPositive()).isTrue();
+    }
 }
