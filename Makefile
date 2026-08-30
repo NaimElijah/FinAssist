@@ -39,7 +39,7 @@ test-ledger:
 	cd $(LEDGER) && $(MVNW) verify
 
 test-assistant:
-	cd $(ASSISTANT) && $(UV) run pytest
+	cd $(ASSISTANT) && $(UV) run pytest --cov --cov-report=term-missing --cov-report=xml
 
 test-web:
 	cd $(WEB) && npm test

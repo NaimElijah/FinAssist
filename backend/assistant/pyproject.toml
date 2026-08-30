@@ -81,3 +81,20 @@ addopts = "-ra --strict-markers --strict-config"
 # imported - collecting it as a test locally but not on Linux CI, which is exactly the kind of
 # drift between the two that ADR-005 exists to prevent.
 python_functions = ["test_*", "Given_*"]
+
+
+[tool.coverage.run]
+source_pkgs = ["finassist_assistant"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+# No fail_under, deliberately. Coverage is a diagnostic here: it says which lines ran, never
+# whether a test would have noticed them being wrong. A percentage gate rewards tests written
+# to reach lines. See docs/ADRs/ADR-017-test-strategy.md.
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    '\.\.\.',
+]
+

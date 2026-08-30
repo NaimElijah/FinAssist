@@ -103,3 +103,25 @@ def Given_a_very_large_product_When_times_rounded_Then_it_is_accepted() -> None:
     huge = Money(Decimal("1E+30"), Currency.USD)
 
     assert str(huge.times_rounded(Decimal("1E+30"))) == "1" + "0" * 60 + ".00 USD"
+
+
+def Given_two_amounts_in_one_currency_When_ordered_Then_both_comparisons_answer() -> None:
+    ten = Money.of("10.00", Currency.ILS)
+    twelve = Money.of("12.00", Currency.ILS)
+
+    assert ten < twelve
+    assert ten <= twelve
+    assert ten <= Money.of("10.00", Currency.ILS)
+    assert not twelve <= ten
+
+
+def Given_two_currencies_When_ordered_with_le_Then_it_is_refused() -> None:
+    with pytest.raises(CurrencyMismatchError, match="no conversion"):
+        _ = Money.of("10.00", Currency.ILS) <= Money.of("10.00", Currency.USD)
+
+
+def Given_a_non_finite_multiplier_When_times_rounded_Then_it_is_refused() -> None:
+    # The product is NaN, which Money's own finiteness guard refuses - so the caller sees the
+    # ValueError this module promises rather than a decimal.InvalidOperation.
+    with pytest.raises(ValueError, match="finite"):
+        Money.of("10.00", Currency.USD).times_rounded(Decimal("NaN"))
