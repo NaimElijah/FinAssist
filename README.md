@@ -206,7 +206,7 @@ pipeline and the local commands cannot drift.
 | Test the assistant | `make test-assistant` | `cd backend/assistant && uv run pytest --cov --cov-report=term-missing --cov-report=xml` |
 | Test the web client | `make test-web` | `cd frontend/web && npm run test:coverage` |
 | Build the web bundle | `make build-web` | `cd frontend/web && npm run build` |
-| Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -Pmutation org.pitest:pitest-maven:mutationCoverage` |
+| Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
 | Lint and types | `make lint` | `./mvnw -B spotless:check`; `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; `npm run lint`, `format:check`, `typecheck` |
 | Format | `make format` | `./mvnw -B spotless:apply`; `uv run ruff format .`; `npm run format` |
 | Audit | `make audit` | `cd backend/assistant && uv run pip-audit`; `cd frontend/web && npm audit --audit-level=high` |
@@ -270,7 +270,7 @@ says nothing about whether a test would notice them being wrong.
 **What answers that question is mutation testing**, on demand and also gated on nothing:
 
 ```bash
-cd backend/ledger && ./mvnw -Pmutation org.pitest:pitest-maven:mutationCoverage
+cd backend/ledger && ./mvnw -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
 ```
 
 It earned its place on the first run, finding that deleting `requireSameCurrency` from

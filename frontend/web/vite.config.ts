@@ -1,8 +1,9 @@
-/// <reference types="vitest/config" />
 import { fileURLToPath, URL } from 'node:url';
 
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+// defineConfig comes from vitest/config, not vite: it carries the `test` key's types, which
+// the triple-slash reference used to supply before this file imported from vitest at all.
+import { coverageConfigDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
     plugins: [react()],
@@ -34,7 +35,15 @@ export default defineConfig({
             include: ['src/**/*.{ts,tsx}'],
             // No thresholds. Coverage is a diagnostic here, never a gate; see
             // docs/ADRs/ADR-017-test-strategy.md.
-            exclude: ['src/**/*.test.{ts,tsx}', 'src/**/index.ts'],
+            //
+            // Spread rather than replace: naming `exclude` overrides Vitest's own defaults
+            // wholesale, which would silently pull .d.ts files and other non-source into the
+            // report and make the diagnostic misleading.
+            exclude: [
+                ...coverageConfigDefaults.exclude,
+                'src/**/*.test.{ts,tsx}',
+                'src/**/index.ts',
+            ],
         },
     },
 });

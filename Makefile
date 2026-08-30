@@ -45,7 +45,7 @@ test-web:
 	cd $(WEB) && npm run test:coverage
 
 mutation-ledger: ## Mutation testing over the ledger domain; a diagnostic, gated on nothing (ADR-017)
-	cd $(LEDGER) && $(MVNW) -Pmutation org.pitest:pitest-maven:mutationCoverage
+	cd $(LEDGER) && $(MVNW) -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
 
 lint: lint-ledger lint-assistant lint-web ## Format check and static analysis; never rewrites a file
 

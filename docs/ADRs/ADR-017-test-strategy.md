@@ -40,7 +40,7 @@ this record rather than a tuning exercise.
 `mutation` profile in the ledger, bound to no lifecycle phase:
 
 ```
-cd backend/ledger && ./mvnw -Pmutation org.pitest:pitest-maven:mutationCoverage
+cd backend/ledger && ./mvnw -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
 ```
 
 It is scoped to the domain and shared kernel, excluding the Spring and ArchUnit tests, because
