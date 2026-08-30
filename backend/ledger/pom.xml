@@ -22,6 +22,7 @@
     <spotless.version>3.10.1</spotless.version>
     <palantir-java-format.version>2.97.0</palantir-java-format.version>
     <archunit.version>1.5.0</archunit.version>
+    <jacoco.version>0.8.13</jacoco.version>
   </properties>
 
   <dependencies>
@@ -79,6 +80,32 @@
             </sortPom>
           </pom>
         </configuration>
+      </plugin>
+
+      <!--
+        Coverage is a diagnostic, not a target: `report` only, and deliberately no `check`
+        goal. A percentage gate would reward tests written to reach lines rather than to
+        state a rule. See docs/ADRs/ADR-017-test-strategy.md.
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <goals>
+              <goal>report</goal>
+            </goals>
+            <phase>verify</phase>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>
