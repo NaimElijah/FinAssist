@@ -13,7 +13,7 @@ language, and analyse the portfolio behind it.**
 </div>
 
 > [!IMPORTANT]
-> **All five bounded contexts have a domain layer; nothing above it exists yet.** The models,
+> **All six bounded contexts have a domain layer; nothing above it exists yet.** The models,
 > their invariants and their tests are real — no application services, ports, adapters, HTTP or
 > persistence. The ledger boots and answers its Actuator health probes; the assistant has no
 > entry point; the web client renders a placeholder. Everything below describes what exists on
@@ -130,8 +130,9 @@ flowchart LR
 `DB` runs under Compose and the ledger boots with Actuator only. No edge in that diagram is
 implemented.
 
-**Five bounded contexts**, each owned by exactly one service, each one directory
-([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md)):
+**Six bounded contexts**, each owned by exactly one service, each one directory
+([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md), extended by
+[ADR-015](docs/ADRs/ADR-015-planning-as-a-sixth-bounded-context.md)):
 
 | Context | Owner | UI feature |
 |---|---|---|
@@ -140,6 +141,7 @@ implemented.
 | `portfolio` — holdings, positions, valuation | assistant | yes |
 | `assistance` — questions and grounded answers | assistant | yes |
 | `marketdata` — instruments and quotes, feed not chosen | assistant | no |
+| `planning` — planned flows, projections, strategy comparison | ledger | not yet built |
 
 Both services are hexagonal, but **only the ledger uses tactical DDD** — aggregates,
 value objects and domain events protect invariants, and the analysis side has none to
@@ -167,6 +169,7 @@ backend/ledger/         Java 21 + Spring Boot - full tactical DDD; sole writer o
   accounting/             domain/{account,entry,event}/ application/{port/in,port/out,service}/
                           adapter/{in/web,out/persistence}/
   budgeting/              same hexagon, its own aggregates
+  planning/               domain/{plan,forecast}/ - what is intended, never what happened
   shared/                 Money, Currency - in-language kernel
 backend/assistant/      Python 3.13 + FastAPI - pure-function cores, no aggregates
   portfolio/              domain/{model,analysis}/ application/{port,usecase}/
@@ -310,7 +313,7 @@ choosing Java here hollow. Cost: every purchase needs a category account to bala
 a bare "I spent 12.50" is not expressible.
 
 **Context first, hexagon inside**
-([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md)) — five bounded contexts, each one
+([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md)) — six bounded contexts, each one
 directory with its own hexagon, so a context is extractable by moving it. No context may
 depend on another; that rule is enforced in all three codebases and was proved by making it
 fail. The alternative — layers on top, contexts nested inside — leaves a context's code in
@@ -345,10 +348,11 @@ HTTP carries no runtime schema, and contract drift is silent until CI compares t
 ## Status and limitations
 
 **Pre-alpha.** Shipped: the repository baseline and architecture, plus the **domain layer of
-all five bounded contexts** with the invariants and tests that make them real — double-entry
-accounting, periodic budgets, FIFO cost basis, grounded answers, quote staleness, and `Money` in
-both languages. Fourteen ADRs. The ledger's architecture rules are live rather than dormant. CI
-gates build, lint, format and dependency audit across four jobs.
+all six bounded contexts** with the invariants and tests that make them real — double-entry
+accounting, periodic budgets, FIFO cost basis, grounded answers, quote staleness, deterministic
+projections and strategy comparison, and `Money` in both languages. Sixteen ADRs. The ledger's
+architecture rules are live rather than dormant, and each one was confirmed to fail against a
+planted violation. CI gates build, lint, format and dependency audit across four jobs.
 
 Planned next, in order: resolve the
 [open questions](docs/requirements/requirements.md#open-questions), ratify or reject
@@ -360,9 +364,20 @@ Known limitations:
 
 - **Nothing above the domain exists.** No application services, ports, adapters, HTTP or
   persistence, so the domain models cannot yet be reached by anything.
-- **Five contexts is a guess.** They are derived from the three capability areas, not from a
+- **Six contexts is a guess.** They are derived from the four capability areas, not from a
   working slice, and some may turn out to be wrong boundaries. ADR-010 names the signal:
   contexts that always change together should be merged.
+- **`planning` sits in the ledger against ADR-007's own criterion.** Forecasting is
+  transformation-dense, which is the assistant's profile, and it was placed in the ledger for
+  its lifecycle and its future persistence. If `PlanState` goes unused, the context belongs in
+  Python ([ADR-015](docs/ADRs/ADR-015-planning-as-a-sixth-bounded-context.md)).
+- **A projection is a single deterministic line.** It states no uncertainty, so a long-horizon
+  figure looks far more precise than it is
+  ([ADR-016](docs/ADRs/ADR-016-deterministic-per-currency-projection.md)).
+- **Shortfall detection sees only step boundaries.** An overdraft that opens and closes within
+  one step goes unreported — a big payment covered by a salary later the same month reads as
+  untroubled at a monthly cadence. Pinned by a test, narrowed by projecting more finely, closed
+  by nothing yet.
 - **`consume_fifo` trusts the caller's lot order.** It consumes in the order given, so a
   caller holding lots in another order silently gets LIFO. Documented, not enforced — the
   sharpest edge in the domain ([ADR-013](docs/ADRs/ADR-013-fifo-lot-based-cost-basis.md)).
@@ -370,7 +385,7 @@ Known limitations:
   citing a real balance while stating a different number passes
   ([ADR-014](docs/ADRs/ADR-014-grounded-answers-require-citations.md)).
 - **No cross-currency total is possible**, by design — so there is no single net-worth figure
-  across accounts in different currencies
+  across accounts in different currencies, and a projection covers one currency only
   ([ADR-012](docs/ADRs/ADR-012-multi-currency-without-conversion.md)).
 - **`marketdata` has no feed.** The anti-corruption layer exists; nothing sits behind it,
   because no price source has been chosen or licence-checked.

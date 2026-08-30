@@ -1,6 +1,6 @@
 # ADR-010: The context map, and context-first packaging
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by [ADR-015](ADR-015-planning-as-a-sixth-bounded-context.md)
 - **Date:** 2026-08-29
 
 Extends [ADR-007](ADR-007-asymmetric-hexagonal-architecture.md), which decided that both

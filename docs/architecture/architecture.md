@@ -4,7 +4,7 @@ The system as it actually is. *What it must do* is
 [requirements](../requirements/requirements.md); *why* a given solution was chosen is
 [the ADRs](../ADRs/).
 
-> **All five contexts now have a domain layer, and nothing above it.** The models, their
+> **All six contexts now have a domain layer, and nothing above it.** The models, their
 > invariants and their tests exist; application services, ports, adapters, HTTP and persistence
 > do not. The ledger boots and answers Actuator probes; the assistant has no entry point; the
 > web client renders a placeholder. Where a structure is defined but not yet inhabited, this
@@ -39,8 +39,9 @@ diagram is implemented.
 
 ## Bounded contexts
 
-Five contexts, each owned by exactly one service
-([ADR-010](../ADRs/ADR-010-bounded-context-map.md)).
+Six contexts, each owned by exactly one service
+([ADR-010](../ADRs/ADR-010-bounded-context-map.md), extended by
+[ADR-015](../ADRs/ADR-015-planning-as-a-sixth-bounded-context.md)).
 
 | Context | Owner | Holds | UI feature |
 |---|---|---|---|
@@ -49,6 +50,7 @@ Five contexts, each owned by exactly one service
 | `portfolio` | `backend/assistant` | `Holding`, `Position`, `Valuation` | yes |
 | `assistance` | `backend/assistant` | `Question`, `Evidence`, `GroundedAnswer` | yes |
 | `marketdata` | `backend/assistant` | `Instrument`, `Quote` — feed not chosen | no |
+| `planning` | `backend/ledger` | `PlannedFlow`, `Scenario`, `Projection`, `Comparison` — what is intended, not what happened | yes, not yet built |
 
 ### The context map
 
@@ -59,8 +61,16 @@ Five contexts, each owned by exactly one service
 | Published Language | the OpenAPI document in [`contracts/`](../../contracts) | The only sanctioned way to read ledger data |
 | Anti-corruption layer | `portfolio/adapters/outbound/ledger/`, `marketdata/adapters/outbound/feed/`, `assistance/adapters/outbound/llm/` | Foreign shapes become local model types here and nowhere else |
 
-`budgeting` references accounts **by identifier only**, never by object — separate lifecycles,
-separate invariants.
+`budgeting` and `planning` name **no accounting type at all** — not an `Account`, and not an
+`AccountId` either. `contexts_do_not_depend_on_each_other` admits no exception, so a context
+needing a ledger figure takes it as a `Money` handed in from above rather than reaching for it:
+`Budget.remaining` takes the spend, `Projection.of` takes the opening balance. Wiring those to
+real accounting data is the application layer's job, and that layer does not exist yet.
+
+`planning` is the one context in the ledger that is not invariant-dense by nature, and it was
+put there by choice rather than by ADR-007's criterion; see
+[ADR-015](../ADRs/ADR-015-planning-as-a-sixth-bounded-context.md) for the obligation that
+creates and the trigger for moving it.
 
 There is deliberately **no shared kernel across languages**. `Money` is implemented once per
 language and pinned by equivalent tests on each side; two implementations obliged to stay
@@ -70,8 +80,8 @@ bit-identical would cost more than the duplication.
 
 | Component | Responsibility | State |
 |---|---|---|
-| `backend/ledger` | Accounting and budgeting. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain layer complete; 57 tests including 5 live architecture rules; nothing above the domain |
-| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain layer complete; 137 tests; no entry point, nothing above the domain |
+| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain layer complete; 135 tests including 5 live architecture rules; nothing above the domain |
+| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain layer complete; 144 tests pass and 30 skip (parametrised architecture rules that do not apply to a given file); no entry point, nothing above the domain |
 | `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder; 6 architecture tests pass; no feature implemented |
 | `contracts/` | The versioned wire contract | Directory and its README only |
 | PostgreSQL 18 | The ledger's store | Runs via Compose; nothing connects to it |
@@ -86,6 +96,7 @@ assistant's cores are pure functions over frozen dataclasses.
 backend/ledger/src/main/java/io/github/naimelijah/finassist/ledger/
   accounting/   domain/{account,entry,event}/  application/{port/in,port/out,service}/  adapter/{in/web,out/persistence}/
   budgeting/    domain/{budget,category,event}/  application/…  adapter/…
+  planning/     domain/{plan,forecast}/          application/…  adapter/…
   shared/       Money, Currency — in-language kernel
   LedgerApplication.java
 
@@ -97,6 +108,7 @@ backend/assistant/src/finassist_assistant/
 
 frontend/web/src/
   features/{accounting,budgeting,portfolio,assistance}/{api,components,hooks,types}/
+                planning/ has no feature directory yet — the domain computes a series, nothing draws it
   shared/{ui,api,lib}/
   app/          the only place that knows every feature at once
 ```
