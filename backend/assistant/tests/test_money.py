@@ -92,3 +92,14 @@ def Given_a_multiplication_needing_rounding_When_applied_Then_it_is_rejected() -
 def Given_a_non_finite_amount_When_constructed_Then_it_is_rejected() -> None:
     with pytest.raises(ValueError, match="finite"):
         Money(Decimal("NaN"), Currency.ILS)
+
+
+def Given_a_very_large_product_When_times_rounded_Then_it_is_accepted() -> None:
+    # Mirrors the Java kernel, whose timesRounded uses unbounded BigDecimal arithmetic and
+    # simply succeeds. times() already handles this; times_rounded did not, because its
+    # context precision was a fixed 60 rather than sized to the value the way __post_init__
+    # sizes it. The failure was decimal.InvalidOperation - an ArithmeticError, not the
+    # ValueError this module's contract promises - so a caller catching ValueError missed it.
+    huge = Money(Decimal("1E+30"), Currency.USD)
+
+    assert str(huge.times_rounded(Decimal("1E+30"))) == "1" + "0" * 60 + ".00 USD"

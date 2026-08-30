@@ -11,6 +11,12 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- `Money.times_rounded` in the Python kernel no longer fails on a large product. Its decimal
+  context precision was a fixed 60 rather than sized to the value, so multiplying two large
+  amounts raised `decimal.InvalidOperation` - an `ArithmeticError`, not the `ValueError` the
+  module's contract promises - where the Java kernel's unbounded `BigDecimal` succeeded. The
+  constructor had already been given this fix; `times_rounded` had not. Both now share one
+  sizing rule.
 - Voiding a *cleared* transaction no longer accepts a date before it cleared. The guard
   compared the void date against the date the transaction occurred only, so a transaction
   cleared on the 20th could be voided on the 10th and the void predated the clearing it

@@ -116,4 +116,16 @@ class MoneyTest {
         assertThat(Money.of("-0.01", Currency.ILS).isZero()).isFalse();
         assertThat(Money.of("12.50", Currency.ILS).isPositive()).isTrue();
     }
+
+    /**
+     * The mirror of {@code Given_a_very_large_product_When_times_rounded_Then_it_is_accepted}.
+     * {@code BigDecimal} has no context precision to outgrow, so this side always passed - which
+     * is exactly why the Python divergence went unnoticed. Present so the pair covers it.
+     */
+    @Test
+    void Given_a_very_large_product_When_times_rounded_Then_it_is_accepted() {
+        Money huge = Money.of("1E+30", Currency.USD);
+
+        assertThat(huge.timesRounded(new BigDecimal("1E+30")).toString()).isEqualTo("1" + "0".repeat(60) + ".00 USD");
+    }
 }
