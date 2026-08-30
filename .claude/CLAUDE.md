@@ -26,11 +26,14 @@ is **not installed** on the development machine, so the raw command is given for
   `cd frontend/web && npm run dev`
 - Test (all): `make test`
 - Test (ledger): `cd backend/ledger && ./mvnw -B verify`
-- Test (assistant): `cd backend/assistant && uv run pytest`
-- Test (web): `cd frontend/web && npm test`
+- Test (assistant): `cd backend/assistant && uv run pytest --cov --cov-report=term-missing
+  --cov-report=xml`
+- Test (web): `cd frontend/web && npm run test:coverage`
 - Test (single, ledger): `cd backend/ledger && ./mvnw -B test -Dtest=LedgerArchitectureTest`
 - Test (single, assistant): `cd backend/assistant && uv run pytest tests/test_architecture.py -k <name>`
 - Test (single, web): `cd frontend/web && npx vitest run -t <name>`
+- Mutation testing (ledger): `make mutation-ledger` — `cd backend/ledger && ./mvnw -Pmutation
+  org.pitest:pitest-maven:mutationCoverage`. A diagnostic, gated on nothing (ADR-017)
 - Lint / types: `make lint` — `./mvnw -B spotless:check`; `uv run ruff check .`,
   `uv run ruff format --check .`, `uv run mypy src tests`; `npm run lint`,
   `npm run format:check`, `npm run typecheck`

@@ -51,13 +51,29 @@ def _ids(group: str) -> list[str]:
     return [str(case["id"]) for case in VECTORS[group]]
 
 
+# Every group this suite knows how to read. Pinned, so a group added to the file that neither
+# language reads fails here rather than sitting in the file specifying nothing.
+GROUPS = ("currencies", "construct", "binary", "scalar")
+
+
 def Given_the_vector_file_When_loaded_Then_it_holds_vectors_in_every_group() -> None:
     # The anti-vacuity guard the architecture rules use, for the same reason: an empty or
     # truncated file would otherwise make every case below pass by checking nothing.
     assert VECTORS["version"] == 1
     assert len(VECTORS["currencies"]) == len(Currency)
-    for group in ("construct", "binary", "scalar"):
+    for group in GROUPS:
         assert _cases(group), f"vector group '{group}' is empty"
+
+
+def Given_the_vector_file_When_read_Then_it_holds_no_group_this_suite_ignores() -> None:
+    # The file guards against being empty or truncated; without this it does not guard against
+    # growing a section nothing reads. `about` and `version` are prose and metadata, not vectors.
+    groups = set(VECTORS) - {"about", "version"}
+
+    assert groups == set(GROUPS), (
+        f"the vector file holds groups this suite does not read: {sorted(groups - set(GROUPS))}. "
+        "Both languages must read every group, or the file specifies something nothing checks."
+    )
 
 
 def Given_the_vector_file_When_read_Then_every_id_is_unique() -> None:

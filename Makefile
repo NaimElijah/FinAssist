@@ -82,4 +82,5 @@ audit-web:
 clean: ## Remove build output; leaves .env and Docker volumes alone
 	cd $(LEDGER) && $(MVNW) -q clean
 	rm -rf $(ASSISTANT)/.pytest_cache $(ASSISTANT)/.mypy_cache $(ASSISTANT)/.ruff_cache
+	rm -f $(ASSISTANT)/coverage.xml $(ASSISTANT)/.coverage
 	rm -rf $(WEB)/dist $(WEB)/coverage

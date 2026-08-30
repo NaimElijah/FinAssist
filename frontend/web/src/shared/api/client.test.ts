@@ -9,18 +9,26 @@ import { ApiBodyError, ApiError, requestJson } from './client';
 
 const URL = 'https://ledger.test/api/v1/accounts';
 
-/** Installs a stubbed global fetch and hands back the spy, typed as the real thing. */
-function stubFetch(response: Response): ReturnType<typeof vi.fn<typeof fetch>> {
-    const stub = vi.fn<typeof fetch>().mockResolvedValue(response);
+/**
+ * Installs a stubbed global fetch and hands back the spy, typed as the real thing.
+ *
+ * Takes a factory rather than a Response, and builds a fresh one per call. A Response body can
+ * only be read once, so handing the same instance to two calls makes the second fail with
+ * "body already read" - a TypeError - instead of the failure the test means to provoke. That
+ * is a test passing for the wrong reason, which is the thing this file exists to prevent.
+ */
+function stubFetch(response: () => Response): ReturnType<typeof vi.fn<typeof fetch>> {
+    const stub = vi.fn<typeof fetch>().mockImplementation(() => Promise.resolve(response()));
     vi.stubGlobal('fetch', stub);
     return stub;
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
-    return new Response(JSON.stringify(body), {
-        status,
-        headers: { 'Content-Type': 'application/json' },
-    });
+function jsonResponse(body: unknown, status = 200): () => Response {
+    return () =>
+        new Response(JSON.stringify(body), {
+            status,
+            headers: { 'Content-Type': 'application/json' },
+        });
 }
 
 afterEach(() => {
@@ -38,7 +46,7 @@ describe('requestJson', () => {
     });
 
     it('Given_a_non_2xx_response_When_requested_Then_an_ApiError_carries_the_status_and_url', async () => {
-        stubFetch(new Response('nope', { status: 503 }));
+        stubFetch(() => new Response('nope', { status: 503 }));
 
         await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiError);
         await expect(requestJson(URL)).rejects.toMatchObject({ status: 503, url: URL });
@@ -47,19 +55,19 @@ describe('requestJson', () => {
     it('Given_a_404_When_requested_Then_it_is_an_ApiError_and_never_an_empty_body', async () => {
         // The distinction the class comment insists on: a failed call must never be mistaken
         // for an empty one, so a 404 is an ApiError rather than an ApiBodyError.
-        stubFetch(new Response('', { status: 404 }));
+        stubFetch(() => new Response('', { status: 404 }));
 
         await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiError);
     });
 
     it('Given_a_204_When_requested_Then_an_ApiBodyError_is_thrown', async () => {
-        stubFetch(new Response(null, { status: 204 }));
+        stubFetch(() => new Response(null, { status: 204 }));
 
         await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiBodyError);
     });
 
     it('Given_a_205_When_requested_Then_an_ApiBodyError_is_thrown', async () => {
-        stubFetch(new Response(null, { status: 205 }));
+        stubFetch(() => new Response(null, { status: 205 }));
 
         await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiBodyError);
     });
@@ -68,10 +76,15 @@ describe('requestJson', () => {
         // A proxy answering 200 with an HTML error page is the case this guards: letting
         // response.json() throw a raw SyntaxError would break the contract, because a caller
         // catching ApiError would never see it.
-        stubFetch(new Response('<html>gateway</html>', { status: 200 }));
+        stubFetch(() => new Response('<html>gateway</html>', { status: 200 }));
 
         await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiBodyError);
-        await expect(requestJson(URL)).rejects.toMatchObject({ url: URL });
+        // The cause is asserted, not just the type: it is what tells a reader the body failed
+        // to parse rather than, say, the body having already been consumed.
+        await expect(requestJson(URL)).rejects.toMatchObject({
+            url: URL,
+            cause: expect.any(SyntaxError) as unknown,
+        });
     });
 });
 

@@ -118,6 +118,15 @@ class MoneyVectorsTest {
     }
 
     /**
+     * Every group this suite knows how to read. Pinned, so a group added to the file that neither
+     * language reads fails here rather than sitting in the file specifying nothing.
+     */
+    private static final Set<String> GROUPS = Set.of("currencies", "construct", "binary", "scalar");
+
+    /** Prose and metadata rather than vectors, so not expected to be read as a group. */
+    private static final Set<String> NOT_GROUPS = Set.of("about", "version");
+
+    /**
      * The anti-vacuity guard the architecture rules use, for the same reason: a truncated file would
      * otherwise let every case below pass by checking nothing.
      */
@@ -128,6 +137,21 @@ class MoneyVectorsTest {
         assertThat(construct()).isNotEmpty();
         assertThat(binary()).isNotEmpty();
         assertThat(scalar()).isNotEmpty();
+    }
+
+    /**
+     * Without this the file guards against being empty and not against growing a section nothing
+     * reads — a group only one language knew about would specify something never checked.
+     */
+    @Test
+    void Given_the_vector_file_When_read_Then_it_holds_no_group_this_suite_ignores() {
+        Set<String> groups = new HashSet<>();
+        VECTORS.propertyNames().forEach(groups::add);
+        groups.removeAll(NOT_GROUPS);
+
+        assertThat(groups)
+                .as("both languages must read every group, or the file specifies something nothing checks")
+                .isEqualTo(GROUPS);
     }
 
     @Test
