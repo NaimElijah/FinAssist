@@ -79,8 +79,11 @@ class MoneyTest {
     void Given_a_very_large_amount_When_constructed_Then_it_is_accepted() {
         // Mirrored deliberately: the Python kernel raised decimal.InvalidOperation here, past its
         // default context precision, where BigDecimal has no such limit.
+        // isEqualTo, not isEqualByComparingTo: the latter ignores scale, which is the one thing
+        // this assertion should pin. The Python mirror had the same blind spot for the same
+        // reason and is fixed alongside.
         assertThat(Money.of("1E+30", Currency.USD).amount())
-                .isEqualByComparingTo(new BigDecimal("1000000000000000000000000000000.00"));
+                .isEqualTo(new BigDecimal("1000000000000000000000000000000.00"));
     }
 
     @Test

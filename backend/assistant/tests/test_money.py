@@ -13,8 +13,19 @@ from finassist_assistant.shared import Currency, CurrencyMismatchError, Money
 
 
 def Given_an_amount_with_fewer_decimals_When_constructed_Then_it_is_normalised() -> None:
-    assert Money.of("12.5", Currency.ILS).amount == Decimal("12.50")
+    # Asserted through str(), not ==. Decimal equality is numeric, so
+    # Decimal("12.5") == Decimal("12.50") is True and an equality assertion here passes
+    # whether or not the amount was ever normalised - it survived deleting the
+    # object.__setattr__ that does the work. The Java mirror does pin this, because
+    # BigDecimal.equals is scale-sensitive; only the string form pins it on this side.
+    assert str(Money.of("12.5", Currency.ILS)) == "12.50 ILS"
+    assert Money.of("12.5", Currency.ILS).amount.as_tuple().exponent == -2
     assert Money.of("12.5", Currency.ILS) == Money.of("12.50", Currency.ILS)
+
+
+def Given_a_zero_decimal_currency_When_constructed_Then_it_carries_no_decimals() -> None:
+    assert str(Money.of("120", Currency.JPY)) == "120 JPY"
+    assert Money.of("120", Currency.JPY).amount.as_tuple().exponent == 0
 
 
 def Given_an_amount_with_too_many_decimals_When_constructed_Then_it_is_rejected() -> None:
