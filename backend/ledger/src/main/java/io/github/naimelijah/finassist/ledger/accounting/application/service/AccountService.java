@@ -34,8 +34,10 @@ public class AccountService implements OpenAccountUseCase {
     public Account open(OpenAccountCommand command) {
         Objects.requireNonNull(command, "command");
 
-        // The command has already normalised the name, so this looks for the form that would be
-        // stored rather than the form that was typed.
+        // Checked here for the message: a caller learns which name is taken, rather than being handed
+        // a constraint violation from a store. It is not what makes the rule hold - a check followed by
+        // a write is not atomic, and two callers can pass this together. AccountRepository.save enforces
+        // it, and both paths raise the same exception.
         if (accounts.findByName(command.name()).isPresent()) {
             throw new DuplicateAccountNameException(command.name());
         }

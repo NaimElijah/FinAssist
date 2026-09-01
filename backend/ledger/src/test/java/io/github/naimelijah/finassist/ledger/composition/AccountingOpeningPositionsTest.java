@@ -122,4 +122,28 @@ class AccountingOpeningPositionsTest {
     private static Money ils(String amount) {
         return Money.of(amount, Currency.ILS);
     }
+
+    /**
+     * An easy slip when a caller concatenates two lists of references, and a silent one: the projection
+     * would open at twice the balance, and every point, the end state and the shortfall date would be
+     * wrong with nothing to say so.
+     */
+    @Test
+    void Given_an_account_named_twice_When_a_position_is_asked_for_Then_it_is_refused() {
+        fund(cash, "5000.00");
+
+        assertThatThrownBy(() -> openings.positionOf(List.of(ref(cash), ref(cash)), List.of(), Currency.ILS))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("more than once");
+    }
+
+    /** An account is cash or it is invested, never both. */
+    @Test
+    void Given_an_account_named_on_both_sides_When_a_position_is_asked_for_Then_it_is_refused() {
+        fund(cash, "5000.00");
+
+        assertThatThrownBy(() -> openings.positionOf(List.of(ref(cash)), List.of(ref(cash)), Currency.ILS))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("more than once");
+    }
 }

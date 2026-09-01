@@ -18,7 +18,6 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
@@ -75,8 +74,14 @@ public class BudgetReviewService implements ReviewBudgetUseCase {
             // spend that matched a rule but is not budgeted for.
             Money consumed =
                     Optional.ofNullable(byCategory.remove(budgeted)).orElseGet(() -> Money.zero(budget.currency()));
+            // Budget.remaining is the published domain operation, and the one the requirements name as
+            // enforcing this rule, so it is called rather than open-coded as limit.minus(consumed) -
+            // which is exactly what it does today, and which would leave nothing pointing at the rule if
+            // it ever grows one. The Optional cannot be empty for a key taken from limits().keySet(), so
+            // this branch is a deliberate equivalent mutant; ADR-017 accepts those rather than contorting
+            // code to kill them.
             Money remaining = budget.remaining(budgeted, consumed)
-                    .orElseThrow(() -> new NoSuchElementException(
+                    .orElseThrow(() -> new IllegalStateException(
                             "Budget " + id + " lists a limit for " + budgeted + " that it cannot then find"));
             categories.add(new CategorySpend(budgeted, limit, consumed, remaining));
         }

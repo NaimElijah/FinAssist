@@ -8,14 +8,20 @@ run while that decision is open.
 
 from collections.abc import Iterable
 
-from finassist_assistant.portfolio.application.port import LedgerPort
 from finassist_assistant.portfolio.domain.model import Lot, Symbol
 
 __all__ = ["InMemoryLedger"]
 
 
-class InMemoryLedger(LedgerPort):
+class InMemoryLedger:
     """Holds lots in memory. A development seam, not a client and not a store.
+
+    It satisfies ``LedgerPort`` by shape and does not inherit it, which is what the port itself
+    asks for. Subclassing would be worse than redundant: a Protocol member declared with a ``...``
+    body is not abstract, so a subclass that misspelled ``lots_for`` would instantiate happily,
+    inherit the stub and return ``None`` — reported as "nothing is held" for a symbol that is.
+    Structural typing has no stub to inherit, and mypy checks the fit where the use cases are
+    constructed in ``adapters/wiring.py``.
 
     It is replaced by the real anti-corruption layer once there is an endpoint and ADR-004 is
     ratified — not grown into one. Nothing here translates anything, because nothing foreign has

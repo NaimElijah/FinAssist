@@ -19,11 +19,24 @@ public interface AccountRepository {
     /**
      * Looks an account up by name, for the uniqueness check in {@code AccountService}.
      *
-     * @param name already normalised the way {@link Account} normalises it, so that " Cash" and "Cash"
-     *     do not both find nothing and both insert
+     * <p><strong>Matching ignores surrounding whitespace and case.</strong> A chart of accounts holding
+     * both "Groceries" and "groceries" is a mistake, not a distinction: every balance and every journal
+     * query would split between them, and a person reading a report would see one name twice.
+     * {@code Category} makes the same choice in {@code budgeting}, and says the same thing about it.
      */
     Optional<Account> findByName(String name);
 
-    /** Stores the account, replacing any earlier state of the same identity. */
+    /**
+     * Stores the account, replacing any earlier state of the same identity.
+     *
+     * <p><strong>Implementations enforce name uniqueness themselves</strong>, and must do it atomically.
+     * {@code AccountService} checks first so that the ordinary path fails with a message naming the
+     * account, but a check followed by a write is not a rule - two callers can pass the check together
+     * and both insert. The durable adapter carries a unique index on the normalised name; the in-memory
+     * one claims the name with {@code putIfAbsent}.
+     *
+     * @throws io.github.naimelijah.finassist.ledger.accounting.application.port.in.DuplicateAccountNameException
+     *     if a different account already holds the name
+     */
     void save(Account account);
 }

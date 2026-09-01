@@ -12,6 +12,7 @@ import pytest
 
 from finassist_assistant.adapters.wiring import MarketDataQuotes, assemble, utc_now
 from finassist_assistant.marketdata.application.usecase import LatestQuote
+from finassist_assistant.marketdata.domain.model import Ticker
 from finassist_assistant.portfolio.application.port import PriceUnavailableError
 from finassist_assistant.portfolio.domain.model import Lot, Symbol
 from finassist_assistant.shared import Currency, Money
@@ -79,3 +80,28 @@ def Given_a_feed_price_that_is_not_a_number_When_published_Then_it_is_refused_at
 def Given_the_default_clock_When_read_Then_it_carries_a_timezone() -> None:
     # A naive instant would be refused by every staleness check downstream.
     assert utc_now().tzinfo is not None
+
+
+def Given_an_older_quote_published_after_a_newer_one_When_read_Then_the_newer_one_is_kept() -> None:
+    # A replayed or out-of-order delivery. Overwriting would make latest() answer with a stale price
+    # and apply the freshness window to the wrong instant.
+    feed = assemble().feed
+    feed.publish("voo", "250.00", Currency.USD, NOON - timedelta(minutes=5))
+    feed.publish("voo", "240.00", Currency.USD, NOON - timedelta(minutes=30))
+
+    assert feed.latest(Ticker("VOO")).price == Money.of("250.00", Currency.USD)
+
+
+def Given_an_older_quote_published_When_it_returns_Then_it_answers_with_what_is_held() -> None:
+    feed = assemble().feed
+    newest = feed.publish("voo", "250.00", Currency.USD, NOON - timedelta(minutes=5))
+
+    assert feed.publish("voo", "240.00", Currency.USD, NOON - timedelta(minutes=30)) == newest
+
+
+def Given_a_newer_quote_published_When_read_Then_it_replaces_the_older_one() -> None:
+    feed = assemble().feed
+    feed.publish("voo", "240.00", Currency.USD, NOON - timedelta(minutes=30))
+    feed.publish("voo", "250.00", Currency.USD, NOON - timedelta(minutes=5))
+
+    assert feed.latest(Ticker("VOO")).price == Money.of("250.00", Currency.USD)

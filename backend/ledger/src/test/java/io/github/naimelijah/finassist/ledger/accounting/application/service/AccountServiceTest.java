@@ -97,4 +97,49 @@ class AccountServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must not be blank");
     }
+
+    /**
+     * The chart of accounts holding both "Groceries" and "groceries" is a mistake, not a distinction:
+     * every balance and journal query would split between two accounts a person reads as one.
+     * {@code Category} folds case in budgeting for the same reason.
+     */
+    @Test
+    void Given_a_name_differing_only_in_case_When_opened_Then_it_is_still_a_duplicate() {
+        service.open(new OpenAccountCommand("Groceries", AccountType.EXPENSE, Currency.ILS));
+
+        assertThatThrownBy(() -> service.open(new OpenAccountCommand("groceries", AccountType.EXPENSE, Currency.ILS)))
+                .isInstanceOf(DuplicateAccountNameException.class);
+    }
+
+    /** The display form is what a person reads on a report, so it is stored as it was typed. */
+    @Test
+    void Given_a_mixed_case_name_When_opened_Then_the_typed_form_is_what_is_stored() {
+        Account opened = service.open(new OpenAccountCommand("Groceries", AccountType.EXPENSE, Currency.ILS));
+
+        assertThat(opened.name()).isEqualTo("Groceries");
+        assertThat(accounts.findByName("GROCERIES")).contains(opened);
+    }
+
+    /**
+     * The service checks before it writes, which is a check-then-act: two callers can pass it together.
+     * The repository is what actually holds the rule, so it is asserted directly rather than through
+     * the path that happens to look first.
+     */
+    @Test
+    void Given_the_service_check_is_bypassed_When_a_duplicate_is_stored_Then_the_repository_refuses_it() {
+        service.open(new OpenAccountCommand("Cash", AccountType.ASSET, Currency.ILS));
+
+        assertThatThrownBy(() -> accounts.save(Account.open("cash", AccountType.ASSET, Currency.ILS)))
+                .isInstanceOf(DuplicateAccountNameException.class);
+    }
+
+    /** Re-saving an account must not trip the name claim it already holds. */
+    @Test
+    void Given_an_account_already_open_When_it_is_saved_again_Then_it_is_accepted() {
+        Account opened = service.open(new OpenAccountCommand("Cash", AccountType.ASSET, Currency.ILS));
+
+        accounts.save(opened);
+
+        assertThat(accounts.findById(opened.id())).contains(opened);
+    }
 }

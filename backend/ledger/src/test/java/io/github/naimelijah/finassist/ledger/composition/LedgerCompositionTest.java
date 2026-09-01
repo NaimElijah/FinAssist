@@ -36,6 +36,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 
 /**
  * The wiring, end to end, through the container that will actually run it.
@@ -49,12 +50,15 @@ import org.springframework.boot.test.context.SpringBootTest;
  * <p>Both paths cross a context boundary that no import may cross: budgeting reads spend that
  * accounting recorded, and planning opens a projection from a balance accounting derived.
  *
- * <p>The two cases share one application context and therefore one set of in-memory adapters, so each
- * uses account names and dates the other does not. That is deliberate rather than lucky: a
- * {@code @DirtiesContext} per method would rebuild the container twice to buy isolation these two
- * cases do not need.
+ * <p>{@code @DirtiesContext} per method, because the in-memory adapters are singletons and a shared
+ * context would let one case see another's accounts, rules and transactions. The two cases here happen
+ * not to collide, but only because their names and dates were hand-picked — and the third case somebody
+ * adds would inherit this one's {@code superpharm} rule and pass or fail on JUnit's method order, which
+ * is deterministic and deliberately unspecified. A rebuilt container per case costs a few seconds and
+ * removes the trap.
  */
 @SpringBootTest
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class LedgerCompositionTest {
 
     private static final LocalDate MARCH_5 = LocalDate.of(2026, 3, 5);

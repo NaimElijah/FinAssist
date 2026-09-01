@@ -8,6 +8,7 @@ import io.github.naimelijah.finassist.ledger.planning.application.port.out.Plann
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.PlanningEvents;
 import io.github.naimelijah.finassist.ledger.planning.domain.event.PlanningEvent;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanId;
+import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanState;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlannedFlow;
 import java.time.LocalDate;
 import java.util.Objects;
@@ -61,8 +62,10 @@ public class PlanService implements PlanFlowUseCase, TransitionPlanUseCase {
     public PlannedFlow cancel(PlanId plan, LocalDate cancelledOn, String reason) {
         PlannedFlow cancelled = require(plan).cancel(cancelledOn, reason);
         flows.save(cancelled);
-        // Read back off the aggregate, so the event carries the stripped form that was stored.
-        events.publish(new PlanningEvent.PlanCancelled(cancelled.id(), cancelledOn, reason.strip()));
+        // Read off the aggregate rather than re-derived from the input, for the reason
+        // TransactionService.markVoided gives at length.
+        PlanState.Cancelled state = (PlanState.Cancelled) cancelled.state();
+        events.publish(new PlanningEvent.PlanCancelled(cancelled.id(), state.cancelledOn(), state.reason()));
         return cancelled;
     }
 

@@ -13,7 +13,9 @@ import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Entry;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Transaction;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -45,13 +47,25 @@ public class JournalService implements ViewBalanceUseCase, ViewJournalUseCase {
         Objects.requireNonNull(fromInclusive, "fromInclusive");
         Objects.requireNonNull(toExclusive, "toExclusive");
 
-        List<JournalLine> lines = new ArrayList<>();
-        for (Transaction transaction : transactions.findBetween(fromInclusive, toExclusive)) {
-            if (!transaction.countsTowardsBalance()) {
-                continue;
-            }
+        List<Transaction> posted = transactions.findBetween(fromInclusive, toExclusive).stream()
+                .filter(Transaction::countsTowardsBalance)
+                .toList();
+
+        // Resolved once per distinct account rather than once per entry. A month of 500 transactions
+        // touches perhaps twenty accounts, and the first caller of this - the translation that gives
+        // budgeting its spend - discards every non-EXPENSE line it just paid to look up. In memory that
+        // is wasted work; behind the store ADR-006 proposes it is a thousand round trips per review.
+        Map<AccountId, Account> resolved = new HashMap<>();
+        for (Transaction transaction : posted) {
             for (Entry entry : transaction.entries()) {
-                Account account = require(entry.account());
+                resolved.computeIfAbsent(entry.account(), this::require);
+            }
+        }
+
+        List<JournalLine> lines = new ArrayList<>();
+        for (Transaction transaction : posted) {
+            for (Entry entry : transaction.entries()) {
+                Account account = resolved.get(entry.account());
                 lines.add(new JournalLine(
                         transaction.id(),
                         transaction.occurredOn(),

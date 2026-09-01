@@ -108,3 +108,46 @@ def Given_a_model_returning_nothing_When_asked_Then_it_is_refused() -> None:
 def Given_evidence_with_no_summary_When_built_Then_it_is_refused() -> None:
     with pytest.raises(ValueError, match="must say something about"):
         Evidence(BALANCE, "   ")
+
+
+def Given_a_citation_pointing_at_evidence_never_gathered_When_asked_Then_it_does_not_ground() -> (
+    None
+):
+    # is_grounded only checks that the citation tuple is non-empty, so any citation-shaped string
+    # satisfies it. This use case is the only place holding both the evidence and the claims, so it
+    # is the only place that can tell the difference between a real reference and an invented one.
+    invented = Claim("You spent 9999.00 on holidays.", (EvidenceRef("balance", "made-up"),))
+    llm = FakeLlm(invented)
+
+    answer = AnswerQuestion(FakeEvidence(EVIDENCE), llm).about("How am I doing?")
+
+    assert isinstance(answer, Ungrounded)
+    assert answer.offending[0].text == invented.text
+
+
+def Given_a_citation_pointing_at_gathered_evidence_When_asked_Then_it_grounds() -> None:
+    llm = FakeLlm(Claim("You spent 1240.50 on groceries.", (BALANCE,)))
+
+    assert isinstance(
+        AnswerQuestion(FakeEvidence(EVIDENCE), llm).about("What did I spend?"), GroundedAnswer
+    )
+
+
+def Given_an_invented_citation_on_a_claim_with_no_figure_When_asked_Then_it_is_harmless() -> None:
+    # Dropped rather than raised on, so the grounding rule stays the only judge: a claim stating no
+    # figure needs no citation, and losing a bogus one costs nothing.
+    llm = FakeLlm(Claim("Your spending looks steady.", (EvidenceRef("balance", "made-up"),)))
+
+    answer = AnswerQuestion(FakeEvidence(EVIDENCE), llm).about("How am I doing?")
+
+    assert isinstance(answer, GroundedAnswer)
+    assert answer.claims[0].citations == ()
+
+
+def Given_one_real_and_one_invented_citation_When_asked_Then_the_real_one_still_grounds() -> None:
+    llm = FakeLlm(Claim("You spent 1240.50.", (BALANCE, EvidenceRef("balance", "made-up"))))
+
+    answer = AnswerQuestion(FakeEvidence(EVIDENCE), llm).about("What did I spend?")
+
+    assert isinstance(answer, GroundedAnswer)
+    assert answer.claims[0].citations == (BALANCE,)

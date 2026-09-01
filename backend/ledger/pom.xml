@@ -188,6 +188,14 @@
                 <param>io.github.naimelijah.finassist.ledger.LedgerObservabilityTest</param>
                 <param>io.github.naimelijah.finassist.ledger.composition.LedgerCompositionTest</param>
               </excludedTestClasses>
+              <excludedClasses>
+                <!-- Excluded because the only test that covers it is excluded above. Left in scope, every
+                     mutant planted in a @Bean method would report as uncovered by construction, and the
+                     report ADR-017 keeps to answer "would a test notice this being wrong?" would fill up
+                     with noise no test change could ever clear. The translations beside it stay in scope:
+                     they hold logic and have POJO tests. -->
+                <param>io.github.naimelijah.finassist.ledger.composition.LedgerConfiguration</param>
+              </excludedClasses>
               <outputFormats>
                 <param>HTML</param>
                 <param>CSV</param>

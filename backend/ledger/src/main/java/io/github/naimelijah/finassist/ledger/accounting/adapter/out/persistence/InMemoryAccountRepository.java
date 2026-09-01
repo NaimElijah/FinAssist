@@ -1,8 +1,10 @@
 package io.github.naimelijah.finassist.ledger.accounting.adapter.out.persistence;
 
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.DuplicateAccountNameException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.out.AccountRepository;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.Account;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -24,6 +26,12 @@ public class InMemoryAccountRepository implements AccountRepository {
 
     private final Map<AccountId, Account> accounts = new ConcurrentHashMap<>();
 
+    /**
+     * Claims a normalised name for an account id. Not an optimisation - it is what makes uniqueness
+     * atomic. A scan plus a write is a check-then-act, and two callers can pass the check together.
+     */
+    private final Map<String, AccountId> byName = new ConcurrentHashMap<>();
+
     @Override
     public Optional<Account> findById(AccountId id) {
         Objects.requireNonNull(id, "id");
@@ -33,16 +41,29 @@ public class InMemoryAccountRepository implements AccountRepository {
     @Override
     public Optional<Account> findByName(String name) {
         Objects.requireNonNull(name, "name");
-        // A scan. The chart of accounts is small by nature, and a second index here would be a
-        // performance decision made on behalf of a store that has not been chosen.
-        return accounts.values().stream()
-                .filter(account -> account.name().equals(name))
-                .findFirst();
+        return Optional.ofNullable(byName.get(normalise(name))).map(accounts::get);
     }
 
     @Override
     public void save(Account account) {
         Objects.requireNonNull(account, "account");
+
+        AccountId holder = byName.putIfAbsent(normalise(account.name()), account.id());
+        if (holder != null && !holder.equals(account.id())) {
+            throw new DuplicateAccountNameException(account.name());
+        }
         accounts.put(account.id(), account);
+    }
+
+    /**
+     * The form names are compared in. Case-folded as well as stripped, because a chart holding both
+     * "Groceries" and "groceries" splits every balance between two accounts a person reads as one -
+     * the failure {@code Category} normalises for the same way, and says so.
+     *
+     * <p>There is no rename, so a stale claim cannot accumulate here. Adding one means releasing the
+     * old name in the same atomic step, which is a change to this class and to the port that permits it.
+     */
+    private static String normalise(String name) {
+        return name.strip().toLowerCase(Locale.ROOT);
     }
 }

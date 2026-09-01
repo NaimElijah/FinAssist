@@ -14,11 +14,13 @@ import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Entry;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Transaction;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.TransactionId;
+import io.github.naimelijah.finassist.ledger.accounting.domain.entry.TransactionState;
 import io.github.naimelijah.finassist.ledger.accounting.domain.event.AccountingEvent;
 import java.time.LocalDate;
-import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Records transactions and moves them through their lifecycle.
@@ -46,7 +48,10 @@ public class TransactionService implements RecordTransactionUseCase, TransitionT
     public Transaction record(RecordTransactionCommand command) {
         Objects.requireNonNull(command, "command");
 
-        List<AccountId> touched = new ArrayList<>();
+        // A set, because the event documents these as the accounts the transaction touches. One
+        // transaction may post twice to the same account - a payment split across two categories, say -
+        // and a subscriber folding over the list would then count it twice.
+        Set<AccountId> touched = new LinkedHashSet<>();
         for (Entry entry : command.entries()) {
             Account account = require(entry.account());
             if (entry.amount().currency() != account.currency()) {
@@ -58,7 +63,7 @@ public class TransactionService implements RecordTransactionUseCase, TransitionT
         Transaction transaction = Transaction.record(command.occurredOn(), command.description(), command.entries());
         transactions.save(transaction);
         events.publish(new AccountingEvent.TransactionRecorded(
-                transaction.id(), transaction.occurredOn(), transaction.description(), touched));
+                transaction.id(), transaction.occurredOn(), transaction.description(), List.copyOf(touched)));
         return transaction;
     }
 
@@ -82,9 +87,14 @@ public class TransactionService implements RecordTransactionUseCase, TransitionT
     public Transaction markVoided(TransactionId id, LocalDate voidedOn, String reason) {
         Transaction voided = require(id).markVoided(voidedOn, reason);
         transactions.save(voided);
-        // The reason is read back off the aggregate rather than passed through, so the event carries
-        // the stripped form that was actually stored.
-        events.publish(new AccountingEvent.TransactionVoided(voided.id(), voidedOn, reason.strip()));
+        // Genuinely read off the aggregate now, not re-derived from the input. The two agree only
+        // because Voided happens to normalise with strip() today; the day it collapses whitespace or
+        // truncates, a re-derived event would carry a reason that was never stored, and no test would
+        // notice because both sides are asserted against the same literal. The cast is deliberate -
+        // markVoided returns Voided or throws - and fails loudly rather than adding an unreachable
+        // branch for a test to chase.
+        TransactionState.Voided state = (TransactionState.Voided) voided.state();
+        events.publish(new AccountingEvent.TransactionVoided(voided.id(), state.voidedOn(), state.reason()));
         return voided;
     }
 

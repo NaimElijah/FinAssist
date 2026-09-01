@@ -196,4 +196,25 @@ class TransactionServiceTest {
     private static Money ils(String amount) {
         return Money.of(amount, Currency.ILS);
     }
+
+    /**
+     * The event documents its accounts as the ones the transaction touches. A payment split across two
+     * categories posts twice to the same account, and a subscriber folding over the list - to invalidate
+     * a cache, or to count what changed - would count it twice.
+     */
+    @Test
+    void Given_two_entries_against_one_account_When_recorded_Then_the_event_names_it_once() {
+        Account rent = open("Rent", AccountType.EXPENSE, Currency.ILS);
+        Transaction recorded = service.record(new RecordTransactionCommand(
+                MARCH_1,
+                "Rent, paid in two parts",
+                List.of(
+                        new Entry(rent.id(), ils("2000.00")),
+                        new Entry(cash.id(), ils("-1500.00")),
+                        new Entry(cash.id(), ils("-500.00")))));
+
+        assertThat(events.published())
+                .contains(new AccountingEvent.TransactionRecorded(
+                        recorded.id(), MARCH_1, "Rent, paid in two parts", List.of(rent.id(), cash.id())));
+    }
 }

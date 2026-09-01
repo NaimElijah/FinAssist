@@ -445,8 +445,10 @@ Known limitations:
   newest-first to prove the difference between a 1000.00 cost of sale and a 2000.00 one. The
   domain function's contract is unchanged, so reaching past the use case still gets LIFO
   ([ADR-013](docs/ADRs/ADR-013-fifo-lot-based-cost-basis.md)).
-- **The grounding rule checks a citation exists, not that it supports the figure.** A model
-  citing a real balance while stating a different number passes
+- **The grounding rule checks a citation points at evidence that was gathered, not that it
+  supports the figure.** `AnswerQuestion` now drops a citation naming a record the answer was
+  never given, so a wholly invented reference no longer grounds anything — but a model citing a
+  *real* balance while stating a different number still passes
   ([ADR-014](docs/ADRs/ADR-014-grounded-answers-require-citations.md)).
 - **No cross-currency total is possible**, by design — so there is no single net-worth figure
   across accounts in different currencies, and a projection covers one currency only

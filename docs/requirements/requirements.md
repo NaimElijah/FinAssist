@@ -173,7 +173,7 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | A budget has one limit per category, all in the budget's currency, each positive | `Budget` and `CategoryLimit` constructors; `BudgetTest` | **Enforced** |
 | A budget stores no spend; remaining is derived | `Budget.remaining` takes spend as an argument; `BudgetTest` | **Enforced** |
 | Disposing of more units than are held is refused | `consume_fifo`; `InsufficientHoldingError`; `test_portfolio.py` | **Enforced** |
-| A claim stating a figure must cite the evidence it came from | `ground`; `test_grounding.py` | **Enforced** |
+| A claim stating a figure must cite the evidence it came from | `ground`; `test_grounding.py`; `AnswerQuestion`, `test_assistance_usecases.py` | **Enforced** — the domain checks a citation exists, and the use case checks it names evidence the answer was actually given, which is the only place holding both. Whether the cited record *supports* the figure is still unchecked |
 | A market quote carries an unambiguous instant, and staleness is judged against a supplied clock | `Quote`, `is_stale`; `test_marketdata.py` | **Enforced** |
 | A planned flow is for a positive amount; the direction carries the sign | `PlannedFlow` constructor; `PlannedFlowTest` | **Enforced** |
 | Legal plan state transitions; a realised plan is frozen and cannot be edited or cancelled | Sealed `PlanState`; `IllegalPlanTransitionException`; `PlannedFlowTest` | **Enforced** |
@@ -192,7 +192,7 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | A domain function is given the current time rather than reading it | `test_architecture.py::…Then_it_reads_no_clock`, which matches an uncalled `datetime.now` reference too; `is_stale`, `Projection.of`, `Transaction.clear` all take a date | **Enforced** on the Python side; a convention in the ledger |
 | The currency table is the same in both languages | `CurrencyTest`, `test_currency.py` | **Enforced** |
 | The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) | Proposed — no persistence or client exists yet |
-| An account name is unique within the chart of accounts | `AccountService.open`; `DuplicateAccountNameException`; `AccountServiceTest` | **Enforced** — the command normalises the name before the lookup, so names differing only in whitespace collide rather than both inserting |
+| An account name is unique within the chart of accounts, ignoring surrounding whitespace and case | `AccountRepository.save` (atomically); `AccountService.open` (for the message); `DuplicateAccountNameException`; `AccountServiceTest` | **Enforced** — the repository claims the normalised name, because a check followed by a write is not a rule: two callers can pass the check together. The typed form is what is stored and displayed |
 
 ## Non-functional requirements
 
