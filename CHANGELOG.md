@@ -11,6 +11,46 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **An application layer in all six bounded contexts.** Use cases behind ports, wired by
+  constructor and backed by in-memory adapters that are a development seam rather than a store.
+  In the ledger: opening an account, recording a transaction and moving it through its
+  lifecycle, reading a balance and the journal, defining and reviewing a budget, planning a
+  flow, naming a strategy, projecting it and comparing strategies. In the assistant: reading and
+  valuing a position, disposing of units, fetching a quote and refusing a stale one, and
+  answering a question that is rejected when it states a figure it cannot cite. See
+  [ADR-021](docs/ADRs/ADR-021-application-layer-shape.md).
+- **Two requirements that could never have been domain rules are now enforced.** An entry must
+  be in its account's currency — an `Entry` holds an `AccountId`, not an `Account`, so checking
+  it always needed a repository — and an account name is unique across the chart of accounts,
+  which is a property of the set rather than of any value. Both had sat marked `TODO` with that
+  explanation since the domain landed.
+- **A composition root in the ledger**, `io.github.naimelijah.finassist.ledger.composition`,
+  mirroring the one the assistant has had since ADR-019. It holds the Spring wiring and the two
+  translations that carry a figure between contexts, because the slice rule has no layer
+  qualifier and leaves nowhere else legal. Its exemption is one-way and enforced in both
+  directions. See [ADR-022](docs/ADRs/ADR-022-ledger-composition-root.md).
+- **Two more live ArchUnit rules**, taking the ledger to seven:
+  `no_context_depends_on_the_composition_root`, and
+  `the_application_layer_depends_on_no_framework` — which turns a promise `LedgerApplication`
+  had made since the scaffold into a build failure. Each was confirmed to fail against a
+  violation planted in a deep module, then reverted.
+- **Domain events in `accounting` and `planning`**, raised by the application service rather
+  than the aggregate, published through an out-port and recorded in an append-only log. Nothing
+  subscribes; [ADR-023](docs/ADRs/ADR-023-domain-events-in-the-ledger.md) records that as the
+  accepted cost and names the trigger that discharges it.
+
+### Fixed
+
+- **`DisposeUnits` sorts lots by acquisition date before consuming them.** `consume_fifo` takes
+  them in the order it is given and documents that the ordering is the caller's responsibility,
+  so a caller handing it newest-first lots got a LIFO cost basis in silence, with a plausible
+  number and no error — the README called it the sharpest edge in the domain. A test now hands
+  it lots in the wrong order and pins the difference between a 1000.00 cost of sale and a
+  2000.00 one.
+- **`AccountId`'s Javadoc no longer contradicts the rule it cites.** It claimed budgeting holds
+  `AccountId` values; `contexts_do_not_depend_on_each_other` forbids budgeting from naming any
+  accounting type, which is why `AccountRef` exists.
+
 - Observability across all three codebases: JSON logs on stdout carrying a W3C trace id, OTLP
   trace export that degrades to a no-op when no collector is configured, and Prometheus metrics
   on the ledger. The assistant gained its first entry point — a composition root serving
