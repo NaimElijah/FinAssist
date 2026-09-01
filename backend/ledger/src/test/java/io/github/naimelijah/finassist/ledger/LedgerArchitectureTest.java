@@ -35,6 +35,12 @@ class LedgerArchitectureTest {
     private static final String SHARED = ROOT + ".shared..";
 
     /**
+     * The composition root: the one package that may see two contexts at once, because assembling
+     * them is what it is for. Mirrors the assistant's {@code adapters/} package. See ADR-022.
+     */
+    private static final String COMPOSITION = ROOT + ".composition..";
+
+    /**
      * Dependencies point inward only, in every context at once. The patterns span contexts
      * deliberately: {@code ..domain..} matches {@code accounting.domain} and {@code
      * budgeting.domain} alike, so a new context inherits the rule without editing this test.
@@ -71,6 +77,10 @@ class LedgerArchitectureTest {
             .should()
             .notDependOnEachOther()
             .ignoreDependency(alwaysTrue(), resideInAPackage(SHARED))
+            // One way only. The companion rule below forbids the reverse, so this exemption is a door
+            // rather than a hole: without it, a context could reach the wiring that assembles it.
+            // Removing this line fails the rule three times over, once per context the root wires.
+            .ignoreDependency(resideInAPackage(COMPOSITION), alwaysTrue())
             .because("a context must be extractable by moving its directory");
 
     /**
@@ -119,4 +129,38 @@ class LedgerArchitectureTest {
             .namingSlices("$1.$2")
             .should()
             .beFreeOfCycles();
+
+    /**
+     * The composition root sees everything and is seen by nothing.
+     *
+     * <p>The other half of the exemption above. {@code contexts_do_not_depend_on_each_other} now
+     * ignores dependencies originating in {@code composition}, which on its own would leave the door
+     * open in both directions. This is what keeps it one-way, and it is the same rule the assistant
+     * already enforces on its own composition root.
+     */
+    @ArchTest
+    static final ArchRule no_context_depends_on_the_composition_root = noClasses()
+            .that()
+            .resideOutsideOfPackage(COMPOSITION)
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage(COMPOSITION)
+            .because("frameworks and cross-context translation travel inward only through declared ports");
+
+    /**
+     * The application layer is wired by constructor, not by the container.
+     *
+     * <p>{@code LedgerApplication} has promised this since the scaffold and nothing checked it, so a
+     * single {@code @Service} would have quietly made the layer untestable without Spring. The
+     * annotations live in {@code composition}; a use case is a plain object taking its ports as
+     * constructor arguments, which is what lets every service test run with no context at all.
+     */
+    @ArchTest
+    static final ArchRule the_application_layer_depends_on_no_framework = noClasses()
+            .that()
+            .resideInAPackage(ROOT + "..application..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage("org.springframework..", "jakarta..", "javax..", "com.fasterxml.jackson..")
+            .because("a use case that needs a container to construct cannot be tested by calling it");
 }

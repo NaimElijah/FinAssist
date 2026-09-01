@@ -34,6 +34,18 @@ jobs:
       - name: Build and test
         run: make test-ledger
 
+      # Published for reading, never gated on. See docs/ADRs/ADR-017-test-strategy.md.
+      # always(), because a coverage report is most wanted on the run that failed. Paired
+      # with if-no-files-found: warn, since a job that fell over before its tests legitimately
+      # produces none, and a second red step there would obscure the real failure.
+      - name: Publish coverage
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-ledger
+          path: backend/ledger/target/site/jacoco
+          if-no-files-found: warn
+
   assistant:
     name: Assistant (Python)
     runs-on: ubuntu-latest
@@ -55,6 +67,17 @@ jobs:
 
       - name: Test
         run: make test-assistant
+
+      # always(), because a coverage report is most wanted on the run that failed. Paired
+      # with if-no-files-found: warn, since a job that fell over before its tests legitimately
+      # produces none, and a second red step there would obscure the real failure.
+      - name: Publish coverage
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-assistant
+          path: backend/assistant/coverage.xml
+          if-no-files-found: warn
 
       - name: Dependency audit
         run: make audit-assistant
@@ -80,6 +103,17 @@ jobs:
       - name: Test
         run: make test-web
 
+      # always(), because a coverage report is most wanted on the run that failed. Paired
+      # with if-no-files-found: warn, since a job that fell over before its tests legitimately
+      # produces none, and a second red step there would obscure the real failure.
+      - name: Publish coverage
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-web
+          path: frontend/web/coverage
+          if-no-files-found: warn
+
       - name: Build
         run: make build-web
 
@@ -96,4 +130,7 @@ jobs:
         run: |
           cp .env.example .env
           sed -i 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=ci-only/' .env
-          docker compose config --quiet
+          sed -i 's/^GRAFANA_ADMIN_PASSWORD=$/GRAFANA_ADMIN_PASSWORD=ci-only/' .env
+          # --profile monitoring, or the three monitoring services are never interpolated and
+          # a broken reference among them validates green.
+          docker compose --profile monitoring config --quiet

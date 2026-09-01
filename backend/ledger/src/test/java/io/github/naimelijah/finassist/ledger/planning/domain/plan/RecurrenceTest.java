@@ -111,4 +111,27 @@ class RecurrenceTest {
 
         assertThat(yearly.occurrences(JANUARY, JANUARY, NEXT_JANUARY)).containsExactly(JANUARY);
     }
+
+    /**
+     * The guard lives in each implementation, so proving it for {@code Once} proves nothing about
+     * the other two. Mutation testing found exactly that: deleting {@code requireRange} from
+     * {@code Until} and {@code Times} broke no test.
+     */
+    @Test
+    void Given_a_bounded_recurrence_and_an_inverted_range_When_expanded_Then_it_is_refused() {
+        Recurrence until = new Recurrence.Until(Cadence.MONTHLY, 1, NEXT_JANUARY);
+
+        assertThatThrownBy(() -> until.occurrences(JANUARY, NEXT_JANUARY, JANUARY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must start before it ends");
+    }
+
+    @Test
+    void Given_a_counted_recurrence_and_an_inverted_range_When_expanded_Then_it_is_refused() {
+        Recurrence times = new Recurrence.Times(Cadence.MONTHLY, 1, 3);
+
+        assertThatThrownBy(() -> times.occurrences(JANUARY, NEXT_JANUARY, JANUARY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must start before it ends");
+    }
 }

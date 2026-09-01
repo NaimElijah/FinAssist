@@ -79,8 +79,11 @@ class MoneyTest {
     void Given_a_very_large_amount_When_constructed_Then_it_is_accepted() {
         // Mirrored deliberately: the Python kernel raised decimal.InvalidOperation here, past its
         // default context precision, where BigDecimal has no such limit.
+        // isEqualTo, not isEqualByComparingTo: the latter ignores scale, which is the one thing
+        // this assertion should pin. The Python mirror had the same blind spot for the same
+        // reason and is fixed alongside.
         assertThat(Money.of("1E+30", Currency.USD).amount())
-                .isEqualByComparingTo(new BigDecimal("1000000000000000000000000000000.00"));
+                .isEqualTo(new BigDecimal("1000000000000000000000000000000.00"));
     }
 
     @Test
@@ -93,5 +96,36 @@ class MoneyTest {
     void Given_a_multiplication_needing_rounding_When_applied_Then_it_is_rejected() {
         assertThatThrownBy(() -> Money.of("0.01", Currency.USD).times(new BigDecimal("0.5")))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * Asserted for {@code plus} and {@code compareTo} since the beginning, and never for
+     * {@code minus} - mutation testing found that deleting its {@code requireSameCurrency} call
+     * broke nothing. The same blind spot existed in the Python mirror.
+     */
+    @Test
+    void Given_two_currencies_When_subtracted_Then_it_is_refused() {
+        assertThatThrownBy(() -> Money.of("10.00", Currency.ILS).minus(Money.of("3.00", Currency.USD)))
+                .isInstanceOf(CurrencyMismatchException.class)
+                .hasMessageContaining("no conversion");
+    }
+
+    @Test
+    void Given_an_amount_that_is_not_zero_When_asked_Then_it_says_so() {
+        assertThat(Money.of("0.01", Currency.ILS).isZero()).isFalse();
+        assertThat(Money.of("-0.01", Currency.ILS).isZero()).isFalse();
+        assertThat(Money.of("12.50", Currency.ILS).isPositive()).isTrue();
+    }
+
+    /**
+     * The mirror of {@code Given_a_very_large_product_When_times_rounded_Then_it_is_accepted}.
+     * {@code BigDecimal} has no context precision to outgrow, so this side always passed - which
+     * is exactly why the Python divergence went unnoticed. Present so the pair covers it.
+     */
+    @Test
+    void Given_a_very_large_product_When_times_rounded_Then_it_is_accepted() {
+        Money huge = Money.of("1E+30", Currency.USD);
+
+        assertThat(huge.timesRounded(new BigDecimal("1E+30")).toString()).isEqualTo("1" + "0".repeat(60) + ".00 USD");
     }
 }

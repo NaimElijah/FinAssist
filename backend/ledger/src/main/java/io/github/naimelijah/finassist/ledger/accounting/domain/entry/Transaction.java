@@ -114,13 +114,22 @@ public record Transaction(
     /**
      * Marks this transaction void. Legal from {@code Pending} and {@code Cleared} only — a
      * reconciled transaction is frozen and is corrected with a reversing transaction instead.
+     *
+     * <p>A void reverses whatever the transaction had already done, so it cannot predate it. For a
+     * cleared transaction that means the clearing date, not merely the date it occurred.
+     *
+     * @throws IllegalArgumentException if {@code voidedOn} precedes the date the transaction
+     *     occurred, or the date it cleared when it had already cleared
      */
     public Transaction markVoided(LocalDate voidedOn, String reason) {
         requireNotBefore(voidedOn, occurredOn, "voided", "occurred");
         TransactionState next =
                 switch (state) {
                     case TransactionState.Pending pending -> pending.markVoided(voidedOn, reason);
-                    case TransactionState.Cleared cleared -> cleared.markVoided(voidedOn, reason);
+                    case TransactionState.Cleared cleared -> {
+                        requireNotBefore(voidedOn, cleared.clearedOn(), "voided", "cleared");
+                        yield cleared.markVoided(voidedOn, reason);
+                    }
                     case TransactionState.Reconciled ignored -> throw new IllegalTransitionException(state, "void");
                     case TransactionState.Voided ignored -> throw new IllegalTransitionException(state, "void");
                 };

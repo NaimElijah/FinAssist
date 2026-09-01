@@ -38,4 +38,9 @@ class CategorisationRuleTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("fragment");
     }
+
+    @Test
+    void Given_a_category_When_rendered_Then_it_reads_as_its_normalised_name() {
+        assertThat(Category.of("  Groceries  ").toString()).isEqualTo("groceries");
+    }
 }

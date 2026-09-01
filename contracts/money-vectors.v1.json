@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "about": [
+    "Behavioural vectors for Money, read by MoneyTest.java and test_money.py.",
+    "ADR-010 forbids a shared kernel across languages and asks that the two implementations be",
+    "kept honest by equivalent tests on both sides. Until now that was mirrored prose, and it had",
+    "already drifted: times_rounded raised on a large product in Python where Java succeeded.",
+    "These vectors are data, not code - no behaviour, no types, imported by nothing at runtime.",
+    "See ADR-018.",
+    "",
+    "`expect` is the full string form, including trailing zeros, compared against toString()/str().",
+    "That is deliberate: it pins scale, which is where the two languages silently disagree, since",
+    "BigDecimal.equals is scale-sensitive and Decimal.__eq__ is not.",
+    "",
+    "Errors are language-neutral categories. Java raises IllegalArgumentException where Python",
+    "raises ValueError, and the file must not pretend otherwise; each side maps a category to its",
+    "own exception type."
+  ],
+  "currencies": [
+    { "code": "ILS", "minorUnits": 2 },
+    { "code": "USD", "minorUnits": 2 },
+    { "code": "EUR", "minorUnits": 2 },
+    { "code": "GBP", "minorUnits": 2 },
+    { "code": "JPY", "minorUnits": 0 }
+  ],
+  "construct": [
+    { "id": "normalise-fewer-decimals", "amount": "12.5", "currency": "ILS", "expect": "12.50 ILS" },
+    { "id": "normalise-integer", "amount": "12", "currency": "USD", "expect": "12.00 USD" },
+    { "id": "keeps-exact-scale", "amount": "12.34", "currency": "EUR", "expect": "12.34 EUR" },
+    { "id": "negative-is-allowed", "amount": "-0.01", "currency": "GBP", "expect": "-0.01 GBP" },
+    { "id": "zero-decimal-currency", "amount": "120", "currency": "JPY", "expect": "120 JPY" },
+    { "id": "very-large-amount", "amount": "1E+30", "currency": "USD", "expect": "1000000000000000000000000000000.00 USD" },
+    { "id": "too-precise", "amount": "12.505", "currency": "ILS", "error": "PRECISION_EXCEEDED" },
+    { "id": "too-precise-for-jpy", "amount": "120.5", "currency": "JPY", "error": "PRECISION_EXCEEDED" }
+  ],
+  "binary": [
+    { "id": "plus", "op": "plus", "left": "10.00", "right": "2.50", "currency": "ILS", "expect": "12.50 ILS" },
+    { "id": "plus-negative", "op": "plus", "left": "10.00", "right": "-12.50", "currency": "ILS", "expect": "-2.50 ILS" },
+    { "id": "minus", "op": "minus", "left": "10.00", "right": "2.50", "currency": "USD", "expect": "7.50 USD" },
+    { "id": "minus-to-zero", "op": "minus", "left": "10.00", "right": "10.00", "currency": "USD", "expect": "0.00 USD" },
+    { "id": "plus-jpy", "op": "plus", "left": "120", "right": "5", "currency": "JPY", "expect": "125 JPY" },
+    { "id": "plus-cross-currency", "op": "plus", "left": "10.00", "right": "10.00", "currency": "ILS", "rightCurrency": "USD", "error": "CURRENCY_MISMATCH" },
+    { "id": "minus-cross-currency", "op": "minus", "left": "10.00", "right": "3.00", "currency": "ILS", "rightCurrency": "USD", "error": "CURRENCY_MISMATCH" }
+  ],
+  "scalar": [
+    { "id": "times-whole", "op": "times", "amount": "1.25", "currency": "USD", "multiplier": "4", "expect": "5.00 USD" },
+    { "id": "times-zero", "op": "times", "amount": "1.25", "currency": "USD", "multiplier": "0", "expect": "0.00 USD" },
+    { "id": "times-needing-rounding", "op": "times", "amount": "0.01", "currency": "USD", "multiplier": "0.5", "error": "PRECISION_EXCEEDED" },
+    { "id": "times-rounded-half-up", "op": "timesRounded", "amount": "12.33", "currency": "USD", "multiplier": "1.5", "expect": "18.50 USD" },
+    { "id": "times-rounded-half-up-negative", "op": "timesRounded", "amount": "-12.33", "currency": "USD", "multiplier": "1.5", "expect": "-18.50 USD" },
+    { "id": "times-rounded-jpy", "op": "timesRounded", "amount": "120", "currency": "JPY", "multiplier": "1.5", "expect": "180 JPY" },
+    { "id": "times-rounded-large-product", "op": "timesRounded", "amount": "1E+30", "currency": "USD", "multiplier": "1E+30", "expect": "1000000000000000000000000000000000000000000000000000000000000.00 USD" }
+  ]
+}

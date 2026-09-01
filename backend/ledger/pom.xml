@@ -22,6 +22,9 @@
     <spotless.version>3.10.1</spotless.version>
     <palantir-java-format.version>2.97.0</palantir-java-format.version>
     <archunit.version>1.5.0</archunit.version>
+    <jacoco.version>0.8.13</jacoco.version>
+    <pitest.version>1.19.1</pitest.version>
+    <pitest-junit5.version>1.2.2</pitest-junit5.version>
   </properties>
 
   <dependencies>
@@ -38,10 +41,27 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-validation</artifactId>
     </dependency>
+    <!-- OTLP traces and metrics. Exports nothing when OTEL_EXPORTER_OTLP_ENDPOINT is unset,
+         which is the contract .env.example publishes (ADR-019). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-opentelemetry</artifactId>
+    </dependency>
+    <!-- Puts /actuator/prometheus on the wire; version managed by the imported micrometer-bom. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
 
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- InMemorySpanExporter, so a test can assert a span was recorded without a collector. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-opentelemetry-test</artifactId>
       <scope>test</scope>
     </dependency>
     <!-- Layering and dependency direction are enforced by the build, not by review. -->
@@ -80,6 +100,120 @@
           </pom>
         </configuration>
       </plugin>
+
+      <!--
+        Coverage is a diagnostic, not a target: `report` only, and deliberately no `check`
+        goal. A percentage gate would reward tests written to reach lines rather than to
+        state a rule. See docs/ADRs/ADR-017-test-strategy.md.
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <goals>
+              <goal>report</goal>
+            </goals>
+            <phase>verify</phase>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        The shared Money vectors live outside this module, so the path is injected by Maven
+        rather than resolved from the working directory: ${project.basedir} is correct however
+        the build was invoked, and the test fails loudly if the property is absent.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <finassist.contracts.dir>${project.basedir}/../../contracts</finassist.contracts.dir>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!--
+      Mutation testing, opt in with:
+
+        ./mvnw -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
+
+      The goal is named explicitly because it is deliberately not bound to any
+      lifecycle phase: it re-runs the suite once per mutant and would multiply CI's runtime for
+      a number nothing gates on. `test-compile` comes first because a direct goal invocation
+      runs no lifecycle, so on a clean tree PIT finds no classes and aborts with "No mutations
+      found". Coverage says which lines ran; this says whether the tests would
+      notice if those lines were wrong, which is the question worth asking of a domain whose whole
+      job is refusing things. See docs/ADRs/ADR-017-test-strategy.md.
+
+      Scoped to the domain and shared kernel. LedgerApplicationTest is excluded because PIT reruns
+      tests per mutant and booting Spring each time buys nothing - the wiring it checks has no
+      mutable logic in it.
+    -->
+    <profile>
+      <id>mutation</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>${pitest.version}</version>
+            <configuration>
+              <targetClasses>
+                <param>io.github.naimelijah.finassist.ledger.*.domain.*</param>
+                <param>io.github.naimelijah.finassist.ledger.shared.*</param>
+                <!-- The application services hold the rules the domain could not: an entry matching
+                     its account's currency, a unique account name, the categorisation fold. Coverage
+                     rates all of them as covered, which is exactly the claim mutation testing exists
+                     to check. Still gated on nothing (ADR-017); the scope grew, the decision did not. -->
+                <param>io.github.naimelijah.finassist.ledger.*.application.service.*</param>
+                <param>io.github.naimelijah.finassist.ledger.composition.*</param>
+              </targetClasses>
+              <excludedTestClasses>
+                <param>io.github.naimelijah.finassist.ledger.LedgerApplicationTest</param>
+                <param>io.github.naimelijah.finassist.ledger.LedgerArchitectureTest</param>
+                <!-- Boots Tomcat once per mutant for wiring that holds no logic. -->
+                <param>io.github.naimelijah.finassist.ledger.LedgerObservabilityTest</param>
+                <param>io.github.naimelijah.finassist.ledger.composition.LedgerCompositionTest</param>
+              </excludedTestClasses>
+              <excludedClasses>
+                <!-- Excluded because the only test that covers it is excluded above. Left in scope, every
+                     mutant planted in a @Bean method would report as uncovered by construction, and the
+                     report ADR-017 keeps to answer "would a test notice this being wrong?" would fill up
+                     with noise no test change could ever clear. The translations beside it stay in scope:
+                     they hold logic and have POJO tests. -->
+                <param>io.github.naimelijah.finassist.ledger.composition.LedgerConfiguration</param>
+              </excludedClasses>
+              <outputFormats>
+                <param>HTML</param>
+                <param>CSV</param>
+              </outputFormats>
+              <timestampedReports>false</timestampedReports>
+            </configuration>
+            <dependencies>
+              <!-- PIT needs a plugin matching the test library; this module is on JUnit Platform 6. -->
+              <dependency>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-junit5-plugin</artifactId>
+                <version>${pitest-junit5.version}</version>
+              </dependency>
+            </dependencies>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
 </project>

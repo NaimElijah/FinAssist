@@ -4,11 +4,15 @@ The system as it actually is. *What it must do* is
 [requirements](../requirements/requirements.md); *why* a given solution was chosen is
 [the ADRs](../ADRs/).
 
-> **All six contexts now have a domain layer, and nothing above it.** The models, their
-> invariants and their tests exist; application services, ports, adapters, HTTP and persistence
-> do not. The ledger boots and answers Actuator probes; the assistant has no entry point; the
-> web client renders a placeholder. Where a structure is defined but not yet inhabited, this
-> document says so.
+> **All six contexts now have a domain and an application layer. Neither service has a
+> transport or a store.** Use cases, their ports and their tests exist, wired by in-memory
+> adapters that are a development seam and not persistence; no HTTP endpoint, no OpenAPI
+> document, no driver and no schema, because [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md)
+> and [ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md) are still Proposed. The
+> ledger boots and answers Actuator probes, the assistant serves `/health` and `/ready`, and
+> both emit structured logs and OTLP traces — see
+> [Cross-cutting concerns](#cross-cutting-concerns). The web client renders a placeholder.
+> Where a structure is defined but not yet inhabited, this document says so.
 
 ## Architecture overview
 
@@ -65,7 +69,10 @@ Six contexts, each owned by exactly one service
 `AccountId` either. `contexts_do_not_depend_on_each_other` admits no exception, so a context
 needing a ledger figure takes it as a `Money` handed in from above rather than reaching for it:
 `Budget.remaining` takes the spend, `Projection.of` takes the opening balance. Wiring those to
-real accounting data is the application layer's job, and that layer does not exist yet.
+real accounting data is the application layer's job, and it is now done: each context declares
+an out-port in its own vocabulary — `SpendJournal` returning `SpendRecord`,
+`OpeningPositionProvider` returning `OpeningPosition` and addressed by a local `AccountRef` —
+and the translation over accounting lives in `composition`, outside every context.
 
 `planning` is the one context in the ledger that is not invariant-dense by nature, and it was
 put there by choice rather than by ADR-007's criterion; see
@@ -73,17 +80,20 @@ put there by choice rather than by ADR-007's criterion; see
 creates and the trigger for moving it.
 
 There is deliberately **no shared kernel across languages**. `Money` is implemented once per
-language and pinned by equivalent tests on each side; two implementations obliged to stay
-bit-identical would cost more than the duplication.
+language; two implementations obliged to stay bit-identical would cost more than the
+duplication. What keeps them equivalent is `contracts/money-vectors.v1.json`, read by both
+suites, so a behavioural difference fails a build rather than waiting to be noticed — which it
+had been: `times_rounded` raised on a large product in Python where Java returned a value
+([ADR-018](../ADRs/ADR-018-cross-language-money-vectors.md)).
 
 ## Components
 
 | Component | Responsibility | State |
 |---|---|---|
-| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain layer complete; 135 tests including 5 live architecture rules; nothing above the domain |
-| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain layer complete; 144 tests pass and 30 skip (parametrised architecture rules that do not apply to a given file); no entry point, nothing above the domain |
-| `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder; 6 architecture tests pass; no feature implemented |
-| `contracts/` | The versioned wire contract | Directory and its README only |
+| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain and application layers complete, with unit, seeded-property and shared-vector tests, **7 live architecture rules**, and Spring tests covering the Actuator probes, the observability wiring and the assembled composition root; structured logs, OTLP traces and Prometheus metrics. In-memory adapters stand behind every repository port; there is no inbound adapter |
+| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain and application layers complete, with unit, Hypothesis-property and shared-vector tests, and 6 architecture rules parametrised over every source file (those that do not apply to a given file skip); a composition root serving `/health` and `/ready` and assembling the portfolio use cases. `AnswerQuestion` is written and deliberately unwired — an LLM adapter would settle the privacy question by implication |
+| `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder behind an error boundary; architecture rules, HTTP-client tests, a jsdom render test of the shell, and a structured logger that generates the `traceparent` every request carries; no feature implemented |
+| `contracts/` | The versioned wire contract, and the cross-language `Money` conformance vectors | `money-vectors.v1.json` and the README; no OpenAPI document yet |
 | PostgreSQL 18 | The ledger's store | Runs via Compose; nothing connects to it |
 
 ## Structure: context first, hexagon inside
@@ -98,6 +108,7 @@ backend/ledger/src/main/java/io/github/naimelijah/finassist/ledger/
   budgeting/    domain/{budget,category,event}/  application/…  adapter/…
   planning/     domain/{plan,forecast}/          application/…  adapter/…
   shared/       Money, Currency — in-language kernel
+  composition/  the composition root: Spring wiring, and the two cross-context translations
   LedgerApplication.java
 
 backend/assistant/src/finassist_assistant/
@@ -105,6 +116,8 @@ backend/assistant/src/finassist_assistant/
   assistance/   domain/{model,grounding}/      application/…                adapters/{inbound/api,outbound/llm}/
   marketdata/   domain/{model,normalisation}/  application/…                adapters/outbound/feed/
   shared/
+  adapters/     the composition root: settings, observability, the FastAPI app, and wiring.py,
+                which assembles the use cases and holds MarketDataQuotes. Not a context
 
 frontend/web/src/
   features/{accounting,budgeting,portfolio,assistance}/{api,components,hooks,types}/
@@ -113,8 +126,18 @@ frontend/web/src/
   app/          the only place that knows every feature at once
 ```
 
-`LedgerApplication` sits in the root package so component scanning covers every context; it is
-the only Spring-annotated class outside an adapter.
+`LedgerApplication` sits in the root package so component scanning covers every context. The
+wiring lives in `composition`, which is Spring-aware by design and is the only ledger package
+permitted to see two contexts at once; the application layer carries no annotation and is wired
+by constructor ([ADR-022](../ADRs/ADR-022-ledger-composition-root.md)).
+
+The assistant's top-level `adapters/` is its composition root — the one package that imports
+FastAPI, structlog and OpenTelemetry. It sits beside the contexts because it belongs to none,
+and it is named `adapters` because that is what it is: the architecture rules key on that path
+segment, so the exemption it needs is one it already earns rather than a special case.
+
+Operational configuration lives in `ops/` — the collector, Prometheus and Grafana provisioning
+that the `monitoring` Compose profile mounts.
 
 ## Communication
 
@@ -134,9 +157,105 @@ The ledger never calls the assistant, and the assistant never calls the web clie
 
 ## Data flow
 
-No business request path exists. The only live path is `GET /actuator/health` → Spring Boot's
-health contributors → `{"status":"UP"}`, which touches no FinAssist code. This section is
-filled in from the implementation in the same commit that creates it.
+**No request reaches a use case, because neither service has an inbound adapter.** The two live
+HTTP paths remain `GET /actuator/health` on the ledger → Spring Boot's health contributors →
+`{"status":"UP"}`, and `GET /health` on the assistant → a constant response. Neither touches
+any FinAssist domain code. The transport half of this section is filled in from the
+implementation in the same commit that creates it.
+
+The in-process paths below are real, assembled at start-up, and exercised by tests. They are
+what an inbound adapter will call.
+
+**Recording a purchase, ledger.** `RecordTransactionCommand` → `TransactionService` loads every
+referenced `Account` and refuses an entry whose currency the account does not hold →
+`Transaction.record` refuses entries that do not sum to zero → `TransactionRepository.save` →
+`AccountingEvents.publish`. Nothing consumes the event; see
+[ADR-023](../ADRs/ADR-023-domain-events-in-the-ledger.md).
+
+**Reviewing a budget, ledger, and the one path that crosses a context boundary.**
+`ReviewBudgetUseCase` → `BudgetReviewService` loads the `Budget` → asks its own `SpendJournal`
+port for spend in the budget's period and currency → `AccountingSpendJournal`, in the
+composition root, calls accounting's `ViewJournalUseCase`, keeps the `EXPENSE` lines and maps
+each to a `SpendRecord` → each record is categorised by the first matching `CategorisationRule`
+→ `Budget.remaining` per category. Budgeting names no accounting type anywhere on that path.
+
+**Projecting a strategy, ledger.** `ProjectScenarioCommand`, carrying the `AccountRef`s the
+caller considers cash and invested → `ForecastService` loads the `Scenario` and **re-reads its
+flows**, so a plan cancelled since it was named stops counting → `OpeningPositionProvider` →
+`AccountingOpeningPositions` translates each `AccountRef` to an `AccountId` and sums
+`ViewBalanceUseCase` → `Projection.of`.
+
+**Valuing a holding, assistant.** `ValueHolding` → `LedgerPort.lots_for` → `analysis.position`
+→ `QuotePort.unit_price`, satisfied by `MarketDataQuotes` in the composition root, which turns
+the `Symbol` into a `Ticker`, calls marketdata's `LatestQuote`, and collapses both a missing and
+a stale quote into `PriceUnavailableError` → `market_value` and `unrealised_gain`.
+
+The telemetry path is real end to end and is described below.
+
+## Cross-cutting concerns
+
+Logging, correlation and telemetry are the same decision applied three times, recorded in
+[ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md).
+
+| Concern | Ledger | Assistant | Web client |
+|---|---|---|---|
+| Log format | ECS JSON on stdout, from Spring Boot's built-in structured logging | JSON on stdout, from `structlog` | JSON on the console, from `shared/lib/logger.ts` |
+| Boundary | Logback, configured in `application.yml` | `adapters/observability.py` | `shared/lib/logger.ts`, the only file allowed to call `console` |
+| Redaction | No secret reaches it — Actuator's `env` endpoint is not exposed | Key names plus registered values, as a `structlog` processor | Key names, depth-bounded |
+| Correlation | `traceId` in the MDC, from Micrometer Tracing | `contextvar`, seeded from an inbound `traceparent` | Generates the `traceparent` every request carries |
+| Traces | OTLP over HTTP, off unless a collector is configured | The same | None; no browser SDK |
+| Metrics | Micrometer, scraped at `/actuator/prometheus` | None yet | None |
+
+**The correlation id is a W3C trace context.** The browser generates a `traceparent`; the
+assistant reads its trace-id field and binds it for the request; the ledger's OpenTelemetry
+instrumentation continues the same trace. One id spans all three, which is the reason for using
+the standard rather than a private header.
+
+**Telemetry is a no-op when unconfigured.** With no collector named, both services start
+normally and drop their spans — asserted by `LedgerObservabilityTest` and
+`test_observability.py`, because a service that refused to start without a collector would make
+the collector a production dependency of local development.
+
+**Redaction is a property of the boundary, not a duty of the caller.** Every event passes
+through a processor that removes secret-named keys, so a new call site inherits it. This is what
+the requirements mean by "redacted at the logging boundary, not at each call site".
+
+**Diagnostics are not an audit trail.** Logs are dropped when no collector is attached and are
+explicitly not a record anyone may rely on after the fact.
+[ADR-020](../ADRs/ADR-020-audit-trail-follows-persistence.md) makes the append-only journal the
+audit record and defers its implementation to the first repository.
+
+**The composition root is a package, not a framework, and both services now have one.** The
+assistant's `src/finassist_assistant/adapters/` wires FastAPI, structlog and OpenTelemetry
+together and is the only place allowed to. The ledger's `composition` package is its mirror:
+Spring wiring plus the two translations that carry a figure between contexts. Neither is a
+bounded context, and each is fenced by a rule forbidding any context from importing it.
+
+**A cross-context translation is where it is because nowhere else is legal.**
+`contexts_do_not_depend_on_each_other` matches `ROOT.(*)..` with no layer qualifier, so a
+budgeting *adapter* importing accounting fails exactly as a budgeting domain class would. The
+composition root is the only place outside every slice, and its exemption is one-way: it may
+depend on anything, nothing may depend on it. Removing the exemption fails the slice rule three
+times over, once per context the root wires
+([ADR-022](../ADRs/ADR-022-ledger-composition-root.md)).
+
+**A translation calls the upstream context's in-port, never its repositories.** That is the
+in-process equivalent of the Published Language, so extracting a context later is a change of
+transport rather than of design. Upstream exceptions stop at the boundary too: a bad
+`AccountRef` reaches planning as an `IllegalArgumentException` naming the reference it gave, not
+as an `AccountNotFoundException` carrying an id it never saw.
+
+**Domain events are raised by the application service, not by the aggregate.** `Transaction` and
+`PlannedFlow` are records whose value semantics the suites rely on, so a mutable pending-events
+list would break their equality. The event types live in each context's `domain/event/`; only
+`accounting` and `planning` have them, being the two contexts with sealed lifecycles. Nothing
+consumes them — the accepted cost, and its trigger, are in
+[ADR-023](../ADRs/ADR-023-domain-events-in-the-ledger.md).
+
+**The repository ports cannot express a destructive write.** None exposes a delete, and every
+lifecycle change is stored by saving the aggregate in its new state. ADR-020's append-only
+obligation is therefore honoured as a port contract now, and inherited by the durable adapter
+when ADR-006 is settled.
 
 ## External dependencies and integration points
 
@@ -146,6 +265,7 @@ filled in from the implementation in the same commit that creates it.
 | Anthropic API | The LLM behind `assistance` | `backend/assistant/pyproject.toml`, `uv.lock` |
 | Price feed | `marketdata` | **Not chosen** — see the open questions |
 | Maven Central / PyPI / npm | Dependencies | `pom.xml`, `uv.lock`, `package-lock.json` |
+| OTel Collector, Prometheus, Grafana | Local telemetry backend, `monitoring` Compose profile | `docker-compose.yml`, configured in `ops/` |
 
 ## Structural decisions not visible from the file layout
 
@@ -164,14 +284,25 @@ the classes and tests that enforce them in
 | The ledger domain imports no framework | `LedgerArchitectureTest.domain_depends_on_no_framework` |
 | No floating-point field in a ledger domain | `LedgerArchitectureTest.money_is_never_floating_point` |
 | No cycles between aggregates in a context | `LedgerArchitectureTest.aggregates_are_free_of_cycles` |
+| **Nothing outside the ledger's composition root depends on it** | `LedgerArchitectureTest.no_context_depends_on_the_composition_root` |
+| **The ledger's application layer imports no framework** | `LedgerArchitectureTest.the_application_layer_depends_on_no_framework` |
 | No inward assistant layer imports a framework | `test_architecture.py::…Then_it_imports_no_framework` |
 | No inward assistant layer imports the adapters | `test_architecture.py::…Then_it_imports_no_adapter` |
 | **No assistant context imports another** | `test_architecture.py::…Then_it_imports_no_other_context` |
+| **No assistant context imports the composition root** | `test_architecture.py::…Then_it_imports_no_composition_root` |
+| No floating point in an assistant domain module | `test_architecture.py::…Then_it_names_no_float` |
+| No assistant domain module reads the wall clock | `test_architecture.py::…Then_it_reads_no_clock` |
 | **No web feature imports another**, and `shared` imports no feature | `frontend/web/tests/architecture.test.ts` |
 
 All three are **static**: ArchUnit scans bytecode, the assistant's rules parse every source
 file with `ast`, and the web client's walk the source tree. None of them import the code they
 check.
+
+The assistant's scanner is itself under test. Its rules are only as good as the helper that
+resolves imports, and nothing checked that helper — so a refactor could have neutered every
+rule while all of them stayed green, which is the same failure the `sys.modules` version below
+had. Dropping the `ImportFrom` branch now fails four helper cases and none of the parametrised
+rule cases, which is why the helper cases exist.
 
 That matters, and was got wrong once. An earlier version of the assistant's rules imported a
 package and inspected `sys.modules`; because Python does not import subpackages on its own,

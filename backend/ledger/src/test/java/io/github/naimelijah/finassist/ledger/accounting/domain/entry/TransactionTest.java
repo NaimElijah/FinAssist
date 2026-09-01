@@ -7,7 +7,9 @@ import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.CurrencyMismatchException;
 import io.github.naimelijah.finassist.ledger.shared.Money;
+import java.lang.reflect.Method;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -166,5 +168,98 @@ class TransactionTest {
         Transaction transaction = Transaction.record(WHEN, "Coffee", mutable);
         mutable.clear();
         assertThat(transaction.entries()).hasSize(2);
+    }
+
+    @Test
+    void Given_a_cleared_transaction_When_voided_Then_it_keeps_its_entries_and_stops_counting() {
+        Transaction voided = coffee().clear(WHEN).markVoided(WHEN, "Charged twice");
+
+        assertThat(voided.state()).isInstanceOf(TransactionState.Voided.class);
+        assertThat(voided.countsTowardsBalance()).isFalse();
+        assertThat(voided.entries()).hasSize(2);
+    }
+
+    /**
+     * The mirror of {@code PlannedFlowTest}'s freeze test for {@code PlanState.Realised}. The
+     * compiler already refuses {@code reconciled.clear(...)}, because {@code Reconciled} declares no
+     * such method — but a compile-time guarantee leaves no trace in the suite, so nothing would stop
+     * someone restoring one and unfreezing a reconciled transaction.
+     */
+    @Test
+    void Given_the_reconciled_state_When_inspected_Then_it_declares_no_transition_at_all() {
+        assertThat(Arrays.stream(TransactionState.Reconciled.class.getDeclaredMethods())
+                        .filter(method -> TransactionState.class.isAssignableFrom(method.getReturnType()))
+                        .map(Method::getName))
+                .as("Reconciled is frozen by the absence of a transition; see ADR-011")
+                .isEmpty();
+    }
+
+    @Test
+    void Given_three_entries_that_balance_When_recorded_Then_a_split_transaction_is_created() {
+        AccountId groceries = AccountId.generate();
+        Transaction split = Transaction.record(
+                WHEN,
+                "Groceries and coffee on one receipt",
+                List.of(
+                        new Entry(groceries, ils("20.00")),
+                        new Entry(COFFEE, ils("12.50")),
+                        new Entry(CHECKING, ils("-32.50"))));
+
+        assertThat(split.entries()).hasSize(3);
+        assertThat(split.netFor(CHECKING)).isEqualTo(ils("-32.50"));
+    }
+
+    @Test
+    void Given_a_description_padded_with_spaces_When_recorded_Then_it_is_stripped() {
+        assertThat(Transaction.record(
+                                WHEN,
+                                "  Coffee  ",
+                                List.of(new Entry(COFFEE, ils("12.50")), new Entry(CHECKING, ils("-12.50"))))
+                        .description())
+                .isEqualTo("Coffee");
+    }
+
+    /**
+     * A void reverses the clearing, so it cannot predate it. {@code reconcile} already guards
+     * against its own predecessor this way; {@code markVoided} compared only against
+     * {@code occurredOn}, which let a transaction cleared on the 20th be voided on the 10th.
+     */
+    @Test
+    void Given_a_cleared_transaction_When_voided_before_it_cleared_Then_it_is_refused() {
+        Transaction cleared = coffee().clear(LocalDate.of(2026, 3, 20));
+
+        assertThatThrownBy(() -> cleared.markVoided(LocalDate.of(2026, 3, 10), "Charged twice"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cleared");
+    }
+
+    @Test
+    void Given_a_cleared_transaction_When_voided_on_the_day_it_cleared_Then_it_is_allowed() {
+        LocalDate clearedOn = LocalDate.of(2026, 3, 20);
+        Transaction cleared = coffee().clear(clearedOn);
+
+        assertThat(cleared.markVoided(clearedOn, "Charged twice").countsTowardsBalance())
+                .isFalse();
+    }
+
+    @Test
+    void Given_a_transaction_id_When_rendered_and_parsed_Then_the_round_trip_holds() {
+        TransactionId id = TransactionId.generate();
+
+        assertThat(TransactionId.of(id.toString())).isEqualTo(id);
+        assertThat(id.toString()).isEqualTo(id.value().toString());
+    }
+
+    @Test
+    void Given_text_that_is_not_a_transaction_id_When_parsed_Then_it_is_refused() {
+        assertThatThrownBy(() -> TransactionId.of("not-a-uuid")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void Given_each_transaction_state_When_named_Then_the_name_is_the_one_used_in_refusals() {
+        assertThat(new TransactionState.Pending().name()).isEqualTo("Pending");
+        assertThat(new TransactionState.Cleared(WHEN).name()).isEqualTo("Cleared");
+        assertThat(new TransactionState.Reconciled(WHEN).name()).isEqualTo("Reconciled");
+        assertThat(new TransactionState.Voided(WHEN, "Charged twice").name()).isEqualTo("Voided");
     }
 }

@@ -1,0 +1,14 @@
+# Loads every dashboard JSON from the mounted directory on startup.
+
+apiVersion: 1
+
+providers:
+  - name: FinAssist
+    type: file
+    disableDeletion: true
+    # Edits made in the UI are overwritten on restart. That is deliberate: a dashboard is code
+    # here, and one changed only in the browser is a change nobody can review.
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

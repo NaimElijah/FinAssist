@@ -9,7 +9,7 @@ WEB       := frontend/web
 MVNW      := ./mvnw -B
 UV        := uv
 
-.PHONY: help setup lock run stop \
+.PHONY: help setup lock run run-monitoring stop stop-monitoring \
         test test-ledger test-assistant test-web \
         lint lint-ledger lint-assistant lint-web \
         build-web format audit audit-assistant audit-web clean
@@ -30,19 +30,28 @@ lock: ## Regenerate backend/assistant/uv.lock after editing pyproject.toml
 run: ## Start the stack
 	docker compose up --build
 
+run-monitoring: ## Start the stack plus the collector, Prometheus and Grafana
+	docker compose --profile monitoring up --build
+
 stop: ## Stop the stack, keeping volumes
 	docker compose down
 
-test: test-ledger test-assistant test-web ## Full suite - exactly what CI gates on
+stop-monitoring: ## Stop the monitoring profile too, keeping volumes
+	docker compose --profile monitoring down
+
+test: test-ledger test-assistant test-web ## Every test, with coverage. CI also gates lint, build and audit
 
 test-ledger:
 	cd $(LEDGER) && $(MVNW) verify
 
 test-assistant:
-	cd $(ASSISTANT) && $(UV) run pytest
+	cd $(ASSISTANT) && $(UV) run pytest --cov --cov-report=term-missing --cov-report=xml
 
 test-web:
-	cd $(WEB) && npm test
+	cd $(WEB) && npm run test:coverage
+
+mutation-ledger: ## Mutation testing over the ledger domain; a diagnostic, gated on nothing (ADR-017)
+	cd $(LEDGER) && $(MVNW) -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
 
 lint: lint-ledger lint-assistant lint-web ## Format check and static analysis; never rewrites a file
 
@@ -79,4 +88,5 @@ audit-web:
 clean: ## Remove build output; leaves .env and Docker volumes alone
 	cd $(LEDGER) && $(MVNW) -q clean
 	rm -rf $(ASSISTANT)/.pytest_cache $(ASSISTANT)/.mypy_cache $(ASSISTANT)/.ruff_cache
+	rm -f $(ASSISTANT)/coverage.xml $(ASSISTANT)/.coverage
 	rm -rf $(WEB)/dist $(WEB)/coverage

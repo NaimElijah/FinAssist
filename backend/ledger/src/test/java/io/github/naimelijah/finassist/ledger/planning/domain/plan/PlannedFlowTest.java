@@ -163,4 +163,28 @@ class PlannedFlowTest {
 
         assertThat(flow.description()).isEqualTo("Rent");
     }
+
+    @Test
+    void Given_a_plan_id_When_rendered_and_parsed_Then_the_round_trip_holds() {
+        PlanId id = PlanId.generate();
+
+        assertThat(PlanId.of(id.toString())).isEqualTo(id);
+        assertThat(id.toString()).isEqualTo(id.value().toString());
+    }
+
+    @Test
+    void Given_each_plan_state_When_named_Then_the_name_is_the_one_used_in_refusals() {
+        assertThat(new PlanState.Planned().name()).isEqualTo("Planned");
+        assertThat(new PlanState.Committed(MARCH).name()).isEqualTo("Committed");
+        assertThat(new PlanState.Realised(MARCH).name()).isEqualTo("Realised");
+        assertThat(new PlanState.Cancelled(MARCH, "Changed my mind").name()).isEqualTo("Cancelled");
+    }
+
+    @Test
+    void Given_a_committed_flow_When_cancelled_Then_it_stops_counting_and_keeps_its_reason() {
+        PlannedFlow cancelled = aPurchase().commit(JANUARY).cancel(MARCH, "Changed my mind");
+
+        assertThat(cancelled.countsTowardsProjection()).isFalse();
+        assertThat(cancelled.state()).isInstanceOf(PlanState.Cancelled.class);
+    }
 }

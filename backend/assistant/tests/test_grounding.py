@@ -91,3 +91,28 @@ def Given_a_citation_that_is_not_an_evidence_ref_When_a_claim_is_built_Then_it_i
 def Given_citations_as_a_list_When_a_claim_is_built_Then_it_is_refused() -> None:
     with pytest.raises(TypeError, match="tuple"):
         Claim("You spent 12.50", [BALANCE])  # type: ignore[arg-type]
+
+
+def Given_evidence_without_a_kind_When_built_Then_it_is_refused() -> None:
+    with pytest.raises(ValueError, match="what kind of record"):
+        EvidenceRef("   ", "txn-1")
+
+
+def Given_several_uncited_figures_When_grounded_Then_every_offender_is_named() -> None:
+    first = Claim("Your balance is 1200.00 ILS")
+    second = Claim("You spent 300.00 ILS on groceries")
+    grounded = Claim("Spending looks steady", (EvidenceRef("transaction", "txn-1"),))
+
+    answer = ground((first, grounded, second))
+
+    assert isinstance(answer, Ungrounded)
+    assert answer.offending == (first, second)
+    assert "; " in answer.reason
+
+
+def Given_a_capitalised_number_word_When_examined_Then_it_still_states_a_figure() -> None:
+    assert states_a_figure("One thousand shekels") is True
+
+
+def Given_a_claim_with_no_citations_argument_When_built_Then_it_has_none() -> None:
+    assert Claim("Spending looks steady").citations == ()

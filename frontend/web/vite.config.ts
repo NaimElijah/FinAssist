@@ -1,8 +1,9 @@
-/// <reference types="vitest/config" />
 import { fileURLToPath, URL } from 'node:url';
 
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+// defineConfig comes from vitest/config, not vite: it carries the `test` key's types, which
+// the triple-slash reference used to supply before this file imported from vitest at all.
+import { coverageConfigDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
     plugins: [react()],
@@ -15,8 +16,12 @@ export default defineConfig({
     },
     test: {
         globals: true,
-        // Node, not jsdom: the only test reads the source tree. A DOM environment and a
-        // testing-library stack arrive with the first component test that needs them.
+        // Node stays the default and jsdom is opted into per file with
+        // `// @vitest-environment jsdom`. Flipping the default would put every test that reads
+        // the filesystem one forgotten pragma away from failing: under jsdom `import.meta.url`
+        // is an http: URL and fileURLToPath rejects it, which tests/architecture.test.ts
+        // already records having hit. Vitest 3 removed environmentMatchGlobs, so the choice is
+        // per-file pragmas or a projects split, and four DOM tests do not justify the latter.
         environment: 'node',
         include: [
             'tests/**/*.test.ts',
@@ -24,5 +29,21 @@ export default defineConfig({
             'src/**/*.test.ts',
             'src/**/*.test.tsx',
         ],
+        coverage: {
+            provider: 'v8',
+            reporter: ['text', 'html', 'lcov'],
+            include: ['src/**/*.{ts,tsx}'],
+            // No thresholds. Coverage is a diagnostic here, never a gate; see
+            // docs/ADRs/ADR-017-test-strategy.md.
+            //
+            // Spread rather than replace: naming `exclude` overrides Vitest's own defaults
+            // wholesale, which would silently pull .d.ts files and other non-source into the
+            // report and make the diagnostic misleading.
+            exclude: [
+                ...coverageConfigDefaults.exclude,
+                'src/**/*.test.{ts,tsx}',
+                'src/**/index.ts',
+            ],
+        },
     },
 });
