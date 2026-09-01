@@ -26,6 +26,9 @@ append-only history: to change course, add a new record and mark the old one
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
 | [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted |
 | [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted |
+| [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted |
+| [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted |
+| [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. 004 and 006 remain Proposed: the domain layer needs neither a wire

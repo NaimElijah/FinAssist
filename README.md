@@ -104,7 +104,7 @@ cd frontend/web && npm ci && npm run dev   # http://localhost:5173
 | Assistant framework | FastAPI | 0.141.1 | Typed request and response validation from the same Pydantic models the domain uses |
 | Assistant packaging | uv | 0.12.7 | Resolves, locks and fetches the interpreter in one pinned tool |
 | Assistant lint, format, types | Ruff + mypy | 0.16.5 / 2.3.1 | Ruff replaces flake8 + isort + black; mypy runs `--strict` |
-| Ledger architecture tests | ArchUnit | 1.5.0 | Layering, context isolation and the no-floating-point-money rule fail the build |
+| Ledger architecture tests | ArchUnit | 1.5.0 | Layering, context isolation, the no-floating-point-money rule, and the two rules fencing the composition root, all fail the build |
 | Coverage | JaCoCo + pytest-cov + coverage-v8 | 0.8.13 / 7.1.0 / 4.1.11 | Measured in all three codebases, published by CI, gating nothing ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
 | Mutation testing | PIT | 1.19.1 | Answers what coverage cannot: would a test notice this line being wrong? Opt-in profile, not in CI |
 | Property-based tests | Seeded `Random` (Java) + Hypothesis (Python) | — / 6.167.0 | Deterministic on both sides. jqwik is unusable on JUnit Platform 6; see ADR-017 |
@@ -176,6 +176,7 @@ backend/ledger/         Java 21 + Spring Boot - full tactical DDD; sole writer o
   budgeting/              same hexagon, its own aggregates
   planning/               domain/{plan,forecast}/ - what is intended, never what happened
   shared/                 Money, Currency - in-language kernel
+  composition/            Spring wiring, and the two cross-context translations
 backend/assistant/      Python 3.13 + FastAPI - pure-function cores, no aggregates
   portfolio/              domain/{model,analysis}/ application/{port,usecase}/
                           adapters/{inbound/api,outbound/ledger}/   <- the ACL
@@ -228,7 +229,7 @@ behaviour they describe.
 
 | Layer | Covers | Command |
 |---|---|---|
-| Ledger architecture | Layering, **context isolation**, framework-free domain, no floating-point money, no aggregate cycles (ArchUnit, 5 rules — live, not dormant) | `make test-ledger` |
+| Ledger architecture | Layering, **context isolation**, framework-free domain, no floating-point money, no aggregate cycles, a one-way composition root, a framework-free application layer (ArchUnit, 7 rules — live, not dormant) | `make test-ledger` |
 | Ledger domain | The balancing invariant, the transaction lifecycle, derived balances, budget limits, planned flows, projections and comparison, Money and Currency | `make test-ledger` |
 | Ledger properties | Money's algebraic laws and Recurrence's date arithmetic, over generated inputs from a fixed seed | `make test-ledger` |
 | Ledger smoke | The context loads and the Actuator health, liveness and readiness probes answer `UP` — the only test that starts Spring | `make test-ledger` |
@@ -393,24 +394,38 @@ HTTP carries no runtime schema, and contract drift is silent until CI compares t
 
 ## Status and limitations
 
-**Pre-alpha.** Shipped: the repository baseline and architecture, plus the **domain layer of
-all six bounded contexts** with the invariants and tests that make them real — double-entry
-accounting, periodic budgets, FIFO cost basis, grounded answers, quote staleness, deterministic
-projections and strategy comparison, and `Money` in both languages. Eighteen ADRs. The ledger's
-architecture rules are live rather than dormant, and each one was confirmed to fail against a
-planted violation. CI gates build, lint, format and dependency audit across four jobs, and
-publishes a coverage report from each.
+**Pre-alpha.** Shipped: the repository baseline and architecture, plus the **domain and
+application layers of all six bounded contexts** with the invariants and tests that make them
+real — double-entry accounting, periodic budgets, FIFO cost basis, grounded answers, quote
+staleness, deterministic projections and strategy comparison, and `Money` in both languages.
+Use cases sit behind ports and are wired by constructor, with in-memory adapters standing in
+for a store nobody has chosen yet. Twenty-three ADRs. Every architecture rule is live rather
+than dormant, and each was confirmed to fail against a planted violation. CI gates build, lint,
+format and dependency audit across four jobs, and publishes a coverage report from each.
 
 Planned next, in order: resolve the
 [open questions](docs/requirements/requirements.md#open-questions), ratify or reject
 [ADR-004](docs/ADRs/ADR-004-http-openapi-service-contract.md) and
-[ADR-006](docs/ADRs/ADR-006-postgresql-for-the-ledger-store.md), then write the first
-tracking slice end to end.
+[ADR-006](docs/ADRs/ADR-006-postgresql-for-the-ledger-store.md), then put a transport and a
+store behind the use cases that now exist. Those two decisions are what stands between this
+and the first tracking slice end to end.
 
 Known limitations:
 
-- **Nothing above the domain exists.** No application services, ports, adapters, HTTP or
-  persistence, so the domain models cannot yet be reached by anything.
+- **Nothing above the application layer exists.** No inbound adapter, no HTTP endpoint, no
+  OpenAPI document and no store, so the use cases cannot be reached from outside the process.
+  They are assembled at start-up and called only by tests.
+- **The in-memory adapters are a development seam, not persistence.** Nothing survives a
+  restart. They exist so the layer can be assembled and run while
+  [ADR-006](docs/ADRs/ADR-006-postgresql-for-the-ledger-store.md) is open, and they will be
+  replaced rather than grown.
+- **Domain events have no subscriber.** They are raised, recorded in an append-only in-memory
+  log and asserted by tests, and read by no production code. That is the cost
+  [ADR-023](docs/ADRs/ADR-023-domain-events-in-the-ledger.md) accepts, with the trigger that
+  discharges it.
+- **`AnswerQuestion` is written and not wired.** An LLM adapter would decide by implication
+  whether the owner's financial data may be sent to a third-party API, which is the project's
+  central open question and belongs in its own ADR.
 - **Six contexts is a guess.** They are derived from the four capability areas, not from a
   working slice, and some may turn out to be wrong boundaries. ADR-010 names the signal:
   contexts that always change together should be merged.
@@ -425,11 +440,15 @@ Known limitations:
   one step goes unreported — a big payment covered by a salary later the same month reads as
   untroubled at a monthly cadence. Pinned by a test, narrowed by projecting more finely, closed
   by nothing yet.
-- **`consume_fifo` trusts the caller's lot order.** It consumes in the order given, so a
-  caller holding lots in another order silently gets LIFO. Documented, not enforced — the
-  sharpest edge in the domain ([ADR-013](docs/ADRs/ADR-013-fifo-lot-based-cost-basis.md)).
-- **The grounding rule checks a citation exists, not that it supports the figure.** A model
-  citing a real balance while stating a different number passes
+- **`consume_fifo` still trusts the caller's lot order**, but the caller no longer trusts
+  itself: `DisposeUnits` sorts by acquisition date before calling it, and a test hands it lots
+  newest-first to prove the difference between a 1000.00 cost of sale and a 2000.00 one. The
+  domain function's contract is unchanged, so reaching past the use case still gets LIFO
+  ([ADR-013](docs/ADRs/ADR-013-fifo-lot-based-cost-basis.md)).
+- **The grounding rule checks a citation points at evidence that was gathered, not that it
+  supports the figure.** `AnswerQuestion` now drops a citation naming a record the answer was
+  never given, so a wholly invented reference no longer grounds anything — but a model citing a
+  *real* balance while stating a different number still passes
   ([ADR-014](docs/ADRs/ADR-014-grounded-answers-require-citations.md)).
 - **No cross-currency total is possible**, by design — so there is no single net-worth figure
   across accounts in different currencies, and a projection covers one currency only

@@ -1,10 +1,15 @@
 """The assistant's HTTP entry point.
 
-It serves health and readiness and nothing else. The assistant has no use case to expose yet,
-and ADR-004 — the wire contract every business endpoint must be described by — is still
-Proposed, so adding one here would pre-empt a decision that is deliberately open.
+It serves health and readiness and nothing else. ADR-004 — the wire contract every business
+endpoint must be described by — is still Proposed, so adding one here would pre-empt a decision
+that is deliberately open.
 
-See ADR-019.
+The use cases *are* assembled, by :func:`~finassist_assistant.adapters.wiring.assemble`, and hung
+on ``app.state.assembly``. Nothing routes to them yet. Building them here means the wiring is
+exercised on every start rather than the first time somebody writes a route, which is when a
+constructor mismatch would otherwise be found.
+
+See ADR-019 and ADR-021.
 """
 
 from __future__ import annotations
@@ -12,6 +17,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import fields
 from typing import Final
 
 import structlog
@@ -28,6 +34,7 @@ from finassist_assistant.adapters.observability import (
     set_correlation_id,
 )
 from finassist_assistant.adapters.settings import Settings
+from finassist_assistant.adapters.wiring import Assembly, assemble
 
 CORRELATION_ID_HEADER: Final = "X-Correlation-Id"
 
@@ -92,6 +99,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="FinAssist assistant", version="0.1.0")
 
+    # Assembled now, called by nothing yet. The readiness probe deliberately does not consult it:
+    # every adapter behind it is in-memory, so a check against one would report health that no
+    # dependency had been asked about.
+    assembly: Assembly = assemble()
+    app.state.assembly = assembly
+
     @app.middleware("http")
     async def correlate(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -130,5 +143,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "assistant started",
         service=resolved.service_name,
         traces_enabled=resolved.traces_enabled,
+        use_cases=len(fields(assembly.portfolio)),
     )
     return app

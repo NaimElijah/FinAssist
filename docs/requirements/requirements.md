@@ -3,7 +3,8 @@
 What the system must do. *How* it is built is [architecture](../architecture/architecture.md);
 *why* a given solution was chosen is [the ADRs](../ADRs/).
 
-> **Status: the domain layer is written; nothing above it is.** Requirements marked
+> **Status: the domain and application layers are written; no transport or store is.**
+> Requirements marked
 > **Enforced** name the class and the test that hold them today, so this document can be
 > checked rather than trusted. Everything still marked `TODO` is a decision waiting on its
 > owner, not an omission to be filled in by inference — behaviour found in code is evidence
@@ -41,15 +42,22 @@ The ledger keeps books by **double entry** ([ADR-011](../ADRs/ADR-011-double-ent
 - Open an account with a name, one of five accounting types, and exactly one currency.
   `Account`
 - Record a transaction as two or more entries that sum to zero. An unbalanced set cannot be
-  recorded. `Transaction`, `TransactionTest`
+  recorded. `Transaction`, `TransactionTest`; `RecordTransactionUseCase`,
+  `TransactionServiceTest`
 - Move a transaction through its lifecycle: clear it once the institution confirms it,
   reconcile it once it is matched to a statement, or void it with a reason.
   `TransactionState`, `TransactionTest`
-- Read the balance of an account, derived from its entries. `Balance`, `BalanceTest`
+- Read the balance of an account, derived from its entries. `Balance`, `BalanceTest`;
+  `ViewBalanceUseCase`, `JournalServiceTest`
 - Define a budget for a period, with one spending limit per category. `Budget`, `BudgetTest`
 - See what remains in a budgeted category once spend is taken off, including when overspent.
-  `Budget.remaining`, `BudgetTest`
-- Assign a category to a transaction by matching its description. `CategorisationRule`
+  `Budget.remaining`, `BudgetTest`; `ReviewBudgetUseCase`, `BudgetReviewServiceTest`. Spend
+  that matched a rule for an unbudgeted category, and spend that matched no rule at all, are
+  reported separately rather than folded away — the second is what says the rules need work
+  rather than the spending.
+- Assign a category to a transaction by matching its description. `CategorisationRule`;
+  `AddCategorisationRuleUseCase`. Rules are tried in the order they were added and the first
+  match wins, which `CategorisationRuleRepository` makes part of its contract.
 
 **Not yet decided:** where transactions come from. Manual entry, file import and institution
 sync all satisfy the requirements above and none is chosen; see
@@ -76,10 +84,15 @@ Holdings are tracked as **lots with a FIFO cost basis**
 - Read a position — total quantity and total cost — across the lots of one instrument.
   `position`, `test_portfolio.py`
 - Dispose of units, oldest lots first, and read what those units cost. Selling more than is
-  held is refused. `consume_fifo`, `InsufficientHoldingError`
+  held is refused. `consume_fifo`, `InsufficientHoldingError`; `DisposeUnits`,
+  `test_portfolio_usecases.py`. **"Oldest first" is the use case's guarantee, not the domain
+  function's**: `consume_fifo` consumes lots in the order it is given them, so `DisposeUnits`
+  sorts by acquisition date before calling it.
 - Read realised gain on a sale, and unrealised gain and market value at a given unit price.
   `realised_gain`, `unrealised_gain`, `market_value`
-- Judge whether a market quote is too old to use, against a supplied clock. `is_stale`
+- Judge whether a market quote is too old to use, against a supplied clock. `is_stale`;
+  `LatestQuote`, `test_marketdata_usecases.py`, which refuses a stale quote rather than
+  returning one a caller has to remember to check.
 
 **Not yet decided:** where prices come from. The `marketdata` context has the shape a feed must
 be translated into and no client behind it.
@@ -90,17 +103,22 @@ Plans are kept apart from the books: a planned purchase is an intention, not a f
 are never summed ([ADR-015](../ADRs/ADR-015-planning-as-a-sixth-bounded-context.md)).
 
 - Record a planned flow — a positive amount, a direction (money in, money out, or into
-  investments), the date it starts, and how it repeats. `PlannedFlow`, `PlannedFlowTest`
+  investments), the date it starts, and how it repeats. `PlannedFlow`, `PlannedFlowTest`;
+  `PlanFlowUseCase`, `PlanServiceTest`
   ([#10](https://github.com/NaimElijah/FinAssist/issues/10))
 - Repeat a flow weekly, monthly or yearly, ending on a date or after a number of occurrences.
   `Recurrence`, `RecurrenceTest`
 - Move a planned flow through its lifecycle: commit to it, mark it realised once the money has
-  moved, or cancel it with a reason. `PlanState`, `PlannedFlowTest`
+  moved, or cancel it with a reason. `PlanState`, `PlannedFlowTest`; `TransitionPlanUseCase`,
+  `PlanServiceTest`
 - Define a named strategy — a set of planned flows plus an assumption about investment growth —
   including the do-nothing baseline, which has no flows at all. `Scenario`, `ScenarioTest`
   ([#12](https://github.com/NaimElijah/FinAssist/issues/12))
 - Read a projected timeline of cash and invested balances across a horizon, derived from an
-  opening balance and a strategy. `Projection.of`, `ProjectionTest`
+  opening balance and a strategy. `Projection.of`, `ProjectionTest`; `ProjectScenarioUseCase`,
+  `ForecastServiceTest`. **The caller names which accounts open the cash line and which open
+  the invested line** — nothing in FinAssist decides that, and inventing a rule for it would
+  bury a policy nobody chose
   ([#11](https://github.com/NaimElijah/FinAssist/issues/11))
 - See the first **step boundary** at which the projected cash balance is negative, or that none
   is. `Projection.firstShortfall`, `ProjectionTest`. A dip that opens and closes inside a single
@@ -123,7 +141,9 @@ reproducible line out. There is no probabilistic simulation, and a single line u
 uncertainty by construction.
 
 **Not yet decided:** where a plan is stored, and whether visualising one is a web-client concern
-only. The domain computes the series; nothing draws it.
+only. The domain computes the series; nothing draws it. A projection re-reads its flows before
+computing, so a plan cancelled after its strategy was named stops being forecast
+(`ForecastService`); without that, `countsTowardsProjection` would be unreachable in practice.
 
 ### Web client
 
@@ -149,11 +169,11 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | Legal transaction state transitions; a reconciled transaction is frozen | Sealed `TransactionState`; `IllegalTransitionException`; `TransactionTest` | **Enforced** |
 | A transaction moves forward in time: it cannot clear before it occurred, reconcile before it cleared, or be voided before either | `Transaction.clear/reconcile/markVoided`; `TransactionTest` | **Enforced** |
 | An account has exactly one currency, and a transaction's entries are all in one currency | `Account`; `Transaction` constructor | **Enforced** |
-| An entry's currency matches the currency of the account it is posted to | — | TODO (@NaimElijah) — an `Entry` holds an `AccountId`, not an `Account`, so the domain cannot look the currency up. Needs a repository, so it belongs to the application layer |
+| An entry's currency matches the currency of the account it is posted to | `TransactionService.record`; `EntryCurrencyMismatchException`; `TransactionServiceTest` | **Enforced** — needed a repository, as this row predicted, and landed with the application layer (ADR-021) |
 | A budget has one limit per category, all in the budget's currency, each positive | `Budget` and `CategoryLimit` constructors; `BudgetTest` | **Enforced** |
 | A budget stores no spend; remaining is derived | `Budget.remaining` takes spend as an argument; `BudgetTest` | **Enforced** |
 | Disposing of more units than are held is refused | `consume_fifo`; `InsufficientHoldingError`; `test_portfolio.py` | **Enforced** |
-| A claim stating a figure must cite the evidence it came from | `ground`; `test_grounding.py` | **Enforced** |
+| A claim stating a figure must cite the evidence it came from | `ground`; `test_grounding.py`; `AnswerQuestion`, `test_assistance_usecases.py` | **Enforced** — the domain checks a citation exists, and the use case checks it names evidence the answer was actually given, which is the only place holding both. Whether the cited record *supports* the figure is still unchecked |
 | A market quote carries an unambiguous instant, and staleness is judged against a supplied clock | `Quote`, `is_stale`; `test_marketdata.py` | **Enforced** |
 | A planned flow is for a positive amount; the direction carries the sign | `PlannedFlow` constructor; `PlannedFlowTest` | **Enforced** |
 | Legal plan state transitions; a realised plan is frozen and cannot be edited or cancelled | Sealed `PlanState`; `IllegalPlanTransitionException`; `PlannedFlowTest` | **Enforced** |
@@ -166,10 +186,13 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | Two strategies in one comparison cannot share a name | `Comparison` constructor; `ComparisonTest` | **Enforced** |
 | A recurrence that would end before it begins is refused, not answered with nothing | `Recurrence.Until`; `PlannedFlow` constructor; `RecurrenceTest` | **Enforced** |
 | No bounded context depends on another | `LedgerArchitectureTest.contexts_do_not_depend_on_each_other`; `test_architecture.py`; `architecture.test.ts` | **Enforced** |
+| Where two contexts must collaborate, they do so through a port the consumer owns and a translation outside both | `SpendJournal`, `OpeningPositionProvider`; `AccountingSpendJournal`, `AccountingOpeningPositions`; `LedgerCompositionTest`; `test_wiring.py` | **Enforced** — the ports name no foreign type, and the translations live in a composition root nothing may import back into ([ADR-022](../ADRs/ADR-022-ledger-composition-root.md)) |
+| The application layer is wired by constructor, never by a container | `LedgerArchitectureTest.the_application_layer_depends_on_no_framework`; `test_architecture.py::…Then_it_imports_no_framework` | **Enforced** — a promise `LedgerApplication` had made since the scaffold with nothing checking it |
+| A recorded journal entry is never updated or deleted | No repository port exposes a delete; every lifecycle change is stored as a new aggregate state | **Enforced in shape, not yet in a store** — ADR-020's obligation expressed as a port contract until persistence lands ([ADR-021](../ADRs/ADR-021-application-layer-shape.md)) |
 | A domain function is given the current time rather than reading it | `test_architecture.py::…Then_it_reads_no_clock`, which matches an uncalled `datetime.now` reference too; `is_stale`, `Projection.of`, `Transaction.clear` all take a date | **Enforced** on the Python side; a convention in the ledger |
 | The currency table is the same in both languages | `CurrencyTest`, `test_currency.py` | **Enforced** |
 | The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) | Proposed — no persistence or client exists yet |
-| Uniqueness of an account name within the chart of accounts | — | TODO (@NaimElijah) — needs a repository to enforce against |
+| An account name is unique within the chart of accounts, ignoring surrounding whitespace and case | `AccountRepository.save` (atomically); `AccountService.open` (for the message); `DuplicateAccountNameException`; `AccountServiceTest` | **Enforced** — the repository claims the normalised name, because a check followed by a write is not a rule: two callers can pass the check together. The typed form is what is stored and displayed |
 
 ## Non-functional requirements
 
@@ -178,7 +201,7 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | Authentication | TODO (@NaimElijah) — single-owner system, but the assistant reaches the ledger over the network, so that hop needs a decided answer | Undecided |
 | Secrets | Never in the repository, logs or error messages. `.env` is git-ignored; `.env.example` carries keys with no values | Holds |
 | Data handling | The owner's financial data and `ANTHROPIC_API_KEY` are redacted at the logging boundary, not at each call site | **Enforced** for secrets — `observability.redact_secrets`, `logger.ts`; `test_observability.py`, `logger.test.ts`. Financial data is redacted only where a field name marks it, and no code logs a record yet ([ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
-| Persistence | Ledger data survives restart; migrations are append-only once released | TODO (@NaimElijah) — no schema yet |
+| Persistence | Ledger data survives restart; migrations are append-only once released | TODO (@NaimElijah) — no schema yet. The in-memory adapters behind the repository ports are a development seam and satisfy none of this; what they do carry is the append-only shape, since no port exposes a delete ([ADR-021](../ADRs/ADR-021-application-layer-shape.md)) |
 | Observability | Structured logs, health and readiness endpoints, OpenTelemetry rather than a vendor SDK | **Enforced** — `LedgerObservabilityTest`, `test_observability.py`. Both services emit JSON carrying a W3C trace id and export OTLP; telemetry is a no-op when no collector is configured. Traces describe Actuator and probe traffic only, since no business endpoint exists ([ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 | Performance and scale | TODO (@NaimElijah) — single owner, so this is likely a non-requirement; state it explicitly rather than leaving it open | Undecided |
 | Availability | TODO (@NaimElijah) — no deployment target chosen; it runs locally only | Undecided |
