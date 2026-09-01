@@ -174,10 +174,19 @@
               <targetClasses>
                 <param>io.github.naimelijah.finassist.ledger.*.domain.*</param>
                 <param>io.github.naimelijah.finassist.ledger.shared.*</param>
+                <!-- The application services hold the rules the domain could not: an entry matching
+                     its account's currency, a unique account name, the categorisation fold. Coverage
+                     rates all of them as covered, which is exactly the claim mutation testing exists
+                     to check. Still gated on nothing (ADR-017); the scope grew, the decision did not. -->
+                <param>io.github.naimelijah.finassist.ledger.*.application.service.*</param>
+                <param>io.github.naimelijah.finassist.ledger.composition.*</param>
               </targetClasses>
               <excludedTestClasses>
                 <param>io.github.naimelijah.finassist.ledger.LedgerApplicationTest</param>
                 <param>io.github.naimelijah.finassist.ledger.LedgerArchitectureTest</param>
+                <!-- Boots Tomcat once per mutant for wiring that holds no logic. -->
+                <param>io.github.naimelijah.finassist.ledger.LedgerObservabilityTest</param>
+                <param>io.github.naimelijah.finassist.ledger.composition.LedgerCompositionTest</param>
               </excludedTestClasses>
               <outputFormats>
                 <param>HTML</param>

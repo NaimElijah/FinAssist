@@ -6,9 +6,13 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * Entry point for the ledger service.
  *
- * <p>Deliberately the only Spring-annotated class outside {@code adapter}. It sits in the root
- * package so component scanning covers the adapters beneath it; the domain and application
- * packages contain no annotations and are wired by constructor, not by the container.
+ * <p>It sits in the root package so component scanning reaches every context beneath it. The domain
+ * and application packages carry no annotation and are wired by constructor rather than by the
+ * container, which {@code LedgerArchitectureTest.the_application_layer_depends_on_no_framework} now
+ * enforces instead of merely asserting here.
+ *
+ * <p>The wiring itself lives in {@code composition}, which is Spring-aware by design and is the only
+ * package permitted to see two contexts at once (ADR-022).
  *
  * <p>Starting this exposes Actuator only — there are no business endpoints yet. See {@code
  * docs/architecture/architecture.md}.
