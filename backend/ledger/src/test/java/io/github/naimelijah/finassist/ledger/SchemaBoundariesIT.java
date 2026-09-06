@@ -16,6 +16,11 @@ import org.springframework.boot.test.context.SpringBootTest;
  * remove.
  *
  * <p>This is the counterpart on the other side of the boundary (ADR-024).
+ *
+ * <p>The join below carries the catalog and schema as well as the name, because a constraint name
+ * is unique per schema and not per database. Matching on the name alone would let two contexts
+ * that happened to name a constraint the same thing produce a cross product, and this test would
+ * then report a crossing that does not exist - or bury a real one in the noise.
  */
 @SpringBootTest
 class SchemaBoundariesIT extends PostgresFixture {
@@ -28,7 +33,9 @@ class SchemaBoundariesIT extends PostgresFixture {
                         SELECT source.constraint_name || ': ' || source.table_schema || ' -> ' || target.table_schema
                           FROM information_schema.table_constraints source
                           JOIN information_schema.constraint_column_usage target
-                            ON target.constraint_name = source.constraint_name
+                            ON target.constraint_catalog = source.constraint_catalog
+                           AND target.constraint_schema = source.constraint_schema
+                           AND target.constraint_name = source.constraint_name
                          WHERE source.constraint_type = 'FOREIGN KEY'
                            AND source.table_schema <> target.table_schema
                         """).query(String.class).list();

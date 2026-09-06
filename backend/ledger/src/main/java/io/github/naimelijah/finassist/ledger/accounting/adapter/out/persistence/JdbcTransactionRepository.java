@@ -158,7 +158,7 @@ public class JdbcTransactionRepository implements TransactionRepository {
     @Transactional
     public void save(Transaction transaction) {
         Objects.requireNonNull(transaction, "transaction");
-        Optional<StoredState> current = currentState(transaction.id());
+        Optional<Sequenced> current = currentState(transaction.id());
         if (current.isEmpty()) {
             insert(transaction);
             return;
@@ -191,12 +191,18 @@ public class JdbcTransactionRepository implements TransactionRepository {
     }
 
     private void refuseChangedEntries(Transaction transaction) {
-        List<Entry> stored = toTransactions(jdbc.sql(SELECT.formatted(BY_ID))
-                        .param("id", transaction.id().value())
-                        .query(Row.MAPPER)
-                        .list())
-                .getFirst()
-                .entries();
+        List<Transaction> found = toTransactions(jdbc.sql(SELECT.formatted(BY_ID))
+                .param("id", transaction.id().value())
+                .query(Row.MAPPER)
+                .list());
+        // Unreachable through this adapter - insert writes the transaction, its entries and its
+        // state together - but this method exists to explain a bad write, and answering a
+        // corrupted store with a bare NoSuchElementException would be the opposite of that.
+        if (found.isEmpty()) {
+            throw new IllegalStateException(
+                    "Transaction " + transaction.id() + " has a recorded state but no entries; the journal is corrupt");
+        }
+        List<Entry> stored = found.getFirst().entries();
         if (!stored.equals(transaction.entries())) {
             throw new IllegalStateException("Transaction " + transaction.id()
                     + " is already recorded and its entries cannot be rewritten; a correction is a"
@@ -204,9 +210,9 @@ public class JdbcTransactionRepository implements TransactionRepository {
         }
     }
 
-    private void appendStateIfChanged(Transaction transaction, StoredState current) {
+    private void appendStateIfChanged(Transaction transaction, Sequenced current) {
         StoredState wanted = StoredState.of(transaction.state());
-        if (!wanted.equals(current)) {
+        if (!wanted.equals(current.state())) {
             insertState(transaction.id(), current.sequence() + 1, wanted);
         }
     }
@@ -221,14 +227,15 @@ public class JdbcTransactionRepository implements TransactionRepository {
                 .update();
     }
 
-    private Optional<StoredState> currentState(TransactionId id) {
+    private Optional<Sequenced> currentState(TransactionId id) {
         return jdbc.sql(SELECT_CURRENT_STATE)
                 .param("transactionId", id.value())
-                .query((row, rowNumber) -> new StoredState(
+                .query((row, rowNumber) -> new Sequenced(
                         row.getInt("sequence"),
-                        row.getString("state"),
-                        row.getObject("effective_on", LocalDate.class),
-                        row.getString("reason")))
+                        new StoredState(
+                                row.getString("state"),
+                                row.getObject("effective_on", LocalDate.class),
+                                row.getString("reason"))))
                 .optional();
     }
 
@@ -281,7 +288,6 @@ public class JdbcTransactionRepository implements TransactionRepository {
                     row.getObject("occurred_on", LocalDate.class),
                     row.getString("description"),
                     new StoredState(
-                            FIRST_STATE,
                             row.getString("state"),
                             row.getObject("effective_on", LocalDate.class),
                             row.getString("reason")),
@@ -290,23 +296,26 @@ public class JdbcTransactionRepository implements TransactionRepository {
         }
     }
 
+    /** A state and where it sits in the transaction's history. */
+    private record Sequenced(int sequence, StoredState state) {}
+
     /**
      * The sealed {@link TransactionState} as it is stored: a discriminator, an optional date and an
-     * optional reason. {@code sequence} is excluded from equality on purpose - two rows are the same
-     * <em>state</em> when they say the same thing, which is what decides whether a transition
-     * happened.
+     * optional reason, and nothing else.
+     *
+     * <p>Deliberately says nothing about position. Two rows are the same <em>state</em> when they
+     * say the same thing, which is what decides whether a transition happened, so the record's
+     * generated equality is exactly right and {@link Sequenced} carries the ordering separately.
      */
-    private record StoredState(int sequence, String state, LocalDate effectiveOn, String reason) {
+    private record StoredState(String state, LocalDate effectiveOn, String reason) {
 
         static StoredState of(TransactionState state) {
             return switch (state) {
-                case TransactionState.Pending ignored -> new StoredState(FIRST_STATE, "PENDING", null, null);
-                case TransactionState.Cleared cleared ->
-                    new StoredState(FIRST_STATE, "CLEARED", cleared.clearedOn(), null);
+                case TransactionState.Pending ignored -> new StoredState("PENDING", null, null);
+                case TransactionState.Cleared cleared -> new StoredState("CLEARED", cleared.clearedOn(), null);
                 case TransactionState.Reconciled reconciled ->
-                    new StoredState(FIRST_STATE, "RECONCILED", reconciled.reconciledOn(), null);
-                case TransactionState.Voided voided ->
-                    new StoredState(FIRST_STATE, "VOIDED", voided.voidedOn(), voided.reason());
+                    new StoredState("RECONCILED", reconciled.reconciledOn(), null);
+                case TransactionState.Voided voided -> new StoredState("VOIDED", voided.voidedOn(), voided.reason());
             };
         }
 
@@ -318,19 +327,6 @@ public class JdbcTransactionRepository implements TransactionRepository {
                 case "VOIDED" -> new TransactionState.Voided(effectiveOn, reason);
                 default -> throw new IllegalStateException("Unknown stored transaction state: " + state);
             };
-        }
-
-        @Override
-        public boolean equals(Object other) {
-            return other instanceof StoredState stored
-                    && Objects.equals(state, stored.state)
-                    && Objects.equals(effectiveOn, stored.effectiveOn)
-                    && Objects.equals(reason, stored.reason);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(state, effectiveOn, reason);
         }
     }
 }
