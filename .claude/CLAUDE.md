@@ -5,11 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## State of the repository
 
 Three codebases — a Java ledger, a Python assistant, a React web client — all building and
-CI-gated. **All six bounded contexts now have a domain layer and an application layer**, with
-tests. Use cases sit behind ports, are wired by constructor, and are backed by in-memory
-adapters that are a development seam and not a store. Above that there is nothing: **no
-inbound adapter, no HTTP endpoint, no OpenAPI document and no persistence**, because ADR-004
-and ADR-006 are still Proposed (ADR-021, ADR-022, ADR-023). Observability is live (ADR-019):
+CI-gated. **All six bounded contexts have a domain layer and an application layer**, with tests.
+Use cases sit behind ports and are wired by constructor. **The ledger's repository ports are
+backed by PostgreSQL** (ADR-006, ratified 2026-09-06): hand-written SQL over `JdbcClient`, Flyway
+migrations, a schema per bounded context, and a journal the database refuses to rewrite
+(ADR-024). Above that there is still nothing: **no inbound adapter, no HTTP endpoint and no
+OpenAPI document**, because ADR-004 is still Proposed. The assistant has no store and needs
+none — all five of its ports are outbound clients. Observability is live (ADR-019):
 the ledger answers Actuator probes, the assistant serves `/health` and `/ready` and assembles
 its use cases at start-up, and the web client renders a placeholder behind an error boundary.
 Both services emit structured JSON logs and OTLP traces.
@@ -26,7 +28,8 @@ is **not installed** on the development machine, so the raw command is given for
 - Build / setup: `make setup` — `cd backend/ledger && ./mvnw -B dependency:go-offline`;
   `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci`
 - Run: `make run` — `docker compose up --build` (starts PostgreSQL only). The ledger runs
-  natively with `cd backend/ledger && ./mvnw spring-boot:run`; the web client with
+  natively with `cd backend/ledger && ./mvnw spring-boot:run` — it needs the database up first
+  and applies its Flyway migrations at start-up; the web client with
   `cd frontend/web && npm run dev`
 - Test (all): `make test`
 - Test (ledger): `cd backend/ledger && ./mvnw -B verify`
@@ -34,6 +37,9 @@ is **not installed** on the development machine, so the raw command is given for
   --cov-report=xml`
 - Test (web): `cd frontend/web && npm run test:coverage`
 - Test (single, ledger): `cd backend/ledger && ./mvnw -B test -Dtest=LedgerArchitectureTest`
+- **Docker must be running for `make test-ledger`.** `*IT` tests drive the store against a real
+  PostgreSQL in Testcontainers and fail rather than skip without it (ADR-025). Surefire (the
+  unit suite) needs no Docker; failsafe does.
 - Test (single, assistant): `cd backend/assistant && uv run pytest tests/test_architecture.py -k <name>`
 - Test (single, web): `cd frontend/web && npx vitest run -t <name>`
 - Mutation testing (ledger): `make mutation-ledger` — `cd backend/ledger && ./mvnw -Pmutation
@@ -87,8 +93,10 @@ These are enforced by the build, not by review. Breaking one fails CI.
   `backend/assistant/tests/test_architecture.py` and
   `frontend/web/tests/architecture.test.ts` enforce this.
 - **The ledger domain imports no framework.** No `org.springframework..`, no `jakarta..`.
-  Persistence entities live in `adapter/out/persistence` and are mapped — an entity is not an
-  aggregate.
+  Persistence lives in `adapter/out/persistence` and maps rows to aggregates by hand; there is
+  no entity type at all, which is the strongest form of "an entity is not an aggregate". The
+  `Money` mapping is duplicated per context on purpose — the slice rule leaves no legal shared
+  home, and ADR-021 already refused to let coupling accumulate in `shared`.
 - **Money is never floating point.** `BigDecimal` in Java, `Decimal` in Python, `NUMERIC` in
   Postgres. A `double` or `float` field in a ledger domain fails the build.
 - **The books balance.** A `Transaction` holds two or more entries summing to zero in one
@@ -159,9 +167,23 @@ These are enforced by the build, not by review. Breaking one fails CI.
   root (`utc_now`), and passed down — the same rule the domain follows.
 - **The assistant's ports are synchronous** (ADR-021). Do not add `async` without the trigger:
   a use case that must fan out concurrent I/O. `pytest-asyncio` is not a dependency.
-- **In-memory adapters are a development seam, not a store.** They exist because ADR-004 and
-  ADR-006 are Proposed. Replace them; do not grow them, and do not point a readiness probe at
-  one.
+- **The ledger's store is PostgreSQL, and the journal is append-only in the database.** Triggers
+  on `accounting.journal_transaction`, `journal_entry` and `journal_transaction_state` refuse an
+  `UPDATE` or a `DELETE`; a lifecycle change is an `INSERT` whose highest `sequence` is the
+  current state. Do not add an `UPDATE` to `JdbcTransactionRepository` — the database will refuse
+  it, which is the point (ADR-020, ADR-024). `budgeting` and `planning` are ordinary mutable
+  tables: ADR-020 binds the record of what happened, and ADR-015 puts intent in another context.
+- **No foreign key crosses a schema.** `SchemaBoundariesIT` fails the build if one does. It is
+  the storage-layer half of `contexts_do_not_depend_on_each_other`, which reads bytecode and so
+  stops at the edge of the JVM.
+- **Money is `numeric` with no declared precision.** PostgreSQL preserves the exact scale it is
+  given, and `Money` rejects rather than rounds excess precision. `numeric(19,2)` would break JPY,
+  which has no minor units.
+- **The only in-memory adapters left are the two event publishers.** Nothing subscribes yet
+  (ADR-023), and an outbox with no consumer is what ADR-020 refused to build ahead of one.
+- **`@Transactional` goes on the adapter, never on an application service** —
+  `the_application_layer_depends_on_no_framework` fails the build for the latter. When a use case
+  must write across two aggregates, the boundary moves to a decorator in `composition`.
 
 The ledger's seven ArchUnit rules are **live**. The `archRule.failOnEmptyShould=false` escape
 hatch was deleted with the first domain class, so a rule matching nothing now fails rather than

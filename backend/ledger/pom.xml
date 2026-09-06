@@ -52,6 +52,31 @@
       <groupId>io.micrometer</groupId>
       <artifactId>micrometer-registry-prometheus</artifactId>
     </dependency>
+    <!-- JdbcClient, a DataSource and HikariCP. No JPA and no Spring Data: every statement the
+         ledger issues is written by hand, which is what makes ADR-020's append-only obligation
+         reviewable rather than a property of an ORM's flush behaviour (ADR-024). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+    <!-- Not org.flywaydb:flyway-core. Boot 4 splits autoconfiguration into per-technology
+         modules, and the bare library would migrate nothing at start-up. This brings both. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-flyway</artifactId>
+    </dependency>
+    <!-- Flyway 10+ ships each database's support separately; without this it cannot parse
+         PostgreSQL DDL. -->
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
 
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -69,6 +94,31 @@
       <groupId>com.tngtech.archunit</groupId>
       <artifactId>archunit-junit5</artifactId>
       <version>${archunit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      A real PostgreSQL for the *IT tests, on the same image tag as docker-compose.yml, so what
+      CI proves is what a developer runs (ADR-025). Docker is required: these tests fail rather
+      than skip when it is absent, because a green suite that exercised none of the SQL is worse
+      than one that refuses to run.
+
+      Testcontainers 2 renamed the modules - `testcontainers-postgresql`, not `postgresql` - and
+      moved PostgreSQLContainer to org.testcontainers.postgresql. The 1.x coordinates and package
+      still resolve and are deprecated.
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -140,6 +190,32 @@
             <finassist.contracts.dir>${project.basedir}/../../contracts</finassist.contracts.dir>
           </systemPropertyVariables>
         </configuration>
+      </plugin>
+
+      <!--
+        The split ADR-025 decides: surefire runs the unit suite and needs no Docker; failsafe runs
+        everything named *IT against a real PostgreSQL and does. `verify` runs both, and
+        `make test-ledger` already calls `verify`, so CI inherits this without a new target.
+
+        `verify` is bound as well as `integration-test` on purpose - without it failsafe records
+        failures and never reports them, and the build goes green over a red suite.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <finassist.contracts.dir>${project.basedir}/../../contracts</finassist.contracts.dir>
+          </systemPropertyVariables>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

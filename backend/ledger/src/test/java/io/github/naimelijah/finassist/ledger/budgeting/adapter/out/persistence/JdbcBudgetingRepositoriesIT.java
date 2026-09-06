@@ -1,0 +1,124 @@
+package io.github.naimelijah.finassist.ledger.budgeting.adapter.out.persistence;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.github.naimelijah.finassist.ledger.PostgresFixture;
+import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.BudgetRepository;
+import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.CategorisationRuleRepository;
+import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.Budget;
+import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.BudgetId;
+import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.BudgetPeriod;
+import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.CategoryLimit;
+import io.github.naimelijah.finassist.ledger.budgeting.domain.category.CategorisationRule;
+import io.github.naimelijah.finassist.ledger.budgeting.domain.category.Category;
+import io.github.naimelijah.finassist.ledger.shared.Currency;
+import io.github.naimelijah.finassist.ledger.shared.Money;
+import java.time.YearMonth;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+/**
+ * What budgeting's two repositories promise, asserted against the store.
+ *
+ * <p>Rule order is the claim worth a database. {@code CategorisationRuleRepository.all()} says
+ * insertion order is part of its contract, because a review takes the first matching rule and the
+ * order therefore decides the answer. Nothing in Java can promise that; an identity column and an
+ * {@code ORDER BY} can.
+ */
+@SpringBootTest
+class JdbcBudgetingRepositoriesIT extends PostgresFixture {
+
+    private static final BudgetPeriod MARCH = BudgetPeriod.of(YearMonth.of(2026, 3));
+    private static final Category GROCERIES = Category.of("groceries");
+    private static final Category RENT = Category.of("rent");
+
+    @Autowired
+    private BudgetRepository budgets;
+
+    @Autowired
+    private CategorisationRuleRepository rules;
+
+    @Test
+    void Given_a_budget_When_it_is_saved_Then_it_is_read_back_with_every_limit() {
+        Budget budget = Budget.of(
+                MARCH,
+                Currency.ILS,
+                List.of(new CategoryLimit(GROCERIES, ils("1200.00")), new CategoryLimit(RENT, ils("4000.00"))));
+
+        budgets.save(budget);
+
+        assertThat(budgets.findById(budget.id())).contains(budget);
+    }
+
+    @Test
+    void Given_no_such_budget_When_it_is_looked_up_Then_nothing_is_found() {
+        assertThat(budgets.findById(BudgetId.generate())).isEmpty();
+    }
+
+    /**
+     * A budget is intent rather than a record of what happened, so redefining one is a legal write -
+     * ADR-020's append-only obligation binds the journal and stops there (ADR-024). What must not
+     * happen is a limit surviving a redefinition that dropped it.
+     */
+    @Test
+    void Given_a_budget_saved_again_with_fewer_limits_When_read_back_Then_the_dropped_one_is_gone() {
+        Budget original = Budget.of(
+                MARCH,
+                Currency.ILS,
+                List.of(new CategoryLimit(GROCERIES, ils("1200.00")), new CategoryLimit(RENT, ils("4000.00"))));
+        budgets.save(original);
+        Budget narrowed = new Budget(original.id(), MARCH, Currency.ILS, java.util.Map.of(GROCERIES, ils("900.00")));
+
+        budgets.save(narrowed);
+
+        assertThat(budgets.findById(original.id())).contains(narrowed);
+        assertThat(budgets.findById(original.id()).orElseThrow().limitFor(RENT)).isEmpty();
+    }
+
+    /** The contract the port states in as many words: the order rules were added in. */
+    @Test
+    void Given_rules_added_in_an_order_When_they_are_read_back_Then_the_order_is_preserved() {
+        CategorisationRule coffee = new CategorisationRule("coffee", Category.of("coffee"));
+        CategorisationRule eatingOut = new CategorisationRule("co", Category.of("eating out"));
+        CategorisationRule supermarket = new CategorisationRule("superpharm", GROCERIES);
+
+        rules.add(coffee);
+        rules.add(eatingOut);
+        rules.add(supermarket);
+
+        assertThat(rules.all()).containsExactly(coffee, eatingOut, supermarket);
+    }
+
+    @Test
+    void Given_no_rules_at_all_When_they_are_read_Then_the_answer_is_empty_rather_than_null() {
+        assertThat(rules.all()).isEmpty();
+    }
+
+    /**
+     * Two rules may share a fragment or a category; only their position separates them. A primary key
+     * over the pair would silently drop the second and change what a review answers.
+     */
+    @Test
+    void Given_two_rules_sharing_a_category_When_they_are_read_back_Then_both_are_there() {
+        rules.add(new CategorisationRule("superpharm", GROCERIES));
+        rules.add(new CategorisationRule("shufersal", GROCERIES));
+
+        assertThat(rules.all()).hasSize(2);
+    }
+
+    @Test
+    void Given_a_budget_When_read_over_an_independent_connection_Then_it_is_still_there() {
+        Budget budget = Budget.of(MARCH, Currency.ILS, List.of(new CategoryLimit(GROCERIES, ils("1200.00"))));
+        budgets.save(budget);
+
+        BudgetRepository elsewhere = new JdbcBudgetRepository(freshConnection());
+
+        assertThat(elsewhere.findById(budget.id())).contains(budget);
+    }
+
+    private static Money ils(String amount) {
+        return Money.of(amount, Currency.ILS);
+    }
+}

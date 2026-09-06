@@ -90,11 +90,11 @@ had been: `times_rounded` raised on a large product in Python where Java returne
 
 | Component | Responsibility | State |
 |---|---|---|
-| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain and application layers complete, with unit, seeded-property and shared-vector tests, **7 live architecture rules**, and Spring tests covering the Actuator probes, the observability wiring and the assembled composition root; structured logs, OTLP traces and Prometheus metrics. In-memory adapters stand behind every repository port; there is no inbound adapter |
+| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain and application layers complete, with unit, seeded-property and shared-vector tests, **7 live architecture rules**, and Spring tests covering the Actuator probes, the observability wiring and the assembled composition root; structured logs, OTLP traces and Prometheus metrics. Every repository port is backed by PostgreSQL; the in-memory ones are gone. The only remaining in-memory adapters are the two event publishers, which nothing subscribes to yet. There is no inbound adapter |
 | `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain and application layers complete, with unit, Hypothesis-property and shared-vector tests, and 6 architecture rules parametrised over every source file (those that do not apply to a given file skip); a composition root serving `/health` and `/ready` and assembling the portfolio use cases. `AnswerQuestion` is written and deliberately unwired — an LLM adapter would settle the privacy question by implication |
 | `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder behind an error boundary; architecture rules, HTTP-client tests, a jsdom render test of the shell, and a structured logger that generates the `traceparent` every request carries; no feature implemented |
 | `contracts/` | The versioned wire contract, and the cross-language `Money` conformance vectors | `money-vectors.v1.json` and the README; no OpenAPI document yet |
-| PostgreSQL 18 | The ledger's store | Runs via Compose; nothing connects to it |
+| PostgreSQL 18 | The ledger's store | Runs via Compose. Three schemas — `accounting`, `budgeting`, `planning` — with no foreign key crossing one; migrated by Flyway from a directory per context. The journal is append-only in the database, enforced by triggers |
 
 ## Structure: context first, hexagon inside
 
@@ -149,9 +149,10 @@ that the `monitoring` Compose profile mounts.
   still Proposed).
 - **Assistant to Anthropic** — HTTPS via the pinned SDK, behind `LlmPort`.
 - **Assistant to price feed** — not chosen; the port and its ACL exist, the client does not.
-- **Ledger to Postgres** — JDBC
-  ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md), still Proposed; no driver on
-  the classpath).
+- **Ledger to Postgres** — JDBC, hand-written SQL over Spring's `JdbcClient`, with Flyway
+  running the migrations at start-up ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md),
+  [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)). No ORM: an entity is
+  not an aggregate, and every statement the ledger issues is readable in one place.
 
 The ledger never calls the assistant, and the assistant never calls the web client.
 
@@ -160,7 +161,8 @@ The ledger never calls the assistant, and the assistant never calls the web clie
 **No request reaches a use case, because neither service has an inbound adapter.** The two live
 HTTP paths remain `GET /actuator/health` on the ledger → Spring Boot's health contributors →
 `{"status":"UP"}`, and `GET /health` on the assistant → a constant response. Neither touches
-any FinAssist domain code. The transport half of this section is filled in from the
+any FinAssist domain code. The ledger's readiness probe now does reach Postgres: it includes
+the `db` indicator, so a ledger that cannot connect reports `DOWN` rather than ready. The transport half of this section is filled in from the
 implementation in the same commit that creates it.
 
 The in-process paths below are real, assembled at start-up, and exercised by tests. They are
@@ -168,9 +170,17 @@ what an inbound adapter will call.
 
 **Recording a purchase, ledger.** `RecordTransactionCommand` → `TransactionService` loads every
 referenced `Account` and refuses an entry whose currency the account does not hold →
-`Transaction.record` refuses entries that do not sum to zero → `TransactionRepository.save` →
+`Transaction.record` refuses entries that do not sum to zero → `TransactionRepository.save`,
+which inserts the transaction, its entries and its opening state in one database transaction,
+and whose deferred constraint refuses at commit anything the aggregate somehow let through →
 `AccountingEvents.publish`. Nothing consumes the event; see
 [ADR-023](../ADRs/ADR-023-domain-events-in-the-ledger.md).
+
+**Clearing it.** `TransactionService.clear` loads the transaction, the aggregate returns a new
+value in the `Cleared` state, and `save` **appends** a row to
+`accounting.journal_transaction_state`. Nothing is overwritten and nothing is deleted; the
+earlier states stay readable, which is what makes the journal the audit record
+([ADR-020](../ADRs/ADR-020-audit-trail-follows-persistence.md)).
 
 **Reviewing a budget, ledger, and the one path that crosses a context boundary.**
 `ReviewBudgetUseCase` → `BudgetReviewService` loads the `Budget` → asks its own `SpendJournal`
@@ -284,6 +294,8 @@ the classes and tests that enforce them in
 | The ledger domain imports no framework | `LedgerArchitectureTest.domain_depends_on_no_framework` |
 | No floating-point field in a ledger domain | `LedgerArchitectureTest.money_is_never_floating_point` |
 | No cycles between aggregates in a context | `LedgerArchitectureTest.aggregates_are_free_of_cycles` |
+| **No foreign key crosses a schema**, so context isolation holds in the database too | `SchemaBoundariesIT` |
+| **The journal is append-only**: no `UPDATE` or `DELETE` on a transaction, its entries or its states | `V1_1__accounting_schema.sql` triggers; `JournalIsAppendOnlyIT` |
 | **Nothing outside the ledger's composition root depends on it** | `LedgerArchitectureTest.no_context_depends_on_the_composition_root` |
 | **The ledger's application layer imports no framework** | `LedgerArchitectureTest.the_application_layer_depends_on_no_framework` |
 | No inward assistant layer imports a framework | `test_architecture.py::…Then_it_imports_no_framework` |
