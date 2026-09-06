@@ -2,13 +2,14 @@ package io.github.naimelijah.finassist.ledger.budgeting.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
-import io.github.naimelijah.finassist.ledger.budgeting.adapter.out.persistence.InMemoryBudgetRepository;
-import io.github.naimelijah.finassist.ledger.budgeting.adapter.out.persistence.InMemoryCategorisationRuleRepository;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.BudgetNotFoundException;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.BudgetReview;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.CategorySpend;
-import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.DefineBudgetCommand;
+import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.BudgetRepository;
+import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.CategorisationRuleRepository;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.SpendJournal;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.SpendRecord;
 import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.Budget;
@@ -23,6 +24,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -45,16 +47,16 @@ class BudgetReviewServiceTest {
     private static final Category RENT = Category.of("rent");
     private static final Category COFFEE = Category.of("coffee");
 
-    private final InMemoryBudgetRepository budgets = new InMemoryBudgetRepository();
-    private final InMemoryCategorisationRuleRepository rules = new InMemoryCategorisationRuleRepository();
+    private final BudgetRepository budgets = mock(BudgetRepository.class);
+    private final CategorisationRuleRepository rules = mock(CategorisationRuleRepository.class);
     private final StubSpendJournal spend = new StubSpendJournal();
-    private final BudgetService budgetService = new BudgetService(budgets, rules);
+    private final List<CategorisationRule> defined = new ArrayList<>();
     private final BudgetReviewService service = new BudgetReviewService(budgets, rules, spend);
 
     @Test
     void Given_spend_matching_a_rule_When_reviewed_Then_it_is_taken_off_that_category() {
         Budget budget = define(new CategoryLimit(GROCERIES, ils("1200.00")));
-        rules.add(new CategorisationRule("superpharm", GROCERIES));
+        holds(new CategorisationRule("superpharm", GROCERIES));
         spend.holds(record("SUPERPHARM TLV", "310.50"));
 
         BudgetReview review = service.review(budget.id());
@@ -77,7 +79,7 @@ class BudgetReviewServiceTest {
     @Test
     void Given_more_spent_than_allowed_When_reviewed_Then_the_overspend_is_reported_not_refused() {
         Budget budget = define(new CategoryLimit(COFFEE, ils("100.00")));
-        rules.add(new CategorisationRule("cafe", COFFEE));
+        holds(new CategorisationRule("cafe", COFFEE));
         spend.holds(record("CAFE JOE", "140.00"));
 
         BudgetReview review = service.review(budget.id());
@@ -92,7 +94,7 @@ class BudgetReviewServiceTest {
     @Test
     void Given_spend_for_a_category_with_no_limit_When_reviewed_Then_it_is_reported_as_unbudgeted() {
         Budget budget = define(new CategoryLimit(GROCERIES, ils("1200.00")));
-        rules.add(new CategorisationRule("cafe", COFFEE));
+        holds(new CategorisationRule("cafe", COFFEE));
         spend.holds(record("CAFE JOE", "18.00"));
 
         BudgetReview review = service.review(budget.id());
@@ -104,7 +106,7 @@ class BudgetReviewServiceTest {
     @Test
     void Given_spend_matching_no_rule_When_reviewed_Then_it_is_reported_as_uncategorised() {
         Budget budget = define(new CategoryLimit(GROCERIES, ils("1200.00")));
-        rules.add(new CategorisationRule("superpharm", GROCERIES));
+        holds(new CategorisationRule("superpharm", GROCERIES));
         spend.holds(record("SOMETHING NOBODY TAUGHT IT", "42.00"));
 
         BudgetReview review = service.review(budget.id());
@@ -118,8 +120,8 @@ class BudgetReviewServiceTest {
     @Test
     void Given_two_rules_that_both_match_When_reviewed_Then_the_first_added_wins() {
         Budget budget = define(new CategoryLimit(COFFEE, ils("100.00")), new CategoryLimit(GROCERIES, ils("100.00")));
-        rules.add(new CategorisationRule("cafe", COFFEE));
-        rules.add(new CategorisationRule("ca", GROCERIES));
+        holds(new CategorisationRule("cafe", COFFEE));
+        holds(new CategorisationRule("ca", GROCERIES));
         spend.holds(record("CAFE JOE", "18.00"));
 
         BudgetReview review = service.review(budget.id());
@@ -134,7 +136,7 @@ class BudgetReviewServiceTest {
     @Test
     void Given_a_refund_in_a_category_When_reviewed_Then_it_reduces_what_was_spent() {
         Budget budget = define(new CategoryLimit(GROCERIES, ils("1200.00")));
-        rules.add(new CategorisationRule("superpharm", GROCERIES));
+        holds(new CategorisationRule("superpharm", GROCERIES));
         spend.holds(record("SUPERPHARM TLV", "310.50"), record("SUPERPHARM TLV refund", "-10.50"));
 
         BudgetReview review = service.review(budget.id());
@@ -184,7 +186,7 @@ class BudgetReviewServiceTest {
     @Test
     void Given_a_journal_answering_in_another_currency_When_reviewed_Then_it_is_refused() {
         Budget budget = define(new CategoryLimit(GROCERIES, ils("1200.00")));
-        rules.add(new CategorisationRule("superpharm", GROCERIES));
+        holds(new CategorisationRule("superpharm", GROCERIES));
         spend.holds(new SpendRecord("SUPERPHARM TLV", Money.of("310.50", Currency.USD), MARCH_5));
 
         assertThatThrownBy(() -> service.review(budget.id()))
@@ -192,8 +194,24 @@ class BudgetReviewServiceTest {
                 .hasMessageContaining("SpendJournal returned");
     }
 
+    /** A budget the store hands back when the service asks for it. */
     private Budget define(CategoryLimit... limits) {
-        return budgetService.define(new DefineBudgetCommand(MARCH, Currency.ILS, List.of(limits)));
+        Budget budget = Budget.of(MARCH, Currency.ILS, List.of(limits));
+        when(budgets.findById(budget.id())).thenReturn(Optional.of(budget));
+        return budget;
+    }
+
+    /**
+     * A rule the store holds, appended in call order.
+     *
+     * <p>Re-stubbed on every call rather than handed the live list, so each test states the exact
+     * sequence the review will fold over. The order is the contract - a review takes the first
+     * matching rule - and {@code JdbcCategorisationRuleRepositoryIT} is what proves the real store
+     * returns them this way.
+     */
+    private void holds(CategorisationRule rule) {
+        defined.add(rule);
+        when(rules.all()).thenReturn(List.copyOf(defined));
     }
 
     private static SpendRecord record(String description, String amount) {

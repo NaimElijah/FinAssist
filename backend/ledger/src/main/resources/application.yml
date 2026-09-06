@@ -10,6 +10,21 @@ spring:
     # across two services would merge their telemetry into one stream (ADR-019).
     name: finassist-ledger
 
+  datasource:
+    # Defaults target the Compose database on localhost, because the ledger runs natively on the
+    # host; the variables move to the service name the day it joins docker-compose.yml. No
+    # password default — an unset one should fail to connect, not silently try an empty string.
+    url: ${LEDGER_DB_URL:jdbc:postgresql://localhost:5432/finassist}
+    username: ${LEDGER_DB_USERNAME:finassist}
+    password: ${LEDGER_DB_PASSWORD:}
+
+  flyway:
+    # Locations are left at the default, classpath:db/migration, which Flyway scans recursively.
+    # Each context owns a subdirectory and a major version (accounting 1, budgeting 2, planning 3)
+    # so the three can never collide on a version or share a file, and the history table stays
+    # single (ADR-024).
+    enabled: true
+
 logging:
   structured:
     format:
@@ -34,6 +49,13 @@ management:
       # Splits health into /actuator/health/liveness and /actuator/health/readiness.
       probes:
         enabled: true
+      group:
+        # Readiness now means something. It was liveness by another name while every adapter was
+        # in memory — there was nothing to be unready for, and pointing a probe at an in-memory
+        # map would have reported health no dependency had been asked about. With the store real,
+        # a ledger that cannot reach its database is not willing to take traffic.
+        readiness:
+          include: readinessState,db
   metrics:
     distribution:
       # Publishes _bucket series for HTTP timings, which is what a latency quantile is

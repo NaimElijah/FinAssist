@@ -2,19 +2,18 @@ package io.github.naimelijah.finassist.ledger.planning.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
-import io.github.naimelijah.finassist.ledger.planning.adapter.out.event.InMemoryPlanningEvents;
-import io.github.naimelijah.finassist.ledger.planning.adapter.out.persistence.InMemoryPlannedFlowRepository;
-import io.github.naimelijah.finassist.ledger.planning.adapter.out.persistence.InMemoryScenarioRepository;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.CompareScenariosCommand;
-import io.github.naimelijah.finassist.ledger.planning.application.port.in.DefineScenarioCommand;
-import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanFlowCommand;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanNotFoundException;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.ProjectScenarioCommand;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.ScenarioNotFoundException;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.AccountRef;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.OpeningPosition;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.OpeningPositionProvider;
+import io.github.naimelijah.finassist.ledger.planning.application.port.out.PlannedFlowRepository;
+import io.github.naimelijah.finassist.ledger.planning.application.port.out.ScenarioRepository;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Comparison;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.GrowthAssumption;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Horizon;
@@ -23,7 +22,6 @@ import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Scenario;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.ScenarioId;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Cadence;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Direction;
-import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanId;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlannedFlow;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Recurrence;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
@@ -49,12 +47,9 @@ class ForecastServiceTest {
     private static final Horizon QUARTER = new Horizon(JAN_1, APRIL_1);
     private static final AccountRef CURRENT = AccountRef.of("current-account");
 
-    private final InMemoryPlannedFlowRepository flows = new InMemoryPlannedFlowRepository();
-    private final InMemoryScenarioRepository scenarios = new InMemoryScenarioRepository();
-    private final InMemoryPlanningEvents events = new InMemoryPlanningEvents();
+    private final PlannedFlowRepository flows = mock(PlannedFlowRepository.class);
+    private final ScenarioRepository scenarios = mock(ScenarioRepository.class);
     private final StubOpeningPositions openings = new StubOpeningPositions();
-    private final PlanService planService = new PlanService(flows, events);
-    private final ScenarioService scenarioService = new ScenarioService(scenarios, flows, events);
     private final ForecastService service = new ForecastService(scenarios, flows, openings);
 
     @Test
@@ -87,9 +82,8 @@ class ForecastServiceTest {
     void Given_a_flow_cancelled_after_the_scenario_was_named_When_projected_Then_it_no_longer_counts() {
         openings.holds(ils("5000.00"), ils("0.00"));
         Scenario scenario = scenarioOverOneOutflow("Buy the car", "1000.00");
-        PlanId onlyFlow = scenario.flows().getFirst().id();
 
-        planService.cancel(onlyFlow, FEB_1, "too expensive");
+        stored(scenario.flows().getFirst().cancel(FEB_1, "too expensive"));
 
         assertThat(service.project(project(scenario.id())).endState().cash()).isEqualTo(ils("5000.00"));
     }
@@ -175,13 +169,26 @@ class ForecastServiceTest {
     }
 
     private Scenario scenarioOverOneOutflow(String name, String amount) {
-        PlannedFlow flow = planService.plan(
-                new PlanFlowCommand(name, ils(amount), Direction.OUTFLOW, FEB_1, new Recurrence.Once()));
-        return scenarioOver(name, List.of(flow.id()));
+        PlannedFlow flow = stored(PlannedFlow.plan(name, ils(amount), Direction.OUTFLOW, FEB_1, new Recurrence.Once()));
+        return scenarioOver(name, List.of(flow));
     }
 
-    private Scenario scenarioOver(String name, List<PlanId> ids) {
-        return scenarioService.define(new DefineScenarioCommand(name, Currency.ILS, ids, GrowthAssumption.none()));
+    /** A scenario the store holds, over flows the store also holds. */
+    private Scenario scenarioOver(String name, List<PlannedFlow> over) {
+        Scenario scenario = Scenario.of(name, Currency.ILS, over, GrowthAssumption.none());
+        when(scenarios.findById(scenario.id())).thenReturn(java.util.Optional.of(scenario));
+        return scenario;
+    }
+
+    /**
+     * A flow as the store currently holds it.
+     *
+     * <p>Re-stubbing an id already used is how a test says the plan moved on since the scenario was
+     * named, which is precisely the situation the re-read exists to handle.
+     */
+    private PlannedFlow stored(PlannedFlow flow) {
+        when(flows.findById(flow.id())).thenReturn(java.util.Optional.of(flow));
+        return flow;
     }
 
     private static Money ils(String amount) {
@@ -250,7 +257,7 @@ class ForecastServiceTest {
         PlannedFlow unsaved =
                 PlannedFlow.plan("Ghost", ils("1000.00"), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
         Scenario dangling = Scenario.of("Dangling", Currency.ILS, List.of(unsaved), GrowthAssumption.none());
-        scenarios.save(dangling);
+        when(scenarios.findById(dangling.id())).thenReturn(java.util.Optional.of(dangling));
 
         assertThatThrownBy(() -> service.project(project(dangling.id()))).isInstanceOf(PlanNotFoundException.class);
     }

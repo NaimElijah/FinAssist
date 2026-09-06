@@ -2,13 +2,15 @@ package io.github.naimelijah.finassist.ledger.planning.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import io.github.naimelijah.finassist.ledger.planning.adapter.out.event.InMemoryPlanningEvents;
-import io.github.naimelijah.finassist.ledger.planning.adapter.out.persistence.InMemoryPlannedFlowRepository;
-import io.github.naimelijah.finassist.ledger.planning.adapter.out.persistence.InMemoryScenarioRepository;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.DefineScenarioCommand;
-import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanFlowCommand;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanNotFoundException;
+import io.github.naimelijah.finassist.ledger.planning.application.port.out.PlannedFlowRepository;
+import io.github.naimelijah.finassist.ledger.planning.application.port.out.ScenarioRepository;
 import io.github.naimelijah.finassist.ledger.planning.domain.event.PlanningEvent;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.GrowthAssumption;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Scenario;
@@ -27,10 +29,9 @@ class ScenarioServiceTest {
 
     private static final LocalDate FEB_1 = LocalDate.of(2026, 2, 1);
 
-    private final InMemoryPlannedFlowRepository flows = new InMemoryPlannedFlowRepository();
-    private final InMemoryScenarioRepository scenarios = new InMemoryScenarioRepository();
+    private final PlannedFlowRepository flows = mock(PlannedFlowRepository.class);
+    private final ScenarioRepository scenarios = mock(ScenarioRepository.class);
     private final InMemoryPlanningEvents events = new InMemoryPlanningEvents();
-    private final PlanService planService = new PlanService(flows, events);
     private final ScenarioService service = new ScenarioService(scenarios, flows, events);
 
     @Test
@@ -39,7 +40,7 @@ class ScenarioServiceTest {
 
         Scenario defined = define("Buy the car", Currency.ILS, List.of(car.id()));
 
-        assertThat(scenarios.findById(defined.id())).contains(defined);
+        verify(scenarios).save(defined);
         assertThat(defined.flows()).containsExactly(car);
     }
 
@@ -90,8 +91,11 @@ class ScenarioServiceTest {
         return service.define(new DefineScenarioCommand(name, currency, ids, GrowthAssumption.none()));
     }
 
+    /** A flow the store already holds, so the service can resolve the id a command names. */
     private PlannedFlow plan(String description, String amount, Currency currency) {
-        return planService.plan(new PlanFlowCommand(
-                description, Money.of(amount, currency), Direction.OUTFLOW, FEB_1, new Recurrence.Once()));
+        PlannedFlow flow = PlannedFlow.plan(
+                description, Money.of(amount, currency), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+        when(flows.findById(flow.id())).thenReturn(java.util.Optional.of(flow));
+        return flow;
     }
 }

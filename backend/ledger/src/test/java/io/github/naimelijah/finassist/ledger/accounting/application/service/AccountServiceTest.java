@@ -2,45 +2,59 @@ package io.github.naimelijah.finassist.ledger.accounting.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import io.github.naimelijah.finassist.ledger.accounting.adapter.out.event.InMemoryAccountingEvents;
-import io.github.naimelijah.finassist.ledger.accounting.adapter.out.persistence.InMemoryAccountRepository;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.DuplicateAccountNameException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.OpenAccountCommand;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.out.AccountRepository;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.Account;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountType;
 import io.github.naimelijah.finassist.ledger.accounting.domain.event.AccountingEvent;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
  * The contract of opening an account.
  *
  * <p>The rule under test is the one the domain could not hold: a name is unique across the chart of
- * accounts, which is a property of the set rather than of any value, so no constructor could check it.
- * Requirements listed it as TODO with exactly that explanation until this service existed.
+ * accounts, which is a property of the set rather than of any value, so no constructor could check
+ * it. Requirements listed it as TODO with exactly that explanation until this service existed.
  *
- * <p>Driven through the in-port with the in-memory adapters standing in for a store. They are the
- * fakes; writing a second set by hand would test a different pair of classes than the ones that run.
+ * <p>Driven through the in-port against a mocked repository. What the service owns is the *message*
+ * — telling a caller which name is taken — and the decision not to publish an event for a command it
+ * refused. What actually makes the rule hold is the unique index, because a check followed by a
+ * write is not atomic, and that is asserted where it lives, in {@code JdbcAccountRepositoryIT}
+ * against a real database (ADR-024, ADR-025).
  */
 class AccountServiceTest {
 
-    private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
+    private final AccountRepository accounts = mock(AccountRepository.class);
     private final InMemoryAccountingEvents events = new InMemoryAccountingEvents();
     private final AccountService service = new AccountService(accounts, events);
 
     @Test
     void Given_a_free_name_When_an_account_is_opened_Then_it_is_stored_with_a_generated_id() {
+        when(accounts.findByName("Current account")).thenReturn(Optional.empty());
+
         Account opened = service.open(new OpenAccountCommand("Current account", AccountType.ASSET, Currency.ILS));
 
         assertThat(opened.name()).isEqualTo("Current account");
         assertThat(opened.currency()).isEqualTo(Currency.ILS);
-        assertThat(accounts.findById(opened.id())).contains(opened);
+        assertThat(opened.id()).isNotNull();
+        verify(accounts).save(opened);
     }
 
     @Test
     void Given_a_name_already_open_When_opened_again_Then_it_is_refused() {
-        service.open(new OpenAccountCommand("Groceries", AccountType.EXPENSE, Currency.ILS));
+        when(accounts.findByName("Groceries"))
+                .thenReturn(Optional.of(Account.open("Groceries", AccountType.EXPENSE, Currency.ILS)));
 
         assertThatThrownBy(() -> service.open(new OpenAccountCommand("Groceries", AccountType.EXPENSE, Currency.ILS)))
                 .isInstanceOf(DuplicateAccountNameException.class)
@@ -49,29 +63,38 @@ class AccountServiceTest {
 
     /**
      * The reason {@code OpenAccountCommand} normalises the name as well as {@code Account}. With the
-     * strip left to the aggregate, the uniqueness lookup would search for " Groceries", find nothing,
-     * and insert a second account whose stored name is identical to the first.
+     * strip left to the aggregate, the service would ask the repository for " Groceries" rather than
+     * "Groceries" — and a store matching on the exact string would find nothing and let a second
+     * account through.
      */
     @Test
-    void Given_a_name_differing_only_in_whitespace_When_opened_Then_it_is_still_a_duplicate() {
-        service.open(new OpenAccountCommand("Groceries", AccountType.EXPENSE, Currency.ILS));
+    void Given_a_name_differing_only_in_whitespace_When_opened_Then_the_lookup_uses_the_stripped_form() {
+        when(accounts.findByName("Groceries"))
+                .thenReturn(Optional.of(Account.open("Groceries", AccountType.EXPENSE, Currency.ILS)));
 
         assertThatThrownBy(
                         () -> service.open(new OpenAccountCommand("  Groceries  ", AccountType.EXPENSE, Currency.ILS)))
                 .isInstanceOf(DuplicateAccountNameException.class);
+
+        verify(accounts).findByName("Groceries");
     }
 
     @Test
     void Given_two_different_names_When_both_are_opened_Then_both_are_stored() {
+        when(accounts.findByName(any())).thenReturn(Optional.empty());
+
         Account first = service.open(new OpenAccountCommand("Cash", AccountType.ASSET, Currency.ILS));
         Account second = service.open(new OpenAccountCommand("Salary", AccountType.INCOME, Currency.ILS));
 
         assertThat(first.id()).isNotEqualTo(second.id());
-        assertThat(accounts.findByName("Salary")).contains(second);
+        verify(accounts).save(first);
+        verify(accounts).save(second);
     }
 
     @Test
     void Given_an_account_is_opened_When_it_succeeds_Then_the_event_carries_what_was_stored() {
+        when(accounts.findByName(any())).thenReturn(Optional.empty());
+
         Account opened = service.open(new OpenAccountCommand(" Rent ", AccountType.EXPENSE, Currency.USD));
 
         assertThat(events.published())
@@ -82,13 +105,14 @@ class AccountServiceTest {
     /** A refused command must leave no trace, or the event log stops describing the books. */
     @Test
     void Given_a_duplicate_name_When_refused_Then_nothing_is_stored_and_nothing_is_published() {
-        service.open(new OpenAccountCommand("Cash", AccountType.ASSET, Currency.ILS));
+        when(accounts.findByName("Cash"))
+                .thenReturn(Optional.of(Account.open("Cash", AccountType.ASSET, Currency.ILS)));
 
         assertThatThrownBy(() -> service.open(new OpenAccountCommand("Cash", AccountType.ASSET, Currency.USD)))
                 .isInstanceOf(DuplicateAccountNameException.class);
 
-        assertThat(events.published()).hasSize(1);
-        assertThat(accounts.findByName("Cash").orElseThrow().currency()).isEqualTo(Currency.ILS);
+        verify(accounts, never()).save(any());
+        assertThat(events.published()).isEmpty();
     }
 
     @Test
@@ -96,50 +120,22 @@ class AccountServiceTest {
         assertThatThrownBy(() -> new OpenAccountCommand("   ", AccountType.ASSET, Currency.ILS))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must not be blank");
+
+        verifyNoInteractions(accounts);
     }
 
     /**
-     * The chart of accounts holding both "Groceries" and "groceries" is a mistake, not a distinction:
-     * every balance and journal query would split between two accounts a person reads as one.
-     * {@code Category} folds case in budgeting for the same reason.
+     * The display form is what a person reads on a report, so it is stored as it was typed. Whether
+     * the *lookup* folds case is the store's business, and {@code JdbcAccountRepositoryIT} asserts
+     * it against the index that does the folding.
      */
     @Test
-    void Given_a_name_differing_only_in_case_When_opened_Then_it_is_still_a_duplicate() {
-        service.open(new OpenAccountCommand("Groceries", AccountType.EXPENSE, Currency.ILS));
-
-        assertThatThrownBy(() -> service.open(new OpenAccountCommand("groceries", AccountType.EXPENSE, Currency.ILS)))
-                .isInstanceOf(DuplicateAccountNameException.class);
-    }
-
-    /** The display form is what a person reads on a report, so it is stored as it was typed. */
-    @Test
     void Given_a_mixed_case_name_When_opened_Then_the_typed_form_is_what_is_stored() {
+        when(accounts.findByName(any())).thenReturn(Optional.empty());
+
         Account opened = service.open(new OpenAccountCommand("Groceries", AccountType.EXPENSE, Currency.ILS));
 
         assertThat(opened.name()).isEqualTo("Groceries");
-        assertThat(accounts.findByName("GROCERIES")).contains(opened);
-    }
-
-    /**
-     * The service checks before it writes, which is a check-then-act: two callers can pass it together.
-     * The repository is what actually holds the rule, so it is asserted directly rather than through
-     * the path that happens to look first.
-     */
-    @Test
-    void Given_the_service_check_is_bypassed_When_a_duplicate_is_stored_Then_the_repository_refuses_it() {
-        service.open(new OpenAccountCommand("Cash", AccountType.ASSET, Currency.ILS));
-
-        assertThatThrownBy(() -> accounts.save(Account.open("cash", AccountType.ASSET, Currency.ILS)))
-                .isInstanceOf(DuplicateAccountNameException.class);
-    }
-
-    /** Re-saving an account must not trip the name claim it already holds. */
-    @Test
-    void Given_an_account_already_open_When_it_is_saved_again_Then_it_is_accepted() {
-        Account opened = service.open(new OpenAccountCommand("Cash", AccountType.ASSET, Currency.ILS));
-
-        accounts.save(opened);
-
-        assertThat(accounts.findById(opened.id())).contains(opened);
+        verify(accounts).save(opened);
     }
 }
