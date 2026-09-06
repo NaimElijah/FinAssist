@@ -1,6 +1,6 @@
 # ADR-006: PostgreSQL as the ledger's store
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-29
 
 ## Context
@@ -9,9 +9,10 @@ The ledger owns accounts, transactions and balances. That data is relational, be
 real constraints, and needs exact decimal arithmetic — a floating-point representation of
 money is a defect, not a trade-off.
 
-No persistence code exists yet. This ADR is **Proposed**: `docker-compose.yml` runs a
-Postgres container so the decision can be tried, but nothing connects to it, and
-`ledger/pom.xml` deliberately carries no driver or ORM dependency until this is accepted.
+This record was **Proposed** while `docker-compose.yml` ran a Postgres container that nothing
+connected to and `ledger/pom.xml` deliberately carried no driver. It was ratified on
+2026-09-06, when the persistence layer was written; the access strategy it left open is
+decided in [ADR-024](ADR-024-jdbc-persistence-and-append-only-schema.md).
 
 ## Decision
 
@@ -35,12 +36,15 @@ PostgreSQL 18 is the ledger's store, and the ledger is its sole writer. Money is
 - One more service to run, back up and keep current. Its image tag is pinned by hand;
   Dependabot does not cover Compose files.
 
-## Open
+## Resolved
 
-The access strategy is deliberately not bundled into this ADR: JPA with Hibernate, Spring
-Data JDBC, and jOOQ are all live options, and the choice interacts with how much of the
-domain the persistence layer is allowed to see. It needs its own ADR before the first
-entity is written.
+The access strategy was deliberately not bundled into this ADR, and needed its own record
+before the first entity was written. It has one:
+[ADR-024](ADR-024-jdbc-persistence-and-append-only-schema.md) chooses hand-written SQL over
+`JdbcClient`, Flyway migrations, and a PostgreSQL schema per bounded context — and says why
+JPA, Spring Data JDBC and jOOQ were each turned down. The migration discipline this record
+called for lands with it, as does [ADR-020](ADR-020-audit-trail-follows-persistence.md)'s
+append-only obligation.
 
 ## Alternatives considered
 

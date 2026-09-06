@@ -11,7 +11,7 @@ append-only history: to change course, add a new record and mark the old one
 | [003](ADR-003-python-fastapi-for-assistant-and-analysis.md) | Python 3.13 and FastAPI for the assistant | Accepted |
 | [004](ADR-004-http-openapi-service-contract.md) | HTTP with a versioned OpenAPI document as the contract | Proposed |
 | [005](ADR-005-docker-compose-as-the-run-mechanism.md) | Compose is the mechanism, the Makefile the interface | Accepted |
-| [006](ADR-006-postgresql-for-the-ledger-store.md) | PostgreSQL as the ledger's store | Proposed |
+| [006](ADR-006-postgresql-for-the-ledger-store.md) | PostgreSQL as the ledger's store | Accepted, resolved by 024 |
 | [007](ADR-007-asymmetric-hexagonal-architecture.md) | Asymmetric hexagonal: tactical DDD in the ledger only | Accepted, extended by 010 |
 | [008](ADR-008-backend-frontend-root-layout.md) | `backend/` and `frontend/` as the root split | Accepted |
 | [009](ADR-009-react-vite-spa-for-the-web-client.md) | React + Vite SPA for the web client | Accepted |
@@ -29,8 +29,14 @@ append-only history: to change course, add a new record and mark the old one
 | [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted |
 | [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted |
 | [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted |
+| [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted |
+| [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
-still change cheaply. 004 and 006 remain Proposed: the domain layer needs neither a wire
-contract nor a database, so ratifying them was deliberately deferred rather than guessed.
-Resolve both before the first line of persistence or client code.
+still change cheaply. 004 is the last one: the domain and application layers need no wire
+contract, so ratifying it stays deliberately deferred rather than guessed. Resolve it before
+the first line of client code.
+
+006 was ratified on 2026-09-06 with the persistence layer, and 024 and 025 are the two
+decisions it and 017 had reserved for that moment — the access strategy, and how a schema is
+tested.
