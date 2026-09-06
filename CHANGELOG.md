@@ -11,6 +11,35 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **The ledger's books are stored in PostgreSQL.** Three schemas, one per bounded context, with
+  no foreign key crossing one — the storage-layer counterpart of the rule ArchUnit enforces in
+  the bytecode, and the answer to whether planned data shares a store with the books: the same
+  database, never the same schema, never a join. Flyway migrations live in a directory per
+  context, each owning a major version so two can never collide. Hand-written SQL over Spring's
+  `JdbcClient`; no ORM, so every statement the ledger issues is readable in one place. See
+  [ADR-006](docs/ADRs/ADR-006-postgresql-for-the-ledger-store.md), ratified with this work, and
+  [ADR-024](docs/ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md).
+- **The audit trail [ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md) attached to
+  this exact commit.** That record required the mapping to preserve the journal's append-only
+  character "as a property of the schema and its migrations", and it is: a trigger on each of the
+  three accounting tables refuses an `UPDATE` or a `DELETE` outright, and a lifecycle change is an
+  `INSERT` into `journal_transaction_state` whose highest sequence is the current state. The
+  guarantee therefore does not depend on the adapter's restraint, and `JournalIsAppendOnlyIT`
+  proves it by issuing both statements and watching the database refuse them.
+- **The database enforces what the domain enforces**, so a bug in one is caught by the other —
+  the pairing ADR-006 asked for. `CHECK` constraints mirror each sealed type variant for variant;
+  a unique index on the normalised account name is what finally makes `AccountRepository.save`
+  atomic, as its Javadoc has promised since ADR-021; and a deferred constraint trigger refuses a
+  transaction whose entries do not sum to zero, mix currencies, or post to an account in a
+  currency it does not hold.
+- **Integration tests against a real PostgreSQL**, on the image tag Compose pins, bound to
+  failsafe as `*IT` — the decision [ADR-017](docs/ADRs/ADR-017-test-strategy.md) deferred until
+  ADR-006 was ratified. Docker is now required to test the ledger and the suite fails rather than
+  skipping without it, because a green suite that exercised none of the SQL is worse than one
+  that refuses to run ([ADR-025](docs/ADRs/ADR-025-integration-tests-on-testcontainers.md)).
+  `SchemaBoundariesIT` gives context isolation a check the bytecode rules cannot reach.
+
+
 - **An application layer in all six bounded contexts.** Use cases behind ports, wired by
   constructor and backed by in-memory adapters that are a development seam rather than a store.
   In the ledger: opening an account, recording a transaction and moving it through its
@@ -38,6 +67,19 @@ history; write the commit message well and this file writes itself.
   than the aggregate, published through an out-port and recorded in an append-only log. Nothing
   subscribes; [ADR-023](docs/ADRs/ADR-023-domain-events-in-the-ledger.md) records that as the
   accepted cost and names the trigger that discharges it.
+
+### Changed
+
+- **The six in-memory repositories are deleted, not kept behind a profile.** They were a
+  development seam while ADR-006 was open; a second implementation satisfying none of the
+  persistence requirement is a code path nothing should be able to select by accident. The
+  application services are now tested through mocked ports, so the unit suite still needs no
+  database. The two event publishers stay in memory: nothing subscribes to a domain event yet
+  (ADR-023), and an outbox with no consumer is what ADR-020 refused to build ahead of one.
+- **Readiness stops being liveness by another name.** It includes the `db` indicator, so a ledger
+  that cannot reach its store reports `DOWN` — there is finally something real to be unready for.
+- **`LEDGER_DB_URL` defaults to `localhost`** rather than the Compose service name `db`, which
+  resolved to nothing: the ledger runs natively while only Postgres is in the Compose file.
 
 ### Fixed
 

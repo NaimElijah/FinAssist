@@ -58,7 +58,9 @@ The requirements within each are not yet written. See
 
 ## Quick start
 
-**Prerequisites:** Docker with Compose v2. That is enough to run what currently runs.
+**Prerequisites:** Docker with Compose v2 — needed to run the stack, and now also to run the
+ledger's test suite, which drives the store against a real PostgreSQL and fails rather than
+skips when Docker is absent ([ADR-025](docs/ADRs/ADR-025-integration-tests-on-testcontainers.md)).
 For the native inner loop you also want a JDK 21 and [uv](https://docs.astral.sh/uv/) — uv
 fetches its own Python 3.13, so no system Python upgrade is needed.
 
@@ -66,13 +68,15 @@ fetches its own Python 3.13, so no system Python upgrade is needed.
 git clone https://github.com/NaimElijah/FinAssist.git
 cd FinAssist
 cp .env.example .env        # then set POSTGRES_PASSWORD; Compose refuses to start without it
-docker compose up
+                            # and LEDGER_DB_PASSWORD to the same value
+docker compose up -d db
 ```
 
 That starts PostgreSQL 18 and nothing else — it is the only service in the Compose file so
 far. Success looks like `pg_isready` passing on the `db` container within a few seconds.
 
-The ledger runs natively, and answers health probes and nothing else:
+The ledger runs natively against that database. It applies its Flyway migrations at start-up
+and then answers health probes and nothing else:
 
 ```bash
 cd backend/ledger && ./mvnw spring-boot:run
@@ -232,7 +236,10 @@ behaviour they describe.
 | Ledger architecture | Layering, **context isolation**, framework-free domain, no floating-point money, no aggregate cycles, a one-way composition root, a framework-free application layer (ArchUnit, 7 rules — live, not dormant) | `make test-ledger` |
 | Ledger domain | The balancing invariant, the transaction lifecycle, derived balances, budget limits, planned flows, projections and comparison, Money and Currency | `make test-ledger` |
 | Ledger properties | Money's algebraic laws and Recurrence's date arithmetic, over generated inputs from a fixed seed | `make test-ledger` |
-| Ledger smoke | The context loads and the Actuator health, liveness and readiness probes answer `UP` — the only test that starts Spring | `make test-ledger` |
+| Ledger store | Every repository against a **real PostgreSQL** in Testcontainers: the ordering both journal queries promise, the unique index that makes an account name atomic, the sealed `Recurrence` and `PlanState` round trips, and `numeric` preserving a JPY amount at scale 0 | `make test-ledger` |
+| Ledger audit trail | The database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states, and a lifecycle change appends rather than overwrites ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)) | `make test-ledger` |
+| Ledger schema boundaries | No foreign key crosses a schema, so context isolation holds in the database as well as in the bytecode | `make test-ledger` |
+| Ledger smoke | The context loads and the Actuator health, liveness and readiness probes answer `UP` | `make test-ledger` |
 | Assistant architecture | Every source file is parsed: no inward module imports a framework or the adapters, no module imports another context, no domain module names `float` or reads the wall clock. The scanner itself is unit-tested | `make test-assistant` |
 | Assistant domain | FIFO cost basis, the grounding rule, quote staleness, Money and Currency | `make test-assistant` |
 | Assistant properties | The same Money laws, plus FIFO conservation, via Hypothesis run derandomised | `make test-assistant` |
@@ -291,22 +298,22 @@ in the repository, the logs or an error message.
 | `POSTGRES_PASSWORD` | Database password | none | **Yes** — Compose refuses to start without it |
 | `POSTGRES_DB` | Database name | `finassist` | No |
 | `POSTGRES_USER` | Database user | `finassist` | No |
+| `LEDGER_DB_PASSWORD` | Ledger database password. The ledger connects as the role Compose creates, so this must match `POSTGRES_PASSWORD` until it gets its own role | none | **Yes** — the ledger refuses to start without it |
 | `ANTHROPIC_API_KEY` | The LLM behind the assistant | none | Once the assistant exists |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana admin password | none | **Yes** when using the `monitoring` profile |
 
 <details>
 
-<summary>The remaining variables, none of which is used yet</summary>
+<summary>The remaining variables</summary>
 
 | Variable | Purpose | Default |
 |---|---|---|
 | `LEDGER_PORT` | Ledger HTTP port | `8080` |
-| `LEDGER_DB_URL` | JDBC URL; host is the Compose service name, not `localhost` | `jdbc:postgresql://db:5432/finassist` |
+| `LEDGER_DB_URL` | JDBC URL. `localhost`, because the ledger runs natively while only Postgres is in Compose; it becomes the service name `db` the day the ledger joins the Compose file | `jdbc:postgresql://localhost:5432/finassist` |
 | `LEDGER_DB_USERNAME` | Ledger database user | `finassist` |
-| `LEDGER_DB_PASSWORD` | Ledger database password | none |
 | `ASSISTANT_PORT` | Assistant HTTP port | `8000` |
 | `LEDGER_BASE_URL` | Where the assistant reaches the ledger | `http://ledger:8080` |
-| `POSTGRES_PORT` | Host port mapped to Postgres | `5432` |
+| `POSTGRES_PORT` | Host port mapped to Postgres. Change it, and `LEDGER_DB_URL` with it, if something already owns 5432 — a natively installed PostgreSQL will otherwise answer instead of the container | `5432` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; each service appends its own signal path | `http://localhost:4318` |
 | `OTEL_EXPORT_ENABLED` | Whether to export telemetry at all — traces and metrics both. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` |
 | `ASSISTANT_LOG_LEVEL` | Threshold for the assistant's structured logger; one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
@@ -398,27 +405,33 @@ HTTP carries no runtime schema, and contract drift is silent until CI compares t
 application layers of all six bounded contexts** with the invariants and tests that make them
 real — double-entry accounting, periodic budgets, FIFO cost basis, grounded answers, quote
 staleness, deterministic projections and strategy comparison, and `Money` in both languages.
-Use cases sit behind ports and are wired by constructor, with in-memory adapters standing in
-for a store nobody has chosen yet. Twenty-three ADRs. Every architecture rule is live rather
-than dormant, and each was confirmed to fail against a planted violation. CI gates build, lint,
+Use cases sit behind ports and are wired by constructor, and the ledger's are backed by
+**PostgreSQL**: a schema per bounded context, Flyway migrations, hand-written SQL, and a journal
+the database itself refuses to rewrite. Twenty-five ADRs. Every architecture rule is live rather
+than dormant, and each was confirmed to fail against a planted violation — including the two new
+ones, which were checked by dropping the append-only trigger and by planting a foreign key across
+a schema boundary. CI gates build, lint,
 format and dependency audit across four jobs, and publishes a coverage report from each.
 
 Planned next, in order: resolve the
 [open questions](docs/requirements/requirements.md#open-questions), ratify or reject
-[ADR-004](docs/ADRs/ADR-004-http-openapi-service-contract.md) and
-[ADR-006](docs/ADRs/ADR-006-postgresql-for-the-ledger-store.md), then put a transport and a
-store behind the use cases that now exist. Those two decisions are what stands between this
+[ADR-004](docs/ADRs/ADR-004-http-openapi-service-contract.md), then put a transport in front of
+the use cases that now have a store behind them. That one decision is what stands between this
 and the first tracking slice end to end.
 
 Known limitations:
 
-- **Nothing above the application layer exists.** No inbound adapter, no HTTP endpoint, no
-  OpenAPI document and no store, so the use cases cannot be reached from outside the process.
-  They are assembled at start-up and called only by tests.
-- **The in-memory adapters are a development seam, not persistence.** Nothing survives a
-  restart. They exist so the layer can be assembled and run while
-  [ADR-006](docs/ADRs/ADR-006-postgresql-for-the-ledger-store.md) is open, and they will be
-  replaced rather than grown.
+- **Nothing above the application layer exists.** No inbound adapter, no HTTP endpoint and no
+  OpenAPI document, so the use cases cannot be reached from outside the process. They are
+  assembled at start-up, connected to a real database, and called only by tests.
+- **The audit trail cannot say who.** The journal records what changed, when and — for a voided
+  transaction — why, and the database refuses to let any of it be rewritten. It records no actor,
+  because there is no authentication to name one. That gap is
+  [ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)'s, stated in advance rather
+  than discovered.
+- **Docker is required to test the ledger**, not only to run it. The store is tested against a
+  real PostgreSQL, and the suite fails rather than skipping when no daemon answers
+  ([ADR-025](docs/ADRs/ADR-025-integration-tests-on-testcontainers.md)).
 - **Domain events have no subscriber.** They are raised, recorded in an append-only in-memory
   log and asserted by tests, and read by no production code. That is the cost
   [ADR-023](docs/ADRs/ADR-023-domain-events-in-the-ledger.md) accepts, with the trigger that
