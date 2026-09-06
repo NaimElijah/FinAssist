@@ -2,6 +2,7 @@ package io.github.naimelijah.finassist.ledger.composition;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.naimelijah.finassist.ledger.PostgresFixture;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.OpenAccountCommand;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.RecordTransactionCommand;
 import io.github.naimelijah.finassist.ledger.accounting.application.service.AccountService;
@@ -36,7 +37,6 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.annotation.DirtiesContext;
 
 /**
  * The wiring, end to end, through the container that will actually run it.
@@ -50,16 +50,15 @@ import org.springframework.test.annotation.DirtiesContext;
  * <p>Both paths cross a context boundary that no import may cross: budgeting reads spend that
  * accounting recorded, and planning opens a projection from a balance accounting derived.
  *
- * <p>{@code @DirtiesContext} per method, because the in-memory adapters are singletons and a shared
- * context would let one case see another's accounts, rules and transactions. The two cases here happen
- * not to collide, but only because their names and dates were hand-picked — and the third case somebody
- * adds would inherit this one's {@code superpharm} rule and pass or fail on JUnit's method order, which
- * is deterministic and deliberately unspecified. A rebuilt container per case costs a few seconds and
- * removes the trap.
+ * <p>Isolation used to be {@code @DirtiesContext} per method, because the repository beans were
+ * in-memory singletons and a shared context let one case see another's accounts, rules and
+ * transactions. The state is in PostgreSQL now, so {@link PostgresFixture} empties it between cases
+ * and the context is built once. The trap it removed is the same one: the third case somebody adds
+ * would otherwise inherit this one's {@code superpharm} rule and pass or fail on JUnit's method
+ * order, which is deterministic and deliberately unspecified.
  */
 @SpringBootTest
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
-class LedgerCompositionTest {
+class LedgerCompositionIT extends PostgresFixture {
 
     private static final LocalDate MARCH_5 = LocalDate.of(2026, 3, 5);
     private static final Category GROCERIES = Category.of("groceries");

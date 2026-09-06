@@ -49,9 +49,9 @@ import tools.jackson.databind.ObjectMapper;
 @AutoConfigureMetrics
 @AutoConfigureTracing
 @ExtendWith(OutputCaptureExtension.class)
-class LedgerObservabilityTest {
+class LedgerObservabilityIT extends PostgresFixture {
 
-    private static final Logger log = LoggerFactory.getLogger(LedgerObservabilityTest.class);
+    private static final Logger log = LoggerFactory.getLogger(LedgerObservabilityIT.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
     private static final ObjectMapper JSON = new ObjectMapper();
 

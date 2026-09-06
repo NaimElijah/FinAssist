@@ -2,10 +2,15 @@ package io.github.naimelijah.finassist.ledger.budgeting.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
-import io.github.naimelijah.finassist.ledger.budgeting.adapter.out.persistence.InMemoryBudgetRepository;
-import io.github.naimelijah.finassist.ledger.budgeting.adapter.out.persistence.InMemoryCategorisationRuleRepository;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.DefineBudgetCommand;
+import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.BudgetRepository;
+import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.CategorisationRuleRepository;
 import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.Budget;
 import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.BudgetPeriod;
 import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.CategoryLimit;
@@ -30,8 +35,8 @@ class BudgetServiceTest {
     private static final Category GROCERIES = Category.of("groceries");
     private static final Category RENT = Category.of("rent");
 
-    private final InMemoryBudgetRepository budgets = new InMemoryBudgetRepository();
-    private final InMemoryCategorisationRuleRepository rules = new InMemoryCategorisationRuleRepository();
+    private final BudgetRepository budgets = mock(BudgetRepository.class);
+    private final CategorisationRuleRepository rules = mock(CategorisationRuleRepository.class);
     private final BudgetService service = new BudgetService(budgets, rules);
 
     @Test
@@ -39,7 +44,8 @@ class BudgetServiceTest {
         Budget defined = service.define(
                 new DefineBudgetCommand(MARCH, Currency.ILS, List.of(new CategoryLimit(GROCERIES, ils("1200.00")))));
 
-        assertThat(budgets.findById(defined.id())).contains(defined);
+        verify(budgets).save(defined);
+        assertThat(defined.id()).isNotNull();
         assertThat(defined.limitFor(GROCERIES)).contains(ils("1200.00"));
     }
 
@@ -53,6 +59,8 @@ class BudgetServiceTest {
                                 new CategoryLimit(GROCERIES, ils("5.00"))))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("more than one limit");
+
+        verify(budgets, never()).save(any());
     }
 
     @Test
@@ -67,6 +75,8 @@ class BudgetServiceTest {
         assertThatThrownBy(() -> service.define(new DefineBudgetCommand(MARCH, Currency.ILS, List.of())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("budgets nothing");
+
+        verify(budgets, never()).save(any());
     }
 
     @Test
@@ -79,20 +89,27 @@ class BudgetServiceTest {
                 List.of(new CategoryLimit(RENT, ils("4000.00")))));
 
         assertThat(first.id()).isNotEqualTo(second.id());
-        assertThat(budgets.findById(first.id())).contains(first);
-        assertThat(budgets.findById(second.id())).contains(second);
+        verify(budgets).save(first);
+        verify(budgets).save(second);
     }
 
-    /** A review takes the first matching rule, so the order rules come back in decides the answer. */
+    /**
+     * A review takes the first matching rule, so the order rules come back in decides the answer.
+     * What the service owes is to hand them over in the order it was given them; that the store then
+     * returns them in that order is the {@code ORDER BY ordinal} asserted in
+     * {@code JdbcCategorisationRuleRepositoryIT}.
+     */
     @Test
-    void Given_rules_added_in_order_When_read_back_Then_the_order_is_preserved() {
+    void Given_rules_added_in_order_When_they_are_stored_Then_the_order_is_preserved() {
         CategorisationRule coffee = new CategorisationRule("coffee", Category.of("coffee"));
         CategorisationRule eatingOut = new CategorisationRule("co", Category.of("eating out"));
 
         service.add(coffee);
         service.add(eatingOut);
 
-        assertThat(rules.all()).containsExactly(coffee, eatingOut);
+        org.mockito.InOrder added = inOrder(rules);
+        added.verify(rules).add(coffee);
+        added.verify(rules).add(eatingOut);
     }
 
     @Test
@@ -100,6 +117,8 @@ class BudgetServiceTest {
         assertThatThrownBy(() -> service.add(new CategorisationRule("   ", GROCERIES)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("fragment");
+
+        verify(rules, never()).add(any());
     }
 
     private static Money ils(String amount) {

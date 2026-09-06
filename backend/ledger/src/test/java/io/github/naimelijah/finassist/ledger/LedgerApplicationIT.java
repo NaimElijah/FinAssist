@@ -32,7 +32,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
  * trade.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class LedgerApplicationTest {
+class LedgerApplicationIT extends PostgresFixture {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
 
