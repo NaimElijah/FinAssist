@@ -30,7 +30,7 @@ dev = [
     "pytest-cov==7.1.0",
     # Property-based testing for the pure-function cores. Run derandomised (see
     # tests/conftest.py) so a commit that changed nothing can never go red on CI.
-    "hypothesis==6.167.0",
+    "hypothesis==6.168.0",
     "ruff==0.16.5",
     "mypy==2.3.1",
     "pip-audit==2.10.1",
