@@ -6,7 +6,12 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { getBalance, listAccounts, openAccount } from '../api/accountingApi';
+import {
+    getBalance,
+    listAccounts,
+    listAccountTransactions,
+    openAccount,
+} from '../api/accountingApi';
 import type { OpenAccountInput } from '../types/account';
 
 /** The prefix every accounting key starts with, and the key of the accounts list itself. */
@@ -23,6 +28,8 @@ export const accountKeys = {
     all: ACCOUNTS_KEY,
     /** One account's balance. */
     balance: (accountId: string) => [...ACCOUNTS_KEY, accountId, 'balance'] as const,
+    /** The transactions touching one account. */
+    transactions: (accountId: string) => [...ACCOUNTS_KEY, accountId, 'transactions'] as const,
 };
 
 /**
@@ -48,6 +55,20 @@ export function useAccountBalance(accountId: string) {
     return useQuery({
         queryKey: accountKeys.balance(accountId),
         queryFn: () => getBalance(accountId),
+    });
+}
+
+/**
+ * The transactions touching one account, in the ledger's order.
+ *
+ * @param accountId - the account's id.
+ * @returns the query for those transactions. A 404 `ACCOUNT_NOT_FOUND` is not retried; an
+ *   `ApiBodyError` means a state arrived without a member its variant always carries.
+ */
+export function useAccountTransactions(accountId: string) {
+    return useQuery({
+        queryKey: accountKeys.transactions(accountId),
+        queryFn: () => listAccountTransactions(accountId),
     });
 }
 

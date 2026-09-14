@@ -4,10 +4,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError } from '@/shared/api/client';
+import { ApiBodyError, ApiError } from '@/shared/api/client';
 import { setLogSink } from '@/shared/lib/logger';
 
-import { getBalance, listAccounts, openAccount } from './accountingApi';
+import { getBalance, listAccounts, listAccountTransactions, openAccount } from './accountingApi';
 
 const CHECKING_ID = '0b7d2a4e-4d8c-4f3a-9a61-2f1c5e0d9b11';
 
@@ -178,4 +178,68 @@ describe('getBalance', () => {
             problem: { code: 'ACCOUNT_NOT_FOUND' },
         });
     });
+});
+
+describe('listAccountTransactions', () => {
+    const ENTRIES = [
+        { account: CHECKING_ID, amount: { amount: '-250.00', currency: 'ILS' } },
+        { account: 'e3f1', amount: { amount: '250.00', currency: 'ILS' } },
+    ];
+
+    /** A wire transaction with `id` and `state`, and everything else fixed. */
+    function wireTransaction(id: string, state: unknown) {
+        return { id, occurredOn: '2026-09-01', description: 'Rent', entries: ENTRIES, state };
+    }
+
+    it('Given_every_state_variant_When_listed_Then_each_maps_to_its_own_shape_with_amounts_as_received', async () => {
+        const stub = stubFetch(
+            jsonResponse([
+                wireTransaction('p', { status: 'PENDING' }),
+                wireTransaction('c', { status: 'CLEARED', on: '2026-09-02' }),
+                wireTransaction('r', { status: 'RECONCILED', on: '2026-09-03' }),
+                wireTransaction('v', {
+                    status: 'VOIDED',
+                    on: '2026-09-04',
+                    reason: 'Entered twice',
+                }),
+            ]),
+        );
+
+        const transactions = await listAccountTransactions(CHECKING_ID);
+
+        expect(transactions.map((transaction) => transaction.state)).toEqual([
+            { status: 'PENDING' },
+            { status: 'CLEARED', on: '2026-09-02' },
+            { status: 'RECONCILED', on: '2026-09-03' },
+            { status: 'VOIDED', on: '2026-09-04', reason: 'Entered twice' },
+        ]);
+        expect(transactions[0]).toEqual({
+            id: 'p',
+            occurredOn: '2026-09-01',
+            description: 'Rent',
+            entries: [
+                { account: CHECKING_ID, amount: { amount: '-250.00', currency: 'ILS' } },
+                { account: 'e3f1', amount: { amount: '250.00', currency: 'ILS' } },
+            ],
+            state: { status: 'PENDING' },
+        });
+        expect(onlyCall(stub).url).toBe(`/ledger/api/v1/accounts/${CHECKING_ID}/transactions`);
+    });
+
+    // TransactionStateResponse.java omits only what a state lacks, so a dated state without its
+    // date, or a void without its reason, is the ledger breaking its own mapping.
+    const INCOMPLETE_STATES = [
+        { name: 'CLEARED_without_its_date', state: { status: 'CLEARED' } },
+        { name: 'RECONCILED_without_its_date', state: { status: 'RECONCILED' } },
+        { name: 'VOIDED_without_its_date', state: { status: 'VOIDED', reason: 'Entered twice' } },
+        { name: 'VOIDED_without_its_reason', state: { status: 'VOIDED', on: '2026-09-04' } },
+    ] as const;
+
+    for (const { name, state } of INCOMPLETE_STATES) {
+        it(`Given_a_state_${name}_When_listed_Then_it_rejects_with_an_ApiBodyError`, async () => {
+            stubFetch(jsonResponse([wireTransaction('x', state)]));
+
+            await expect(listAccountTransactions(CHECKING_ID)).rejects.toBeInstanceOf(ApiBodyError);
+        });
+    }
 });

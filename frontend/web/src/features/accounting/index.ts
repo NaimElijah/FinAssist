@@ -9,18 +9,27 @@ import type { RouteObject } from 'react-router';
 
 import type { RouteHandle } from '@/shared/lib/routeHandle';
 
+import { AccountDetailPage } from './components/AccountDetailPage';
 import { AccountsPage } from './components/AccountsPage';
-import { ACCOUNTS_PATH } from './components/paths';
+import { ACCOUNT_PATH, ACCOUNTS_PATH } from './components/paths';
 
 /**
  * The accounting area's routes, under the base path `/accounts`. src/app mounts them inside the
  * shared layout, which titles the document from each route's `handle`.
+ *
+ * An account's page is titled "Account" rather than by its name: a `handle` is static, and the
+ * name is known only once the accounts list has loaded.
  */
 export const accountingRoutes: RouteObject[] = [
     {
         path: ACCOUNTS_PATH,
         Component: AccountsPage,
         handle: { title: 'Accounts' } satisfies RouteHandle,
+    },
+    {
+        path: ACCOUNT_PATH,
+        Component: AccountDetailPage,
+        handle: { title: 'Account' } satisfies RouteHandle,
     },
 ];
 

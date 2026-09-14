@@ -189,6 +189,8 @@ Through the web client, the owner can:
 - Open an account, and see every account with its derived balance. `AccountsPage`,
   `OpenAccountForm`; `AccountsPage.test.tsx`, `accountingApi.test.ts`
 - Record a transaction by hand, and see an account's transactions with their lifecycle state.
+  Seeing them is built: `AccountDetailPage`; `AccountDetailPage.test.tsx`, `accountingApi.test.ts`.
+  Recording one by hand has no screen yet.
 - Clear, reconcile or void a transaction.
 - Define a budget for a month with a limit per category, and review spend against it: what is
   overspent, what is unbudgeted, and what is uncategorised.

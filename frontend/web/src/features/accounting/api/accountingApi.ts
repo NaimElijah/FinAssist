@@ -6,19 +6,27 @@
  * onto the feature's own type. A generated type stops here: components and hooks see only
  * `types/`. Decimal amounts stay the strings the ledger sent (ADR-028).
  */
-import { LEDGER_API, requestJson, sendJson } from '@/shared/api/client';
+import { ApiBodyError, LEDGER_API, requestJson, sendJson } from '@/shared/api/client';
 import type {
     AccountResponse,
     BalanceResponse,
+    EntryDto,
     MoneyDto,
     OpenAccountRequest,
+    TransactionResponse,
+    TransactionStateResponse,
 } from '@/shared/api/contracts/ledger/types.gen';
+import { log } from '@/shared/lib/logger';
 
 import type { Account, OpenAccountInput } from '../types/account';
 import type { Money } from '../types/money';
+import type { Entry, Transaction, TransactionState } from '../types/transaction';
 
 /** The ledger's code for opening an account under a name already open (ADR-028: 409). */
 export const DUPLICATE_ACCOUNT_NAME = 'DUPLICATE_ACCOUNT_NAME';
+
+/** The ledger's code for an account id in the path that names no account (ADR-028: 404). */
+export const ACCOUNT_NOT_FOUND = 'ACCOUNT_NOT_FOUND';
 
 const ACCOUNTS_URL = `${LEDGER_API}/accounts`;
 
@@ -33,6 +41,55 @@ function toAccount(wire: AccountResponse): Account {
 
 function toMoney(wire: MoneyDto): Money {
     return { amount: wire.amount, currency: wire.currency };
+}
+
+function toEntry(wire: EntryDto): Entry {
+    return { account: wire.account, amount: toMoney(wire.amount) };
+}
+
+/**
+ * A member the contract marks optional but a state's variant always carries.
+ *
+ * The contract is flat - `on` and `reason` are optional whatever the status - because the document
+ * has no discriminated variant to describe (ADR-028), so only this mapper knows which status
+ * carries which. A variant without its member is the ledger breaking its own mapping, and there is
+ * no honest way to show a cleared transaction with no date, so the read fails here instead.
+ *
+ * @throws ApiBodyError - when the member is absent.
+ */
+function variantMember(value: string | undefined, member: string, url: string): string {
+    if (value === undefined) {
+        log.error('ledger transaction state lacks a member its status carries', { url, member });
+        throw new ApiBodyError(url, `A transaction state arrived without its ${member}`);
+    }
+    return value;
+}
+
+function toTransactionState(wire: TransactionStateResponse, url: string): TransactionState {
+    switch (wire.status) {
+        case 'PENDING':
+            return { status: 'PENDING' };
+        case 'CLEARED':
+            return { status: 'CLEARED', on: variantMember(wire.on, 'on', url) };
+        case 'RECONCILED':
+            return { status: 'RECONCILED', on: variantMember(wire.on, 'on', url) };
+        case 'VOIDED':
+            return {
+                status: 'VOIDED',
+                on: variantMember(wire.on, 'on', url),
+                reason: variantMember(wire.reason, 'reason', url),
+            };
+    }
+}
+
+function toTransaction(wire: TransactionResponse, url: string): Transaction {
+    return {
+        id: wire.id,
+        occurredOn: wire.occurredOn,
+        description: wire.description,
+        entries: wire.entries.map(toEntry),
+        state: toTransactionState(wire.state, url),
+    };
 }
 
 /**
@@ -77,4 +134,22 @@ export async function openAccount(input: OpenAccountInput): Promise<Account> {
 export async function getBalance(accountId: string): Promise<Money> {
     const wire = await requestJson<BalanceResponse>(accountUrl(accountId, 'balance'));
     return toMoney(wire.balance);
+}
+
+/**
+ * The transactions touching one account, in the order the ledger lists them.
+ *
+ * Every entry of each transaction is kept, whichever account it posts to. Picking out this
+ * account's side is the screen's business, and is never a sum.
+ *
+ * @param accountId - the account's id.
+ * @returns the transactions, each state mapped to its variant and every amount as received.
+ * @throws ApiError - on a non-2xx response: 404 `ACCOUNT_NOT_FOUND` for an unknown account.
+ * @throws ApiBodyError - when the response carries no JSON body, or a state lacks a member its
+ *   status always carries.
+ */
+export async function listAccountTransactions(accountId: string): Promise<Transaction[]> {
+    const url = accountUrl(accountId, 'transactions');
+    const wire = await requestJson<TransactionResponse[]>(url);
+    return wire.map((transaction) => toTransaction(transaction, url));
 }

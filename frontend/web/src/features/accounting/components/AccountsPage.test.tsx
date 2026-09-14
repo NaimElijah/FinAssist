@@ -7,6 +7,14 @@ import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
+import {
+    fakeFetch,
+    jsonResponse,
+    pendingResponse,
+    problemResponse,
+    type RecordedRequest,
+    unexpectedRequest,
+} from '@/shared/testing/fakeFetch';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { accountingRoutes } from '../index';
@@ -27,61 +35,9 @@ const SAVINGS = {
     currency: 'ILS',
 } as const;
 
-/** One request the page made, as the fake ledger saw it. */
-interface LedgerRequest {
-    readonly method: string;
-    readonly url: string;
-    readonly body: unknown;
-}
-
-type Answer = (request: LedgerRequest) => Response | Promise<Response>;
-
-function json(body: unknown, status = 200): Response {
-    return new Response(JSON.stringify(body), {
-        status,
-        headers: { 'Content-Type': 'application/json' },
-    });
-}
-
-function problem(body: { status: number; code: string } & Record<string, unknown>): Response {
-    return new Response(JSON.stringify(body), {
-        status: body.status,
-        headers: { 'Content-Type': 'application/problem+json' },
-    });
-}
-
-function urlOf(input: RequestInfo | URL): string {
-    if (typeof input === 'string') return input;
-    return input instanceof URL ? input.href : input.url;
-}
-
-/**
- * Stub fetch with a fake ledger that answers each request through `answer`, and record every
- * request it receives, in order.
- */
-function stubLedger(answer: Answer): LedgerRequest[] {
-    const requests: LedgerRequest[] = [];
-    vi.stubGlobal(
-        'fetch',
-        vi.fn<typeof fetch>().mockImplementation((input, init) => {
-            const body: unknown =
-                typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
-            const request = { method: init?.method ?? 'GET', url: urlOf(input), body };
-            requests.push(request);
-            return Promise.resolve(answer(request));
-        }),
-    );
-    return requests;
-}
-
 /** The balance request's account id, or `undefined` when `request` is not a balance read. */
-function balanceIdOf(request: LedgerRequest): string | undefined {
+function balanceIdOf(request: RecordedRequest): string | undefined {
     return BALANCE_URL.exec(request.url)?.[1];
-}
-
-/** Answer an unexpected request loudly, so a test never passes on a request it did not plan. */
-function unexpected(request: LedgerRequest): Response {
-    throw new Error(`unexpected request ${request.method} ${request.url}`);
 }
 
 /** The table row an account's name heads. */
@@ -117,21 +73,21 @@ afterEach(() => {
 
 describe('AccountsPage', () => {
     it('Given_accounts_served_in_an_order_When_the_page_renders_Then_rows_keep_that_order_with_formatted_balances', async () => {
-        stubLedger((request) => {
-            if (request.url === ACCOUNTS_URL) return json([SAVINGS, CHECKING]);
+        fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL) return jsonResponse([SAVINGS, CHECKING]);
             if (balanceIdOf(request) === SAVINGS.id) {
-                return json({
+                return jsonResponse({
                     account: SAVINGS.id,
                     balance: { amount: '1234.50', currency: 'ILS' },
                 });
             }
             if (balanceIdOf(request) === CHECKING.id) {
-                return json({
+                return jsonResponse({
                     account: CHECKING.id,
                     balance: { amount: '-12.00', currency: 'USD' },
                 });
             }
-            return unexpected(request);
+            return unexpectedRequest(request);
         });
 
         renderAccounts();
@@ -152,7 +108,9 @@ describe('AccountsPage', () => {
     });
 
     it('Given_no_accounts_When_the_page_renders_Then_the_empty_state_invites_opening_one', async () => {
-        stubLedger((request) => (request.url === ACCOUNTS_URL ? json([]) : unexpected(request)));
+        fakeFetch((request) =>
+            request.url === ACCOUNTS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
 
         renderAccounts();
 
@@ -161,15 +119,18 @@ describe('AccountsPage', () => {
     });
 
     it('Given_one_balance_fails_When_the_page_renders_Then_only_that_row_shows_unavailable', async () => {
-        stubLedger((request) => {
-            if (request.url === ACCOUNTS_URL) return json([CHECKING, SAVINGS]);
+        fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL) return jsonResponse([CHECKING, SAVINGS]);
             if (balanceIdOf(request) === CHECKING.id) {
-                return problem({ status: 500, code: 'INTERNAL_ERROR' });
+                return problemResponse({ status: 500, code: 'INTERNAL_ERROR' });
             }
             if (balanceIdOf(request) === SAVINGS.id) {
-                return json({ account: SAVINGS.id, balance: { amount: '10.00', currency: 'ILS' } });
+                return jsonResponse({
+                    account: SAVINGS.id,
+                    balance: { amount: '10.00', currency: 'ILS' },
+                });
             }
-            return unexpected(request);
+            return unexpectedRequest(request);
         });
 
         renderAccounts();
@@ -182,11 +143,15 @@ describe('AccountsPage', () => {
 
     it('Given_the_list_fails_When_the_page_renders_Then_an_error_state_offers_a_retry_that_refetches', async () => {
         let failing = true;
-        const requests = stubLedger((request) => {
-            if (request.url !== ACCOUNTS_URL) return unexpected(request);
+        const requests = fakeFetch((request) => {
+            if (request.url !== ACCOUNTS_URL) return unexpectedRequest(request);
             return failing
-                ? problem({ status: 503, code: 'UNAVAILABLE', detail: 'The ledger is restarting.' })
-                : json([]);
+                ? problemResponse({
+                      status: 503,
+                      code: 'UNAVAILABLE',
+                      detail: 'The ledger is restarting.',
+                  })
+                : jsonResponse([]);
         });
 
         renderAccounts();
@@ -218,16 +183,16 @@ describe('AccountsPage opening an account', () => {
             currency: 'USD',
         };
         const served: unknown[] = [CHECKING];
-        const requests = stubLedger((request) => {
+        const requests = fakeFetch((request) => {
             if (request.url === ACCOUNTS_URL && request.method === 'POST') {
                 served.push(VISA);
-                return json(VISA, 201);
+                return jsonResponse(VISA, 201);
             }
-            if (request.url === ACCOUNTS_URL) return json([...served]);
+            if (request.url === ACCOUNTS_URL) return jsonResponse([...served]);
             const id = balanceIdOf(request);
             if (id !== undefined)
-                return json({ account: id, balance: { amount: '0.00', currency: 'USD' } });
-            return unexpected(request);
+                return jsonResponse({ account: id, balance: { amount: '0.00', currency: 'USD' } });
+            return unexpectedRequest(request);
         });
         renderAccounts();
         await screen.findByRole('link', { name: 'Checking' });
@@ -256,16 +221,16 @@ describe('AccountsPage opening an account', () => {
             currency: 'USD',
         };
         const served: unknown[] = [];
-        stubLedger((request) => {
+        fakeFetch((request) => {
             if (request.url === ACCOUNTS_URL && request.method === 'POST') {
                 served.push(VISA);
-                return json(VISA, 201);
+                return jsonResponse(VISA, 201);
             }
-            if (request.url === ACCOUNTS_URL) return json([...served]);
+            if (request.url === ACCOUNTS_URL) return jsonResponse([...served]);
             const id = balanceIdOf(request);
             if (id !== undefined)
-                return json({ account: id, balance: { amount: '0.00', currency: 'USD' } });
-            return unexpected(request);
+                return jsonResponse({ account: id, balance: { amount: '0.00', currency: 'USD' } });
+            return unexpectedRequest(request);
         });
         renderAccounts();
 
@@ -282,12 +247,12 @@ describe('AccountsPage opening an account', () => {
 
     it('Given_a_duplicate_name_When_opened_Then_the_server_detail_is_the_Name_field_error', async () => {
         const detail = 'An account named Visa already exists.';
-        stubLedger((request) => {
+        fakeFetch((request) => {
             if (request.url === ACCOUNTS_URL && request.method === 'POST') {
-                return problem({ status: 409, code: 'DUPLICATE_ACCOUNT_NAME', detail });
+                return problemResponse({ status: 409, code: 'DUPLICATE_ACCOUNT_NAME', detail });
             }
-            if (request.url === ACCOUNTS_URL) return json([]);
-            return unexpected(request);
+            if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
         });
         renderAccounts();
 
@@ -301,9 +266,9 @@ describe('AccountsPage opening an account', () => {
     });
 
     it('Given_a_400_listing_field_errors_When_opened_Then_each_message_is_on_its_field', async () => {
-        stubLedger((request) => {
+        fakeFetch((request) => {
             if (request.url === ACCOUNTS_URL && request.method === 'POST') {
-                return problem({
+                return problemResponse({
                     status: 400,
                     code: 'MALFORMED_REQUEST',
                     detail: 'Invalid request content.',
@@ -313,8 +278,8 @@ describe('AccountsPage opening an account', () => {
                     ],
                 });
             }
-            if (request.url === ACCOUNTS_URL) return json([]);
-            return unexpected(request);
+            if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
         });
         renderAccounts();
 
@@ -331,16 +296,16 @@ describe('AccountsPage opening an account', () => {
     });
 
     it('Given_a_400_without_field_errors_When_opened_Then_its_detail_is_an_error_state_above_the_form', async () => {
-        stubLedger((request) => {
+        fakeFetch((request) => {
             if (request.url === ACCOUNTS_URL && request.method === 'POST') {
-                return problem({
+                return problemResponse({
                     status: 400,
                     code: 'MALFORMED_REQUEST',
                     detail: 'The request body could not be read.',
                 });
             }
-            if (request.url === ACCOUNTS_URL) return json([]);
-            return unexpected(request);
+            if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
         });
         renderAccounts();
 
@@ -357,13 +322,13 @@ describe('AccountsPage opening an account', () => {
     });
 
     it('Given_an_open_request_in_flight_When_submitted_again_Then_submit_is_disabled_and_nothing_is_sent_twice', async () => {
-        const requests = stubLedger((request) => {
+        const requests = fakeFetch((request) => {
             if (request.url === ACCOUNTS_URL && request.method === 'POST') {
                 // Never answered: the request stays in flight for the rest of the test.
-                return new Promise<Response>(() => undefined);
+                return pendingResponse();
             }
-            if (request.url === ACCOUNTS_URL) return json([]);
-            return unexpected(request);
+            if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
         });
         renderAccounts();
 
@@ -384,9 +349,9 @@ describe('AccountsPage opening an account', () => {
 
     it('Given_a_400_whose_field_errors_name_a_field_the_form_lacks_When_opened_Then_the_whole_problem_is_an_error_state', async () => {
         // Placing only the errors the form recognises would silently drop the rest.
-        stubLedger((request) => {
+        fakeFetch((request) => {
             if (request.url === ACCOUNTS_URL && request.method === 'POST') {
-                return problem({
+                return problemResponse({
                     status: 400,
                     code: 'MALFORMED_REQUEST',
                     detail: 'Invalid request content.',
@@ -396,8 +361,8 @@ describe('AccountsPage opening an account', () => {
                     ],
                 });
             }
-            if (request.url === ACCOUNTS_URL) return json([]);
-            return unexpected(request);
+            if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
         });
         renderAccounts();
 
