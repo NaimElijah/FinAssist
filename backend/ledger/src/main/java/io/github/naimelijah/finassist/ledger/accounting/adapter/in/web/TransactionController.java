@@ -41,6 +41,10 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>An account named in a body is not the resource the request is about, so an unknown one is 422
  * {@code UNKNOWN_ACCOUNT}, not the 404 the advice gives an account named in a path (ADR-028). That
  * mapping is a handler on this controller, which Spring MVC consults before any advice.
+ *
+ * <p>Handler names are unique across the ledger, not only within this class. springdoc makes each one
+ * an {@code operationId}, and a second context's {@code listTransactions} would be renamed {@code
+ * listTransactions_1} in whatever order the controllers were scanned.
  */
 @RestController
 @RequestMapping(path = "/api/v1/transactions", produces = MediaType.APPLICATION_JSON_VALUE)

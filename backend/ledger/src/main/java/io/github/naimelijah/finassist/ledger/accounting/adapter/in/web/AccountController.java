@@ -24,14 +24,18 @@ import org.springframework.web.bind.annotation.RestController;
  * transactions (ADR-028).
  *
  * <p>It calls in-ports only. {@code LedgerArchitectureTest.web_adapters_reach_no_outbound_port} fails
- * the build if it reaches a repository, an outbound adapter or a concrete service. It is component-scanned rather than
- * built in {@code LedgerConfiguration}, the one bounded exception ADR-028 makes to hand-built wiring,
- * so that a {@code @WebMvcTest} slice loads it.
+ * the build if it reaches a repository, an outbound adapter or a concrete service. It is
+ * component-scanned rather than built in {@code LedgerConfiguration}, the one bounded exception ADR-028
+ * makes to hand-built wiring, so that a {@code @WebMvcTest} slice loads it.
  *
  * <p>An open answers 201 with the account and no {@code Location} header, because there is no
  * single-item read for one to name. Writes accept {@code application/json} only, so a form post from a
  * cross-site page is refused with 415 before this runs (ADR-027). {@link AccountingProblemAdvice} maps
  * the failures.
+ *
+ * <p>Handler names are unique across the ledger, not only within this class. springdoc makes each one
+ * an {@code operationId}, and a second context's {@code all} would be renamed {@code all_1} in whatever
+ * order the controllers were scanned.
  */
 @RestController
 @RequestMapping(path = "/api/v1/accounts", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -53,11 +57,6 @@ public class AccountController {
         this.balances = Objects.requireNonNull(balances, "balances");
         this.journal = Objects.requireNonNull(journal, "journal");
     }
-
-    /*
-     * Handler names are unique across the ledger on purpose: springdoc makes each one an operationId, and
-     * a second context's "all" would be renamed "all_1" in whatever order the controllers were scanned.
-     */
 
     /** Every account, in the name order the port guarantees. */
     @GetMapping
