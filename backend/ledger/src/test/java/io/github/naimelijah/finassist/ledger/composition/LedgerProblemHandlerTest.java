@@ -53,8 +53,11 @@ class LedgerProblemHandlerTest {
     private static final String RULE = "a budget limit must be positive";
     private static final String OWN_TYPE = "https://finassist.invalid/problems/duplicate-account-name";
 
-    /** Stands for what an exception message can carry: internals and data that must stay off the wire. */
-    private static final String SECRET = "jdbc:postgresql://db:5432/finassist?password=hunter2";
+    /**
+     * Stands in for whatever an exception message carries. A neutral marker rather than anything shaped
+     * like a credential, because the test asserts it reaches the log, and a credential never may.
+     */
+    private static final String MARKER = "internal-detail-marker-7f3a";
 
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new FailingController())
             .setControllerAdvice(new LedgerProblemHandler())
@@ -104,8 +107,8 @@ class LedgerProblemHandlerTest {
                 .getResponse()
                 .getContentAsString();
 
-        assertThat(body).doesNotContain(SECRET);
-        assertThat(output.getOut()).contains("ERROR").contains(SECRET);
+        assertThat(body).doesNotContain(MARKER);
+        assertThat(output.getOut()).contains("ERROR").contains(MARKER);
     }
 
     @Test
@@ -243,7 +246,7 @@ class LedgerProblemHandlerTest {
 
         @GetMapping("/internal-failure")
         void internalFailure() {
-            throw new IllegalStateException(SECRET);
+            throw new IllegalStateException(MARKER);
         }
 
         @GetMapping("/status/{value}")
