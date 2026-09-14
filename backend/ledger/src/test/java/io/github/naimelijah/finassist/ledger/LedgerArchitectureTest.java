@@ -3,15 +3,26 @@ package io.github.naimelijah.finassist.ledger;
 import static com.tngtech.archunit.base.DescribedPredicate.alwaysTrue;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.INTERFACES;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
+import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Enforces the structural rules the ledger is built on, so that they fail a build rather than a
@@ -236,4 +247,60 @@ class LedgerArchitectureTest {
             .dependOnClassesThat()
             .resideInAPackage(ROOT + "..adapter.in..")
             .because("the wire shape must not reach the store");
+
+    /**
+     * springdoc names a schema by simple class name and silently keeps only one of two classes that
+     * share one, so a second context's DTO can shadow the first's without either build failing on its
+     * own (Ruling 21). {@code MoneyDto} is the one deliberate exception: each context declares an
+     * identical copy, on purpose, because the slice rule leaves no legal shared home for it.
+     */
+    private static final String SHARED_DTO_SIMPLE_NAME = "MoneyDto";
+
+    @ArchTest
+    static final ArchRule web_dto_names_are_unique_across_contexts = classes()
+            .that()
+            .resideInAPackage(ROOT + "..adapter.in.web..")
+            .should(haveASimpleNameUniqueAcrossContexts())
+            .because("springdoc silently drops one schema when two classes share a simple name");
+
+    /**
+     * {@link ArchCondition#init} sees every matched class before {@link ArchCondition#check} is asked
+     * about any one of them, which is what makes a cross-class check like "no two classes share a
+     * name" possible without a second import pass.
+     */
+    private static ArchCondition<JavaClass> haveASimpleNameUniqueAcrossContexts() {
+        return new ArchCondition<>("have a simple name unique across every context, except MoneyDto") {
+
+            private final Map<String, List<JavaClass>> classesByName = new HashMap<>();
+
+            @Override
+            public void init(Collection<JavaClass> allClasses) {
+                classesByName.clear();
+                for (JavaClass clazz : allClasses) {
+                    classesByName
+                            .computeIfAbsent(clazz.getSimpleName(), name -> new ArrayList<>())
+                            .add(clazz);
+                }
+            }
+
+            @Override
+            public void check(JavaClass item, ConditionEvents events) {
+                String name = item.getSimpleName();
+                List<JavaClass> sharingTheName = classesByName.getOrDefault(name, List.of());
+                if (!SHARED_DTO_SIMPLE_NAME.equals(name) && sharingTheName.size() > 1) {
+                    events.add(SimpleConditionEvent.violated(
+                            item,
+                            item.getFullName() + " shares the simple name " + name + " with "
+                                    + otherFullNames(sharingTheName, item)));
+                }
+            }
+
+            private String otherFullNames(List<JavaClass> sharingTheName, JavaClass self) {
+                return sharingTheName.stream()
+                        .filter(other -> !other.equals(self))
+                        .map(JavaClass::getFullName)
+                        .collect(Collectors.joining(", "));
+            }
+        };
+    }
 }

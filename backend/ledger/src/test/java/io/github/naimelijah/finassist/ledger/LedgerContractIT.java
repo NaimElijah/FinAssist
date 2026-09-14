@@ -121,6 +121,37 @@ class LedgerContractIT extends PostgresFixture {
         assertThat(requiredMembers(schemas, "TransactionResponse"))
                 .containsExactlyInAnyOrder("id", "occurredOn", "description", "entries", "state");
         assertThat(requiredMembers(schemas, "TransactionStateResponse")).containsExactly("status");
+        assertThat(requiredMembers(schemas, "BudgetResponse"))
+                .containsExactlyInAnyOrder("id", "period", "currency", "limits", "total");
+        assertThat(requiredMembers(schemas, "BudgetPeriodDto")).containsExactlyInAnyOrder("start", "end");
+        assertThat(requiredMembers(schemas, "CategoryLimitDto")).containsExactlyInAnyOrder("category", "limit");
+        assertThat(requiredMembers(schemas, "BudgetReviewResponse"))
+                .containsExactlyInAnyOrder("budget", "period", "currency", "categories", "unbudgeted", "uncategorised");
+        assertThat(requiredMembers(schemas, "CategorySpendResponse"))
+                .containsExactlyInAnyOrder("category", "limit", "spent", "remaining", "overspent");
+        assertThat(requiredMembers(schemas, "UnbudgetedSpendResponse")).containsExactlyInAnyOrder("category", "spent");
+        assertThat(requiredMembers(schemas, "CategorisationRuleResponse"))
+                .containsExactlyInAnyOrder("fragment", "category");
+    }
+
+    /**
+     * springdoc makes each handler method's name an {@code operationId}, and silently appends
+     * {@code _1} on a collision rather than failing — so a name that is not unique ledger-wide reaches
+     * the committed contract looking legitimate (Ruling 22).
+     */
+    @Test
+    void Given_the_generated_document_When_operation_ids_are_read_Then_none_carries_a_springdoc_collision_suffix()
+            throws Exception {
+        JsonNode paths = JSON.readTree(served(API_DOCS_PATH)).path("paths");
+        List<String> operationIds = paths.valueStream()
+                .flatMap(JsonNode::valueStream)
+                .map(operation -> operation.path("operationId"))
+                .filter(JsonNode::isString)
+                .map(JsonNode::asString)
+                .toList();
+
+        assertThat(operationIds).isNotEmpty();
+        assertThat(operationIds).noneMatch(id -> id.matches(".*_\\d+$"));
     }
 
     private static List<String> requiredMembers(JsonNode schemas, String schema) {

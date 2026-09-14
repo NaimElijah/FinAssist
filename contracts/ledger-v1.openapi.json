@@ -39,6 +39,23 @@
         ],
         "type": "object"
       },
+      "AddCategorisationRuleRequest": {
+        "properties": {
+          "category": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "fragment": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "fragment"
+        ],
+        "type": "object"
+      },
       "BalanceResponse": {
         "properties": {
           "account": {
@@ -52,6 +69,193 @@
         "required": [
           "account",
           "balance"
+        ],
+        "type": "object"
+      },
+      "BudgetPeriodDto": {
+        "properties": {
+          "end": {
+            "format": "date",
+            "type": "string"
+          },
+          "start": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "end",
+          "start"
+        ],
+        "type": "object"
+      },
+      "BudgetResponse": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "limits": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryLimitDto"
+            },
+            "type": "array"
+          },
+          "period": {
+            "$ref": "#/components/schemas/BudgetPeriodDto"
+          },
+          "total": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "currency",
+          "id",
+          "limits",
+          "period",
+          "total"
+        ],
+        "type": "object"
+      },
+      "BudgetReviewResponse": {
+        "properties": {
+          "budget": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategorySpendResponse"
+            },
+            "type": "array"
+          },
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "period": {
+            "$ref": "#/components/schemas/BudgetPeriodDto"
+          },
+          "unbudgeted": {
+            "items": {
+              "$ref": "#/components/schemas/UnbudgetedSpendResponse"
+            },
+            "type": "array"
+          },
+          "uncategorised": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "budget",
+          "categories",
+          "currency",
+          "period",
+          "unbudgeted",
+          "uncategorised"
+        ],
+        "type": "object"
+      },
+      "CategorisationRuleResponse": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "fragment": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "fragment"
+        ],
+        "type": "object"
+      },
+      "CategoryLimitDto": {
+        "properties": {
+          "category": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "limit": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "category",
+          "limit"
+        ],
+        "type": "object"
+      },
+      "CategorySpendResponse": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "limit": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "overspent": {
+            "type": "boolean"
+          },
+          "remaining": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "spent": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "category",
+          "limit",
+          "overspent",
+          "remaining",
+          "spent"
+        ],
+        "type": "object"
+      },
+      "DefineBudgetRequest": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "limits": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryLimitDto"
+            },
+            "type": "array"
+          },
+          "period": {
+            "$ref": "#/components/schemas/BudgetPeriodDto"
+          }
+        },
+        "required": [
+          "currency",
+          "limits",
+          "period"
         ],
         "type": "object"
       },
@@ -263,6 +467,21 @@
         ],
         "type": "object"
       },
+      "UnbudgetedSpendResponse": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "spent": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "category",
+          "spent"
+        ],
+        "type": "object"
+      },
       "VoidRequest": {
         "properties": {
           "on": {
@@ -441,6 +660,189 @@
         },
         "tags": [
           "account-controller"
+        ]
+      }
+    },
+    "/api/v1/budgets": {
+      "get": {
+        "operationId": "listBudgets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BudgetResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "budget-controller"
+        ]
+      },
+      "post": {
+        "operationId": "defineBudget",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefineBudgetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "budget-controller"
+        ]
+      }
+    },
+    "/api/v1/budgets/{id}/review": {
+      "get": {
+        "operationId": "reviewBudget",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetReviewResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "budget-controller"
+        ]
+      }
+    },
+    "/api/v1/categorisation-rules": {
+      "get": {
+        "operationId": "listCategorisationRules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CategorisationRuleResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "categorisation-rule-controller"
+        ]
+      },
+      "post": {
+        "operationId": "addCategorisationRule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddCategorisationRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategorisationRuleResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "categorisation-rule-controller"
         ]
       }
     },
