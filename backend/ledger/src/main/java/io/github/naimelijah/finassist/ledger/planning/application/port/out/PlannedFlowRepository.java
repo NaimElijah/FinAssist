@@ -2,6 +2,7 @@ package io.github.naimelijah.finassist.ledger.planning.application.port.out;
 
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanId;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlannedFlow;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -14,6 +15,13 @@ import java.util.Optional;
 public interface PlannedFlowRepository {
 
     Optional<PlannedFlow> findById(PlanId id);
+
+    /**
+     * Every planned flow, ordered by start date then id — {@code ORDER BY starts_on, id} — with
+     * every state included. A cancelled or realised flow is history, not something this listing
+     * hides; the same choice {@code save} makes by never deleting one.
+     */
+    List<PlannedFlow> all();
 
     /** Stores the flow, replacing any earlier state of the same identity. */
     void save(PlannedFlow flow);

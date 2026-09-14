@@ -6,9 +6,12 @@ import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Scenario;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.ScenarioId;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlannedFlow;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,7 +45,14 @@ public class JdbcScenarioRepository implements ScenarioRepository {
             """;
 
     private static final String SELECT_SCENARIO = """
-            SELECT name, currency, growth_per_step FROM planning.scenario WHERE id = :id
+            SELECT id, name, currency, growth_per_step FROM planning.scenario WHERE id = :id
+            """;
+
+    /** {@code ScenarioRepository.all}'s contract: name, then id, since names are not unique. */
+    private static final String SELECT_ALL_SCENARIOS = """
+            SELECT id, name, currency, growth_per_step
+              FROM planning.scenario
+             ORDER BY name, id
             """;
 
     private final JdbcClient jdbc;
@@ -56,14 +66,20 @@ public class JdbcScenarioRepository implements ScenarioRepository {
         Objects.requireNonNull(id, "id");
         return jdbc.sql(SELECT_SCENARIO)
                 .param("id", id.value())
-                .query((row, rowNumber) -> new Header(
-                        row.getString("name"),
-                        Currency.valueOf(row.getString("currency")),
-                        // The constructor re-applies stripTrailingZeros, so a rate stored as 100 and
-                        // read back at scale 0 normalises to the same value the caller wrote.
-                        new GrowthAssumption(row.getBigDecimal("growth_per_step"))))
-                .optional()
-                .map(header -> new Scenario(id, header.name(), header.currency(), flowsOf(id), header.growth()));
+                .query(this::toScenario)
+                .optional();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Loads each scenario's flows with {@link #flowsOf}, the same helper {@link #findById} uses —
+     * one further query per row rather than a join. One owner keeps few scenarios, and ADR-028
+     * accepts that cost the same way it does for {@code JdbcBudgetRepository.all()}.
+     */
+    @Override
+    public List<Scenario> all() {
+        return jdbc.sql(SELECT_ALL_SCENARIOS).query(this::toScenario).list();
     }
 
     /**
@@ -102,5 +118,14 @@ public class JdbcScenarioRepository implements ScenarioRepository {
                 .list();
     }
 
-    private record Header(String name, Currency currency, GrowthAssumption growth) {}
+    /** Shared by {@link #findById} and {@link #all}, so the two never map a row two different ways. */
+    private Scenario toScenario(ResultSet row, int rowNumber) throws SQLException {
+        ScenarioId id = new ScenarioId(row.getObject("id", UUID.class));
+        String name = row.getString("name");
+        Currency currency = Currency.valueOf(row.getString("currency"));
+        // The constructor re-applies stripTrailingZeros, so a rate stored as 100 and read back at
+        // scale 0 normalises to the same value the caller wrote.
+        GrowthAssumption growth = new GrowthAssumption(row.getBigDecimal("growth_per_step"));
+        return new Scenario(id, name, currency, flowsOf(id), growth);
+    }
 }

@@ -9,6 +9,7 @@ import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -55,6 +56,9 @@ public class JdbcPlannedFlowRepository implements PlannedFlowRepository {
 
     private static final String SELECT_BY_ID = "SELECT " + COLUMNS + " FROM planning.planned_flow WHERE id = :id";
 
+    /** {@code PlannedFlowRepository.all}'s contract: start date, then id, every state included. */
+    private static final String SELECT_ALL = "SELECT " + COLUMNS + " FROM planning.planned_flow ORDER BY starts_on, id";
+
     /** Ordered by the position the scenario gave them, which {@code Scenario} treats as its list. */
     static final String SELECT_FOR_SCENARIO = "SELECT flow." + COLUMNS + """
                      FROM planning.scenario_flow link
@@ -76,6 +80,13 @@ public class JdbcPlannedFlowRepository implements PlannedFlowRepository {
                 .param("id", id.value())
                 .query(JdbcPlannedFlowRepository::toPlannedFlow)
                 .optional();
+    }
+
+    @Override
+    public List<PlannedFlow> all() {
+        return jdbc.sql(SELECT_ALL)
+                .query(JdbcPlannedFlowRepository::toPlannedFlow)
+                .list();
     }
 
     @Override

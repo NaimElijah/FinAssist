@@ -2,6 +2,7 @@ package io.github.naimelijah.finassist.ledger.planning.application.service;
 
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.DefineScenarioCommand;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.DefineScenarioUseCase;
+import io.github.naimelijah.finassist.ledger.planning.application.port.in.ListScenariosUseCase;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanNotFoundException;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.PlannedFlowRepository;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.PlanningEvents;
@@ -18,7 +19,7 @@ import java.util.Objects;
  * <p>Resolves each flow by identity, so a scenario cannot be defined over an intention that was never
  * recorded. {@code Scenario} then refuses one listed twice, or one in another currency.
  */
-public class ScenarioService implements DefineScenarioUseCase {
+public class ScenarioService implements DefineScenarioUseCase, ListScenariosUseCase {
 
     private final ScenarioRepository scenarios;
     private final PlannedFlowRepository flows;
@@ -46,5 +47,10 @@ public class ScenarioService implements DefineScenarioUseCase {
                 scenario.currency(),
                 scenario.flows().stream().map(PlannedFlow::id).toList()));
         return scenario;
+    }
+
+    @Override
+    public List<Scenario> all() {
+        return scenarios.all();
     }
 }

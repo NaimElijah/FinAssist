@@ -174,6 +174,72 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
         assertThat(scenarios.findById(modest.id())).contains(modest);
     }
 
+    /** {@code PlannedFlowRepository.all}'s contract: start date, then id. */
+    @Test
+    void Given_flows_with_different_start_dates_When_all_are_listed_Then_they_come_back_ordered_by_start_date() {
+        PlannedFlow later = PlannedFlow.plan("Later", ils("100.00"), Direction.OUTFLOW, MARCH_1, new Recurrence.Once());
+        PlannedFlow earlier =
+                PlannedFlow.plan("Earlier", ils("50.00"), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+        flows.save(later);
+        flows.save(earlier);
+
+        assertThat(flows.all()).containsExactly(earlier, later);
+    }
+
+    /** A cancelled flow is history, not something a listing hides - the port makes no state exception. */
+    @Test
+    void Given_a_cancelled_flow_When_all_are_listed_Then_it_is_still_returned() {
+        PlannedFlow planned =
+                PlannedFlow.plan("New car", ils("40000.00"), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+        flows.save(planned);
+        PlannedFlow cancelled = planned.cancel(FEB_10, "too expensive");
+        flows.save(cancelled);
+
+        assertThat(flows.all()).containsExactly(cancelled);
+    }
+
+    @Test
+    void Given_no_flows_at_all_When_they_are_listed_Then_the_answer_is_empty_rather_than_null() {
+        assertThat(flows.all()).isEmpty();
+    }
+
+    /** {@code ScenarioRepository.all}'s contract: name, then id. */
+    @Test
+    void Given_scenarios_with_different_names_When_all_are_listed_Then_they_come_back_ordered_by_name() {
+        Scenario zeta = Scenario.baseline("Zeta", Currency.ILS, GrowthAssumption.none());
+        Scenario alpha = Scenario.baseline("Alpha", Currency.ILS, GrowthAssumption.none());
+        scenarios.save(zeta);
+        scenarios.save(alpha);
+
+        assertThat(scenarios.all()).containsExactly(alpha, zeta);
+    }
+
+    /** Names are not unique, so id is what keeps two same-named scenarios both in the listing. */
+    @Test
+    void Given_two_scenarios_sharing_a_name_When_all_are_listed_Then_both_are_returned() {
+        Scenario first = Scenario.baseline("Plan A", Currency.ILS, GrowthAssumption.none());
+        Scenario second = Scenario.baseline("Plan A", Currency.ILS, GrowthAssumption.none());
+        scenarios.save(first);
+        scenarios.save(second);
+
+        assertThat(scenarios.all()).hasSize(2).containsExactlyInAnyOrder(first, second);
+    }
+
+    @Test
+    void Given_no_scenarios_at_all_When_they_are_listed_Then_the_answer_is_empty_rather_than_null() {
+        assertThat(scenarios.all()).isEmpty();
+    }
+
+    /** The flows of a listed scenario are loaded, the same mapping {@code findById} uses. */
+    @Test
+    void Given_a_scenario_over_flows_When_all_are_listed_Then_its_flows_are_loaded() {
+        PlannedFlow car = stored("New car", "40000.00");
+        Scenario scenario = Scenario.of("Spend it all", Currency.ILS, List.of(car), GrowthAssumption.none());
+        scenarios.save(scenario);
+
+        assertThat(scenarios.all()).containsExactly(scenario);
+    }
+
     @Test
     void Given_a_flow_When_read_over_an_independent_connection_Then_it_is_still_there() {
         PlannedFlow car = stored("New car", "40000.00");
