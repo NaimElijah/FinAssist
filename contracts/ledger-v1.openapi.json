@@ -74,7 +74,7 @@
       "MoneyDto": {
         "properties": {
           "amount": {
-            "pattern": "-?\\d+(\\.\\d+)?",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
             "type": "string"
           },
           "currency": {

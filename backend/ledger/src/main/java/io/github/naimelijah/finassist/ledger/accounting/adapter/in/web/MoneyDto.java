@@ -24,8 +24,14 @@ public record MoneyDto(
         @NotNull @Pattern(regexp = MoneyDto.DECIMAL_TEXT) String amount,
         @NotNull Currency currency) {
 
-    /** An optional minus sign, digits, and an optional fraction. No exponent, no plus sign, no grouping. */
-    static final String DECIMAL_TEXT = "-?\\d+(\\.\\d+)?";
+    /**
+     * An optional minus sign, digits, and an optional fraction. No exponent, no plus sign, no grouping.
+     *
+     * <p>Anchored at both ends. Bean validation matches the whole string either way, but the contract
+     * publishes this as a JSON Schema {@code pattern}, which matches anywhere in the string unless it is
+     * anchored, so a client validating against the document would otherwise accept {@code "x1y"}.
+     */
+    static final String DECIMAL_TEXT = "^-?\\d+(\\.\\d+)?$";
 
     static MoneyDto from(Money money) {
         return new MoneyDto(money.amount().toPlainString(), money.currency());
