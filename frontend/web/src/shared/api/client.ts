@@ -27,6 +27,12 @@ export const LEDGER_API = `${LEDGER_BACKEND.prefix}/api/v1`;
 /** The assistant's base path, reached through the dev/preview proxy (ADR-026). */
 export const ASSISTANT_API = `${ASSISTANT_BACKEND.prefix}/api/v1`;
 
+/** One field-level validation failure inside `Problem.errors` (ADR-028: populated only for a 400). */
+export interface ProblemFieldError {
+    readonly field: string;
+    readonly message: string;
+}
+
 /**
  * An RFC 9457 problem, the shape both services answer every failure with (ADR-028).
  *
@@ -40,12 +46,12 @@ export interface Problem {
     readonly detail?: string;
     readonly instance?: string;
     readonly code: string;
-    readonly errors?: readonly { readonly field: string; readonly message: string }[];
+    readonly errors?: readonly ProblemFieldError[];
 }
 
 /**
- * Narrows `value` to a plain object, so `isProblem` can read candidate fields off it without an
- * `as` cast on data that arrived as unvalidated JSON.
+ * Narrows `value` to a plain object, so a candidate field can be read off it without an `as`
+ * cast on data that arrived as unvalidated JSON.
  */
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -54,15 +60,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Validate a parsed JSON body as a `Problem`, at the boundary where it arrives from the network.
  *
- * Checks only the two fields the client depends on - `status` is a number and `code` is a
- * string, both required by ADR-028's problem shape - so a body missing `title`, `detail` or
- * `errors`, all optional, still validates; those are read only for display.
+ * Checks only the two fields the client depends on to recognise a problem at all - `status` is
+ * a number and `code` is a string, both required by ADR-028's problem shape - so a body missing
+ * `title`, `detail` or `errors`, all optional, still validates. `errors` is deliberately not
+ * checked here: a malformed one must not disqualify the rest of the problem, so it is validated
+ * separately, by `readProblem`, once this guard has already decided the body is a problem.
  *
  * @param value - a parsed JSON body of unknown shape.
  * @returns whether `value` is a `Problem`.
  */
 export function isProblem(value: unknown): value is Problem {
     return isRecord(value) && typeof value.status === 'number' && typeof value.code === 'string';
+}
+
+/** Whether `value` is one well-formed entry of `Problem.errors`: a string `field` and `message`. */
+function isProblemFieldError(value: unknown): value is ProblemFieldError {
+    return isRecord(value) && typeof value.field === 'string' && typeof value.message === 'string';
+}
+
+/**
+ * Validate a candidate `errors` value against `ProblemFieldError`'s shape.
+ *
+ * `isProblem` never checks this field, so a value whose static type already claims to be a
+ * valid `errors` array - because it came from something `isProblem` already narrowed to
+ * `Problem` - may still not actually be one at runtime. Feature forms map field errors from
+ * this array, so a malformed entry must never reach one.
+ *
+ * @param value - the candidate value, typically a problem's own `errors` property.
+ * @returns the array, when every entry has a string `field` and a string `message`;
+ *   `undefined` for anything else, including a missing or non-array value.
+ */
+function validatedErrors(value: unknown): readonly ProblemFieldError[] | undefined {
+    return Array.isArray(value) && value.every(isProblemFieldError) ? value : undefined;
 }
 
 /** Thrown for any non-2xx response, so a failed call can never be mistaken for an empty one. */
@@ -110,7 +139,14 @@ async function readProblem(response: Response): Promise<Problem | undefined> {
     }
     try {
         const body: unknown = await response.json();
-        return isProblem(body) ? body : undefined;
+        if (!isProblem(body)) {
+            return undefined;
+        }
+        // status, code and the rest are kept regardless of errors; only errors itself, once
+        // independently validated, decides whether it is kept or omitted.
+        const { errors: rawErrors, ...rest } = body;
+        const errors = validatedErrors(rawErrors);
+        return { ...rest, ...(errors === undefined ? {} : { errors }) };
     } catch {
         return undefined;
     }

@@ -321,6 +321,55 @@ describe('problem responses', () => {
     });
 });
 
+/** Narrows a caught value to `ApiError`, without an `as` cast on what a `.catch` hands back. */
+function isApiError(value: unknown): value is ApiError {
+    return value instanceof ApiError;
+}
+
+describe('problem field errors', () => {
+    it('Given_a_problem_with_a_well_formed_errors_array_When_requested_Then_it_is_kept', async () => {
+        const problem: Problem = {
+            status: 400,
+            code: 'VALIDATION_FAILED',
+            errors: [{ field: 'amount', message: 'must be positive' }],
+        };
+        stubFetch(problemResponse(problem, 400));
+
+        const failure = await requestJson(URL).catch((caught: unknown) => caught);
+        if (!isApiError(failure)) {
+            throw new Error('expected requestJson to reject with an ApiError');
+        }
+
+        expect(failure.problem).toEqual(problem);
+    });
+
+    it('Given_a_problem_with_a_malformed_errors_entry_When_requested_Then_errors_is_omitted_but_the_rest_of_the_problem_is_kept', async () => {
+        stubFetch(
+            problemResponse(
+                {
+                    status: 400,
+                    code: 'VALIDATION_FAILED',
+                    title: 'Bad Request',
+                    // `message` is missing, so every() over the field-error shape must reject it.
+                    errors: [{ field: 'amount' }],
+                },
+                400,
+            ),
+        );
+
+        const failure = await requestJson(URL).catch((caught: unknown) => caught);
+        if (!isApiError(failure)) {
+            throw new Error('expected requestJson to reject with an ApiError');
+        }
+
+        expect(failure.problem).toEqual({
+            status: 400,
+            code: 'VALIDATION_FAILED',
+            title: 'Bad Request',
+        });
+    });
+});
+
 describe('sendJson', () => {
     it('Given_a_body_When_sent_Then_it_posts_json_with_a_content_type_and_a_traceparent', async () => {
         const stub = stubFetch(jsonResponse({ id: 'txn-1' }, 201));
