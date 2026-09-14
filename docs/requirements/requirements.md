@@ -4,15 +4,18 @@ What the system must do. *How* it is built is [architecture](../architecture/arc
 *why* a given solution was chosen is [the ADRs](../ADRs/).
 
 > **Status: the domain and application layers are written, the ledger's store is PostgreSQL, and
-> the ledger now has a transport — the assistant and the web client do not.** The store is
+> both backend services now have a transport — the web client does not.** The store is
 > [ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md) and
 > [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md). The transport's decisions
 > are recorded in [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md),
 > [ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md) and
 > [ADR-028](../ADRs/ADR-028-http-wire-conventions.md); the ledger implements them, serving
 > accounting, budgeting and planning under `/api/v1`, with its generated OpenAPI document pinned
-> by `LedgerContractIT`. The assistant has no endpoint of its own yet, and neither does the web
-> client, which calls neither service. Requirements marked
+> by `LedgerContractIT`. The assistant implements them too, serving `portfolio` under `/api/v1`,
+> with its generated OpenAPI document pinned by `tests/test_portfolio_api.py` and
+> `tests/test_contract.py`; its portfolio data still comes from nowhere real — an opt-in
+> development seed aside — because neither a ledger client nor a price feed exists. The web
+> client calls neither service. Requirements marked
 > **Enforced** name the class and the test that hold them today, so this document can be
 > checked rather than trusted. Everything still marked `TODO` is a decision waiting on its
 > owner, not an omission to be filled in by inference — behaviour found in code is evidence
@@ -95,20 +98,27 @@ Holdings are tracked as **lots with a FIFO cost basis**
 
 - Record a purchase as a lot: quantity, unit cost, acquisition date. `Lot`
 - Read a position — total quantity and total cost — across the lots of one instrument.
-  `position`, `test_portfolio.py`
+  `position`, `test_portfolio.py`. Reachable over HTTP as `GET
+  /api/v1/portfolio/holdings/{symbol}/position`; `test_portfolio_api.py`
 - Dispose of units, oldest lots first, and read what those units cost. Selling more than is
   held is refused. `consume_fifo`, `InsufficientHoldingError`; `DisposeUnits`,
   `test_portfolio_usecases.py`. **"Oldest first" is the use case's guarantee, not the domain
   function's**: `consume_fifo` consumes lots in the order it is given them, so `DisposeUnits`
-  sorts by acquisition date before calling it.
+  sorts by acquisition date before calling it. Reachable over HTTP as `POST
+  /api/v1/portfolio/holdings/{symbol}/disposal`, a JSON body rather than query parameters
+  because the proceeds are an amount of money; `test_portfolio_api.py`
 - Read realised gain on a sale, and unrealised gain and market value at a given unit price.
-  `realised_gain`, `unrealised_gain`, `market_value`
+  `realised_gain`, `unrealised_gain`, `market_value`. The valuation is reachable over HTTP as
+  `GET /api/v1/portfolio/holdings/{symbol}/valuation`; `test_portfolio_api.py`
 - Judge whether a market quote is too old to use, against a supplied clock. `is_stale`;
   `LatestQuote`, `test_marketdata_usecases.py`, which refuses a stale quote rather than
   returning one a caller has to remember to check.
 
 **Not yet decided:** where prices come from. The `marketdata` context has the shape a feed must
-be translated into and no client behind it.
+be translated into and no client behind it. An opt-in development seed
+(`ASSISTANT_DEV_SEED`) loads a small set of fictional lots and quotes so the endpoints above
+have something to answer by hand; it is a development aid, not an answer to this question, and
+it is off by default.
 
 ### Planning
 
@@ -244,7 +254,7 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 
 | Concern | Requirement | Status |
 |---|---|---|
-| Authentication | None while FinAssist runs only on the owner's machine. Every service binds loopback by default, a request whose `Host` is not allow-listed is refused, and ledger writes accept only `application/json`, which together keep a hostile page in the owner's own browser out. Assistant-to-ledger authentication is deferred by the same record. Revisit when anything other than the owner's machine can reach a port, a deployment target is chosen, the journal needs an actor, or a second person uses FinAssist ([ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | **Enforced on the ledger** — it binds `127.0.0.1` by default, `HostAllowListFilter` refuses an un-allow-listed `Host` with 403 ahead of every other filter, and every write `consumes` only `application/json`; `HostAllowListFilterTest`, `LedgerApplicationIT`. The assistant already binds `127.0.0.1` by default but has no endpoint yet, so nothing there is enforced |
+| Authentication | None while FinAssist runs only on the owner's machine. Every service binds loopback by default, a request whose `Host` is not allow-listed is refused, and ledger writes accept only `application/json`, which together keep a hostile page in the owner's own browser out. Assistant-to-ledger authentication is deferred by the same record. Revisit when anything other than the owner's machine can reach a port, a deployment target is chosen, the journal needs an actor, or a second person uses FinAssist ([ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | **Enforced on both services** — each binds `127.0.0.1` by default. The ledger's `HostAllowListFilter` refuses an un-allow-listed `Host` with 403 ahead of every other filter, and every write `consumes` only `application/json`; `HostAllowListFilterTest`, `LedgerApplicationIT`. The assistant's `HostAllowList` does the same ahead of every route, and its one write, pricing a disposal, accepts only `application/json`; `test_portfolio_api.py` |
 | Secrets | Never in the repository, logs or error messages. `.env` is git-ignored; `.env.example` carries keys with no values | Holds |
 | Data handling | The owner's financial data and `ANTHROPIC_API_KEY` are redacted at the logging boundary, not at each call site | **Enforced** for secrets — `observability.redact_secrets`, `logger.ts`; `test_observability.py`, `logger.test.ts`. Financial data is redacted only where a field name marks it, and no code logs a record yet ([ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 | Persistence | Ledger data survives restart; migrations are append-only once released | **Enforced** — PostgreSQL 18, one schema per bounded context with no foreign key crossing one, Flyway migrations in a directory per context. Hand-written SQL over `JdbcClient`; the in-memory adapters are gone rather than kept behind a profile. `JdbcAccountRepositoryIT`, `JdbcTransactionRepositoryIT`, `JdbcBudgetingRepositoriesIT`, `JdbcPlanningRepositoriesIT`, `SchemaBoundariesIT` ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md), [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |

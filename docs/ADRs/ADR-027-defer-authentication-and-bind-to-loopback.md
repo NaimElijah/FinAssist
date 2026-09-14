@@ -69,7 +69,8 @@ name, and every request it makes carries that name.
 **Writes accept only `application/json`.** Every ledger `POST` declares `consumes`, so a form-encoded
 or `text/plain` post is answered 415 before a controller runs. A cross-site page cannot send
 `application/json` without a preflight, and no CORS configuration exists to approve one. The
-assistant's endpoints are all `GET`, and change nothing.
+assistant's one POST, the disposal calculation, also accepts only `application/json` and answers
+415 otherwise.
 
 **"Who" stays absent from the journal**, exactly as ADR-020 and ADR-024 anticipated. This record
 decides authentication by deferring it, and a deferral gives the journal nothing to record: with one

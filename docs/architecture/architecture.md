@@ -5,25 +5,35 @@ The system as it actually is. *What it must do* is
 [the ADRs](../ADRs/).
 
 > **All six contexts have a domain and an application layer, and the ledger's store is
-> PostgreSQL. The ledger now has a transport; the assistant and the web client do not.** The
+> PostgreSQL. Both backend services now have a transport; the web client does not.** The
 > ledger's repository ports are backed by hand-written SQL
 > ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md),
 > [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)). It serves accounting,
 > budgeting and planning under `/api/v1`, through a component-scanned `@RestController` per
 > context calling in-ports only, a `HostAllowListFilter` refusing an un-allow-listed `Host` with
 > 403, and per-context problem advices plus a composition-root fallback answering every failure as
-> `application/problem+json` — all decided in
+> `application/problem+json`. The assistant serves `portfolio` under `/api/v1` the same way in its
+> own idiom: `portfolio_router` is a factory taking use cases as arguments rather than reading
+> `app.state`, `HostAllowList` wraps Starlette's `TrustedHostMiddleware` with the ledger's own
+> refusal shape, and every failure is a problem built in `adapters/problems.py` — the one
+> assistant package allowed to see every context's exceptions. All of it decided in
 > [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md),
 > [ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md) and
-> [ADR-028](../ADRs/ADR-028-http-wire-conventions.md), now Accepted alongside
-> [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md). Its generated OpenAPI document is
-> pinned by `LedgerContractIT` against the committed `contracts/ledger-v1.openapi.json`. The
-> assistant has no store and no ledger client, and its assembled use cases still run over
-> in-memory stand-ins; its own API does not exist yet, and neither does the web client, which
-> still renders a placeholder and calls neither service. The ledger runs under Compose now too,
-> alongside natively (`./mvnw spring-boot:run`) for the faster inner loop. Both services emit
-> structured logs and OTLP traces — see [Cross-cutting concerns](#cross-cutting-concerns). Where a
-> structure is defined but not yet inhabited, this document says so.
+> [ADR-028](../ADRs/ADR-028-http-wire-conventions.md), alongside
+> [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md), all now Accepted. Each service's
+> generated OpenAPI document is pinned against its own committed contract — `LedgerContractIT`
+> against `contracts/ledger-v1.openapi.json`, `tests/test_contract.py` against
+> `contracts/assistant-v1.openapi.json` — and `adapters/openapi.py` rewrites FastAPI's own
+> generated `422` body on every operation into the `Problem` the assistant actually sends. A
+> development seed (`ASSISTANT_DEV_SEED`, off by default) can load a small set of fictional
+> holdings and quotes from the composition root alone (`adapters/seed.py`), so the portfolio
+> screens have something to show by hand — a development aid, never a data source. The assistant
+> still has no store and no ledger client — its assembled use cases run over in-memory stand-ins
+> regardless of the seed — and the web client still renders a placeholder and calls neither
+> service. Both services now run under Compose, alongside natively (`./mvnw spring-boot:run`,
+> `uv run python -m finassist_assistant.adapters`) for the faster inner loop. Both emit structured
+> logs and OTLP traces — see [Cross-cutting concerns](#cross-cutting-concerns). Where a structure
+> is defined but not yet inhabited, this document says so.
 
 ## Architecture overview
 
@@ -50,12 +60,13 @@ flowchart LR
     Ledger --> DB[(PostgreSQL 18)]
 ```
 
-`DB` and `Ledger` both run under Compose now (`docker compose up`), and `Ledger` reaches `DB`
-over JDBC; `./mvnw spring-boot:run` against the Compose `DB` still works for the native inner
-loop. No edge leaving `Web` or `Assistant` is implemented — the ledger serves its side of the
-`Web -> Ledger` and `Assistant -> Ledger` edges, but neither caller exists yet; the web client's
-two edges are [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)'s
-decision.
+`DB`, `Ledger` and `Assistant` all run under Compose now (`docker compose up`); `Ledger` reaches
+`DB` over JDBC, and `./mvnw spring-boot:run` / `uv run python -m finassist_assistant.adapters`
+against the Compose `DB` still work for the native inner loop. No edge leaving `Web` or
+`Assistant` is implemented — the ledger serves its side of the `Web -> Ledger` and
+`Assistant -> Ledger` edges, and the assistant now serves its side of `Web -> Assistant` too (the
+portfolio endpoints), but no caller of any of the three exists yet; the web client's two edges are
+[ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)'s decision.
 
 ## Bounded contexts
 
@@ -107,9 +118,9 @@ had been: `times_rounded` raised on a large product in Python where Java returne
 | Component | Responsibility | State |
 |---|---|---|
 | `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain and application layers complete, with unit, seeded-property and shared-vector tests, **live architecture rules** (layering, context isolation, both framework-free layers, the two web-adapter direction rules, and DTO name uniqueness), and Spring tests covering the Actuator probes, the observability wiring, the Host allow-list, the problem+json fallback and the assembled composition root; structured logs, OTLP traces and Prometheus metrics. Every repository port is backed by PostgreSQL; the in-memory ones are gone. The only remaining in-memory adapters are the two event publishers, which nothing subscribes to yet. **It now has an inbound adapter**: a component-scanned `@RestController` per context under `/api/v1`, calling in-ports only, with its generated OpenAPI document pinned by `LedgerContractIT`. Runs under Compose (`build: ./backend/ledger`) as well as natively |
-| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain and application layers complete, with unit, Hypothesis-property and shared-vector tests, and 6 architecture rules parametrised over every source file (those that do not apply to a given file skip); a composition root serving `/health` and `/ready` and assembling the portfolio use cases. `AnswerQuestion` is written and deliberately unwired — an LLM adapter would settle the privacy question by implication |
+| `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain and application layers complete, with unit, Hypothesis-property and shared-vector tests, and 7 architecture rules parametrised over every source file (those that do not apply to a given file skip; one now forbids an inbound adapter reaching an outbound one). **It now has an inbound adapter**: `portfolio_router` under `/api/v1`, a `HostAllowList` middleware, and problem+json handling from the composition root, with its generated OpenAPI document pinned by `tests/test_contract.py`. Also serves `/health` and `/ready`. A development seed (`ASSISTANT_DEV_SEED`, off by default) loads fictional holdings and quotes from `adapters/seed.py` alone. `AnswerQuestion` is written and deliberately unwired — an LLM adapter would settle the privacy question by implication. Runs under Compose (`build: ./backend/assistant`) as well as natively |
 | `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder behind an error boundary; architecture rules, HTTP-client tests, a jsdom render test of the shell, and a structured logger that generates the `traceparent` every request carries; no feature implemented |
-| `contracts/` | The versioned wire contract, and the cross-language `Money` conformance vectors | `money-vectors.v1.json`, the README, and `ledger-v1.openapi.json` — generated by springdoc, pinned by `LedgerContractIT`. `assistant-v1.openapi.json` arrives with the assistant's first endpoint |
+| `contracts/` | The versioned wire contract, and the cross-language `Money` conformance vectors | `money-vectors.v1.json`, the README, `ledger-v1.openapi.json` — generated by springdoc, pinned by `LedgerContractIT` — and `assistant-v1.openapi.json` — generated by FastAPI, pinned by `tests/test_contract.py` |
 | PostgreSQL 18 | The ledger's store | Runs via Compose. Three schemas — `accounting`, `budgeting`, `planning` — with no foreign key crossing one; migrated by Flyway from a directory per context. The journal is append-only in the database, enforced by triggers |
 
 ## Structure: context first, hexagon inside
@@ -167,7 +178,13 @@ that the `monitoring` Compose profile mounts.
   ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)) — that proxy,
   and every caller of it, is still unbuilt.
 - **Web to assistant** — HTTP, for the portfolio screens, through the same proxy under
-  `/assistant/…`. **Not yet implemented** (ADR-026): the assistant has no endpoint to call yet.
+  `/assistant/…`. **Implemented on the assistant side; the web client does not call it yet.** The
+  assistant serves `/api/v1/portfolio/holdings/{symbol}/position` (`GET`),
+  `/api/v1/portfolio/holdings/{symbol}/valuation` (`GET`) and
+  `/api/v1/portfolio/holdings/{symbol}/disposal` (`POST`, a JSON body, never query parameters,
+  because its proceeds are an amount of money — ADR-028), each behind `HostAllowList` and each
+  refusal a problem. That proxy, and every caller of it, is still unbuilt
+  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)).
 - **Assistant to ledger** — HTTP, described by the ledger's OpenAPI document under `contracts/`
   and versioned in the URL path ([ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md),
   Accepted). **The ledger side exists and is published as a contract; the assistant's client
@@ -215,9 +232,9 @@ Boot's health contributors → `{"status":"UP"}`, and `GET /health` on the assis
 response. The ledger's readiness probe does reach Postgres — it includes the `db` indicator, so
 a ledger that cannot connect reports `DOWN` rather than ready.
 
-The in-process paths below are real, assembled at start-up, and exercised by tests. The ledger
-ones are also what its HTTP adapters call, described above; the assistant's remain reachable
-only from tests until it gains an inbound adapter of its own.
+The in-process paths below are real, assembled at start-up, and exercised by tests. They are also
+what each service's HTTP adapter calls: the ledger's, described above, and the assistant's,
+described where its own valuation path appears below.
 
 **Recording a purchase, ledger.** `RecordTransactionCommand` → `TransactionService` loads every
 referenced `Account` and refuses an entry whose currency the account does not hold →
@@ -246,10 +263,22 @@ flows**, so a plan cancelled since it was named stops counting → `OpeningPosit
 `AccountingOpeningPositions` translates each `AccountRef` to an `AccountId` and sums
 `ViewBalanceUseCase` → `Projection.of`.
 
-**Valuing a holding, assistant.** `ValueHolding` → `LedgerPort.lots_for` → `analysis.position`
-→ `QuotePort.unit_price`, satisfied by `MarketDataQuotes` in the composition root, which turns
-the `Symbol` into a `Ticker`, calls marketdata's `LatestQuote`, and collapses both a missing and
-a stale quote into `PriceUnavailableError` → `market_value` and `unrealised_gain`.
+**Valuing a holding, assistant, over HTTP.** `GET /api/v1/portfolio/holdings/{symbol}/valuation`
+→ `HostAllowList` refuses a request whose `Host` is not on `ASSISTANT_ALLOWED_HOSTS`, the same
+defence the ledger's filter runs, ahead of every route → `portfolio_router`'s handler builds a
+`Symbol` and calls `ValueHolding` → `LedgerPort.lots_for` → `analysis.position` →
+`QuotePort.unit_price`, satisfied by `MarketDataQuotes` in the composition root, which turns the
+`Symbol` into a `Ticker`, calls marketdata's `LatestQuote`, and collapses both a missing and a
+stale quote into `PriceUnavailableError` → `market_value` and `unrealised_gain` →
+`ValuationModel.of` serialises the result, every decimal a string and every member camelCase
+(ADR-028) → JSON. Nothing held for the symbol is `HoldingNotFoundError`, answered 404; no usable
+price is `PriceUnavailableError`, answered 503 and logged at WARNING with the symbol alone, never
+a traceback — each mapped by a handler in `adapters/problems.py`, the one assistant package
+allowed to see every context's exceptions. A `ValueError` any other rule raises — including the
+domain's own, wherever one is not given a more specific handler — is answered 422 `RULE_VIOLATED`
+by the same catch-all the ledger's fallback uses for `IllegalArgumentException`, so a bug that
+happens to raise `ValueError` reads as a refusal rather than a 500 (ADR-028's accepted
+trade-off, mirrored here rather than narrowed to a smaller exception type).
 
 The telemetry path is real end to end and is described below.
 
@@ -362,6 +391,7 @@ the classes and tests that enforce them in
 | **No assistant context imports the composition root** | `test_architecture.py::…Then_it_imports_no_composition_root` |
 | No floating point in an assistant domain module | `test_architecture.py::…Then_it_names_no_float` |
 | No assistant domain module reads the wall clock | `test_architecture.py::…Then_it_reads_no_clock` |
+| **No assistant inbound adapter imports an outbound one** — a route reaches a client only through a use case | `test_architecture.py::Given_an_inbound_adapter_When_parsed_Then_it_imports_no_outbound_adapter` |
 | **No web feature imports another**, and `shared` imports no feature | `frontend/web/tests/architecture.test.ts` |
 
 All three are **static**: ArchUnit scans bytecode, the assistant's rules parse every source
@@ -397,6 +427,27 @@ the point: a shared translation would smuggle one context's model into the other
 fields, lazy proxies — stay in `adapter/out/persistence`.
 
 **The database is private to the ledger.** The assistant has no connection string, by design.
+
+**The assistant's wire models hide their own input on a validation failure.** Every
+`_WireModel` sets `hide_input_in_errors=True`, so a rejected request's `ValidationError` never
+quotes the value it rejected. These models carry the owner's money, and the error text is exactly
+what `adapters/problems.py` might otherwise log or a chained traceback might otherwise print.
+
+**`ASSISTANT_ALLOWED_HOSTS` refuses an entry with a `:` or a `[` at start-up**, the same way a
+wildcard is refused: `TrustedHostMiddleware` compares only the text before a `Host` header's
+first colon, so a port, `[::1]` or a bare `::1` would match no request, and admitting one would
+look like a working entry that defends nothing.
+
+**Neither service serves a Swagger UI.** `docs_url` and `redoc_url` are both `None` on the
+assistant's `FastAPI` app, matching the ledger, which configures no springdoc UI either; both
+pages would load their scripts from a CDN. `/openapi.json` (and the ledger's own document route)
+still serves the contract itself.
+
+**Currency is resolved by its ISO code, never by enum member name.** `currency_for` looks
+`Currency` up in a table keyed by `Currency.code` — the value `CurrencyCode`'s `Literal` lists
+and the parity test in `tests/test_portfolio_api.py` compares against — so a member whose name
+happened to differ from its code cannot pass the parity test and still fail every request as an
+uncaught `KeyError` at 500.
 
 **The Makefile is an interface, not a mechanism.** Every target wraps `docker compose`,
 `./mvnw`, `uv` or `npm`, and CI calls the same targets, so the pipeline and the local commands

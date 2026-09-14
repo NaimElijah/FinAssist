@@ -6,8 +6,10 @@ other — so the class that turns a ``Symbol`` into a ``Ticker`` and a ``Quote``
 can live in neither. It lives here, where seeing two contexts at once is the job (ADR-022), and
 ``tests/test_architecture.py`` already forbids any context from importing back into this package.
 
-Everything assembled here is backed by an in-memory adapter. Neither is a client: ADR-004 is
-still Proposed and the ledger has no endpoint, so what exists is the shape a client must fit.
+Everything assembled here is backed by an in-memory adapter. Neither is a client: the assistant
+has no ledger client yet, so what exists is the shape one must fit — not because there is
+nothing to call. ADR-004 is Accepted and the ledger now serves accounting, budgeting and
+planning under `/api/v1`.
 
 ``assistance`` is deliberately absent. ``AnswerQuestion`` is written and tested, and wiring it
 would mean building an LLM adapter, which would decide by implication whether the owner's

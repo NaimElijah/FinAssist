@@ -15,8 +15,10 @@ language, and analyse the portfolio behind it.**
 > [!IMPORTANT]
 > **All six bounded contexts have a domain and an application layer.** The ledger is persisted in
 > PostgreSQL and served over HTTP — accounting, budgeting and planning under `/api/v1`, with a
-> published OpenAPI contract — and answers its Actuator health probes. The assistant has no HTTP
-> API yet, and the web client renders a placeholder. See
+> published OpenAPI contract — and answers its Actuator health probes. The assistant now serves
+> `portfolio` under `/api/v1` too, with its own published contract, but its data comes only from
+> an opt-in development seed, off by default — no ledger client and no price feed exist. The web
+> client still renders a placeholder and calls neither service. See
 > [Known limitations](#status-and-limitations) for what does not exist yet.
 
 ## Contents
@@ -147,11 +149,14 @@ flowchart LR
     Ledger --> DB[(PostgreSQL 18)]
 ```
 
-`DB` and the ledger both run under Compose now, and `Ledger --> DB` is real: the ledger serves
-its side of the `Assistant -> Ledger` edge under `/api/v1`, with an OpenAPI document to prove it
+`DB`, the ledger and the assistant all run under Compose now, and `Ledger --> DB` is real: the
+ledger serves its side of the `Assistant -> Ledger` edge under `/api/v1`, with an OpenAPI
+document to prove it
 ([contracts/ledger-v1.openapi.json](contracts/ledger-v1.openapi.json)). Nothing calls it yet —
-the assistant has no ledger client, and the web client still renders a placeholder and calls
-neither service.
+the assistant has no ledger client. The assistant serves its own `portfolio` endpoints under
+`/api/v1` too, published as
+[contracts/assistant-v1.openapi.json](contracts/assistant-v1.openapi.json), but the web client
+still renders a placeholder and calls neither service.
 
 **Six bounded contexts**, each owned by exactly one service, each one directory
 ([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md), extended by
@@ -234,6 +239,7 @@ pipeline and the local commands cannot drift.
 | Audit | `make audit` | `cd backend/assistant && uv run pip-audit`; `cd frontend/web && npm audit --audit-level=high` |
 | Re-lock Python deps | `make lock` | `cd backend/assistant && uv lock` |
 | Regenerate the ledger's OpenAPI contract | — | `cd backend/ledger && ./mvnw -B verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running); on a mismatch, copy `target/contracts/ledger-v1.openapi.json` over `contracts/ledger-v1.openapi.json` |
+| Regenerate the assistant's OpenAPI contract | — | `cd backend/assistant && uv run pytest tests/test_contract.py` (no container needed); on a mismatch, copy `.contract-drift/assistant-v1.openapi.json` over `contracts/assistant-v1.openapi.json` |
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
 (`type(scope): imperative subject`, subject under 72 characters); branches are
@@ -444,10 +450,15 @@ to end.
 
 Known limitations:
 
-- **The ledger's HTTP API has no caller yet.** It serves accounting, budgeting and planning
-  under `/api/v1`, with an OpenAPI document pinned by `LedgerContractIT`, but the assistant has
-  no ledger client — `LedgerPort` is still an in-memory stand-in — and the web client renders a
-  placeholder and calls neither service.
+- **Neither backend HTTP API has a caller yet.** The ledger serves accounting, budgeting and
+  planning under `/api/v1`, with an OpenAPI document pinned by `LedgerContractIT`; the assistant
+  serves `portfolio` under `/api/v1`, pinned by `tests/test_contract.py`. The assistant has no
+  ledger client of its own — `LedgerPort` is still an in-memory stand-in — and the web client
+  renders a placeholder and calls neither service.
+- **The assistant's portfolio data comes only from an opt-in development seed.**
+  `ASSISTANT_DEV_SEED`, off by default, loads a small set of fictional lots and quotes from the
+  composition root so the endpoints have something to answer by hand; it is a development aid,
+  not a data source, and no ledger client or price feed exists yet.
 - **The audit trail cannot say who.** The journal records what changed, when and — for a voided
   transaction — why, and the database refuses to let any of it be rewritten. It records no actor,
   because there is no authentication to name one. That gap is
