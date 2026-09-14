@@ -14,6 +14,10 @@ public record BudgetId(UUID value) {
         return new BudgetId(UUID.randomUUID());
     }
 
+    public static BudgetId of(String uuid) {
+        return new BudgetId(UUID.fromString(uuid));
+    }
+
     @Override
     public String toString() {
         return value.toString();

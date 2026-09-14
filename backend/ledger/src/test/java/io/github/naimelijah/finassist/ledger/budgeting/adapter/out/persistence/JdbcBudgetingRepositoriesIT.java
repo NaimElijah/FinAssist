@@ -108,6 +108,35 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
         assertThat(rules.all()).hasSize(2);
     }
 
+    /**
+     * {@code BudgetRepository.all}'s contract: the most recent period leads, and each budget comes
+     * back with the limits it was saved with - the same {@code limitsOf} helper {@code findById}
+     * uses.
+     */
+    @Test
+    void Given_budgets_for_three_periods_When_all_are_listed_Then_the_most_recent_period_leads_with_limits_intact() {
+        Budget august = Budget.of(
+                BudgetPeriod.of(YearMonth.of(2026, 8)),
+                Currency.ILS,
+                List.of(new CategoryLimit(GROCERIES, ils("1200.00"))));
+        Budget september = Budget.of(
+                BudgetPeriod.of(YearMonth.of(2026, 9)), Currency.ILS, List.of(new CategoryLimit(RENT, ils("4000.00"))));
+        Budget july = Budget.of(
+                BudgetPeriod.of(YearMonth.of(2026, 7)),
+                Currency.ILS,
+                List.of(new CategoryLimit(GROCERIES, ils("900.00"))));
+        budgets.save(august);
+        budgets.save(september);
+        budgets.save(july);
+
+        assertThat(budgets.all()).containsExactly(september, august, july);
+    }
+
+    @Test
+    void Given_no_budgets_at_all_When_they_are_listed_Then_the_answer_is_empty_rather_than_null() {
+        assertThat(budgets.all()).isEmpty();
+    }
+
     @Test
     void Given_a_budget_When_read_over_an_independent_connection_Then_it_is_still_there() {
         Budget budget = Budget.of(MARCH, Currency.ILS, List.of(new CategoryLimit(GROCERIES, ils("1200.00"))));

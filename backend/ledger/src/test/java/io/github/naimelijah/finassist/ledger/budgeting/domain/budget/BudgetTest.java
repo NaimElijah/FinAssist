@@ -113,6 +113,13 @@ class BudgetTest {
     }
 
     @Test
+    void Given_a_budget_id_as_text_When_parsed_Then_it_round_trips() {
+        BudgetId id = BudgetId.generate();
+
+        assertThat(BudgetId.of(id.toString())).isEqualTo(id);
+    }
+
+    @Test
     void Given_a_calendar_month_When_a_period_is_built_Then_it_spans_that_month_half_open() {
         BudgetPeriod march = BudgetPeriod.of(YearMonth.of(2026, 3));
 

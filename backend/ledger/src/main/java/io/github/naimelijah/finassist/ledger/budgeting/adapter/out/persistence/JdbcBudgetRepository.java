@@ -7,12 +7,15 @@ import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.BudgetPerio
 import io.github.naimelijah.finassist.ledger.budgeting.domain.category.Category;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +51,13 @@ public class JdbcBudgetRepository implements BudgetRepository {
             SELECT id, period_start, period_end, currency FROM budgeting.budget WHERE id = :id
             """;
 
+    /** {@code BudgetRepository.all}'s contract: the most recent period leads, id breaking a tie. */
+    private static final String SELECT_ALL_BUDGETS = """
+            SELECT id, period_start, period_end, currency
+              FROM budgeting.budget
+             ORDER BY period_start DESC, id
+            """;
+
     /**
      * Ordered by category so the map this builds is stable. {@code Budget} holds a {@code
      * Map.copyOf}, whose iteration order is unspecified, and both {@code BudgetReviewService} and
@@ -72,13 +82,21 @@ public class JdbcBudgetRepository implements BudgetRepository {
         Objects.requireNonNull(id, "id");
         return jdbc.sql(SELECT_BUDGET)
                 .param("id", id.value())
-                .query((row, rowNumber) -> new Header(
-                        new BudgetPeriod(
-                                row.getObject("period_start", LocalDate.class),
-                                row.getObject("period_end", LocalDate.class)),
-                        Currency.valueOf(row.getString("currency"))))
-                .optional()
-                .map(header -> new Budget(id, header.period(), header.currency(), limitsOf(id)));
+                .query(this::toBudget)
+                .optional();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Loads each budget's limits with {@link #limitsOf}, the same helper {@link #findById} uses —
+     * one further query per row rather than a join. One owner keeps few budgets, and ADR-028 accepts
+     * that cost until a list grows past about a thousand rows, at which point it asks for pagination
+     * instead.
+     */
+    @Override
+    public List<Budget> all() {
+        return jdbc.sql(SELECT_ALL_BUDGETS).query(this::toBudget).list();
     }
 
     /**
@@ -123,5 +141,12 @@ public class JdbcBudgetRepository implements BudgetRepository {
         return limits;
     }
 
-    private record Header(BudgetPeriod period, Currency currency) {}
+    /** Shared by {@link #findById} and {@link #all}, so the two never map a row two different ways. */
+    private Budget toBudget(ResultSet row, int rowNumber) throws SQLException {
+        BudgetId id = new BudgetId(row.getObject("id", UUID.class));
+        BudgetPeriod period = new BudgetPeriod(
+                row.getObject("period_start", LocalDate.class), row.getObject("period_end", LocalDate.class));
+        Currency currency = Currency.valueOf(row.getString("currency"));
+        return new Budget(id, period, currency, limitsOf(id));
+    }
 }

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.DefineBudgetCommand;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.BudgetRepository;
@@ -119,6 +120,30 @@ class BudgetServiceTest {
                 .hasMessageContaining("fragment");
 
         verify(rules, never()).add(any());
+    }
+
+    /** Listing derives nothing of its own - ordering is the repository's job. */
+    @Test
+    void Given_budgets_stored_When_listed_Then_they_come_back_in_the_repositorys_order() {
+        Budget march = Budget.of(MARCH, Currency.ILS, List.of(new CategoryLimit(GROCERIES, ils("1200.00"))));
+        Budget april = Budget.of(
+                BudgetPeriod.of(YearMonth.of(2026, 4)), Currency.ILS, List.of(new CategoryLimit(RENT, ils("4000.00"))));
+        when(budgets.all()).thenReturn(List.of(april, march));
+
+        assertThat(service.all()).containsExactly(april, march);
+    }
+
+    /**
+     * A review takes the first matching rule, so passing the store's order through unchanged is the
+     * whole contract.
+     */
+    @Test
+    void Given_rules_stored_When_listed_Then_they_come_back_in_the_repositorys_order() {
+        CategorisationRule coffee = new CategorisationRule("coffee", Category.of("coffee"));
+        CategorisationRule eatingOut = new CategorisationRule("co", Category.of("eating out"));
+        when(rules.all()).thenReturn(List.of(coffee, eatingOut));
+
+        assertThat(service.rules()).containsExactly(coffee, eatingOut);
     }
 
     private static Money ils(String amount) {
