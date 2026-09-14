@@ -31,6 +31,12 @@
             "type": "string"
           }
         },
+        "required": [
+          "currency",
+          "id",
+          "name",
+          "type"
+        ],
         "type": "object"
       },
       "BalanceResponse": {
@@ -43,6 +49,10 @@
             "$ref": "#/components/schemas/MoneyDto"
           }
         },
+        "required": [
+          "account",
+          "balance"
+        ],
         "type": "object"
       },
       "EntryDto": {
@@ -208,6 +218,13 @@
             "$ref": "#/components/schemas/TransactionStateResponse"
           }
         },
+        "required": [
+          "description",
+          "entries",
+          "id",
+          "occurredOn",
+          "state"
+        ],
         "type": "object"
       },
       "TransactionStateResponse": {
@@ -229,6 +246,9 @@
             "type": "string"
           }
         },
+        "required": [
+          "status"
+        ],
         "type": "object"
       },
       "TransitionRequest": {

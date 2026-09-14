@@ -10,6 +10,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -97,6 +98,37 @@ class LedgerContractIT extends PostgresFixture {
                                 + "copy the actual document over the committed one if the change is intended.",
                         committed, ACTUAL)
                 .isEqualTo(expected);
+    }
+
+    /**
+     * A client generated from the document trusts {@code required} to say which members every response
+     * carries; without it, every member of every response reads as optional. A transaction state's
+     * {@code on} and {@code reason} are the deliberate exceptions, because a variant that lacks one omits
+     * it. The names are spelled out rather than read from the transport types, because they are the
+     * contract.
+     */
+    @Test
+    void Given_the_generated_document_When_response_schemas_are_read_Then_they_require_what_is_always_present()
+            throws Exception {
+        JsonNode schemas =
+                JSON.readTree(served(API_DOCS_PATH)).path("components").path("schemas");
+
+        assertThat(requiredMembers(schemas, "AccountResponse"))
+                .containsExactlyInAnyOrder("id", "name", "type", "currency");
+        assertThat(requiredMembers(schemas, "BalanceResponse")).containsExactlyInAnyOrder("account", "balance");
+        assertThat(requiredMembers(schemas, "MoneyDto")).containsExactlyInAnyOrder("amount", "currency");
+        assertThat(requiredMembers(schemas, "EntryDto")).containsExactlyInAnyOrder("account", "amount");
+        assertThat(requiredMembers(schemas, "TransactionResponse"))
+                .containsExactlyInAnyOrder("id", "occurredOn", "description", "entries", "state");
+        assertThat(requiredMembers(schemas, "TransactionStateResponse")).containsExactly("status");
+    }
+
+    private static List<String> requiredMembers(JsonNode schemas, String schema) {
+        return schemas.path(schema)
+                .path("required")
+                .valueStream()
+                .map(JsonNode::asString)
+                .toList();
     }
 
     private String served(String path) throws IOException, InterruptedException {
