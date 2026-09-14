@@ -29,7 +29,7 @@ export interface ActionPanelProps {
  * The caller opens it by mounting it, and on mount it moves focus to its first field. It is a
  * named region rather than a dialog: it sits beside what it acts on and never blocks the rest of
  * the page, and `HTMLDialogElement.showModal`, which a modal would need, is not implemented in
- * jsdom.
+ * jsdom. A `<section>` with an accessible name already has the `region` role, so none is set.
  *
  * @param props - see `ActionPanelProps`.
  */
@@ -49,7 +49,7 @@ export function ActionPanel({
     }, []);
 
     return (
-        <section ref={regionRef} role="region" aria-labelledby={titleId} className={styles.panel}>
+        <section ref={regionRef} aria-labelledby={titleId} className={styles.panel}>
             <h2 id={titleId} className={styles.title}>
                 {title}
             </h2>
