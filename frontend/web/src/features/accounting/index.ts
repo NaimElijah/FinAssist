@@ -7,10 +7,19 @@
  */
 import type { RouteObject } from 'react-router';
 
+import type { RouteHandle } from '@/shared/lib/routeHandle';
+
 import { AccountsPage } from './components/AccountsPage';
 
 /**
  * The accounting area's routes, under the base path `accounts`. src/app mounts them inside the
- * shared layout. This is the route contract; the page behind it is replaced as screens are built.
+ * shared layout, which titles the document from each route's `handle`. This is the route
+ * contract; the page behind it is replaced as screens are built.
  */
-export const accountingRoutes: RouteObject[] = [{ path: 'accounts', Component: AccountsPage }];
+export const accountingRoutes: RouteObject[] = [
+    {
+        path: 'accounts',
+        Component: AccountsPage,
+        handle: { title: 'Accounts' } satisfies RouteHandle,
+    },
+];

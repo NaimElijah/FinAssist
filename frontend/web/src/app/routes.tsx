@@ -4,6 +4,7 @@ import { accountingRoutes } from '@/features/accounting';
 import { budgetingRoutes } from '@/features/budgeting';
 import { planningRoutes } from '@/features/planning';
 import { portfolioRoutes } from '@/features/portfolio';
+import type { RouteHandle } from '@/shared/lib/routeHandle';
 
 import { Layout } from './Layout';
 import { NotFound } from './NotFound';
@@ -39,7 +40,11 @@ export const routes: RouteObject[] = [
             area(budgetingRoutes),
             area(planningRoutes),
             area(portfolioRoutes),
-            { path: '*', Component: NotFound },
+            {
+                path: '*',
+                Component: NotFound,
+                handle: { title: 'Page not found' } satisfies RouteHandle,
+            },
         ],
     },
 ];

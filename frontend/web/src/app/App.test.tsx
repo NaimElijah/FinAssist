@@ -93,4 +93,45 @@ describe('App', () => {
         expect(main.id).not.toBe('');
         expect(skipLink.getAttribute('href')).toBe(`#${main.id}`);
     });
+
+    it('Given_an_area_is_open_When_rendered_Then_the_document_title_names_the_area_and_the_product', async () => {
+        renderAt('/accounts');
+
+        await screen.findByRole('heading', { level: 1, name: 'Accounts' });
+        expect(document.title).toBe('Accounts · FinAssist');
+    });
+
+    it('Given_the_Accounts_area_When_Budgets_is_clicked_Then_the_document_title_follows_to_Budgets', async () => {
+        renderAt('/accounts');
+
+        await userEvent.setup().click(await screen.findByRole('link', { name: 'Budgets' }));
+
+        await screen.findByRole('heading', { level: 1, name: 'Budgets' });
+        expect(document.title).toBe('Budgets · FinAssist');
+    });
+
+    it('Given_an_unknown_path_When_rendered_Then_the_document_title_says_the_page_was_not_found', async () => {
+        renderAt('/nope');
+
+        await screen.findByRole('heading', { level: 1, name: 'Page not found' });
+        expect(document.title).toBe('Page not found · FinAssist');
+    });
+
+    it('Given_the_root_path_When_the_shell_first_renders_Then_focus_stays_where_the_browser_put_it', async () => {
+        // The redirect from / to /accounts is the app's own, not a person navigating, so a
+        // keyboard user's first Tab must still reach the skip link rather than start inside main.
+        renderAt('/');
+
+        await screen.findByRole('heading', { level: 1, name: 'Accounts' });
+        expect(document.activeElement).toBe(document.body);
+    });
+
+    it('Given_the_Accounts_area_When_a_nav_link_is_clicked_Then_focus_moves_to_the_main_region', async () => {
+        renderAt('/accounts');
+
+        await userEvent.setup().click(await screen.findByRole('link', { name: 'Budgets' }));
+
+        await screen.findByRole('heading', { level: 1, name: 'Budgets' });
+        expect(document.activeElement).toBe(screen.getByRole('main'));
+    });
 });
