@@ -130,8 +130,8 @@ Every version above is pinned in `backend/ledger/pom.xml`, `backend/assistant/py
 
 ## Architecture
 
-Two independently deployable services and a database. The ledger owns the records; the
-assistant reads them through the ledger's API, never its database.
+Two independently deployable backend services, a web client, and a database. The ledger owns
+the records; the assistant reads them through the ledger's API, never its database.
 
 ```mermaid
 flowchart LR
@@ -142,8 +142,11 @@ flowchart LR
     Ledger --> DB[(PostgreSQL 18)]
 ```
 
-`DB` runs under Compose and the ledger boots with Actuator only. No edge in that diagram is
-implemented.
+`DB` and the ledger both run under Compose now, and `Ledger --> DB` is real: the ledger serves
+its side of the `Assistant -> Ledger` edge under `/api/v1`, with an OpenAPI document to prove it
+([contracts/ledger-v1.openapi.json](contracts/ledger-v1.openapi.json)). Nothing calls it yet —
+the assistant has no ledger client, and the web client still renders a placeholder and calls
+neither service.
 
 **Six bounded contexts**, each owned by exactly one service, each one directory
 ([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md), extended by
@@ -225,6 +228,7 @@ pipeline and the local commands cannot drift.
 | Format | `make format` | `./mvnw -B spotless:apply`; `uv run ruff format .`; `npm run format` |
 | Audit | `make audit` | `cd backend/assistant && uv run pip-audit`; `cd frontend/web && npm audit --audit-level=high` |
 | Re-lock Python deps | `make lock` | `cd backend/assistant && uv lock` |
+| Regenerate the ledger's OpenAPI contract | — | `cd backend/ledger && ./mvnw -B verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running); on a mismatch, copy `target/contracts/ledger-v1.openapi.json` over `contracts/ledger-v1.openapi.json` |
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
 (`type(scope): imperative subject`, subject under 72 characters); branches are
@@ -239,7 +243,7 @@ behaviour they describe.
 
 | Layer | Covers | Command |
 |---|---|---|
-| Ledger architecture | Layering, **context isolation**, framework-free domain, no floating-point money, no aggregate cycles, a one-way composition root, a framework-free application layer (ArchUnit, 7 rules — live, not dormant) | `make test-ledger` |
+| Ledger architecture | Layering, **context isolation**, framework-free domain and application layers (now also forbidding Jackson 3, springdoc and Swagger types), no floating-point money, no aggregate cycles, a one-way composition root, a controller reaching only its in-ports, an outbound adapter never reaching an inbound one, and DTO simple-name uniqueness across contexts (ArchUnit, 10 rules — live, not dormant) | `make test-ledger` |
 | Ledger domain | The balancing invariant, the transaction lifecycle, derived balances, budget limits, planned flows, projections and comparison, Money and Currency | `make test-ledger` |
 | Ledger properties | Money's algebraic laws and Recurrence's date arithmetic, over generated inputs from a fixed seed | `make test-ledger` |
 | Ledger store | Every repository against a **real PostgreSQL** in Testcontainers: the ordering both journal queries promise, the unique index that makes an account name atomic, the sealed `Recurrence` and `PlanState` round trips, and `numeric` preserving a JPY amount at scale 0 | `make test-ledger` |
@@ -345,7 +349,8 @@ only build artefact that exists.
 | Traces | OTLP to `$OTEL_EXPORTER_OTLP_ENDPOINT` | Live when `OTEL_EXPORT_ENABLED=true`; dropped otherwise, and the services start either way |
 | Logs | JSON on stdout, carrying a W3C trace id | Live — ECS in the ledger, structlog in the assistant. Redaction is enforced in the assistant and the web client, where the secrets are; the ledger holds none and does not expose `/actuator/env` |
 | Dashboards | Grafana, provisioned from `ops/grafana/` | Live under the `monitoring` profile |
-| Audit trail | The append-only journal | Not implemented — needs a store ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)) |
+| Audit trail | The append-only journal | Live — the database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states; a lifecycle change appends rather than overwrites ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md), [ADR-024](docs/ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
+| Ledger API | `GET/POST /api/v1/...`; OpenAPI document at `GET /v3/api-docs`, pinned as [`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json) | Live for accounting, budgeting and planning; nothing calls it yet |
 
 Run the telemetry backend with `docker compose --profile monitoring up`: Grafana on
 [localhost:3000](http://localhost:3000), Prometheus on
@@ -403,7 +408,7 @@ implies the ledger and assistant are one layer, when they are separate contexts 
 languages talking over a versioned contract.
 
 **The assistant never touches the ledger's database**
-([ADR-004](docs/ADRs/ADR-004-http-openapi-service-contract.md), Proposed) — a shared
+([ADR-004](docs/ADRs/ADR-004-http-openapi-service-contract.md), Accepted) — a shared
 database would be the cheapest thing to build and the most expensive to own. Cost: JSON over
 HTTP carries no runtime schema, and contract drift is silent until CI compares the documents.
 
@@ -415,23 +420,27 @@ real — double-entry accounting, periodic budgets, FIFO cost basis, grounded an
 staleness, deterministic projections and strategy comparison, and `Money` in both languages.
 Use cases sit behind ports and are wired by constructor, and the ledger's are backed by
 **PostgreSQL**: a schema per bounded context, Flyway migrations, hand-written SQL, and a journal
-the database itself refuses to rewrite. Twenty-five ADRs. Every architecture rule is live rather
-than dormant, and each was confirmed to fail against a planted violation — including the two new
-ones, which were checked by dropping the append-only trigger and by planting a foreign key across
-a schema boundary. CI gates build, lint,
-format and dependency audit across four jobs, and publishes a coverage report from each.
+the database itself refuses to rewrite. **The ledger now serves accounting, budgeting and
+planning over HTTP** under `/api/v1`, behind a Host allow-list and problem+json error handling,
+with its generated OpenAPI document pinned by `LedgerContractIT` and published as
+[`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json); it runs under Compose as
+well as natively. Twenty-nine ADRs. Every architecture rule is live rather than dormant, and each
+was confirmed to fail against a planted violation — including dropping the append-only trigger and
+planting a foreign key across a schema boundary. CI gates build, lint, format and dependency audit
+across four jobs, and publishes a coverage report from each.
 
 Planned next, in order: resolve the
-[open questions](docs/requirements/requirements.md#open-questions), ratify or reject
-[ADR-004](docs/ADRs/ADR-004-http-openapi-service-contract.md), then put a transport in front of
-the use cases that now have a store behind them. That one decision is what stands between this
-and the first tracking slice end to end.
+[open questions](docs/requirements/requirements.md#open-questions), give the assistant a ledger
+client behind its own `LedgerPort`, then build the web client's first screen against the
+ledger's published contract. That is what stands between this and the first tracking slice end
+to end.
 
 Known limitations:
 
-- **Nothing above the application layer exists.** No inbound adapter, no HTTP endpoint and no
-  OpenAPI document, so the use cases cannot be reached from outside the process. They are
-  assembled at start-up, connected to a real database, and called only by tests.
+- **The ledger's HTTP API has no caller yet.** It serves accounting, budgeting and planning
+  under `/api/v1`, with an OpenAPI document pinned by `LedgerContractIT`, but the assistant has
+  no ledger client — `LedgerPort` is still an in-memory stand-in — and the web client renders a
+  placeholder and calls neither service.
 - **The audit trail cannot say who.** The journal records what changed, when and — for a voided
   transaction — why, and the database refuses to let any of it be rewritten. It records no actor,
   because there is no authentication to name one. That gap is
@@ -478,12 +487,9 @@ Known limitations:
   because no price source has been chosen or licence-checked.
 - **TypeScript is one minor behind.** Pinned to 6.0.3 because `typescript-eslint` 8 caps at
   `<6.1.0`; lifts when it supports 7.
-- **Two ADRs are unratified.** Persistence and the service contract are both still open, so
-  the database in Compose has no client and `contracts/` is empty.
-- **`docker compose up` has not been executed** — the file validates with
-  `docker compose config`, but the Docker daemon was not running when it was written.
-- **The Postgres image tag is bumped by hand.** Dependabot has no `docker-compose`
-  ecosystem, and its `docker` ecosystem reads Dockerfiles and Kubernetes manifests only.
+- **The Postgres image tag, and the monitoring services' tags, are bumped by hand.** Dependabot's
+  `docker` ecosystem covers the ledger's own Dockerfile; there is still no `docker-compose`
+  ecosystem for the image tags named directly in `docker-compose.yml`.
 
 ## Licence
 

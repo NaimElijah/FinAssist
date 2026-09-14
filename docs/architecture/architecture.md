@@ -5,20 +5,25 @@ The system as it actually is. *What it must do* is
 [the ADRs](../ADRs/).
 
 > **All six contexts have a domain and an application layer, and the ledger's store is
-> PostgreSQL. Neither service has a transport.** The ledger's repository ports are backed by
-> hand-written SQL ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md),
-> [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)); the assistant has no
-> store and no ledger client, and its assembled use cases run over in-memory stand-ins. There is
-> no HTTP endpoint and no OpenAPI document. [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md)
-> is Accepted, and how the web client reaches both services, how they are protected and what
-> crosses the wire are decided in
+> PostgreSQL. The ledger now has a transport; the assistant and the web client do not.** The
+> ledger's repository ports are backed by hand-written SQL
+> ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md),
+> [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)). It serves accounting,
+> budgeting and planning under `/api/v1`, through a component-scanned `@RestController` per
+> context calling in-ports only, a `HostAllowListFilter` refusing an un-allow-listed `Host` with
+> 403, and per-context problem advices plus a composition-root fallback answering every failure as
+> `application/problem+json` — all decided in
 > [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md),
 > [ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md) and
-> [ADR-028](../ADRs/ADR-028-http-wire-conventions.md) — none of it is implemented yet. The ledger
-> boots and answers Actuator probes, the assistant serves `/health` and `/ready`, and both emit
-> structured logs and OTLP traces — see [Cross-cutting concerns](#cross-cutting-concerns). The web
-> client renders a placeholder. Where a structure is defined but not yet inhabited, this document
-> says so.
+> [ADR-028](../ADRs/ADR-028-http-wire-conventions.md), now Accepted alongside
+> [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md). Its generated OpenAPI document is
+> pinned by `LedgerContractIT` against the committed `contracts/ledger-v1.openapi.json`. The
+> assistant has no store and no ledger client, and its assembled use cases still run over
+> in-memory stand-ins; its own API does not exist yet, and neither does the web client, which
+> still renders a placeholder and calls neither service. The ledger runs under Compose now too,
+> alongside natively (`./mvnw spring-boot:run`) for the faster inner loop. Both services emit
+> structured logs and OTLP traces — see [Cross-cutting concerns](#cross-cutting-concerns). Where a
+> structure is defined but not yet inhabited, this document says so.
 
 ## Architecture overview
 
@@ -45,9 +50,12 @@ flowchart LR
     Ledger --> DB[(PostgreSQL 18)]
 ```
 
-`DB` runs under Compose, and `Ledger` boots natively and reaches it over JDBC. No edge leaving
-`Web` or `Assistant` is implemented; the web client's two are
-[ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)'s decision.
+`DB` and `Ledger` both run under Compose now (`docker compose up`), and `Ledger` reaches `DB`
+over JDBC; `./mvnw spring-boot:run` against the Compose `DB` still works for the native inner
+loop. No edge leaving `Web` or `Assistant` is implemented — the ledger serves its side of the
+`Web -> Ledger` and `Assistant -> Ledger` edges, but neither caller exists yet; the web client's
+two edges are [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)'s
+decision.
 
 ## Bounded contexts
 
@@ -98,10 +106,10 @@ had been: `times_rounded` raised on a large product in Python where Java returne
 
 | Component | Responsibility | State |
 |---|---|---|
-| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain and application layers complete, with unit, seeded-property and shared-vector tests, **7 live architecture rules**, and Spring tests covering the Actuator probes, the observability wiring and the assembled composition root; structured logs, OTLP traces and Prometheus metrics. Every repository port is backed by PostgreSQL; the in-memory ones are gone. The only remaining in-memory adapters are the two event publishers, which nothing subscribes to yet. There is no inbound adapter |
+| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain and application layers complete, with unit, seeded-property and shared-vector tests, **live architecture rules** (layering, context isolation, both framework-free layers, the two web-adapter direction rules, and DTO name uniqueness), and Spring tests covering the Actuator probes, the observability wiring, the Host allow-list, the problem+json fallback and the assembled composition root; structured logs, OTLP traces and Prometheus metrics. Every repository port is backed by PostgreSQL; the in-memory ones are gone. The only remaining in-memory adapters are the two event publishers, which nothing subscribes to yet. **It now has an inbound adapter**: a component-scanned `@RestController` per context under `/api/v1`, calling in-ports only, with its generated OpenAPI document pinned by `LedgerContractIT`. Runs under Compose (`build: ./backend/ledger`) as well as natively |
 | `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain and application layers complete, with unit, Hypothesis-property and shared-vector tests, and 6 architecture rules parametrised over every source file (those that do not apply to a given file skip); a composition root serving `/health` and `/ready` and assembling the portfolio use cases. `AnswerQuestion` is written and deliberately unwired — an LLM adapter would settle the privacy question by implication |
 | `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and renders a placeholder behind an error boundary; architecture rules, HTTP-client tests, a jsdom render test of the shell, and a structured logger that generates the `traceparent` every request carries; no feature implemented |
-| `contracts/` | The versioned wire contract, and the cross-language `Money` conformance vectors | `money-vectors.v1.json` and the README; no OpenAPI document yet |
+| `contracts/` | The versioned wire contract, and the cross-language `Money` conformance vectors | `money-vectors.v1.json`, the README, and `ledger-v1.openapi.json` — generated by springdoc, pinned by `LedgerContractIT`. `assistant-v1.openapi.json` arrives with the assistant's first endpoint |
 | PostgreSQL 18 | The ledger's store | Runs via Compose. Three schemas — `accounting`, `budgeting`, `planning` — with no foreign key crossing one; migrated by Flyway from a directory per context. The journal is append-only in the database, enforced by triggers |
 
 ## Structure: context first, hexagon inside
@@ -150,15 +158,20 @@ that the `monitoring` Compose profile mounts.
 ## Communication
 
 - **Owner to web** — HTTPS.
-- **Web to ledger** — HTTP, for the accounting, budgeting and planning screens. **Not yet
-  implemented.** In development the browser calls `/ledger/…` on the Vite origin and the proxy
-  forwards it to the ledger on loopback, so no call crosses an origin
-  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)).
+- **Web to ledger** — HTTP, for the accounting, budgeting and planning screens. **Implemented on
+  the ledger side; the web client does not call it yet.** The ledger serves `/api/v1/accounts`,
+  `/api/v1/transactions`, `/api/v1/budgets`, `/api/v1/categorisation-rules`,
+  `/api/v1/planned-flows`, `/api/v1/scenarios` and `/api/v1/scenario-comparisons`. In development the
+  browser is meant to call `/ledger/…` on the Vite origin, with the proxy forwarding to the
+  ledger on loopback so no call crosses an origin
+  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)) — that proxy,
+  and every caller of it, is still unbuilt.
 - **Web to assistant** — HTTP, for the portfolio screens, through the same proxy under
-  `/assistant/…`. **Not yet implemented** (ADR-026).
-- **Assistant to ledger** — HTTP, described by an OpenAPI document under `contracts/` and
-  versioned in the URL path ([ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md),
-  Accepted). **Not yet implemented**: the assistant's `LedgerPort` is an in-memory stand-in.
+  `/assistant/…`. **Not yet implemented** (ADR-026): the assistant has no endpoint to call yet.
+- **Assistant to ledger** — HTTP, described by the ledger's OpenAPI document under `contracts/`
+  and versioned in the URL path ([ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md),
+  Accepted). **The ledger side exists and is published as a contract; the assistant's client
+  still does not.** `LedgerPort` remains an in-memory stand-in.
 - **Assistant to Anthropic** — HTTPS via the pinned SDK, behind `LlmPort`.
 - **Assistant to price feed** — not chosen; the port and its ACL exist, the client does not.
 - **Ledger to Postgres** — JDBC, hand-written SQL over Spring's `JdbcClient`, with Flyway
@@ -170,15 +183,41 @@ The ledger never calls the assistant, and the assistant never calls the web clie
 
 ## Data flow
 
-**No request reaches a use case, because neither service has an inbound adapter.** The two live
-HTTP paths remain `GET /actuator/health` on the ledger → Spring Boot's health contributors →
-`{"status":"UP"}`, and `GET /health` on the assistant → a constant response. Neither touches
-any FinAssist domain code. The ledger's readiness probe now does reach Postgres: it includes
-the `db` indicator, so a ledger that cannot connect reports `DOWN` rather than ready. The transport half of this section is filled in from the
-implementation in the same commit that creates it.
+**A ledger request now reaches a use case.** `HostAllowListFilter` runs first, ahead of every
+other filter, Actuator included (ADR-027): a request whose `Host` is not on
+`LEDGER_ALLOWED_HOSTS` is refused 403 before the dispatcher sees it. What passes reaches a
+component-scanned `@RestController` for its context, which validates the body, builds a command
+and calls its in-port; the in-port's implementation is a hand-wired application service, which
+enforces the domain's invariants and calls its repository, which issues hand-written SQL over
+`JdbcClient` against PostgreSQL. A response DTO is built from the domain result and serialised —
+every decimal as a string, every sealed lifecycle flattened to a required `status` with optional
+`on`/`reason` members, mapped by hand rather than by a Jackson polymorphism annotation
+(ADR-028): HTTP → `HostAllowListFilter` → controller → in-port → service → repository →
+PostgreSQL.
 
-The in-process paths below are real, assembled at start-up, and exercised by tests. They are
-what an inbound adapter will call.
+**A failure becomes a problem.** A well-formed request a domain or adapter rule refuses raises
+`IllegalArgumentException` and is answered 422; an illegal lifecycle transition raises
+`IllegalTransitionException` (accounting) or `IllegalPlanTransitionException` (planning) and is
+answered 409, each by its own context's advice, which runs at the highest precedence. Spring
+MVC's own failures — an unknown route, a non-JSON body, a malformed decimal or UUID — keep their
+own statuses (404, 415, 400) through the composition root's fallback, `LedgerProblemHandler`, at
+the lowest precedence, which answers everything no context's advice claimed. **A stored row a
+JDBC mapper cannot reconstruct — an unknown enum constant, or an amount `Money` refuses — raises
+`IllegalStateException`, which the fallback answers as a logged 500; only a domain refusal
+reaches 422** — the accepted trade-off ADR-028 records for `IllegalArgumentException`. **A JSON
+number carrying a fractional part or a decimal point — `1.5` and `1.0` alike — is refused as 400
+wherever an integer field expects one**, before the domain sees it:
+`spring.jackson.deserialization.accept-float-as-int: false` stops Jackson silently truncating
+one.
+
+The two probe paths stay outside all of this: `GET /actuator/health` on the ledger → Spring
+Boot's health contributors → `{"status":"UP"}`, and `GET /health` on the assistant → a constant
+response. The ledger's readiness probe does reach Postgres — it includes the `db` indicator, so
+a ledger that cannot connect reports `DOWN` rather than ready.
+
+The in-process paths below are real, assembled at start-up, and exercised by tests. The ledger
+ones are also what its HTTP adapters call, described above; the assistant's remain reachable
+only from tests until it gains an inbound adapter of its own.
 
 **Recording a purchase, ledger.** `RecordTransactionCommand` → `TransactionService` loads every
 referenced `Account` and refuses an entry whose currency the account does not hold →
@@ -304,13 +343,19 @@ the classes and tests that enforce them in
 |---|---|
 | Layers point inward, in every ledger context | `LedgerArchitectureTest.layers_point_inward` |
 | **No ledger context depends on another** (`shared` exempt) | `LedgerArchitectureTest.contexts_do_not_depend_on_each_other` |
-| The ledger domain imports no framework | `LedgerArchitectureTest.domain_depends_on_no_framework` |
+| The ledger domain imports no framework (now also Jackson 3's `tools.jackson`, `io.swagger` and `org.springdoc`, widened with the HTTP adapters) | `LedgerArchitectureTest.domain_depends_on_no_framework` |
 | No floating-point field in a ledger domain | `LedgerArchitectureTest.money_is_never_floating_point` |
 | No cycles between aggregates in a context | `LedgerArchitectureTest.aggregates_are_free_of_cycles` |
 | **No foreign key crosses a schema**, so context isolation holds in the database too | `SchemaBoundariesIT` |
 | **The journal is append-only**: no `UPDATE` or `DELETE` on a transaction, its entries or its states | `V1_1__accounting_schema.sql` triggers; `JournalIsAppendOnlyIT` |
 | **Nothing outside the ledger's composition root depends on it** | `LedgerArchitectureTest.no_context_depends_on_the_composition_root` |
-| **The ledger's application layer imports no framework** | `LedgerArchitectureTest.the_application_layer_depends_on_no_framework` |
+| **The ledger's application layer imports no framework** (same widened package list as the domain rule) | `LedgerArchitectureTest.the_application_layer_depends_on_no_framework` |
+| **A controller reaches the application only through its in-ports** — never a repository, an outbound adapter, or a concrete `application.service` class | `LedgerArchitectureTest.web_adapters_reach_no_outbound_port` |
+| **An outbound adapter never reaches an inbound one**, so the store never names a transport type | `LedgerArchitectureTest.outbound_adapters_do_not_reach_inbound` |
+| **A web DTO's simple name is unique across every context** — `MoneyDto` alone is exempt, since each context declares an identical copy on purpose (Ruling 21) | `LedgerArchitectureTest.web_dto_names_are_unique_across_contexts`; `MoneyDtoShapesTest` keeps the three copies identical |
+| **The ledger's generated OpenAPI document matches the committed `contracts/ledger-v1.openapi.json`** | `LedgerContractIT` |
+| **No `operationId` carries a springdoc collision suffix** (`..._1` on a name reused across contexts, Ruling 22) | `LedgerContractIT.Given_the_generated_document_When_operation_ids_are_read_Then_none_carries_a_springdoc_collision_suffix` |
+| **Every response schema declares `required` for its always-present members**, so a client generated from the document trusts which fields it can rely on | `LedgerContractIT.Given_the_generated_document_When_response_schemas_are_read_Then_they_require_what_is_always_present` |
 | No inward assistant layer imports a framework | `test_architecture.py::…Then_it_imports_no_framework` |
 | No inward assistant layer imports the adapters | `test_architecture.py::…Then_it_imports_no_adapter` |
 | **No assistant context imports another** | `test_architecture.py::…Then_it_imports_no_other_context` |

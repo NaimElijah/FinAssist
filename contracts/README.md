@@ -10,8 +10,8 @@ from both, and the assistant is checked against the ledger's rather than hand-wr
 remembered shape.
 
 - `ledger-v1.openapi.json` exists. springdoc generates it from the ledger's code, and
-  `LedgerContractIT` pins it. It has no paths until the first controller lands, but it already
-  carries `info`, `servers` and the `Problem` schema that every operation's `default` response
+  `LedgerContractIT` pins it. It now carries every accounting, budgeting and planning path
+  alongside `info`, `servers` and the `Problem` schema that every operation's `default` response
   refers to.
 - `assistant-v1.openapi.json` arrives with the assistant's first endpoint.
 

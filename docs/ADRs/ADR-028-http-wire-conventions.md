@@ -160,8 +160,10 @@ rendered — and the log line carries the trace id that finds it.
 **Makes easy**
 
 - One error shape from two stacks, for one client: the web client parses a problem and nothing else.
-- Types generated from either document carry exact decimal strings, discriminated variants and the
-  problem shape, because the documents describe them.
+- Types generated from either document carry exact decimal strings and the problem shape, because
+  the documents describe them. A sealed type is flat on the wire — a required `status`, with
+  optional `on` and `reason` — and each web feature's `api/` mapper builds the discriminated
+  union from it, because the document has no discriminated variant to generate one from.
 - Contract drift is a failing test that names the file to copy, rather than a mismatch found in a
   browser.
 - A status tells a client what to do next: fix the request (400), stop looking (404), reconsider in
@@ -183,10 +185,12 @@ rendered — and the log line carries the trace id that finds it.
 
 **Accepted cost**
 
-- **`IllegalArgumentException` is the domain's only rule signal**, so a bug that raises one reads as
-  422, not 500. Syntax is parsed before the domain sees input — UUID-typed parameters, enums, decimal
-  patterns — so 400 and 422 stay distinct; what cannot be told apart is a rule the domain meant from
-  one it hit by mistake.
+- **`IllegalArgumentException` is not the domain's only rule signal — `IllegalTransitionException`
+  and `IllegalPlanTransitionException` are rule signals too, mapped to 409 by their own context's
+  advice — but it is the only one the composition fallback conflates with a bug**, so a bug that
+  raises `IllegalArgumentException` reads as 422, not 500. Syntax is parsed before the domain sees
+  input — UUID-typed parameters, enums, decimal patterns — so 400 and 422 stay distinct; what
+  cannot be told apart is a rule the domain meant from one it hit by mistake.
 - **A double-submitted create is permanent.** The journal is append-only, so the only remedy for a
   duplicated transaction is to void it. The UI disables submit while a request is pending, which
   narrows the window without closing it.

@@ -3,13 +3,16 @@
 What the system must do. *How* it is built is [architecture](../architecture/architecture.md);
 *why* a given solution was chosen is [the ADRs](../ADRs/).
 
-> **Status: the domain and application layers are written, and the ledger's store is PostgreSQL;
-> no transport is.** The store is [ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md) and
+> **Status: the domain and application layers are written, the ledger's store is PostgreSQL, and
+> the ledger now has a transport — the assistant and the web client do not.** The store is
+> [ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md) and
 > [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md). The transport's decisions
 > are recorded in [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md),
 > [ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md) and
-> [ADR-028](../ADRs/ADR-028-http-wire-conventions.md), and nothing implements them yet.
-> Requirements marked
+> [ADR-028](../ADRs/ADR-028-http-wire-conventions.md); the ledger implements them, serving
+> accounting, budgeting and planning under `/api/v1`, with its generated OpenAPI document pinned
+> by `LedgerContractIT`. The assistant has no endpoint of its own yet, and neither does the web
+> client, which calls neither service. Requirements marked
 > **Enforced** name the class and the test that hold them today, so this document can be
 > checked rather than trusted. Everything still marked `TODO` is a decision waiting on its
 > owner, not an omission to be filled in by inference — behaviour found in code is evidence
@@ -45,24 +48,29 @@ that enforces it once one exists.
 The ledger keeps books by **double entry** ([ADR-011](../ADRs/ADR-011-double-entry-bookkeeping.md)).
 
 - Open an account with a name, one of five accounting types, and exactly one currency.
-  `Account`
+  `Account`. Reachable over HTTP as `POST /api/v1/accounts`; `AccountingHttpIT`
 - Record a transaction as two or more entries that sum to zero. An unbalanced set cannot be
   recorded. `Transaction`, `TransactionTest`; `RecordTransactionUseCase`,
-  `TransactionServiceTest`
+  `TransactionServiceTest`. Reachable over HTTP as `POST /api/v1/transactions`; `AccountingHttpIT`
 - Move a transaction through its lifecycle: clear it once the institution confirms it,
   reconcile it once it is matched to a statement, or void it with a reason.
-  `TransactionState`, `TransactionTest`
+  `TransactionState`, `TransactionTest`. Reachable over HTTP as `POST
+  /api/v1/transactions/{id}/clear`, `/reconcile` and `/void`; `AccountingHttpIT`
 - Read the balance of an account, derived from its entries. `Balance`, `BalanceTest`;
-  `ViewBalanceUseCase`, `JournalServiceTest`
-- Define a budget for a period, with one spending limit per category. `Budget`, `BudgetTest`
+  `ViewBalanceUseCase`, `JournalServiceTest`. Reachable over HTTP as `GET
+  /api/v1/accounts/{id}/balance`; `AccountingHttpIT`
+- Define a budget for a period, with one spending limit per category. `Budget`, `BudgetTest`.
+  Reachable over HTTP as `POST /api/v1/budgets`; `BudgetingHttpIT`
 - See what remains in a budgeted category once spend is taken off, including when overspent.
   `Budget.remaining`, `BudgetTest`; `ReviewBudgetUseCase`, `BudgetReviewServiceTest`. Spend
   that matched a rule for an unbudgeted category, and spend that matched no rule at all, are
   reported separately rather than folded away — the second is what says the rules need work
-  rather than the spending.
+  rather than the spending. Reachable over HTTP as `GET /api/v1/budgets/{id}/review`;
+  `BudgetingHttpIT`
 - Assign a category to a transaction by matching its description. `CategorisationRule`;
   `AddCategorisationRuleUseCase`. Rules are tried in the order they were added and the first
-  match wins, which `CategorisationRuleRepository` makes part of its contract.
+  match wins, which `CategorisationRuleRepository` makes part of its contract. Reachable over
+  HTTP as `POST /api/v1/categorisation-rules`; `BudgetingHttpIT`
 
 **Manual entry is the first source of transactions**, chosen by the owner on 2026-09-14: a
 transaction is recorded by hand, through the web client. File import and institution sync remain
@@ -109,29 +117,34 @@ are never summed ([ADR-015](../ADRs/ADR-015-planning-as-a-sixth-bounded-context.
 
 - Record a planned flow — a positive amount, a direction (money in, money out, or into
   investments), the date it starts, and how it repeats. `PlannedFlow`, `PlannedFlowTest`;
-  `PlanFlowUseCase`, `PlanServiceTest`
+  `PlanFlowUseCase`, `PlanServiceTest`. Reachable over HTTP as `POST /api/v1/planned-flows`;
+  `PlanningHttpIT`
   ([#10](https://github.com/NaimElijah/FinAssist/issues/10))
 - Repeat a flow weekly, monthly or yearly, ending on a date or after a number of occurrences.
   `Recurrence`, `RecurrenceTest`
 - Move a planned flow through its lifecycle: commit to it, mark it realised once the money has
   moved, or cancel it with a reason. `PlanState`, `PlannedFlowTest`; `TransitionPlanUseCase`,
-  `PlanServiceTest`
+  `PlanServiceTest`. Reachable over HTTP as `POST /api/v1/planned-flows/{id}/commit`,
+  `/realise` and `/cancel`; `PlanningHttpIT`
 - Define a named strategy — a set of planned flows plus an assumption about investment growth —
-  including the do-nothing baseline, which has no flows at all. `Scenario`, `ScenarioTest`
+  including the do-nothing baseline, which has no flows at all. `Scenario`, `ScenarioTest`.
+  Reachable over HTTP as `POST /api/v1/scenarios`; `PlanningHttpIT`
   ([#12](https://github.com/NaimElijah/FinAssist/issues/12))
 - Read a projected timeline of cash and invested balances across a horizon, derived from an
   opening balance and a strategy. `Projection.of`, `ProjectionTest`; `ProjectScenarioUseCase`,
   `ForecastServiceTest`. **The caller names which accounts open the cash line and which open
   the invested line** — nothing in FinAssist decides that, and inventing a rule for it would
   bury a policy nobody chose
-  ([#11](https://github.com/NaimElijah/FinAssist/issues/11))
+  ([#11](https://github.com/NaimElijah/FinAssist/issues/11)). Reachable over HTTP as `GET
+  /api/v1/scenarios/{id}/projection`; `PlanningHttpIT`
 - See the first **step boundary** at which the projected cash balance is negative, or that none
   is. `Projection.firstShortfall`, `ProjectionTest`. A dip that opens and closes inside a single
   step is not reported — a large payment covered by a salary later the same month looks
   untroubled at a monthly cadence. Projecting at a finer cadence narrows the window; nothing
   closes it.
 - Compare two or more strategies over one horizon and read how far each diverges from a chosen
-  baseline, step by step and at the end. `Comparison`, `ComparisonTest`
+  baseline, step by step and at the end. `Comparison`, `ComparisonTest`. Reachable over HTTP as
+  `GET /api/v1/scenario-comparisons`; `PlanningHttpIT`
   ([#12](https://github.com/NaimElijah/FinAssist/issues/12))
 
 **A projection covers one currency, and this is a limitation rather than an oversight.** An owner
@@ -224,18 +237,18 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | A recorded journal entry is never updated or deleted | `V1_1__accounting_schema.sql` — a `BEFORE UPDATE OR DELETE` trigger on all three journal tables; `JournalIsAppendOnlyIT` | **Enforced by the database.** The port still exposes no delete, but the guarantee no longer depends on that: the trigger refuses the statement whoever issues it, and a lifecycle change is an `INSERT` into `journal_transaction_state` ([ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
 | A domain function is given the current time rather than reading it | `test_architecture.py::…Then_it_reads_no_clock`, which matches an uncalled `datetime.now` reference too; `is_stale`, `Projection.of`, `Transaction.clear` all take a date | **Enforced** on the Python side; a convention in the ledger |
 | The currency table is the same in both languages | `CurrencyTest`, `test_currency.py` | **Enforced** |
-| The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) | Accepted, not yet enforced — the store exists and only the ledger connects to it, but the assistant has no ledger client yet, so nothing holds it to the API |
+| The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md); the ledger's published contract is `contracts/ledger-v1.openapi.json`, pinned by `LedgerContractIT` | Accepted; the ledger's side is built and its contract published, but the assistant has no ledger client yet, so nothing holds it to the API |
 | An account name is unique within the chart of accounts, ignoring surrounding whitespace and case | `account_normalised_name_key` (atomically); `AccountService.open` (for the message); `DuplicateAccountNameException`; `JdbcAccountRepositoryIT`, `AccountServiceTest` | **Enforced** — the repository claims the normalised name, because a check followed by a write is not a rule: two callers can pass the check together. The typed form is what is stored and displayed |
 
 ## Non-functional requirements
 
 | Concern | Requirement | Status |
 |---|---|---|
-| Authentication | None while FinAssist runs only on the owner's machine. Every service binds loopback by default, a request whose `Host` is not allow-listed is refused, and ledger writes accept only `application/json`, which together keep a hostile page in the owner's own browser out. Assistant-to-ledger authentication is deferred by the same record. Revisit when anything other than the owner's machine can reach a port, a deployment target is chosen, the journal needs an actor, or a second person uses FinAssist ([ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | Decided, not yet enforced — no endpoint exists. The assistant already binds `127.0.0.1` by default; the ledger does not, and neither service checks `Host` |
+| Authentication | None while FinAssist runs only on the owner's machine. Every service binds loopback by default, a request whose `Host` is not allow-listed is refused, and ledger writes accept only `application/json`, which together keep a hostile page in the owner's own browser out. Assistant-to-ledger authentication is deferred by the same record. Revisit when anything other than the owner's machine can reach a port, a deployment target is chosen, the journal needs an actor, or a second person uses FinAssist ([ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | **Enforced on the ledger** — it binds `127.0.0.1` by default, `HostAllowListFilter` refuses an un-allow-listed `Host` with 403 ahead of every other filter, and every write `consumes` only `application/json`; `HostAllowListFilterTest`, `LedgerApplicationIT`. The assistant already binds `127.0.0.1` by default but has no endpoint yet, so nothing there is enforced |
 | Secrets | Never in the repository, logs or error messages. `.env` is git-ignored; `.env.example` carries keys with no values | Holds |
 | Data handling | The owner's financial data and `ANTHROPIC_API_KEY` are redacted at the logging boundary, not at each call site | **Enforced** for secrets — `observability.redact_secrets`, `logger.ts`; `test_observability.py`, `logger.test.ts`. Financial data is redacted only where a field name marks it, and no code logs a record yet ([ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 | Persistence | Ledger data survives restart; migrations are append-only once released | **Enforced** — PostgreSQL 18, one schema per bounded context with no foreign key crossing one, Flyway migrations in a directory per context. Hand-written SQL over `JdbcClient`; the in-memory adapters are gone rather than kept behind a profile. `JdbcAccountRepositoryIT`, `JdbcTransactionRepositoryIT`, `JdbcBudgetingRepositoriesIT`, `JdbcPlanningRepositoriesIT`, `SchemaBoundariesIT` ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md), [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
-| Observability | Structured logs, health and readiness endpoints, OpenTelemetry rather than a vendor SDK | **Enforced** — `LedgerObservabilityTest`, `test_observability.py`. Both services emit JSON carrying a W3C trace id and export OTLP; telemetry is a no-op when no collector is configured. Traces describe Actuator and probe traffic only, since no business endpoint exists ([ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
+| Observability | Structured logs, health and readiness endpoints, OpenTelemetry rather than a vendor SDK | **Enforced** — `LedgerObservabilityIT`, `test_observability.py`. Both services emit JSON carrying a W3C trace id and export OTLP; telemetry is a no-op when no collector is configured. The ledger's traces now describe its business endpoints too, not only Actuator and probe traffic, since every request passes through the same instrumented dispatcher ([ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 | Performance and scale | TODO (@NaimElijah) — single owner, so this is likely a non-requirement; state it explicitly rather than leaving it open | Undecided |
 | Availability | TODO (@NaimElijah) — no deployment target chosen; it runs locally only | Undecided |
 | Compliance | TODO (@NaimElijah) — depends on whether data ever leaves the owner's machine | Undecided |

@@ -68,7 +68,7 @@ management:
   endpoints:
     web:
       exposure:
-        # An explicit allow-list, never "*". LedgerApplicationTest asserts /actuator/env is 404,
+        # An explicit allow-list, never "*". LedgerApplicationIT asserts /actuator/env is 404,
         # which is what stops this being widened by accident.
         include: health,info,metrics,prometheus
   endpoint:
