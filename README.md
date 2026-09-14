@@ -72,22 +72,27 @@ cp .env.example .env        # then set POSTGRES_PASSWORD and LEDGER_DB_PASSWORD 
 docker compose up --build
 ```
 
-That starts PostgreSQL 18 and the ledger — the only two services in the Compose file so far.
-The ledger applies its Flyway migrations at start-up, then answers its API and its Actuator
-probes, published on `127.0.0.1` only (ADR-027):
+That starts PostgreSQL 18, the ledger and the assistant. The ledger applies its Flyway
+migrations at start-up; both services then answer their health probes, published on
+`127.0.0.1` only (ADR-027):
 
 ```bash
 curl http://127.0.0.1:8080/actuator/health
 # {"groups":["liveness","readiness"],"status":"UP"}
 curl http://127.0.0.1:8080/api/v1/accounts
 # []
+curl http://127.0.0.1:8000/health
+# {"status":"UP"}
+curl http://127.0.0.1:8000/api/v1/portfolio/holdings/VOO/position
+# a 404 problem — the assistant has no real data source yet; see ASSISTANT_DEV_SEED below
 ```
 
-For the faster native inner loop, run the ledger outside Compose against the same database:
+For the faster native inner loop, run either service outside Compose against the same database:
 
 ```bash
 docker compose up -d db
 cd backend/ledger && ./mvnw spring-boot:run
+cd backend/assistant && uv run python -m finassist_assistant.adapters
 ```
 
 The web client runs too, and renders a placeholder:

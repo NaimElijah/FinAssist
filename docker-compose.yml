@@ -1,12 +1,13 @@
 # The one entry point for running FinAssist locally and in CI (see docs/ADRs/ADR-005).
-# The ledger runs here now that it has something to serve; the assistant joins the same file
-# the day its own API exists. `./mvnw spring-boot:run` against the Compose `db` still works,
-# for the faster native inner loop.
+# Both backend services run here now that each has something to serve. `./mvnw spring-boot:run`
+# and `uv run python -m finassist_assistant.adapters` against the Compose `db` still work, for
+# the faster native inner loop.
 #
 # The monitoring services sit behind a `monitoring` profile, so `docker compose up` stays
-# database-and-ledger-only and `docker compose --profile monitoring up` adds the telemetry
-# backend (ADR-019). The ledger pushes OTLP, and Prometheus scrapes it directly by its Compose
-# service name — a natively-run ledger bound to loopback (ADR-027) is not reachable that way.
+# database-and-both-services-only and `docker compose --profile monitoring up` adds the
+# telemetry backend (ADR-019). Both services push OTLP, and Prometheus scrapes them directly by
+# their Compose service names — a natively-run service bound to loopback (ADR-027) is not
+# reachable that way.
 name: finassist
 
 services:
@@ -58,6 +59,44 @@ services:
       timeout: 3s
       retries: 10
       start_period: 30s
+
+  assistant:
+    build: ./backend/assistant
+    # Loopback only, per ADR-027 — the assistant has no authentication either, so the published
+    # port must not be reachable from outside this machine even though the container itself
+    # binds every interface (see ASSISTANT_HOST below).
+    ports:
+      - "127.0.0.1:${ASSISTANT_PORT:-8000}:8000"
+    environment:
+      # The container's own loopback is unreachable from outside the container, so the interface
+      # it binds has to be every one of them; the host-side port mapping above is what stays on
+      # 127.0.0.1 (ADR-027).
+      ASSISTANT_HOST: 0.0.0.0
+      ASSISTANT_PORT: 8000
+      # `assistant` — this service's own Compose DNS name — lets Prometheus scrape it below.
+      ASSISTANT_ALLOWED_HOSTS: localhost,127.0.0.1,assistant
+      ASSISTANT_DEV_SEED: ${ASSISTANT_DEV_SEED:-false}
+      ASSISTANT_LOG_LEVEL: ${ASSISTANT_LOG_LEVEL:-INFO}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORT_ENABLED: ${OTEL_EXPORT_ENABLED:-false}
+      # No ANTHROPIC_API_KEY: nothing reads it at start-up today. `assistance` is written and
+      # deliberately unwired (adapters/wiring.py) — an LLM adapter would settle the requirements'
+      # open privacy question by implication, so this waits on that decision, not on Compose.
+    healthcheck:
+      # python:3.13-slim carries no curl; the interpreter already in the image is enough. The
+      # Host header urllib sends is `localhost:8000`, which ASSISTANT_ALLOWED_HOSTS admits — the
+      # check compares only the text before the header's first colon (ADR-027).
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   # --- Monitoring (profile: monitoring) ---------------------------------------------------
   # Receives OTLP from both services and re-exposes metrics for Prometheus to scrape. The
