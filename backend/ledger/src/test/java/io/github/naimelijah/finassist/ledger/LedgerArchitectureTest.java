@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger;
 
 import static com.tngtech.archunit.base.DescribedPredicate.alwaysTrue;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.INTERFACES;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
@@ -184,4 +185,43 @@ class LedgerArchitectureTest {
             .dependOnClassesThat()
             .resideInAnyPackage(FORBIDDEN_FRAMEWORK_PACKAGES)
             .because("a use case that needs a container to construct cannot be tested by calling it");
+
+    /**
+     * An inbound adapter drives the application through its in-ports and nothing else.
+     *
+     * <p>{@code layers_point_inward} treats every adapter as one layer, so on its own it lets a
+     * controller call a repository or an outbound adapter directly, skipping the use case and every
+     * rule the use case enforces.
+     *
+     * <p>Only the <em>interfaces</em> in {@code port.out} are forbidden. The records there stay
+     * reachable, because an in-port's command may carry one: planning's {@code ProjectScenarioCommand}
+     * holds {@code AccountRef}, which lives in {@code port.out} beside the port that consumes it, so a
+     * controller building that command has to name it.
+     */
+    @ArchTest
+    static final ArchRule web_adapters_reach_no_outbound_port = noClasses()
+            .that()
+            .resideInAPackage(ROOT + "..adapter.in..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage(ROOT + "..adapter.out..")
+            .orShould()
+            .dependOnClassesThat(
+                    resideInAPackage(ROOT + "..application.port.out..").and(INTERFACES))
+            .because("a controller that bypasses its use case bypasses the rules the use case enforces");
+
+    /**
+     * An outbound adapter serves the application and knows nothing of how the application was called.
+     *
+     * <p>A store that named a controller's transport type would tie the schema mapping to the wire
+     * shape, so a change to the contract would reach the database.
+     */
+    @ArchTest
+    static final ArchRule outbound_adapters_do_not_reach_inbound = noClasses()
+            .that()
+            .resideInAPackage(ROOT + "..adapter.out..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage(ROOT + "..adapter.in..")
+            .because("the wire shape must not reach the store");
 }

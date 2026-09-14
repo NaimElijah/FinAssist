@@ -51,9 +51,10 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * yet (ADR-023), and an outbox table with no consumer is exactly what ADR-020 refused to build
  * ahead of one, so those two beans stay in memory until there is something to deliver to.
  *
- * <p>Nothing calls the services yet, because there is no inbound adapter. What every future request
- * will pass through is built here already: the Host allow-list that refuses a DNS-rebound page
- * (ADR-027).
+ * <p>The services are called by the controllers in a context's {@code adapter.in.web}, which are
+ * component-scanned rather than built here. That is the one bounded exception ADR-028 makes, so that a
+ * {@code @WebMvcTest} slice loads them. What every request passes through first is built here: the Host
+ * allow-list that refuses a DNS-rebound page (ADR-027).
  */
 @Configuration
 public class LedgerConfiguration {

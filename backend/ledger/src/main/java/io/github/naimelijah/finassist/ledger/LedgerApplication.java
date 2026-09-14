@@ -12,11 +12,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * enforces instead of merely asserting here.
  *
  * <p>The wiring itself lives in {@code composition}, which is Spring-aware by design and is the only
- * package permitted to see two contexts at once (ADR-022).
+ * package permitted to see two contexts at once (ADR-022). Controllers are the exception: they are
+ * component-scanned from each context's {@code adapter.in.web} (ADR-028).
  *
- * <p>Starting this exposes Actuator and the springdoc-generated OpenAPI document at {@code
- * /v3/api-docs} — there are no business endpoints yet. See {@code
- * docs/architecture/architecture.md}.
+ * <p>Starting this serves the ledger's API under {@code /api/v1}, Actuator, and the springdoc-generated
+ * OpenAPI document at {@code /v3/api-docs}. See {@code docs/architecture/architecture.md}.
  */
 @SpringBootApplication
 public class LedgerApplication {

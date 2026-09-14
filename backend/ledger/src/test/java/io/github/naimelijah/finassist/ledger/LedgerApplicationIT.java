@@ -28,7 +28,7 @@ import org.springframework.boot.web.server.servlet.context.ServletWebServerAppli
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * The ledger as a running server, and what it answers at its edge before any business endpoint exists.
+ * The ledger as a running server, and what it answers at its edge whatever business endpoints it serves.
  *
  * <p>This exists because the README and the architecture document both claim the ledger "boots and
  * answers Actuator probes", and nothing checked either half of that sentence. A claim in a document

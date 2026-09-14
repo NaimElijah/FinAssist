@@ -1,6 +1,107 @@
 {
   "components": {
     "schemas": {
+      "AccountResponse": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "ASSET",
+              "LIABILITY",
+              "INCOME",
+              "EXPENSE",
+              "EQUITY"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BalanceResponse": {
+        "properties": {
+          "account": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "balance": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "type": "object"
+      },
+      "MoneyDto": {
+        "properties": {
+          "amount": {
+            "pattern": "-?\\d+(\\.\\d+)?",
+            "type": "string"
+          },
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "type": "object"
+      },
+      "OpenAccountRequest": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "ASSET",
+              "LIABILITY",
+              "INCOME",
+              "EXPENSE",
+              "EQUITY"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "name",
+          "type"
+        ],
+        "type": "object"
+      },
       "Problem": {
         "properties": {
           "code": {
@@ -49,7 +150,120 @@
     "version": "v1"
   },
   "openapi": "3.1.0",
-  "paths": {},
+  "paths": {
+    "/api/v1/accounts": {
+      "get": {
+        "operationId": "listAccounts",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccountResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "account-controller"
+        ]
+      },
+      "post": {
+        "operationId": "openAccount",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "account-controller"
+        ]
+      }
+    },
+    "/api/v1/accounts/{id}/balance": {
+      "get": {
+        "operationId": "viewBalance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BalanceResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "account-controller"
+        ]
+      }
+    }
+  },
   "servers": [
     {
       "url": "/"
