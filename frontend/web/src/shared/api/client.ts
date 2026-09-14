@@ -2,19 +2,68 @@
  * The one place the app talks HTTP.
  *
  * Once `contracts/` holds an OpenAPI document, the typed client is generated beside this file
- * and this wrapper is what it builds on. Until then it carries no endpoint knowledge, because
- * there are no endpoints.
+ * and this wrapper is what it builds on. Until then it carries no endpoint knowledge beyond the
+ * two base paths below, because there are no endpoints.
  *
  * Being the single chokepoint is also why correlation lives here: every request carries a
  * `traceparent`, so the backends continue the browser's trace rather than starting their own,
  * and every failure is logged once with that id attached. See ADR-019.
+ *
+ * It is also where a failure's RFC 9457 `application/problem+json` body is parsed onto
+ * `ApiError`, so a caller can show the server's message and branch on its stable `code` rather
+ * than reparsing the response itself. See ADR-028.
  */
 
+import { ASSISTANT_BACKEND, LEDGER_BACKEND } from './backends';
 import { newTraceparent, traceIdOf } from '../lib/correlation';
 import { log } from '../lib/logger';
 
 /** W3C trace context. Named here so a caller overriding it is doing so deliberately. */
 export const TRACEPARENT_HEADER = 'traceparent';
+
+/** The ledger's base path, reached through the dev/preview proxy (ADR-026). */
+export const LEDGER_API = `${LEDGER_BACKEND.prefix}/api/v1`;
+
+/** The assistant's base path, reached through the dev/preview proxy (ADR-026). */
+export const ASSISTANT_API = `${ASSISTANT_BACKEND.prefix}/api/v1`;
+
+/**
+ * An RFC 9457 problem, the shape both services answer every failure with (ADR-028).
+ *
+ * `title` and `detail` are prose for a person; `code` is the stable member a caller branches
+ * on. `errors` is populated only for a 400 validation failure, one entry per invalid field.
+ */
+export interface Problem {
+    readonly type?: string;
+    readonly title?: string;
+    readonly status: number;
+    readonly detail?: string;
+    readonly instance?: string;
+    readonly code: string;
+    readonly errors?: readonly { readonly field: string; readonly message: string }[];
+}
+
+/**
+ * Narrows `value` to a plain object, so `isProblem` can read candidate fields off it without an
+ * `as` cast on data that arrived as unvalidated JSON.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+/**
+ * Validate a parsed JSON body as a `Problem`, at the boundary where it arrives from the network.
+ *
+ * Checks only the two fields the client depends on - `status` is a number and `code` is a
+ * string, both required by ADR-028's problem shape - so a body missing `title`, `detail` or
+ * `errors`, all optional, still validates; those are read only for display.
+ *
+ * @param value - a parsed JSON body of unknown shape.
+ * @returns whether `value` is a `Problem`.
+ */
+export function isProblem(value: unknown): value is Problem {
+    return isRecord(value) && typeof value.status === 'number' && typeof value.code === 'string';
+}
 
 /** Thrown for any non-2xx response, so a failed call can never be mistaken for an empty one. */
 export class ApiError extends Error {
@@ -22,6 +71,8 @@ export class ApiError extends Error {
         readonly status: number,
         readonly url: string,
         message: string,
+        /** The parsed problem, or `undefined` when the response carried none. */
+        readonly problem: Problem | undefined,
     ) {
         super(message);
         this.name = 'ApiError';
@@ -37,6 +88,31 @@ export class ApiBodyError extends Error {
     ) {
         super(message, options);
         this.name = 'ApiBodyError';
+    }
+}
+
+const PROBLEM_CONTENT_TYPE = 'application/problem+json';
+
+/**
+ * Read a non-2xx response's body as a `Problem`, or `undefined` when it does not carry one.
+ *
+ * Reading the body can itself fail - it may be empty, truncated, or not JSON - and that must
+ * never turn one failure into a second, unhandled one. Any read or parse error here is
+ * swallowed and reported as `undefined`, exactly like a body that parses but fails `isProblem`.
+ *
+ * @param response - the non-2xx response being handled. Its body is not read again afterwards.
+ * @returns the parsed problem, or `undefined` when the response carries none.
+ */
+async function readProblem(response: Response): Promise<Problem | undefined> {
+    const contentType = response.headers.get('Content-Type');
+    if (!contentType?.includes(PROBLEM_CONTENT_TYPE)) {
+        return undefined;
+    }
+    try {
+        const body: unknown = await response.json();
+        return isProblem(body) ? body : undefined;
+    } catch {
+        return undefined;
     }
 }
 
@@ -63,12 +139,19 @@ export async function requestJson<T>(url: string, init?: RequestInit): Promise<T
     }
 
     if (!response.ok) {
+        const problem = await readProblem(response);
+        // `detail` can carry the owner's own descriptions - an account name, memo text - which
+        // is financial data (ADR-019: redaction happens at the boundary, and the safest
+        // redaction is not logging it at all). `code` is a stable identifier, never that.
         log.error('http request returned an error status', {
             url,
             traceId,
             status: response.status,
+            ...(problem === undefined ? {} : { code: problem.code }),
         });
-        throw new ApiError(response.status, url, `Request failed with ${String(response.status)}`);
+        const message =
+            problem?.detail ?? problem?.title ?? `Request failed with ${String(response.status)}`;
+        throw new ApiError(response.status, url, message, problem);
     }
 
     // A 204, a 205, or a proxy returning an HTML page all satisfy `response.ok`. Letting
@@ -85,4 +168,33 @@ export async function requestJson<T>(url: string, init?: RequestInit): Promise<T
         log.error('http response body was not json', { url, traceId });
         throw new ApiBodyError(url, 'Response body was not valid JSON', { cause });
     }
+}
+
+/**
+ * `requestJson` for a request carrying a JSON body.
+ *
+ * Both services refuse a write whose body is not `application/json`, answering 415 (ADR-027),
+ * so this is the only path that writes: it sets `Content-Type: application/json` and
+ * stringifies `body`, and otherwise behaves exactly like `requestJson` - the same `Accept`
+ * header, the same `traceparent` propagation, the same error handling.
+ *
+ * @param url - the request URL, typically built from `LEDGER_API` or `ASSISTANT_API`.
+ * @param method - `POST`. Every write ADR-028 defines - a create, a lifecycle command, a
+ *   side-effect-free computation carrying a monetary amount - is a `POST`, so a wider type would
+ *   not describe an actual write.
+ * @param body - serialised with `JSON.stringify` and sent as the request body.
+ * @param init - additional `RequestInit` fields, merged the same way `requestJson` merges them.
+ * @returns the parsed JSON response body, including a `201`'s created representation.
+ * @throws ApiError - on a non-2xx response.
+ * @throws ApiBodyError - when the response carries no parseable JSON body.
+ */
+export async function sendJson<T>(
+    url: string,
+    method: 'POST',
+    body: unknown,
+    init?: RequestInit,
+): Promise<T> {
+    const headers = new Headers(init?.headers);
+    headers.set('Content-Type', 'application/json');
+    return requestJson<T>(url, { ...init, method, headers, body: JSON.stringify(body) });
 }

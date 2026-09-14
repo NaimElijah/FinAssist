@@ -7,7 +7,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { traceIdOf } from '../lib/correlation';
 import { type LogRecord, setLogSink } from '../lib/logger';
-import { ApiBodyError, ApiError, requestJson, TRACEPARENT_HEADER } from './client';
+import {
+    ApiBodyError,
+    ApiError,
+    ASSISTANT_API,
+    LEDGER_API,
+    type Problem,
+    requestJson,
+    sendJson,
+    TRACEPARENT_HEADER,
+} from './client';
 
 const URL = 'https://ledger.test/api/v1/accounts';
 
@@ -30,6 +39,15 @@ function jsonResponse(body: unknown, status = 200): () => Response {
         new Response(JSON.stringify(body), {
             status,
             headers: { 'Content-Type': 'application/json' },
+        });
+}
+
+/** An RFC 9457 problem response, `application/problem+json`, as both services answer failures. */
+function problemResponse(body: unknown, status: number): () => Response {
+    return () =>
+        new Response(JSON.stringify(body), {
+            status,
+            headers: { 'Content-Type': 'application/problem+json' },
         });
 }
 
@@ -235,5 +253,100 @@ describe('failure logging', () => {
         await requestJson(URL);
 
         expect(written).toEqual([]);
+    });
+
+    it('Given_a_problem_body_When_requested_Then_code_is_logged_but_detail_never_is', async () => {
+        // detail can carry the owner's own descriptions - account names, memo text - which is
+        // financial data (ADR-019). code is a stable identifier and safe to log.
+        stubFetch(
+            problemResponse(
+                {
+                    status: 409,
+                    code: 'DUPLICATE_ACCOUNT_NAME',
+                    detail: 'An account named "Checking" already exists.',
+                },
+                409,
+            ),
+        );
+
+        await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiError);
+
+        expect(written[0]).toMatchObject({ code: 'DUPLICATE_ACCOUNT_NAME' });
+        expect(written[0]).not.toHaveProperty('detail');
+    });
+});
+
+describe('problem responses', () => {
+    it('Given_a_problem_body_When_requested_Then_it_is_parsed_onto_ApiError_and_the_message_is_the_detail', async () => {
+        const problem: Problem = {
+            status: 422,
+            code: 'ACCOUNT_CURRENCY_MISMATCH',
+            title: 'Unprocessable Entity',
+            detail: 'Entries must share one currency.',
+        };
+        stubFetch(problemResponse(problem, 422));
+
+        await expect(requestJson(URL)).rejects.toMatchObject({
+            problem,
+            message: problem.detail,
+        });
+    });
+
+    it('Given_an_error_response_with_a_plain_json_content_type_When_requested_Then_problem_is_undefined', async () => {
+        // The body would satisfy isProblem, but the content type does not say problem+json, so
+        // it is read as an ordinary error body, not a problem.
+        stubFetch(jsonResponse({ status: 500, code: 'INTERNAL' }, 500));
+
+        await expect(requestJson(URL)).rejects.toMatchObject({ problem: undefined });
+    });
+
+    it('Given_a_problem_content_type_but_a_body_missing_code_When_requested_Then_problem_is_undefined', async () => {
+        stubFetch(problemResponse({ status: 400, title: 'Bad Request' }, 400));
+
+        await expect(requestJson(URL)).rejects.toMatchObject({ problem: undefined });
+    });
+
+    it('Given_a_problem_content_type_but_an_unparseable_body_When_requested_Then_reading_it_does_not_throw_a_second_error', async () => {
+        // A truncated or otherwise unreadable body must not turn one failure (the error status)
+        // into two: the call still rejects with a plain ApiError, problem simply undefined.
+        stubFetch(
+            () =>
+                new Response('not json', {
+                    status: 500,
+                    headers: { 'Content-Type': 'application/problem+json' },
+                }),
+        );
+
+        await expect(requestJson(URL)).rejects.toMatchObject({ problem: undefined, status: 500 });
+    });
+});
+
+describe('sendJson', () => {
+    it('Given_a_body_When_sent_Then_it_posts_json_with_a_content_type_and_a_traceparent', async () => {
+        const stub = stubFetch(jsonResponse({ id: 'txn-1' }, 201));
+
+        await sendJson(URL, 'POST', { amount: '12.50' });
+
+        const [, sent] = stub.mock.calls[0] ?? [];
+        const headers = new Headers(sent?.headers);
+        expect(sent?.method).toBe('POST');
+        expect(sent?.body).toBe(JSON.stringify({ amount: '12.50' }));
+        expect(headers.get('Content-Type')).toBe('application/json');
+        expect(traceIdOf(headers.get(TRACEPARENT_HEADER))).toMatch(/^[0-9a-f]{32}$/);
+    });
+
+    it('Given_a_201_response_When_sent_Then_the_created_body_is_resolved', async () => {
+        stubFetch(jsonResponse({ id: 'txn-1' }, 201));
+
+        await expect(sendJson(URL, 'POST', { amount: '12.50' })).resolves.toEqual({
+            id: 'txn-1',
+        });
+    });
+});
+
+describe('base paths', () => {
+    it('Given_the_module_When_read_Then_LEDGER_API_and_ASSISTANT_API_are_the_proxied_v1_paths', () => {
+        expect(LEDGER_API).toBe('/ledger/api/v1');
+        expect(ASSISTANT_API).toBe('/assistant/api/v1');
     });
 });
