@@ -40,6 +40,9 @@
     --radius-control: 3px;
     --radius-panel: 6px;
 
+    /* One height for buttons and fields, so a button beside an input lines up with it. */
+    --control-height: 2.25rem;
+
     --content-max-width: 72rem;
 
     /* The header band. The page's focus ring is too close in luminance to spruce to meet 3:1 on
