@@ -3,7 +3,12 @@
 What the system must do. *How* it is built is [architecture](../architecture/architecture.md);
 *why* a given solution was chosen is [the ADRs](../ADRs/).
 
-> **Status: the domain and application layers are written; no transport or store is.**
+> **Status: the domain and application layers are written, and the ledger's store is PostgreSQL;
+> no transport is.** The store is [ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md) and
+> [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md). The transport's decisions
+> are recorded in [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md),
+> [ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md) and
+> [ADR-028](../ADRs/ADR-028-http-wire-conventions.md), and nothing implements them yet.
 > Requirements marked
 > **Enforced** name the class and the test that hold them today, so this document can be
 > checked rather than trusted. Everything still marked `TODO` is a decision waiting on its
@@ -59,9 +64,9 @@ The ledger keeps books by **double entry** ([ADR-011](../ADRs/ADR-011-double-ent
   `AddCategorisationRuleUseCase`. Rules are tried in the order they were added and the first
   match wins, which `CategorisationRuleRepository` makes part of its contract.
 
-**Not yet decided:** where transactions come from. Manual entry, file import and institution
-sync all satisfy the requirements above and none is chosen; see
-[Open questions](#open-questions).
+**Manual entry is the first source of transactions**, chosen by the owner on 2026-09-14: a
+transaction is recorded by hand, through the web client. File import and institution sync remain
+open; see [Open questions](#open-questions).
 
 ### Assistance
 
@@ -140,18 +145,46 @@ work around here.
 reproducible line out. There is no probabilistic simulation, and a single line understates
 uncertainty by construction.
 
-**Not yet decided:** where a plan is stored, and whether visualising one is a web-client concern
-only. The domain computes the series; nothing draws it. A projection re-reads its flows before
-computing, so a plan cancelled after its strategy was named stops being forecast
-(`ForecastService`); without that, `countsTowardsProjection` would be unreachable in practice.
+A plan is stored in the ledger's `planning` schema
+([ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)), and drawing one is the
+[web client](#web-client)'s concern: the domain computes the series and draws nothing. A projection
+re-reads its flows before computing, so a plan cancelled after its strategy was named stops being
+forecast (`ForecastService`); without that, `countsTowardsProjection` would be unreachable in
+practice.
 
 ### Web client
 
-TODO (@NaimElijah) — enumerate. Expected to cover at least: viewing accounts and entries,
-setting a budget, seeing a portfolio, and asking a question. One screen area per user-facing
-context; `marketdata` has no surface of its own and is visible only through portfolio
-figures. Charting a projection and putting two strategies side by side belong here, not in
-the domain, which computes the series and draws nothing.
+The owner enumerated the web client on 2026-09-14. **None of it is implemented yet**: no endpoint
+and no screen exists, so no requirement below names an enforcing test, and each gains one in the
+commit that builds it. How the client reaches the two services is
+[ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), and what it is
+built with is [ADR-029](../ADRs/ADR-029-web-client-stack.md).
+
+Through the web client, the owner can:
+
+- Open an account, and see every account with its derived balance.
+- Record a transaction by hand, and see an account's transactions with their lifecycle state.
+- Clear, reconcile or void a transaction.
+- Define a budget for a month with a limit per category, and review spend against it: what is
+  overspent, what is unbudgeted, and what is uncategorised.
+- Add categorisation rules, in order.
+- Plan a flow, and move it through its lifecycle.
+- Define a scenario.
+- Chart a scenario's projection against chosen cash and invested accounts, with the first
+  shortfall marked.
+- Compare scenarios against a baseline.
+- Look up a holding by symbol, see its position and valuation, and price a disposal as a
+  calculation that records nothing.
+
+**One screen area per user-facing context**: accounts and transactions, budgets, planning, and
+portfolio. `marketdata` has no surface of its own and is visible only through portfolio figures.
+
+**"Ask a question" is deliberately excluded** until the privacy question in
+[Open questions](#open-questions) is answered. An assistance screen needs an LLM adapter behind it,
+and wiring one would answer that question by implication.
+
+**The portfolio screens have no real data source yet.** No service records a lot, and no price feed
+exists; where prices come from is an [open question](#open-questions).
 
 ## Business rules and invariants
 
@@ -191,14 +224,14 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | A recorded journal entry is never updated or deleted | `V1_1__accounting_schema.sql` — a `BEFORE UPDATE OR DELETE` trigger on all three journal tables; `JournalIsAppendOnlyIT` | **Enforced by the database.** The port still exposes no delete, but the guarantee no longer depends on that: the trigger refuses the statement whoever issues it, and a lifecycle change is an `INSERT` into `journal_transaction_state` ([ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
 | A domain function is given the current time rather than reading it | `test_architecture.py::…Then_it_reads_no_clock`, which matches an uncalled `datetime.now` reference too; `is_stale`, `Projection.of`, `Transaction.clear` all take a date | **Enforced** on the Python side; a convention in the ledger |
 | The currency table is the same in both languages | `CurrencyTest`, `test_currency.py` | **Enforced** |
-| The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) | Proposed — no persistence or client exists yet |
+| The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) | Accepted, not yet enforced — the store exists and only the ledger connects to it, but the assistant has no ledger client yet, so nothing holds it to the API |
 | An account name is unique within the chart of accounts, ignoring surrounding whitespace and case | `account_normalised_name_key` (atomically); `AccountService.open` (for the message); `DuplicateAccountNameException`; `JdbcAccountRepositoryIT`, `AccountServiceTest` | **Enforced** — the repository claims the normalised name, because a check followed by a write is not a rule: two callers can pass the check together. The typed form is what is stored and displayed |
 
 ## Non-functional requirements
 
 | Concern | Requirement | Status |
 |---|---|---|
-| Authentication | TODO (@NaimElijah) — single-owner system, but the assistant reaches the ledger over the network, so that hop needs a decided answer | Undecided |
+| Authentication | None while FinAssist runs only on the owner's machine. Every service binds loopback by default, a request whose `Host` is not allow-listed is refused, and ledger writes accept only `application/json`, which together keep a hostile page in the owner's own browser out. Assistant-to-ledger authentication is deferred by the same record. Revisit when anything other than the owner's machine can reach a port, a deployment target is chosen, the journal needs an actor, or a second person uses FinAssist ([ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | Decided, not yet enforced — no endpoint exists. The assistant already binds `127.0.0.1` by default; the ledger does not, and neither service checks `Host` |
 | Secrets | Never in the repository, logs or error messages. `.env` is git-ignored; `.env.example` carries keys with no values | Holds |
 | Data handling | The owner's financial data and `ANTHROPIC_API_KEY` are redacted at the logging boundary, not at each call site | **Enforced** for secrets — `observability.redact_secrets`, `logger.ts`; `test_observability.py`, `logger.test.ts`. Financial data is redacted only where a field name marks it, and no code logs a record yet ([ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 | Persistence | Ledger data survives restart; migrations are append-only once released | **Enforced** — PostgreSQL 18, one schema per bounded context with no foreign key crossing one, Flyway migrations in a directory per context. Hand-written SQL over `JdbcClient`; the in-memory adapters are gone rather than kept behind a profile. `JdbcAccountRepositoryIT`, `JdbcTransactionRepositoryIT`, `JdbcBudgetingRepositoriesIT`, `JdbcPlanningRepositoriesIT`, `SchemaBoundariesIT` ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md), [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
@@ -225,11 +258,9 @@ Stated so they are not re-proposed:
 
 | Question | Owner |
 |---|---|
-| Does the web client talk only to the assistant, or also to the ledger directly? Talking to both means two contracts and two auth stories; going through the assistant makes it a gateway for traffic that has nothing to do with assistance | @NaimElijah |
 | How do the four capability areas relate — one product, or a tracker with features layered on? This drives whether the split in [ADR-001](../ADRs/ADR-001-polyglot-java-python-split.md) is carrying its weight, and it now also decides whether `planning` stays in the ledger ([ADR-015](../ADRs/ADR-015-planning-as-a-sixth-bounded-context.md)) | @NaimElijah |
-| Where does transaction data come from — manual entry, file import (CSV/OFX), or institution sync? | @NaimElijah |
+| Manual entry is the first source of transactions. Does file import (CSV/OFX) or institution sync follow it, and which comes first? | @NaimElijah |
 | Where does market data come from, and does its licence permit this use? The `marketdata` context exists with an anti-corruption layer and no client behind it, waiting on this | @NaimElijah |
 | Does the assistant send the owner's financial data to a third-party LLM API, and is that acceptable? This is the project's central privacy decision and it needs an ADR | @NaimElijah |
 | Is the ledger single-currency or multi-currency? Multi-currency changes the domain model fundamentally and is far cheaper to decide now than later | @NaimElijah |
-| What authenticates the assistant to the ledger? | @NaimElijah |
-| Ratify or reject [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md) before client code is written. ADR-006 was ratified on 2026-09-06 with the persistence layer | @NaimElijah |
+| What authenticates the assistant to the ledger? Deferred by [ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md) while every service binds loopback; its revisit triggers say when this needs an answer | @NaimElijah |

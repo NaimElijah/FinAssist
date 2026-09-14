@@ -4,15 +4,21 @@ The system as it actually is. *What it must do* is
 [requirements](../requirements/requirements.md); *why* a given solution was chosen is
 [the ADRs](../ADRs/).
 
-> **All six contexts now have a domain and an application layer. Neither service has a
-> transport or a store.** Use cases, their ports and their tests exist, wired by in-memory
-> adapters that are a development seam and not persistence; no HTTP endpoint, no OpenAPI
-> document, no driver and no schema, because [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md)
-> and [ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md) are still Proposed. The
-> ledger boots and answers Actuator probes, the assistant serves `/health` and `/ready`, and
-> both emit structured logs and OTLP traces — see
-> [Cross-cutting concerns](#cross-cutting-concerns). The web client renders a placeholder.
-> Where a structure is defined but not yet inhabited, this document says so.
+> **All six contexts have a domain and an application layer, and the ledger's store is
+> PostgreSQL. Neither service has a transport.** The ledger's repository ports are backed by
+> hand-written SQL ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md),
+> [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)); the assistant has no
+> store and no ledger client, and its assembled use cases run over in-memory stand-ins. There is
+> no HTTP endpoint and no OpenAPI document. [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md)
+> is Accepted, and how the web client reaches both services, how they are protected and what
+> crosses the wire are decided in
+> [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md),
+> [ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md) and
+> [ADR-028](../ADRs/ADR-028-http-wire-conventions.md) — none of it is implemented yet. The ledger
+> boots and answers Actuator probes, the assistant serves `/health` and `/ready`, and both emit
+> structured logs and OTLP traces — see [Cross-cutting concerns](#cross-cutting-concerns). The web
+> client renders a placeholder. Where a structure is defined but not yet inhabited, this document
+> says so.
 
 ## Architecture overview
 
@@ -33,13 +39,15 @@ flowchart LR
     Owner[Owner] -->|HTTPS| Web[frontend/web - React SPA]
     Web -->|HTTP| Assistant[backend/assistant - Python, FastAPI]
     Assistant -->|HTTP, Published Language| Ledger[backend/ledger - Java, Spring Boot]
+    Web -->|HTTP| Ledger
     Assistant -->|HTTPS| Claude[Anthropic API]
     Assistant -->|HTTPS| Feed[Price feed - not chosen]
     Ledger --> DB[(PostgreSQL 18)]
 ```
 
-`DB` runs under Compose and `Ledger` boots natively with Actuator only. No edge in this
-diagram is implemented.
+`DB` runs under Compose, and `Ledger` boots natively and reaches it over JDBC. No edge leaving
+`Web` or `Assistant` is implemented; the web client's two are
+[ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)'s decision.
 
 ## Bounded contexts
 
@@ -142,11 +150,15 @@ that the `monitoring` Compose profile mounts.
 ## Communication
 
 - **Owner to web** — HTTPS.
-- **Web to assistant** — HTTP. Whether the web client may also call the ledger directly is an
-  [open question](../requirements/requirements.md#open-questions).
+- **Web to ledger** — HTTP, for the accounting, budgeting and planning screens. **Not yet
+  implemented.** In development the browser calls `/ledger/…` on the Vite origin and the proxy
+  forwards it to the ledger on loopback, so no call crosses an origin
+  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)).
+- **Web to assistant** — HTTP, for the portfolio screens, through the same proxy under
+  `/assistant/…`. **Not yet implemented** (ADR-026).
 - **Assistant to ledger** — HTTP, described by an OpenAPI document under `contracts/` and
   versioned in the URL path ([ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md),
-  still Proposed).
+  Accepted). **Not yet implemented**: the assistant's `LedgerPort` is an in-memory stand-in.
 - **Assistant to Anthropic** — HTTPS via the pinned SDK, behind `LlmPort`.
 - **Assistant to price feed** — not chosen; the port and its ACL exist, the client does not.
 - **Ledger to Postgres** — JDBC, hand-written SQL over Spring's `JdbcClient`, with Flyway
@@ -264,8 +276,9 @@ consumes them — the accepted cost, and its trigger, are in
 
 **The repository ports cannot express a destructive write.** None exposes a delete, and every
 lifecycle change is stored by saving the aggregate in its new state. ADR-020's append-only
-obligation is therefore honoured as a port contract now, and inherited by the durable adapter
-when ADR-006 is settled.
+obligation is therefore honoured as a port contract, and the durable adapter inherited it when
+ADR-006 was ratified; [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md) then put
+the journal's half of it in the database too, where a trigger refuses an `UPDATE` or a `DELETE`.
 
 ## External dependencies and integration points
 
