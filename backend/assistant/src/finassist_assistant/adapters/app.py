@@ -9,7 +9,11 @@ on ``app.state.assembly``. Nothing routes to them yet. Building them here means 
 exercised on every start rather than the first time somebody writes a route, which is when a
 constructor mismatch would otherwise be found.
 
-See ADR-019 and ADR-021.
+Every failure is answered as an RFC 9457 problem, by the handlers in
+:mod:`~finassist_assistant.adapters.problems`, and a request whose ``Host`` names no allowed host
+is refused before anything else runs, by :mod:`~finassist_assistant.adapters.hosts`.
+
+See ADR-019, ADR-021, ADR-027 and ADR-028.
 """
 
 from __future__ import annotations
@@ -27,12 +31,14 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from finassist_assistant.adapters.hosts import HostAllowList
 from finassist_assistant.adapters.observability import (
     TRACEPARENT_HEADER,
     configure_logging,
     configure_tracing,
     set_correlation_id,
 )
+from finassist_assistant.adapters.problems import answer_unexpected, install_problem_handlers
 from finassist_assistant.adapters.settings import Settings
 from finassist_assistant.adapters.wiring import Assembly, assemble
 
@@ -102,6 +108,7 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
     configure_tracing(resolved)
 
     app = FastAPI(title="FinAssist assistant", version="0.1.0")
+    install_problem_handlers(app)
 
     # Assembled now, called by nothing yet. The readiness probe deliberately does not consult it:
     # every adapter behind it is in-memory, so a check against one would report health that no
@@ -113,15 +120,27 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
     async def correlate(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        """Bind a correlation id for the request and echo it back on the response."""
+        """Bind a correlation id for the request and echo it back on the response.
+
+        An exception nothing inside has handled is answered here rather than left to Starlette's
+        outermost handler. That one runs outside this middleware, after the id is unbound, so its
+        log line could not be joined to the response, and the response would carry no id to join
+        it with.
+        """
         correlation_id = _correlation_id_for(request)
         set_correlation_id(correlation_id)
         try:
             response = await call_next(request)
+        except Exception as unexpected:
+            response = answer_unexpected(request, unexpected)
         finally:
             set_correlation_id(None)
         response.headers[CORRELATION_ID_HEADER] = correlation_id
         return response
+
+    # Added after the correlation middleware, so it runs before it: a refused request reaches no
+    # handler and is given no correlation id (ADR-027).
+    app.add_middleware(HostAllowList, allowed_hosts=resolved.allowed_hosts)
 
     @app.get("/health")
     async def health() -> JSONResponse:

@@ -58,6 +58,8 @@ def settings() -> Settings:
         OTEL_EXPORTER_OTLP_ENDPOINT=None,
         OTEL_EXPORT_ENABLED=False,
         ASSISTANT_LOG_LEVEL="INFO",
+        # TestClient sends `Host: testserver`, which the allow-list must admit (ADR-027).
+        ASSISTANT_ALLOWED_HOSTS=["testserver"],
         # A plain string is what the environment supplies; pydantic coerces it.
         ANTHROPIC_API_KEY=SECRET,  # type: ignore[arg-type]
     )

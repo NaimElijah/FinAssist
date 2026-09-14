@@ -72,8 +72,12 @@ def _declared_runtime_distributions() -> frozenset[str]:
 # and `opentelemetry_instrumentation_fastapi` - and code imports neither. It imports
 # `opentelemetry.trace`, whose root is `opentelemetry`, matching nothing. Adding the OTel
 # dependencies would otherwise have left this rule silently blind to them.
+#
+# `pydantic_core` is blind for a different reason: it is not declared at all, arriving under
+# pydantic. The composition root maps its ValidationError to a problem, which makes it a name
+# worth reaching for, and an inward module importing it passed this rule until it was listed.
 FORBIDDEN_FRAMEWORKS = _declared_runtime_distributions() | frozenset(
-    {"opentelemetry", "starlette", "sqlalchemy"}
+    {"opentelemetry", "pydantic_core", "starlette", "sqlalchemy"}
 )
 
 

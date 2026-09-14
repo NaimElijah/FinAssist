@@ -7,10 +7,10 @@ put a documented variable outside the validation this file provides.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     :param host: interface to bind. Loopback by default — nothing runs the assistant in a
         container yet, so binding every interface would publish it to the local network.
     :param port: TCP port to serve on.
+    :param allowed_hosts: the host names a request's ``Host`` header may name; any other is
+        refused with 403 (ADR-027). Comma-separated in the environment, as the ledger's
+        ``LEDGER_ALLOWED_HOSTS`` is, so the field opts out of pydantic-settings' JSON decoding of
+        list fields and is split here instead.
     :param otlp_endpoint: collector base URL. ``None`` disables export entirely (ADR-019).
     :param traces_export_enabled: whether to export spans at all. Paired with the endpoint so
         a developer without a collector is not given an export error for every span.
@@ -39,10 +43,39 @@ class Settings(BaseSettings):
     service_name: str = Field(default="finassist-assistant", alias="ASSISTANT_SERVICE_NAME")
     host: str = Field(default="127.0.0.1", alias="ASSISTANT_HOST")
     port: int = Field(default=8000, ge=1, le=65535, alias="ASSISTANT_PORT")
+    allowed_hosts: Annotated[list[str], NoDecode] = Field(
+        default=["localhost", "127.0.0.1"], alias="ASSISTANT_ALLOWED_HOSTS"
+    )
     otlp_endpoint: str | None = Field(default=None, alias="OTEL_EXPORTER_OTLP_ENDPOINT")
     traces_export_enabled: bool = Field(default=False, alias="OTEL_EXPORT_ENABLED")
     log_level: LogLevel = Field(default="INFO", alias="ASSISTANT_LOG_LEVEL")
     anthropic_api_key: SecretStr | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+
+    @field_validator("allowed_hosts", mode="before")
+    @classmethod
+    def split_allowed_hosts(cls, value: object) -> object:
+        """The environment supplies one comma-separated string; code may pass a list instead."""
+        return value.split(",") if isinstance(value, str) else value
+
+    @field_validator("allowed_hosts")
+    @classmethod
+    def require_literal_host_names(cls, hosts: list[str]) -> list[str]:
+        """Drops blank entries and lower-cases the rest; refuses an empty list or a wildcard.
+
+        An empty list refuses every request, which looks like an outage rather than the
+        configuration mistake it is; the ledger refuses one for the same reason. A wildcard is
+        refused because ``TrustedHostMiddleware`` reads ``*`` as any host and ``*.example.com``
+        as a suffix, either of which quietly switches the defence off. The ledger's list has no
+        wildcards.
+
+        :raises ValueError: if no name is left, or any name contains ``*``.
+        """
+        names = [host.strip().lower() for host in hosts if host.strip()]
+        if not names:
+            raise ValueError("names no host, so every request would be refused")
+        if any("*" in name for name in names):
+            raise ValueError("must name hosts literally; a wildcard admits hosts nobody listed")
+        return names
 
     @property
     def traces_enabled(self) -> bool:
