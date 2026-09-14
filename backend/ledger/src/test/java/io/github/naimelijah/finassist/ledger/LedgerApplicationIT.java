@@ -2,11 +2,17 @@ package io.github.naimelijah.finassist.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -60,6 +66,24 @@ class LedgerApplicationIT extends PostgresFixture {
         return CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
+    /**
+     * The status line of a {@code GET} naming a {@code Host} of the caller's choosing.
+     *
+     * <p>Written by hand over a socket because {@link HttpClient} treats {@code Host} as a restricted
+     * header and derives it from the URI, which is exactly what a rebound page's browser does not do.
+     */
+    private String statusLineFor(String path, String host) throws IOException {
+        try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), port)) {
+            socket.setSoTimeout((int) TIMEOUT.toMillis());
+            OutputStream out = socket.getOutputStream();
+            out.write(("GET " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\n\r\n")
+                    .getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+            return new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII))
+                    .readLine();
+        }
+    }
+
     @Test
     void Given_the_application_When_it_boots_Then_the_health_endpoint_reports_up() throws Exception {
         HttpResponse<String> response = get("/actuator/health");
@@ -96,5 +120,17 @@ class LedgerApplicationIT extends PostgresFixture {
 
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body()).containsPattern("\"openapi\"\\s*:\\s*\"3\\.");
+    }
+
+    /**
+     * DNS rebinding as the ledger sees it: a request that arrives on its loopback port while naming
+     * another host (ADR-027). Actuator is the target because it is served whatever else exists, and
+     * the allow-list covers it too. The other cases here send {@code Host: localhost:<port>}, which is
+     * why they still pass.
+     */
+    @Test
+    void Given_a_request_naming_a_foreign_host_When_it_reaches_the_ledger_Then_it_is_refused_with_403()
+            throws Exception {
+        assertThat(statusLineFor("/actuator/health", "evil.example")).startsWith("HTTP/1.1 403");
     }
 }

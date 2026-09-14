@@ -309,6 +309,8 @@ in the repository, the logs or an error message.
 | Variable | Purpose | Default |
 |---|---|---|
 | `LEDGER_PORT` | Ledger HTTP port | `8080` |
+| `LEDGER_ADDRESS` | Interface the ledger binds. Loopback by default, because the ledger has no authentication; `0.0.0.0` only inside a container ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `127.0.0.1` |
+| `LEDGER_ALLOWED_HOSTS` | Comma-separated host names the ledger answers to, without ports. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `localhost,127.0.0.1` |
 | `LEDGER_DB_URL` | JDBC URL. `localhost`, because the ledger runs natively while only Postgres is in Compose; it becomes the service name `db` the day the ledger joins the Compose file | `jdbc:postgresql://localhost:5432/finassist` |
 | `LEDGER_DB_USERNAME` | Ledger database user | `finassist` |
 | `ASSISTANT_PORT` | Assistant HTTP port | `8000` |

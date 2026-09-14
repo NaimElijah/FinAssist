@@ -26,8 +26,12 @@ import io.github.naimelijah.finassist.ledger.planning.application.port.out.Scena
 import io.github.naimelijah.finassist.ledger.planning.application.service.ForecastService;
 import io.github.naimelijah.finassist.ledger.planning.application.service.PlanService;
 import io.github.naimelijah.finassist.ledger.planning.application.service.ScenarioService;
+import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
@@ -47,11 +51,30 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * yet (ADR-023), and an outbox table with no consumer is exactly what ADR-020 refused to build
  * ahead of one, so those two beans stay in memory until there is something to deliver to.
  *
- * <p>Nothing calls any of this yet. There is no inbound adapter, because ADR-004 is Proposed too and
- * the first endpoint is what would decide it.
+ * <p>Nothing calls the services yet, because there is no inbound adapter. What every future request
+ * will pass through is built here already: the Host allow-list that refuses a DNS-rebound page
+ * (ADR-027).
  */
 @Configuration
 public class LedgerConfiguration {
+
+    /** The comma-separated host names the ledger answers to, bound from {@code LEDGER_ALLOWED_HOSTS}. */
+    static final String ALLOWED_HOSTS_PROPERTY = "finassist.http.allowed-hosts";
+
+    // ---- web --------------------------------------------------------------------------------
+
+    /**
+     * The Host allow-list, registered at the highest filter precedence (ADR-027). A refused request
+     * is answered before any filter that traces, logs or dispatches has handled it.
+     */
+    @Bean
+    FilterRegistrationBean<HostAllowListFilter> hostAllowListFilter(
+            @Value("${" + ALLOWED_HOSTS_PROPERTY + "}") List<String> allowedHosts) {
+        FilterRegistrationBean<HostAllowListFilter> registration =
+                new FilterRegistrationBean<>(new HostAllowListFilter(allowedHosts));
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
+    }
 
     // ---- accounting -------------------------------------------------------------------------
 

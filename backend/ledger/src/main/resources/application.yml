@@ -3,6 +3,18 @@
 # code that needs it.
 server:
   port: ${LEDGER_PORT:8080}
+  # Loopback by default. The ledger has no authentication, which is safe only while nothing but
+  # this machine can reach it; a container overrides this with 0.0.0.0, because its own loopback
+  # is unreachable from the host (ADR-027).
+  address: ${LEDGER_ADDRESS:127.0.0.1}
+
+finassist:
+  http:
+    # Host names the ledger answers to, compared without the port. Loopback alone does not stop
+    # DNS rebinding: a hostile page whose name has been repointed at 127.0.0.1 is same-origin with
+    # the ledger, yet every request it sends still names the page's own host. HostAllowListFilter
+    # refuses those with 403, Actuator included (ADR-027).
+    allowed-hosts: ${LEDGER_ALLOWED_HOSTS:localhost,127.0.0.1}
 
 spring:
   application:
