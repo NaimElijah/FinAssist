@@ -1,8 +1,8 @@
-"""Transport models for the portfolio endpoints, and their mapping from portfolio's own values.
+"""Transport models for the portfolio endpoints, and their mapping to and from portfolio's values.
 
 Pydantic lives here and nowhere inward (ADR-007). The domain's frozen dataclasses never learn what
-the wire looks like, and nothing here holds a rule: every model is built from a value the domain
-has already validated.
+the wire looks like, and nothing here holds a rule: every response model is built from a value the
+domain has already validated, and every request model is handed to the domain to validate.
 
 The wire follows ADR-028. Every decimal is a JSON string and never a JSON number, because most
 parsers read a number into a binary float, and because a string keeps the scale that makes an
@@ -29,6 +29,7 @@ __all__ = [
     "DECIMAL_PATTERN",
     "CurrencyCode",
     "DecimalString",
+    "DisposalRequestModel",
     "DispositionModel",
     "LotModel",
     "MoneyModel",
@@ -97,7 +98,11 @@ class _WireModel(BaseModel):
 
 
 class MoneyModel(_WireModel):
-    """An exact amount in one currency, the amount a decimal string at the currency's scale."""
+    """An exact amount in one currency, the amount a decimal string.
+
+    A response writes it at the currency's scale. A request may send fewer decimal places than the
+    currency has, and never more: an amount finer than its currency is refused, not rounded.
+    """
 
     amount: DecimalString
     currency: CurrencyCode
@@ -113,6 +118,25 @@ class MoneyModel(_WireModel):
         return cls.model_validate(
             {"amount": _decimal(money.amount), "currency": money.currency.code}
         )
+
+    def to_money(self) -> Money:
+        """The domain amount a request named.
+
+        :raises ValueError: if the amount is finer than its currency admits, which ``Money``
+            refuses rather than rounds, and the composition root answers 422.
+        """
+        return Money.of(self.amount, currency_for(self.currency))
+
+
+class DisposalRequestModel(_WireModel):
+    """The units to sell and the proceeds to price them at. Pricing records nothing.
+
+    A request body rather than query parameters, because the proceeds are an amount of money, and a
+    URL is written to access logs, to trace attributes and by any proxy it passes.
+    """
+
+    quantity: DecimalString
+    proceeds: MoneyModel
 
 
 class PositionModel(_WireModel):

@@ -2,23 +2,27 @@
 
 The web client's portfolio screens read these (ADR-026). The use cases behind them are tested on
 their own; what is pinned here is the edge. Decimals travel as strings at the currency's scale,
-members are camelCase as the ledger's are, and each refusal is the problem the ledger would send
-for the same meaning (ADR-028).
+members are camelCase as the ledger's are, each refusal is the problem the ledger would send for
+the same meaning (ADR-028), and an amount of money never travels in a URL.
 """
 
 from __future__ import annotations
 
 import inspect
+import json
+import logging
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import get_args
+from typing import Any, get_args
 
 import pytest
 import structlog
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from starlette.types import ASGIApp, Receive, Scope, Send
+from uvicorn.protocols.utils import get_client_addr, get_path_with_query_string
 
 from finassist_assistant.adapters.app import create_app
 from finassist_assistant.adapters.observability import forget_secrets, reset_logging
@@ -30,6 +34,7 @@ from finassist_assistant.portfolio.domain.model import Lot, Symbol
 from finassist_assistant.shared import Currency, Money
 
 HOLDINGS = "/api/v1/portfolio/holdings"
+DISPOSAL_URL = f"{HOLDINGS}/VOO/disposal"
 PROBLEM_JSON = "application/problem+json"
 
 NOON = datetime(2026, 3, 5, 12, 0, tzinfo=UTC)
@@ -37,7 +42,32 @@ VOO = Symbol("VOO")
 OLDER = Lot(VOO, Decimal("10"), Money.of("100.00", Currency.USD), date(2026, 1, 10))
 NEWER = Lot(VOO, Decimal("5"), Money.of("120.00", Currency.USD), date(2026, 2, 10))
 
-DISPOSAL = {"quantity": "12", "proceeds": "3000.00", "currency": "USD"}
+# Recognisable in any log output, and in no fixture above.
+RECOGNISABLE_AMOUNT = "86420.13"
+
+
+def _disposal(
+    quantity: str = "12", amount: str = "3000.00", currency: str = "USD"
+) -> dict[str, Any]:
+    return {"quantity": quantity, "proceeds": {"amount": amount, "currency": currency}}
+
+
+class _ScopeRecorder:
+    """Keeps every HTTP scope the app receives.
+
+    The scope is what uvicorn writes its access line from and what OpenTelemetry takes a request's
+    URL attributes from, so an amount absent from the scope reaches neither. Kept as ``Any``
+    because uvicorn types its helpers with its own scope dictionaries, not Starlette's mapping.
+    """
+
+    def __init__(self, app: ASGIApp, scopes: list[Any]) -> None:
+        self.app = app
+        self.scopes = scopes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            self.scopes.append(scope)
+        await self.app(scope, receive, send)
 
 
 @pytest.fixture(autouse=True)
@@ -168,7 +198,8 @@ def Given_a_quote_older_than_an_hour_When_a_holding_is_valued_Then_it_is_price_u
 def Given_two_lots_When_a_disposal_is_priced_Then_the_oldest_is_consumed_first(
     client: TestClient,
 ) -> None:
-    response = client.get(f"{HOLDINGS}/VOO/disposal", params=DISPOSAL)
+    """200, not 201: pricing creates nothing."""
+    response = client.post(DISPOSAL_URL, json=_disposal())
 
     assert response.status_code == 200
     assert response.json() == {
@@ -190,23 +221,35 @@ def Given_two_lots_When_a_disposal_is_priced_Then_the_oldest_is_consumed_first(
 def Given_a_priced_disposal_When_the_position_is_read_again_Then_nothing_was_consumed(
     client: TestClient,
 ) -> None:
-    """A GET that records nothing is safe to repeat, which is why it is a GET (ADR-028)."""
-    client.get(f"{HOLDINGS}/VOO/disposal", params=DISPOSAL)
+    """A POST here only so the proceeds stay out of the URL; like a GET, it is safe to repeat."""
+    client.post(DISPOSAL_URL, json=_disposal())
 
     assert client.get(f"{HOLDINGS}/VOO/position").json()["quantity"] == "15"
 
 
 def Given_a_disposal_When_serialised_Then_every_member_is_camel_case(client: TestClient) -> None:
-    names = _member_names(client.get(f"{HOLDINGS}/VOO/disposal", params=DISPOSAL).json())
+    names = _member_names(client.post(DISPOSAL_URL, json=_disposal()).json())
 
     assert {"costOfSale", "realisedGain", "unitCost", "acquiredOn"} <= names
     assert not [name for name in names if "_" in name]
 
 
+def Given_a_json_body_with_a_charset_When_a_disposal_is_priced_Then_it_is_accepted(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        DISPOSAL_URL,
+        content=json.dumps(_disposal()),
+        headers={"content-type": "application/json; charset=utf-8"},
+    )
+
+    assert response.status_code == 200
+
+
 def Given_more_units_than_are_held_When_a_disposal_is_priced_Then_it_is_insufficient_holding(
     client: TestClient,
 ) -> None:
-    response = client.get(f"{HOLDINGS}/VOO/disposal", params={**DISPOSAL, "quantity": "16"})
+    response = client.post(DISPOSAL_URL, json=_disposal(quantity="16"))
 
     assert response.status_code == 422
     assert response.json()["code"] == "INSUFFICIENT_HOLDING"
@@ -216,7 +259,7 @@ def Given_more_units_than_are_held_When_a_disposal_is_priced_Then_it_is_insuffic
 def Given_a_non_positive_quantity_When_a_disposal_is_priced_Then_the_rule_is_violated(
     client: TestClient, quantity: str
 ) -> None:
-    response = client.get(f"{HOLDINGS}/VOO/disposal", params={**DISPOSAL, "quantity": quantity})
+    response = client.post(DISPOSAL_URL, json=_disposal(quantity=quantity))
 
     assert response.status_code == 422
     assert response.json()["code"] == "RULE_VIOLATED"
@@ -225,46 +268,116 @@ def Given_a_non_positive_quantity_When_a_disposal_is_priced_Then_the_rule_is_vio
 def Given_proceeds_finer_than_the_currency_admits_When_priced_Then_they_are_refused_not_rounded(
     client: TestClient,
 ) -> None:
-    response = client.get(f"{HOLDINGS}/VOO/disposal", params={**DISPOSAL, "proceeds": "3000.005"})
+    response = client.post(DISPOSAL_URL, json=_disposal(amount="3000.005"))
 
     assert response.status_code == 422
     assert response.json()["code"] == "RULE_VIOLATED"
 
 
 @pytest.mark.parametrize(
-    ("parameter", "value"),
+    ("field", "body"),
     [
-        ("quantity", "twelve"),
-        ("quantity", "1e3"),
-        ("quantity", "12abc"),
-        ("proceeds", "3,000.00"),
-        ("currency", "CHF"),
+        ("quantity", _disposal(quantity="twelve")),
+        ("quantity", _disposal(quantity="1e3")),
+        ("quantity", _disposal(quantity="12abc")),
+        ("proceeds.amount", _disposal(amount="3,000.00")),
+        ("proceeds.currency", _disposal(currency="CHF")),
     ],
     ids=["prose", "exponent", "trailing-text", "grouped-digits", "unknown-currency"],
 )
-def Given_a_malformed_query_parameter_When_a_disposal_is_priced_Then_it_is_a_malformed_request(
-    client: TestClient, parameter: str, value: str
+def Given_a_malformed_body_member_When_a_disposal_is_priced_Then_it_is_a_malformed_request(
+    client: TestClient, field: str, body: dict[str, Any]
 ) -> None:
     """The pattern is anchored: JSON Schema's is not, so "12abc" would pass an unanchored one."""
-    response = client.get(f"{HOLDINGS}/VOO/disposal", params={**DISPOSAL, parameter: value})
+    response = client.post(DISPOSAL_URL, json=body)
 
     assert response.status_code == 400
     assert response.json()["code"] == "MALFORMED_REQUEST"
-    assert [error["field"] for error in response.json()["errors"]] == [parameter]
+    assert [error["field"] for error in response.json()["errors"]] == [field]
+
+
+@pytest.mark.parametrize(
+    "sent",
+    [
+        {"data": {"quantity": "12"}},
+        {"content": json.dumps(_disposal()), "headers": {"content-type": "text/plain"}},
+        {"content": json.dumps(_disposal())},
+    ],
+    ids=["form-encoded", "text-plain", "no-content-type"],
+)
+def Given_a_body_that_is_not_json_When_a_disposal_is_priced_Then_it_is_unsupported_media_type(
+    client: TestClient, sent: dict[str, Any]
+) -> None:
+    """JSON only, as every ledger POST is (ADR-027). A cross-site form cannot send JSON without a
+    preflight, and no CORS configuration exists to approve one."""
+    response = client.post(DISPOSAL_URL, **sent)
+
+    assert response.status_code == 415
+    assert response.headers["content-type"] == PROBLEM_JSON
+    assert response.json()["code"] == "UNSUPPORTED_MEDIA_TYPE"
+
+
+def Given_a_disposal_priced_by_get_with_query_parameters_When_requested_Then_it_is_not_allowed(
+    client: TestClient,
+) -> None:
+    """The former shape, which put the proceeds in the URL, is gone rather than kept alongside."""
+    response = client.get(DISPOSAL_URL, params={"quantity": "12", "proceeds": "3000.00"})
+
+    assert response.status_code == 405
+    assert response.json()["code"] == "METHOD_NOT_ALLOWED"
+    assert response.headers["allow"] == "POST"
+
+
+def Given_proceeds_with_a_recognisable_amount_When_a_disposal_is_priced_Then_no_log_line_holds_it(
+    app: FastAPI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Money never travels in a URL. A URL is written to the access log, to trace attributes and by
+    any proxy on the way, and keeping the amount out of the URL keeps it out of all of them at once.
+
+    TestClient runs no server, so the access line uvicorn would write is written here, from the
+    scope the app actually received, with uvicorn's own helpers and format. The test client's own
+    request line and every line the service writes are captured with it.
+    """
+    scopes: list[Any] = []
+    app.add_middleware(_ScopeRecorder, scopes=scopes)
+
+    with TestClient(app) as running:
+        capsys.readouterr()
+        response = running.post(DISPOSAL_URL, json=_disposal(amount=RECOGNISABLE_AMOUNT))
+        received = scopes[-1]
+        logging.getLogger("uvicorn.access").info(
+            '%s - "%s %s HTTP/%s" %d',
+            get_client_addr(received),
+            received["method"],
+            get_path_with_query_string(received),
+            received["http_version"],
+            response.status_code,
+        )
+
+    captured = capsys.readouterr().out
+    assert response.json()["proceeds"]["amount"] == RECOGNISABLE_AMOUNT
+    # The access line was written: the JSON renderer escapes the quotes around its request line, so
+    # match inside them. The client's own line names the full URL, so this matches only uvicorn's.
+    assert f"POST {DISPOSAL_URL} HTTP/1.1" in captured
+    assert RECOGNISABLE_AMOUNT not in captured
 
 
 # --- refusals every endpoint shares ---------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "path",
-    ["VWCE/position", "VWCE/valuation", "VWCE/disposal?quantity=1&proceeds=1.00&currency=USD"],
+    ("method", "path", "body"),
+    [
+        ("GET", "VWCE/position", None),
+        ("GET", "VWCE/valuation", None),
+        ("POST", "VWCE/disposal", _disposal(quantity="1", amount="1.00")),
+    ],
     ids=["position", "valuation", "disposal"],
 )
 def Given_nothing_held_for_the_symbol_When_requested_Then_it_is_holding_not_found(
-    client: TestClient, path: str
+    client: TestClient, method: str, path: str, body: dict[str, Any] | None
 ) -> None:
-    response = client.get(f"{HOLDINGS}/{path}")
+    response = client.request(method, f"{HOLDINGS}/{path}", json=body)
 
     assert response.status_code == 404
     assert response.headers["content-type"] == PROBLEM_JSON
@@ -301,7 +414,7 @@ def Given_the_portfolio_routes_When_inspected_Then_none_is_a_coroutine(assembly:
 def Given_the_disposal_operation_When_documented_Then_it_says_it_records_nothing(
     app: FastAPI,
 ) -> None:
-    operation = app.openapi()["paths"][f"{HOLDINGS}/{{symbol}}/disposal"]["get"]
+    operation = app.openapi()["paths"][f"{HOLDINGS}/{{symbol}}/disposal"]["post"]
 
     assert "records nothing" in operation["description"]
 
@@ -344,8 +457,6 @@ def Given_proceeds_in_any_wire_currency_When_a_disposal_is_priced_Then_the_code_
     cost. Either way the code was understood: a refusal about the request, never a 500."""
     expected = 200 if code == OLDER.unit_cost.currency.code else 422
 
-    response = client.get(
-        f"{HOLDINGS}/VOO/disposal", params={**DISPOSAL, "proceeds": "3000", "currency": code}
-    )
+    response = client.post(DISPOSAL_URL, json=_disposal(amount="3000", currency=code))
 
     assert response.status_code == expected

@@ -1,6 +1,25 @@
 {
   "components": {
     "schemas": {
+      "DisposalRequestModel": {
+        "description": "The units to sell and the proceeds to price them at. Pricing records nothing.\n\nA request body rather than query parameters, because the proceeds are an amount of money, and a\nURL is written to access logs, to trace attributes and by any proxy it passes.",
+        "properties": {
+          "proceeds": {
+            "$ref": "#/components/schemas/MoneyModel"
+          },
+          "quantity": {
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "title": "Quantity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "quantity",
+          "proceeds"
+        ],
+        "title": "DisposalRequestModel",
+        "type": "object"
+      },
       "DispositionModel": {
         "description": "What selling units would realise, and the lots that would remain, oldest first.",
         "properties": {
@@ -67,7 +86,7 @@
         "type": "object"
       },
       "MoneyModel": {
-        "description": "An exact amount in one currency, the amount a decimal string at the currency's scale.",
+        "description": "An exact amount in one currency, the amount a decimal string.\n\nA response writes it at the currency's scale. A request may send fewer decimal places than the\ncurrency has, and never more: an amount finer than its currency is refused, not rounded.",
         "properties": {
           "amount": {
             "pattern": "^-?\\d+(\\.\\d+)?$",
@@ -203,8 +222,8 @@
   "openapi": "3.1.0",
   "paths": {
     "/api/v1/portfolio/holdings/{symbol}/disposal": {
-      "get": {
-        "description": "What selling a quantity of units for the given proceeds would realise, oldest lot first.\n\nA calculation that records nothing: no lot is consumed, so it is safe to repeat.",
+      "post": {
+        "description": "What selling a quantity of units for the given proceeds would realise, oldest lot first.\n\nA calculation that records nothing: no lot is consumed, so it is safe to repeat. It is a\nPOST only so that the proceeds, an amount of money, never enter a URL.",
         "operationId": "priceDisposal",
         "parameters": [
           {
@@ -215,44 +234,18 @@
               "title": "Symbol",
               "type": "string"
             }
-          },
-          {
-            "in": "query",
-            "name": "quantity",
-            "required": true,
-            "schema": {
-              "pattern": "^-?\\d+(\\.\\d+)?$",
-              "title": "Quantity",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "proceeds",
-            "required": true,
-            "schema": {
-              "pattern": "^-?\\d+(\\.\\d+)?$",
-              "title": "Proceeds",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "currency",
-            "required": true,
-            "schema": {
-              "enum": [
-                "ILS",
-                "USD",
-                "EUR",
-                "GBP",
-                "JPY"
-              ],
-              "title": "Currency",
-              "type": "string"
-            }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisposalRequestModel"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

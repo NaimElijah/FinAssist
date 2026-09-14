@@ -8,6 +8,11 @@ Handlers are ``def``, never ``async def``. Every port behind these use cases is 
 (ADR-021), and FastAPI runs a ``def`` handler in its thread pool; an ``async def`` handler calling a
 blocking port would stall the event loop for every other request while it waited.
 
+Pricing a disposal is a ``POST`` answered 200, although it records nothing. Its proceeds are an
+amount of money, and money never travels in a URL: a URL is written to access logs, to trace
+attributes and by any proxy it passes (ADR-028). Its body must be ``application/json``, as every
+ledger ``POST``'s must be (ADR-027).
+
 Every failure a use case raises is left to propagate. The composition root answers each one as a
 problem (ADR-028), which is the only place that may see every context's exceptions.
 """
@@ -15,19 +20,18 @@ problem (ADR-028), which is the only place that may see every context's exceptio
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Annotated
+from http import HTTPStatus
+from typing import Final
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.routing import APIRoute
 from pydantic.alias_generators import to_camel
 
 from finassist_assistant.portfolio.adapters.inbound.api.models import (
-    DECIMAL_PATTERN,
-    CurrencyCode,
+    DisposalRequestModel,
     DispositionModel,
     PositionModel,
     ValuationModel,
-    currency_for,
 )
 from finassist_assistant.portfolio.application.usecase import (
     DisposeUnits,
@@ -35,9 +39,11 @@ from finassist_assistant.portfolio.application.usecase import (
     ViewPosition,
 )
 from finassist_assistant.portfolio.domain.model import Symbol
-from finassist_assistant.shared import Money
 
 __all__ = ["portfolio_router"]
+
+_JSON_MEDIA_TYPE: Final = "application/json"
+_NOT_JSON_DETAIL: Final = "The request body must be application/json."
 
 
 def _operation_id(route: APIRoute) -> str:
@@ -47,6 +53,21 @@ def _operation_id(route: APIRoute) -> str:
     generated from the contract.
     """
     return to_camel(route.name)
+
+
+def _require_json(request: Request) -> None:
+    """Refuses a body that is not ``application/json`` with 415, before the body is validated.
+
+    FastAPI does not refuse one on its own. Given a non-JSON or missing ``Content-Type``, it hands
+    the raw bytes to validation, which fails as a 400. A route's dependencies run before that
+    failure is raised, so the answer is the 415 a ledger ``POST`` gives instead. Parameters such as
+    ``charset`` are allowed; any other media type, a ``+json`` one included, is refused.
+
+    :raises HTTPException: 415, when the media type is anything but ``application/json``.
+    """
+    media_type = request.headers.get("content-type", "").partition(";")[0].strip().lower()
+    if media_type != _JSON_MEDIA_TYPE:
+        raise HTTPException(status_code=HTTPStatus.UNSUPPORTED_MEDIA_TYPE, detail=_NOT_JSON_DETAIL)
 
 
 def portfolio_router(view: ViewPosition, value: ValueHolding, dispose: DisposeUnits) -> APIRouter:
@@ -69,20 +90,21 @@ def portfolio_router(view: ViewPosition, value: ValueHolding, dispose: DisposeUn
         """What a holding is worth at the latest price, and the gain that is not yet realised."""
         return ValuationModel.of(value.of(Symbol(symbol)))
 
-    @router.get("/holdings/{symbol}/disposal")
-    def price_disposal(
-        symbol: str,
-        quantity: Annotated[str, Query(pattern=DECIMAL_PATTERN)],
-        proceeds: Annotated[str, Query(pattern=DECIMAL_PATTERN)],
-        currency: CurrencyCode,
-    ) -> DispositionModel:
+    @router.post(
+        "/holdings/{symbol}/disposal",
+        # 200, not 201: pricing creates nothing.
+        status_code=HTTPStatus.OK,
+        dependencies=[Depends(_require_json)],
+    )
+    def price_disposal(symbol: str, disposal: DisposalRequestModel) -> DispositionModel:
         """What selling a quantity of units for the given proceeds would realise, oldest lot first.
 
-        A calculation that records nothing: no lot is consumed, so it is safe to repeat.
+        A calculation that records nothing: no lot is consumed, so it is safe to repeat. It is a
+        POST only so that the proceeds, an amount of money, never enter a URL.
         """
         held = Symbol(symbol)
-        units = Decimal(quantity)
-        disposition = dispose.of(held, units, Money.of(proceeds, currency_for(currency)))
-        return DispositionModel.of(held, units, disposition)
+        units = Decimal(disposal.quantity)
+        priced = dispose.of(held, units, disposal.proceeds.to_money())
+        return DispositionModel.of(held, units, priced)
 
     return router
