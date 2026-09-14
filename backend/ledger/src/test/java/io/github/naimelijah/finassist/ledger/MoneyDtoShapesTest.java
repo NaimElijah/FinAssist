@@ -60,6 +60,18 @@ class MoneyDtoShapesTest {
         assertThat(constraints(copy)).isEqualTo(constraints(ACCOUNTING));
     }
 
+    /**
+     * Compared on the record itself as well. The copies share one schema and each is serialised by its own
+     * annotations, so a class-level {@code @Schema} or {@code @JsonInclude} on one copy would change the
+     * shared contract, or one context's wire output, as silently as a differing constraint.
+     */
+    @ParameterizedTest
+    @MethodSource("copies")
+    void Given_another_contexts_MoneyDto_When_compared_with_accountings_Then_it_carries_the_same_class_annotations(
+            Class<?> copy) {
+        assertThat(sorted(copy.getDeclaredAnnotations())).isEqualTo(sorted(ACCOUNTING.getDeclaredAnnotations()));
+    }
+
     /** Each component as {@code name: type}, in declaration order. */
     private static List<String> components(Class<?> record) {
         return Arrays.stream(record.getRecordComponents())
