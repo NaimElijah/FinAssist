@@ -1,9 +1,37 @@
 import { fileURLToPath, URL } from 'node:url';
 
 import react from '@vitejs/plugin-react';
+import type { ProxyOptions } from 'vite';
 // defineConfig comes from vitest/config, not vite: it carries the `test` key's types, which
 // the triple-slash reference used to supply before this file imported from vitest at all.
 import { coverageConfigDefaults, defineConfig } from 'vitest/config';
+
+import {
+    ASSISTANT_BACKEND,
+    LEDGER_BACKEND,
+    LOOPBACK_HOST,
+    type ProxiedBackend,
+} from './src/shared/api/backends';
+
+/**
+ * Build one backend's proxy entry: forward its prefix to its real origin with the prefix
+ * stripped, and `changeOrigin` so the backend's own Host allow-list sees its own host rather
+ * than the dev server's (ADR-027) — each backend then needs only its own name on its list.
+ */
+function proxyEntry(backend: ProxiedBackend): ProxyOptions {
+    return {
+        target: backend.target,
+        changeOrigin: true,
+        rewrite: (path) => path.slice(backend.prefix.length),
+    };
+}
+
+// Defined once and given to both `server.proxy` and `preview.proxy` below, so `vite preview`
+// can never drift from `vite dev` (ADR-026: one origin, both environments).
+const proxy: Record<string, ProxyOptions> = {
+    [LEDGER_BACKEND.prefix]: proxyEntry(LEDGER_BACKEND),
+    [ASSISTANT_BACKEND.prefix]: proxyEntry(ASSISTANT_BACKEND),
+};
 
 export default defineConfig({
     plugins: [react()],
@@ -13,6 +41,19 @@ export default defineConfig({
         alias: {
             '@': fileURLToPath(new URL('./src', import.meta.url)),
         },
+    },
+    server: {
+        // Loopback only, never a wildcard interface (ADR-027).
+        host: LOOPBACK_HOST,
+        // `allowedHosts` is left at Vite 8's default rather than set here: `localhost`, its
+        // subdomains and every IP literal are allowed already, and any other Host is refused —
+        // that refusal is the DNS-rebinding protection ADR-027 relies on. Do not set this to
+        // `true`; that would accept every Host and remove the protection entirely.
+        proxy,
+    },
+    preview: {
+        host: LOOPBACK_HOST,
+        proxy,
     },
     test: {
         globals: true,
