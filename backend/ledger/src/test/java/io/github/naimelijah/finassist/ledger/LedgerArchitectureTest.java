@@ -41,6 +41,27 @@ class LedgerArchitectureTest {
     private static final String COMPOSITION = ROOT + ".composition..";
 
     /**
+     * What {@code domain_depends_on_no_framework} and {@code
+     * the_application_layer_depends_on_no_framework} both forbid.
+     *
+     * <p>{@code tools.jackson..} sits beside {@code com.fasterxml.jackson..} because Spring Boot 4
+     * moved Jackson 3's databind and core packages to {@code tools.jackson}, while its annotations
+     * stayed at {@code com.fasterxml.jackson.annotation}. Naming only the old package would let a
+     * {@code tools.jackson.databind.ObjectMapper} field into either layer undetected. {@code
+     * io.swagger..} and {@code org.springdoc..} close the same gap for the OpenAPI annotations and
+     * generator the build gained alongside it (ADR-028).
+     */
+    private static final String[] FORBIDDEN_FRAMEWORK_PACKAGES = {
+        "org.springframework..",
+        "jakarta..",
+        "javax..",
+        "com.fasterxml.jackson..",
+        "tools.jackson..",
+        "io.swagger..",
+        "org.springdoc.."
+    };
+
+    /**
      * Dependencies point inward only, in every context at once. The patterns span contexts
      * deliberately: {@code ..domain..} matches {@code accounting.domain} and {@code
      * budgeting.domain} alike, so a new context inherits the rule without editing this test.
@@ -94,7 +115,7 @@ class LedgerArchitectureTest {
             .resideInAPackage(ROOT + "..domain..")
             .should()
             .dependOnClassesThat()
-            .resideInAnyPackage("org.springframework..", "jakarta..", "javax..", "com.fasterxml.jackson..")
+            .resideInAnyPackage(FORBIDDEN_FRAMEWORK_PACKAGES)
             .because("the domain is the product; frameworks are replaceable detail");
 
     /**
@@ -161,6 +182,6 @@ class LedgerArchitectureTest {
             .resideInAPackage(ROOT + "..application..")
             .should()
             .dependOnClassesThat()
-            .resideInAnyPackage("org.springframework..", "jakarta..", "javax..", "com.fasterxml.jackson..")
+            .resideInAnyPackage(FORBIDDEN_FRAMEWORK_PACKAGES)
             .because("a use case that needs a container to construct cannot be tested by calling it");
 }
