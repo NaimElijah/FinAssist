@@ -9,7 +9,7 @@ append-only history: to change course, add a new record and mark the old one
 | [001](ADR-001-polyglot-java-python-split.md) | Split into a Java ledger and a Python assistant | Accepted |
 | [002](ADR-002-java-spring-boot-for-the-ledger.md) | Java 21 and Spring Boot for the ledger | Accepted |
 | [003](ADR-003-python-fastapi-for-assistant-and-analysis.md) | Python 3.13 and FastAPI for the assistant | Accepted |
-| [004](ADR-004-http-openapi-service-contract.md) | HTTP with a versioned OpenAPI document as the contract | Proposed |
+| [004](ADR-004-http-openapi-service-contract.md) | HTTP with a versioned OpenAPI document as the contract | Accepted |
 | [005](ADR-005-docker-compose-as-the-run-mechanism.md) | Compose is the mechanism, the Makefile the interface | Accepted |
 | [006](ADR-006-postgresql-for-the-ledger-store.md) | PostgreSQL as the ledger's store | Accepted, resolved by 024 |
 | [007](ADR-007-asymmetric-hexagonal-architecture.md) | Asymmetric hexagonal: tactical DDD in the ledger only | Accepted, extended by 010 |
@@ -33,10 +33,13 @@ append-only history: to change course, add a new record and mark the old one
 | [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
-still change cheaply. 004 is the last one: the domain and application layers need no wire
-contract, so ratifying it stays deliberately deferred rather than guessed. Resolve it before
-the first line of client code.
+still change cheaply. No record is Proposed today.
 
 006 was ratified on 2026-09-06 with the persistence layer, and 024 and 025 are the two
 decisions it and 017 had reserved for that moment — the access strategy, and how a schema is
 tested.
+
+004 was ratified on 2026-09-14, ahead of the first endpoint rather than with it: the web client
+and the ledger's first controllers both need a settled contract to be built against. 026
+records how the web client uses the contracts, and 028 the wire conventions both services
+follow.
