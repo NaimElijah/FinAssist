@@ -27,6 +27,7 @@ from finassist_assistant.portfolio.adapters.inbound.api.models import (
     DispositionModel,
     PositionModel,
     ValuationModel,
+    currency_for,
 )
 from finassist_assistant.portfolio.application.usecase import (
     DisposeUnits,
@@ -34,7 +35,7 @@ from finassist_assistant.portfolio.application.usecase import (
     ViewPosition,
 )
 from finassist_assistant.portfolio.domain.model import Symbol
-from finassist_assistant.shared import Currency, Money
+from finassist_assistant.shared import Money
 
 __all__ = ["portfolio_router"]
 
@@ -81,7 +82,7 @@ def portfolio_router(view: ViewPosition, value: ValueHolding, dispose: DisposeUn
         """
         held = Symbol(symbol)
         units = Decimal(quantity)
-        disposition = dispose.of(held, units, Money.of(proceeds, Currency[currency]))
+        disposition = dispose.of(held, units, Money.of(proceeds, currency_for(currency)))
         return DispositionModel.of(held, units, disposition)
 
     return router

@@ -12,8 +12,10 @@ reads both services alike. Each class docstring becomes its schema's description
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
+from types import MappingProxyType
 from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
@@ -21,7 +23,7 @@ from pydantic.alias_generators import to_camel
 
 from finassist_assistant.portfolio.application.usecase import Disposition, Valuation
 from finassist_assistant.portfolio.domain.model import Lot, Position, Symbol
-from finassist_assistant.shared import Money
+from finassist_assistant.shared import Currency, Money
 
 __all__ = [
     "DECIMAL_PATTERN",
@@ -32,6 +34,7 @@ __all__ = [
     "MoneyModel",
     "PositionModel",
     "ValuationModel",
+    "currency_for",
 ]
 
 DECIMAL_PATTERN: Final = r"^-?\d+(\.\d+)?$"
@@ -51,6 +54,25 @@ CurrencyCode = Literal["ILS", "USD", "EUR", "GBP", "JPY"]
 A ``Literal`` rather than the enum, so the contract lists the codes as the ledger's does, instead of
 an enum whose values are ``(code, minor_units)`` pairs.
 """
+
+_CURRENCIES_BY_CODE: Final[Mapping[str, Currency]] = MappingProxyType(
+    {currency.code: currency for currency in Currency}
+)
+
+
+def currency_for(code: CurrencyCode) -> Currency:
+    """The domain currency a wire code names.
+
+    Keyed by ``Currency.code``, which is what ``CurrencyCode`` lists and what the test holding the
+    two equal compares. A lookup by member name would agree with that test only while every member
+    happens to be named after its code, and a ``KeyError`` there is answered 500.
+
+    :param code: a code the wire has already validated against ``CurrencyCode``.
+    :returns: the ``Currency`` with that code.
+    :raises KeyError: if ``CurrencyCode`` lists a code no ``Currency`` has, which the parity test
+        in ``tests/test_portfolio_api.py`` exists to rule out.
+    """
+    return _CURRENCIES_BY_CODE[code]
 
 
 def _decimal(value: Decimal) -> str:

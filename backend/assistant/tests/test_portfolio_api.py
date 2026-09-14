@@ -24,7 +24,7 @@ from finassist_assistant.adapters.app import create_app
 from finassist_assistant.adapters.observability import forget_secrets, reset_logging
 from finassist_assistant.adapters.settings import Settings
 from finassist_assistant.adapters.wiring import Assembly, assemble
-from finassist_assistant.portfolio.adapters.inbound.api.models import CurrencyCode
+from finassist_assistant.portfolio.adapters.inbound.api.models import CurrencyCode, currency_for
 from finassist_assistant.portfolio.adapters.inbound.api.router import portfolio_router
 from finassist_assistant.portfolio.domain.model import Lot, Symbol
 from finassist_assistant.shared import Currency, Money
@@ -316,8 +316,36 @@ def Given_the_probes_When_the_schema_is_generated_Then_they_are_not_part_of_it(
     assert "/ready" not in paths
 
 
+# --- the currencies the wire carries --------------------------------------------------------
+
+
 def Given_the_wire_currency_codes_When_compared_Then_they_are_exactly_the_domain_currencies() -> (
     None
 ):
     """A currency added to the domain but not to the wire would fail as a 500 on its first use."""
     assert set(get_args(CurrencyCode)) == {currency.code for currency in Currency}
+
+
+@pytest.mark.parametrize("code", get_args(CurrencyCode))
+def Given_a_wire_currency_code_When_resolved_Then_it_is_the_currency_with_that_code(
+    code: CurrencyCode,
+) -> None:
+    """Resolved by code, the value the ``Literal`` lists and the parity test compares, and never by
+    member name. A member whose name differed from its code would otherwise pass the parity test and
+    still be a ``KeyError``, answered 500, on the first request that named it."""
+    assert currency_for(code).code == code
+
+
+@pytest.mark.parametrize("code", get_args(CurrencyCode))
+def Given_proceeds_in_any_wire_currency_When_a_disposal_is_priced_Then_the_code_is_understood(
+    client: TestClient, code: str
+) -> None:
+    """Proceeds in the lots' currency realise a gain; in any other they cannot be combined with the
+    cost. Either way the code was understood: a refusal about the request, never a 500."""
+    expected = 200 if code == OLDER.unit_cost.currency.code else 422
+
+    response = client.get(
+        f"{HOLDINGS}/VOO/disposal", params={**DISPOSAL, "proceeds": "3000", "currency": code}
+    )
+
+    assert response.status_code == expected
