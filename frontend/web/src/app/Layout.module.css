@@ -84,6 +84,20 @@
     text-decoration: none;
 }
 
+/* Forced-colours mode replaces the tab backgrounds with system colours, and background is all that
+   marks the open tab otherwise. A thick rule in the system text colour under the open tab keeps it
+   distinguishable; the other tabs reserve the same space in the system canvas colour, so the row
+   does not shift as the open tab changes. */
+@media (forced-colors: active) {
+    .tab {
+        border-block-end: 3px solid Canvas;
+    }
+
+    .tab[aria-current='page'] {
+        border-block-end-color: CanvasText;
+    }
+}
+
 .main {
     max-width: var(--content-max-width);
     margin: 0 auto;
