@@ -25,7 +25,10 @@ export interface ActionPanelProps {
     readonly children: ReactNode;
     /** The submit button's text, naming what happens, such as "Void". */
     readonly submitLabel: string;
-    /** Called when the form is submitted, by the button or by Enter in a field. */
+    /**
+     * Called when the form is submitted, by the button or by Enter in a field. Never called while
+     * `pending`, so one action cannot be sent twice.
+     */
     readonly onSubmit: () => void;
     /** Called by the Cancel button. The caller closes the panel by unmounting it. */
     readonly onCancel: () => void;
@@ -70,6 +73,11 @@ export function ActionPanel({
                 className={styles.form}
                 onSubmit={(event) => {
                     event.preventDefault();
+                    // The disabled button stops a click, not a submit event from elsewhere, and a
+                    // repeated void or clear is permanent in an append-only journal (ADR-028).
+                    if (pending) {
+                        return;
+                    }
                     onSubmit();
                 }}
             >

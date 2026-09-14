@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Focus, form submission and clicks all need a DOM.
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -110,6 +110,21 @@ describe('ActionPanel', () => {
 
         expect(submit).toHaveProperty('disabled', true);
         expect(submit.getAttribute('aria-busy')).toBe('true');
+        expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it('Given_pending_When_the_form_is_submitted_anyway_Then_onSubmit_is_not_called', () => {
+        // A disabled submit button stops a click, but a form can still receive a submit event -
+        // from a script, or a browser whose implicit submission ignores the disabled button. The
+        // event is fired directly so this fails whenever the panel itself does not guard.
+        const { onSubmit } = renderVoidPanel(true);
+
+        const form = screen.getByLabelText('Reason').closest('form');
+        if (form === null) {
+            throw new Error('ActionPanel rendered no form around its fields');
+        }
+        fireEvent.submit(form);
+
         expect(onSubmit).not.toHaveBeenCalled();
     });
 });
