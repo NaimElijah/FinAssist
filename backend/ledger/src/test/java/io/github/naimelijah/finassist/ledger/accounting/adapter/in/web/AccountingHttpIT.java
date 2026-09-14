@@ -175,11 +175,38 @@ class AccountingHttpIT extends PostgresFixture {
         assertProblem(response, 409, "ILLEGAL_TRANSITION");
     }
 
+    /**
+     * Each entry is in its own account's currency, so the service's per-entry check passes, and the amounts
+     * net to zero as numbers. The transaction itself then refuses to combine the two currencies (ADR-012),
+     * and the fallback answers. Its detail is asserted because it tells that mapping apart from the
+     * advice's, whose detail names an account instead.
+     */
+    @Test
+    void Given_entries_in_two_currencies_that_net_to_zero_When_recorded_Then_it_is_a_422_currency_mismatch_problem()
+            throws Exception {
+        String shekels = open("Cash", "ASSET", "ILS");
+        String dollars = open("Dollar wallet", "ASSET", "USD");
+
+        HttpResponse<String> response = post(TRANSACTIONS, """
+                {"occurredOn": "2026-03-03", "description": "Exchanged at no rate", "entries": [
+                  {"account": "%s", "amount": {"amount": "12.50", "currency": "ILS"}},
+                  {"account": "%s", "amount": {"amount": "-12.50", "currency": "USD"}}]}
+                """.formatted(shekels, dollars));
+
+        assertProblem(response, 422, "CURRENCY_MISMATCH");
+        assertThat(json(response).path("detail").asString()).startsWith("Cannot combine ILS with USD");
+    }
+
     /** Opens an ILS account through the API and returns the id the ledger generated for it. */
     private String open(String name, String type) throws IOException, InterruptedException {
+        return open(name, type, "ILS");
+    }
+
+    /** Opens an account in the given currency and returns the id the ledger generated for it. */
+    private String open(String name, String type, String currency) throws IOException, InterruptedException {
         HttpResponse<String> response = post(ACCOUNTS, """
-                {"name": "%s", "type": "%s", "currency": "ILS"}
-                """.formatted(name, type));
+                {"name": "%s", "type": "%s", "currency": "%s"}
+                """.formatted(name, type, currency));
         assertThat(response.statusCode()).as("opening %s", name).isEqualTo(201);
         return json(response).path("id").asString();
     }
