@@ -54,9 +54,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * drives the same route through the real services and the store.
  *
  * <p>Two scenarios open the first quarter of 2026 with 20000.00 cash: "Do nothing", and "Buy the car",
- * where 60000.00 leaves on 15 February, in the step that closes on 1 March. The list port answers them
- * in name order, and the requests ask for them the other way round, so a response that followed either
- * the list or the comparison's own order instead of the request would be caught.
+ * where 60000.00 leaves on 15 February, in the step that closes on 1 March.
  */
 @WebMvcTest(controllers = ComparisonController.class)
 @ExtendWith(OutputCaptureExtension.class)
@@ -92,12 +90,16 @@ class ComparisonControllerTest {
      * Each scenario carries its own points and end state, and its divergence from the baseline. The
      * baseline's own divergence is an empty list: the domain leaves the baseline out, because its distance
      * from itself is zero at every step.
+     *
+     * <p>The request names the baseline second, and the comparison answers in the reverse of the request's
+     * order. A response that followed the comparison's own order, or took the first scenario named as the
+     * baseline, fails here.
      */
     @Test
-    void Given_two_scenarios_and_a_baseline_When_compared_Then_they_are_answered_200_in_request_order_with_divergence()
+    void Given_the_baseline_named_second_When_compared_Then_scenarios_follow_the_request_not_the_comparison()
             throws Exception {
         when(comparer.compare(new CompareScenariosCommand(
-                        List.of(DO_NOTHING.id(), BUY_THE_CAR.id()),
+                        List.of(BUY_THE_CAR.id(), DO_NOTHING.id()),
                         FIRST_QUARTER,
                         Cadence.MONTHLY,
                         List.of(AccountRef.of(CURRENT_ACCOUNT)),
@@ -105,7 +107,7 @@ class ComparisonControllerTest {
                 .thenReturn(comparisonOf(DO_NOTHING, BUY_THE_CAR));
         when(lister.all()).thenReturn(List.of(BUY_THE_CAR, DO_NOTHING));
 
-        mvc.perform(firstQuarter(DO_NOTHING.id(), DO_NOTHING.id(), BUY_THE_CAR.id())
+        mvc.perform(firstQuarter(DO_NOTHING.id(), BUY_THE_CAR.id(), DO_NOTHING.id())
                         .param("cash", CURRENT_ACCOUNT))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
@@ -115,26 +117,27 @@ class ComparisonControllerTest {
                 .andExpect(jsonPath("$.currency").value("ILS"))
                 .andExpect(jsonPath("$.baseline").value(DO_NOTHING.id().toString()))
                 .andExpect(jsonPath("$.scenarios.length()").value(2))
-                .andExpect(jsonPath("$.scenarios[0].id").value(DO_NOTHING.id().toString()))
-                .andExpect(jsonPath("$.scenarios[0].name").value("Do nothing"))
+                .andExpect(jsonPath("$.scenarios[0].id").value(BUY_THE_CAR.id().toString()))
+                .andExpect(jsonPath("$.scenarios[0].name").value("Buy the car"))
                 .andExpect(jsonPath("$.scenarios[0].points.length()").value(4))
-                .andExpect(jsonPath("$.scenarios[0].endState.date").value("2026-04-01"))
-                .andExpect(jsonPath("$.scenarios[0].endState.cash.amount").value("20000.00"))
-                .andExpect(jsonPath("$.scenarios[0].endState.total.amount").value("20000.00"))
-                .andExpect(jsonPath("$.scenarios[0].divergence").isArray())
-                .andExpect(jsonPath("$.scenarios[0].divergence.length()").value(0))
-                .andExpect(jsonPath("$.scenarios[1].id").value(BUY_THE_CAR.id().toString()))
-                .andExpect(jsonPath("$.scenarios[1].name").value("Buy the car"))
-                .andExpect(jsonPath("$.scenarios[1].points[2].cash.amount").value("-40000.00"))
-                .andExpect(jsonPath("$.scenarios[1].endState.cash.amount").value("-40000.00"))
-                .andExpect(jsonPath("$.scenarios[1].endState.invested.amount").value("0.00"))
-                .andExpect(jsonPath("$.scenarios[1].divergence.length()").value(4))
-                .andExpect(jsonPath("$.scenarios[1].divergence[1].cash.amount").value("0.00"))
-                .andExpect(jsonPath("$.scenarios[1].divergence[2].date").value("2026-03-01"))
-                .andExpect(jsonPath("$.scenarios[1].divergence[2].cash.amount").value("-60000.00"))
+                .andExpect(jsonPath("$.scenarios[0].points[2].cash.amount").value("-40000.00"))
+                .andExpect(jsonPath("$.scenarios[0].endState.cash.amount").value("-40000.00"))
+                .andExpect(jsonPath("$.scenarios[0].endState.invested.amount").value("0.00"))
+                .andExpect(jsonPath("$.scenarios[0].divergence.length()").value(4))
+                .andExpect(jsonPath("$.scenarios[0].divergence[1].cash.amount").value("0.00"))
+                .andExpect(jsonPath("$.scenarios[0].divergence[2].date").value("2026-03-01"))
+                .andExpect(jsonPath("$.scenarios[0].divergence[2].cash.amount").value("-60000.00"))
                 .andExpect(
-                        jsonPath("$.scenarios[1].divergence[2].invested.amount").value("0.00"))
-                .andExpect(jsonPath("$.scenarios[1].divergence[2].total.amount").value("-60000.00"));
+                        jsonPath("$.scenarios[0].divergence[2].invested.amount").value("0.00"))
+                .andExpect(jsonPath("$.scenarios[0].divergence[2].total.amount").value("-60000.00"))
+                .andExpect(jsonPath("$.scenarios[1].id").value(DO_NOTHING.id().toString()))
+                .andExpect(jsonPath("$.scenarios[1].name").value("Do nothing"))
+                .andExpect(jsonPath("$.scenarios[1].points.length()").value(4))
+                .andExpect(jsonPath("$.scenarios[1].endState.date").value("2026-04-01"))
+                .andExpect(jsonPath("$.scenarios[1].endState.cash.amount").value("20000.00"))
+                .andExpect(jsonPath("$.scenarios[1].endState.total.amount").value("20000.00"))
+                .andExpect(jsonPath("$.scenarios[1].divergence").isArray())
+                .andExpect(jsonPath("$.scenarios[1].divergence.length()").value(0));
     }
 
     /** Checked before anything is projected: a divergence from a scenario not compared has no answer. */
