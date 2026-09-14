@@ -190,8 +190,12 @@ def _price_unavailable(request: Request, exception: PriceUnavailableError) -> JS
 
     Degraded rather than broken, so WARNING rather than ERROR. The detail is fixed, not the
     exception's message, because no 5xx carries exception text.
+
+    Logged as the event and the symbol, with no traceback. While a feed is stale every valuation
+    lands here, and a traceback per request would bury the one line that says which instrument
+    has no price; the cause is the feed's staleness, not a stack.
     """
-    _log.warning("no usable price; answered 503", exc_info=exception)
+    _log.warning("no usable price; answered 503", symbol=str(exception.symbol))
     return problem_response(
         HTTPStatus.SERVICE_UNAVAILABLE,
         PRICE_UNAVAILABLE,

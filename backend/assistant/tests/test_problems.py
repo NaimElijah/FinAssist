@@ -249,6 +249,9 @@ def Given_no_usable_price_When_it_is_answered_Then_it_is_503_without_the_message
     assert [record["correlation_id"] for record in warnings] == [
         response.headers[CORRELATION_ID_HEADER]
     ]
+    # One line per 503 for as long as a feed is stale: the event and the symbol, never a traceback.
+    assert warnings[0]["symbol"] == str(VOO)
+    assert "exception" not in warnings[0]
 
 
 # --- failures that are the assistant's own fault -------------------------------------------
