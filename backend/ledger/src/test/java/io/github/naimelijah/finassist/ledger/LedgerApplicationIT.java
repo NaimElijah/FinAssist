@@ -28,17 +28,18 @@ import org.springframework.boot.web.server.servlet.context.ServletWebServerAppli
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * The only test that boots Spring, and the only one that touches HTTP.
+ * The ledger as a running server, and what it answers at its edge before any business endpoint exists.
  *
- * <p>Everything else in this module is a pure domain test, because everything else in this module
- * is pure domain. This exists because the README and the architecture document both claim the
- * ledger "boots and answers Actuator probes", and until now nothing checked either half of that
- * sentence. A claim in a document that no test holds is a claim waiting to become false.
+ * <p>This exists because the README and the architecture document both claim the ledger "boots and
+ * answers Actuator probes", and nothing checked either half of that sentence. A claim in a document
+ * that no test holds is a claim waiting to become false. {@code LedgerObservabilityIT} and {@code
+ * LedgerContractIT} boot the same server for claims of their own.
  *
- * <p>It asserts the wiring, not any behaviour of FinAssist's own: that the context loads with
- * every context's domain on the classpath, that {@code application.yml} parses, that the three
- * probes the file configures are actually exposed, and that springdoc serves an OpenAPI document
- * (ADR-028). The health response touches no FinAssist code.
+ * <p>It asserts the wiring and the edge rather than any business behaviour: that the context loads
+ * with every context's domain on the classpath, that {@code application.yml} parses, that the three
+ * probes the file configures are exposed, that springdoc serves an OpenAPI document (ADR-028), that a
+ * foreign {@code Host} is refused by a filter that runs first (ADR-027), and that an unknown route is
+ * answered as a problem (ADR-028).
  *
  * <p>Uses the JDK's {@link HttpClient} rather than {@code TestRestTemplate}, which Spring Boot 4
  * moved out of {@code spring-boot-starter-test} into a separate {@code spring-boot-resttestclient}

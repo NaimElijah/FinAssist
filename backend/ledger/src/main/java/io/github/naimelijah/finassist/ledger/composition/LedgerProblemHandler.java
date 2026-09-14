@@ -25,8 +25,9 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 /**
  * Answers every failure no context claims as an RFC 9457 problem with a stable {@code code} (ADR-028).
  *
- * <p>It runs last. Each context's advice sits at the highest precedence and maps that context's typed
- * exceptions to specific codes, and whatever none of them claims arrives here. Extending {@link
+ * <p>It runs last. The advices that arrive with each context's controllers sit at the highest
+ * precedence and map that context's typed exceptions to specific codes. None exists yet, so every
+ * failure arrives here today; once they do, whatever none of them claims still will. Extending {@link
  * ResponseEntityExceptionHandler} keeps Spring MVC's own exceptions at their own statuses: an unknown
  * route stays 404, a form post 415 and an unreadable body 400, where a bare handler for {@link
  * Exception} would make each of them a 500. {@code spring.mvc.problemdetails.enabled} stays unset,
@@ -39,9 +40,11 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  *       {@code NOT_FOUND}, 405 {@code METHOD_NOT_ALLOWED}, 406 {@code NOT_ACCEPTABLE} and 415 {@code
  *       UNSUPPORTED_MEDIA_TYPE}. Bean-validation failures also list each rejection under {@code
  *       errors};
- *   <li>{@link IllegalArgumentException}, the domain's only rule signal, is 422 {@code RULE_VIOLATED},
- *       with the exception's message as the detail. Domain messages hold no secrets, and the ledger
- *       holds none (ADR-019);
+ *   <li>{@link IllegalArgumentException} is 422 {@code RULE_VIOLATED}, with the exception's message as
+ *       the detail. The domain raises it when a well-formed request breaks a rule, and its messages hold
+ *       no secrets, as the ledger holds none (ADR-019). It is not the domain's only refusal: {@code
+ *       IllegalTransitionException} and {@code IllegalPlanTransitionException} extend {@link
+ *       RuntimeException}, so they reach this handler as 500s until their contexts' advices map them;
  *   <li>{@link CurrencyMismatchException} is 422 {@code CURRENCY_MISMATCH}. It is mapped once here
  *       because all three contexts throw it;
  *   <li>anything else is 500 {@code INTERNAL_ERROR}.

@@ -8,8 +8,8 @@ import java.net.URI;
  *
  * <p>{@code title} and {@code detail} are prose for a person and may be reworded. A {@code code} is
  * what a client branches on, so once one has been served it is part of the contract and does not
- * change. Each context's own advice names its more specific codes beside its exceptions, because no
- * context may import this package.
+ * change. The advices that arrive with each context's controllers will name their own, more specific
+ * codes beside their exceptions, because no context may import this package.
  */
 final class Problems {
 
@@ -53,7 +53,7 @@ final class Problems {
     /** Unparseable JSON, a wrong type, a missing or invalid field or parameter: fix the request. */
     static final String MALFORMED_REQUEST = "MALFORMED_REQUEST";
 
-    /** An unknown route. A context names its own code for a missing resource. */
+    /** An unknown route. A context's advice will name its own code for a missing resource. */
     static final String NOT_FOUND = "NOT_FOUND";
 
     /** The route exists and does not take this method. */
