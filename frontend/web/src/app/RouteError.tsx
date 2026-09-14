@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useRouteError } from 'react-router';
+import { isRouteErrorResponse, useRouteError } from 'react-router';
 
 import { ApiError } from '../shared/api/client';
 import { type LogFields, log } from '../shared/lib/logger';
@@ -10,10 +10,15 @@ import { ErrorState } from '../shared/ui';
  *
  * An `ApiError`'s message is the problem's detail, which can carry the owner's own words, such as
  * an account name, so only its status and stable code are logged, as client.ts does (ADR-019).
- * Any other `Error` is a bug, and its message is what makes the record actionable. A thrown value
- * that is not an `Error` is logged by its type alone, since its content is unknown.
+ * A route error response - React Router's own, such as the 404 for a path no route matches - is
+ * logged by its HTTP status, which is what distinguishes one from another. Any other `Error` is a
+ * bug, and its message is what makes the record actionable. A thrown value that is none of these
+ * is logged by its type alone, since its content is unknown.
  */
 function failureFields(error: unknown): LogFields {
+    if (isRouteErrorResponse(error)) {
+        return { status: error.status };
+    }
     if (error instanceof ApiError) {
         return {
             status: error.status,

@@ -24,9 +24,24 @@ function ExplodingWithApiError(): never {
     });
 }
 
+function Home() {
+    return <p>home</p>;
+}
+
 /** Render a one-route router whose component throws, with RouteError as its boundary. */
 function renderRoute(Component: () => never) {
     const router = createMemoryRouter([{ path: '/', Component, ErrorBoundary: RouteError }]);
+    render(<RouterProvider router={router} />);
+}
+
+/**
+ * Render a one-route router at a path nothing matches. React Router raises its own 404 error
+ * response for that, rather than an Error, and hands it to the root route's boundary.
+ */
+function renderUnmatchedPath() {
+    const router = createMemoryRouter([{ path: '/', Component: Home, ErrorBoundary: RouteError }], {
+        initialEntries: ['/nowhere'],
+    });
     render(<RouterProvider router={router} />);
 }
 
@@ -69,6 +84,16 @@ describe('RouteError', () => {
         const failures = written.filter((record) => record.event === 'route failed');
         expect(failures).toHaveLength(1);
         expect(failures[0]).toMatchObject({ level: 'error', reason: 'component blew up' });
+    });
+
+    it('Given_a_path_no_route_matches_When_rendered_Then_the_route_error_response_is_logged_by_its_status', async () => {
+        renderUnmatchedPath();
+        await screen.findByRole('alert');
+
+        const failures = written.filter((record) => record.event === 'route failed');
+        expect(failures).toHaveLength(1);
+        expect(failures[0]).toMatchObject({ level: 'error', status: 404 });
+        expect(failures[0]).not.toHaveProperty('reason');
     });
 
     it('Given_a_route_that_throws_an_ApiError_When_logged_Then_the_record_carries_its_code_and_never_its_detail', async () => {
