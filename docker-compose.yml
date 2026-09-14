@@ -1,11 +1,12 @@
 # The one entry point for running FinAssist locally and in CI (see docs/ADRs/ADR-005).
-# Only the database exists so far; ledger and assistant services join this file in the
-# same commit that gives each one something to serve.
+# The ledger runs here now that it has something to serve; the assistant joins the same file
+# the day its own API exists. `./mvnw spring-boot:run` against the Compose `db` still works,
+# for the faster native inner loop.
 #
 # The monitoring services sit behind a `monitoring` profile, so `docker compose up` stays
-# database-only and `docker compose --profile monitoring up` adds the telemetry backend
-# (ADR-019). They serve something the day they are added: the ledger and the assistant both
-# push OTLP, and Prometheus scrapes the ledger directly.
+# database-and-ledger-only and `docker compose --profile monitoring up` adds the telemetry
+# backend (ADR-019). The ledger pushes OTLP, and Prometheus scrapes it directly by its Compose
+# service name — a natively-run ledger bound to loopback (ADR-027) is not reachable that way.
 name: finassist
 
 services:
@@ -26,6 +27,37 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  ledger:
+    build: ./backend/ledger
+    depends_on:
+      db:
+        condition: service_healthy
+    # Loopback only, per ADR-027 — the ledger has no authentication, so the published port must
+    # not be reachable from outside this machine even though the container itself binds every
+    # interface (see LEDGER_ADDRESS below).
+    ports:
+      - "127.0.0.1:${LEDGER_PORT:-8080}:8080"
+    environment:
+      # The container's own loopback is unreachable from outside the container, so the interface
+      # it binds has to be every one of them; the host-side port mapping above is what stays on
+      # 127.0.0.1 (ADR-027).
+      LEDGER_ADDRESS: 0.0.0.0
+      # `ledger` — this service's own Compose DNS name — lets Prometheus scrape it below.
+      LEDGER_ALLOWED_HOSTS: localhost,127.0.0.1,ledger
+      LEDGER_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-finassist}
+      LEDGER_DB_USERNAME: ${LEDGER_DB_USERNAME:-finassist}
+      LEDGER_DB_PASSWORD: ${LEDGER_DB_PASSWORD:?set LEDGER_DB_PASSWORD in .env}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORT_ENABLED: ${OTEL_EXPORT_ENABLED:-false}
+    healthcheck:
+      # The runtime image is eclipse-temurin's Ubuntu Noble base, which carries curl already, so
+      # this costs no extra tool install.
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/readiness"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
 
   # --- Monitoring (profile: monitoring) ---------------------------------------------------
   # Receives OTLP from both services and re-exposes metrics for Prometheus to scrape. The
@@ -51,10 +83,6 @@ services:
       - prometheus-data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
-    # The ledger runs natively on the host, so the scrape target is outside this network.
-    # Docker Desktop resolves this name already; Linux needs it stated.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
   grafana:
     profiles: [monitoring]

@@ -130,6 +130,7 @@ jobs:
         run: |
           cp .env.example .env
           sed -i 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=ci-only/' .env
+          sed -i 's/^LEDGER_DB_PASSWORD=$/LEDGER_DB_PASSWORD=ci-only/' .env
           sed -i 's/^GRAFANA_ADMIN_PASSWORD=$/GRAFANA_ADMIN_PASSWORD=ci-only/' .env
           # --profile monitoring, or the three monitoring services are never interpolated and
           # a broken reference among them validates green.

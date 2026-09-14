@@ -67,21 +67,27 @@ fetches its own Python 3.13, so no system Python upgrade is needed.
 ```bash
 git clone https://github.com/NaimElijah/FinAssist.git
 cd FinAssist
-cp .env.example .env        # then set POSTGRES_PASSWORD; Compose refuses to start without it
-                            # and LEDGER_DB_PASSWORD to the same value
-docker compose up -d db
+cp .env.example .env        # then set POSTGRES_PASSWORD and LEDGER_DB_PASSWORD to the same
+                            # value; Compose refuses to start either service without them
+docker compose up --build
 ```
 
-That starts PostgreSQL 18 and nothing else — it is the only service in the Compose file so
-far. Success looks like `pg_isready` passing on the `db` container within a few seconds.
-
-The ledger runs natively against that database. It applies its Flyway migrations at start-up
-and then answers health probes and nothing else:
+That starts PostgreSQL 18 and the ledger — the only two services in the Compose file so far.
+The ledger applies its Flyway migrations at start-up, then answers its API and its Actuator
+probes, published on `127.0.0.1` only (ADR-027):
 
 ```bash
-cd backend/ledger && ./mvnw spring-boot:run
-curl http://localhost:8080/actuator/health
+curl http://127.0.0.1:8080/actuator/health
 # {"groups":["liveness","readiness"],"status":"UP"}
+curl http://127.0.0.1:8080/api/v1/accounts
+# []
+```
+
+For the faster native inner loop, run the ledger outside Compose against the same database:
+
+```bash
+docker compose up -d db
+cd backend/ledger && ./mvnw spring-boot:run
 ```
 
 The web client runs too, and renders a placeholder:
@@ -311,7 +317,7 @@ in the repository, the logs or an error message.
 | `LEDGER_PORT` | Ledger HTTP port | `8080` |
 | `LEDGER_ADDRESS` | Interface the ledger binds. Loopback by default, because the ledger has no authentication; `0.0.0.0` only inside a container ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `127.0.0.1` |
 | `LEDGER_ALLOWED_HOSTS` | Comma-separated host names the ledger answers to, without ports. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `localhost,127.0.0.1` |
-| `LEDGER_DB_URL` | JDBC URL. `localhost`, because the ledger runs natively while only Postgres is in Compose; it becomes the service name `db` the day the ledger joins the Compose file | `jdbc:postgresql://localhost:5432/finassist` |
+| `LEDGER_DB_URL` | JDBC URL. Compose sets this itself, to the service name `db`, for the `ledger` container; this default targets a native `./mvnw spring-boot:run` at the Compose `db` service's published port | `jdbc:postgresql://localhost:5432/finassist` |
 | `LEDGER_DB_USERNAME` | Ledger database user | `finassist` |
 | `ASSISTANT_PORT` | Assistant HTTP port | `8000` |
 | `LEDGER_BASE_URL` | Where the assistant reaches the ledger | `http://ledger:8080` |
