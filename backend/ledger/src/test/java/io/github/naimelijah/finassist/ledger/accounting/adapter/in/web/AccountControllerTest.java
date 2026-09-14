@@ -17,12 +17,18 @@ import io.github.naimelijah.finassist.ledger.accounting.application.port.in.List
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.OpenAccountCommand;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.OpenAccountUseCase;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.ViewBalanceUseCase;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.ViewTransactionsUseCase;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.Account;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountType;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Balance;
+import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Entry;
+import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Transaction;
+import io.github.naimelijah.finassist.ledger.accounting.domain.entry.TransactionId;
+import io.github.naimelijah.finassist.ledger.accounting.domain.entry.TransactionState;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
+import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -51,6 +57,9 @@ class AccountControllerTest {
     private static final String ACCOUNTS = "/api/v1/accounts";
     private static final MediaType PROBLEM_JSON = MediaType.APPLICATION_PROBLEM_JSON;
 
+    private static final LocalDate MARCH_3 = LocalDate.of(2026, 3, 3);
+    private static final LocalDate MARCH_5 = LocalDate.of(2026, 3, 5);
+
     @Autowired
     private MockMvc mvc;
 
@@ -62,6 +71,9 @@ class AccountControllerTest {
 
     @MockitoBean
     private ViewBalanceUseCase balances;
+
+    @MockitoBean
+    private ViewTransactionsUseCase journal;
 
     /** The port promises name order; the controller must keep whatever order it is given, not re-sort. */
     @Test
@@ -206,7 +218,51 @@ class AccountControllerTest {
                 .andExpect(content().string(containsString("\"amount\":\"" + onTheWire + "\"")));
     }
 
+    /** A voided transaction is listed with its reason, because voiding is not deleting (ADR-020). */
+    @Test
+    void Given_an_account_with_transactions_When_they_are_listed_Then_they_are_answered_200_in_the_port_order()
+            throws Exception {
+        AccountId cash = AccountId.generate();
+        Transaction voided = purchase(cash, new TransactionState.Voided(MARCH_5, "entered twice"));
+        Transaction pending = purchase(cash, new TransactionState.Pending());
+        when(journal.forAccount(cash)).thenReturn(List.of(voided, pending));
+
+        mvc.perform(get(ACCOUNTS + "/" + cash + "/transactions"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].id").value(voided.id().toString()))
+                .andExpect(jsonPath("$[0].state.status").value("VOIDED"))
+                .andExpect(jsonPath("$[0].state.reason").value("entered twice"))
+                .andExpect(jsonPath("$[1].id").value(pending.id().toString()))
+                .andExpect(jsonPath("$[1].state.status").value("PENDING"));
+    }
+
+    @Test
+    void Given_an_unknown_account_When_its_transactions_are_listed_Then_it_is_a_404_account_not_found_problem()
+            throws Exception {
+        AccountId unknown = AccountId.generate();
+        when(journal.forAccount(unknown)).thenThrow(new AccountNotFoundException(unknown));
+
+        mvc.perform(get(ACCOUNTS + "/" + unknown + "/transactions"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("ACCOUNT_NOT_FOUND"));
+    }
+
     private static Account account(String name, AccountType type, Currency currency) {
         return new Account(AccountId.generate(), name, type, currency);
+    }
+
+    /** Groceries bought on 3 March, paid from the given account. */
+    private static Transaction purchase(AccountId paidFrom, TransactionState state) {
+        return new Transaction(
+                TransactionId.generate(),
+                MARCH_3,
+                "Groceries",
+                List.of(
+                        new Entry(AccountId.generate(), Money.of("12.50", Currency.ILS)),
+                        new Entry(paidFrom, Money.of("-12.50", Currency.ILS))),
+                state);
     }
 }

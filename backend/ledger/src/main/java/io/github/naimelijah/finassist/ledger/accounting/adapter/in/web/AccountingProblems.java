@@ -30,6 +30,9 @@ final class AccountingProblems {
     /** An entry is in a currency its account does not hold, and the ledger never converts (ADR-012). */
     static final String CURRENCY_MISMATCH = "CURRENCY_MISMATCH";
 
+    /** An account named in the request body does not exist, so the request is refused rather than not found. */
+    static final String UNKNOWN_ACCOUNT = "UNKNOWN_ACCOUNT";
+
     /**
      * Written out rather than left absent, as the fallback does, so every problem has one shape on the
      * wire whichever advice answered it.

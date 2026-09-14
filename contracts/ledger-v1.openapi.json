@@ -45,6 +45,22 @@
         },
         "type": "object"
       },
+      "EntryDto": {
+        "properties": {
+          "account": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "account",
+          "amount"
+        ],
+        "type": "object"
+      },
       "MoneyDto": {
         "properties": {
           "amount": {
@@ -140,6 +156,107 @@
         },
         "required": [
           "code"
+        ],
+        "type": "object"
+      },
+      "RecordTransactionRequest": {
+        "properties": {
+          "description": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryDto"
+            },
+            "maxItems": 2147483647,
+            "minItems": 2,
+            "type": "array"
+          },
+          "occurredOn": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "entries",
+          "occurredOn"
+        ],
+        "type": "object"
+      },
+      "TransactionResponse": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryDto"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurredOn": {
+            "format": "date",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TransactionStateResponse"
+          }
+        },
+        "type": "object"
+      },
+      "TransactionStateResponse": {
+        "properties": {
+          "on": {
+            "format": "date",
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "CLEARED",
+              "RECONCILED",
+              "VOIDED"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "TransitionRequest": {
+        "properties": {
+          "on": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "on"
+        ],
+        "type": "object"
+      },
+      "VoidRequest": {
+        "properties": {
+          "on": {
+            "format": "date",
+            "type": "string"
+          },
+          "reason": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "on",
+          "reason"
         ],
         "type": "object"
       }
@@ -260,6 +377,294 @@
         },
         "tags": [
           "account-controller"
+        ]
+      }
+    },
+    "/api/v1/accounts/{id}/transactions": {
+      "get": {
+        "operationId": "listAccountTransactions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TransactionResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "account-controller"
+        ]
+      }
+    },
+    "/api/v1/transactions": {
+      "get": {
+        "operationId": "listTransactions",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TransactionResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "transaction-controller"
+        ]
+      },
+      "post": {
+        "operationId": "recordTransaction",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordTransactionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "transaction-controller"
+        ]
+      }
+    },
+    "/api/v1/transactions/{id}/clear": {
+      "post": {
+        "operationId": "clearTransaction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "transaction-controller"
+        ]
+      }
+    },
+    "/api/v1/transactions/{id}/reconcile": {
+      "post": {
+        "operationId": "reconcileTransaction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "transaction-controller"
+        ]
+      }
+    },
+    "/api/v1/transactions/{id}/void": {
+      "post": {
+        "operationId": "voidTransaction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoidRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "transaction-controller"
         ]
       }
     }

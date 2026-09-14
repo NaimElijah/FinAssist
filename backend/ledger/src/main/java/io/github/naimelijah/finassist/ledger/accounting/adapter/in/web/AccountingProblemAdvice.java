@@ -21,8 +21,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * the fallback: an {@link IllegalArgumentException} becomes 422 {@code RULE_VIOLATED}, and anything
  * unexpected a logged 500.
  *
- * <p>Each detail is the exception's message. These are 4xx refusals whose messages name only what the
- * request itself supplied, and the ledger holds no secrets (ADR-019).
+ * <p>Each detail is the exception's message. These are 4xx refusals whose messages describe the request
+ * and the books it touched, such as an account's name, and the ledger holds no secrets (ADR-019).
  *
  * <p>An {@link AccountNotFoundException} is 404 here because an account id in the path names the
  * resource the request is about. Where the id comes from a body instead, the controller handles the
