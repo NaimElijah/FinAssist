@@ -42,6 +42,14 @@ PROBLEM_RESPONSE = {
 }
 HTTP_METHODS = frozenset({"get", "put", "post", "delete", "options", "head", "patch", "trace"})
 
+# The component schemas the response-member rule does not apply to, each with its reason. Every
+# other schema is held to it, so a model added later is checked without anyone remembering to list
+# it. The assistant takes no request body and declares its query parameters inline, so no request
+# or parameter schema appears in the document; one that does must be named here, with its reason.
+NOT_ALWAYS_PRESENT_MEMBERS = {
+    "Problem": "RFC 9457 leaves every member but code optional, as the ledger's schema does",
+}
+
 
 @pytest.fixture(autouse=True)
 def _reset_observability() -> Iterator[None]:
@@ -78,11 +86,6 @@ def _operations(document: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     ]
     assert operations, "the document describes no operation, so every rule below checks nothing"
     return operations
-
-
-def _response_schemas(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    schemas: dict[str, dict[str, Any]] = document["components"]["schemas"]
-    return {name: schema for name, schema in schemas.items() if name != "Problem"}
 
 
 # --- the snapshot ---------------------------------------------------------------------------
@@ -161,18 +164,33 @@ def Given_the_position_schema_When_read_Then_symbol_quantity_and_cost_are_requir
     assert set(position["required"]) == {"symbol", "quantity", "cost"}
 
 
-@pytest.mark.parametrize(
-    "name", ["MoneyModel", "PositionModel", "ValuationModel", "LotModel", "DispositionModel"]
-)
-def Given_a_response_schema_When_read_Then_every_member_is_required_and_camel_case(
-    document: dict[str, Any], name: str
+def Given_every_response_schema_When_read_Then_every_member_is_required_and_camel_case(
+    document: dict[str, Any],
 ) -> None:
     """A generated client reads a member missing from ``required`` as optional, and makes every
-    caller check for it. Every member of every response here is always present."""
-    schema = _response_schemas(document)[name]
+    caller check for it. Every member of every response here is always present, and camelCase.
 
-    assert set(schema["required"]) == set(schema["properties"])
-    assert not [member for member in schema["properties"] if "_" in member]
+    Every component schema is checked except those named, with a reason, in
+    ``NOT_ALWAYS_PRESENT_MEMBERS``, rather than a list of the models that exist today.
+    """
+    schemas: dict[str, dict[str, Any]] = document["components"]["schemas"]
+    checked = {
+        name: schema for name, schema in schemas.items() if name not in NOT_ALWAYS_PRESENT_MEMBERS
+    }
+
+    not_required = {
+        name: sorted(set(schema["properties"]) - set(schema.get("required", [])))
+        for name, schema in checked.items()
+    }
+    snake_case = {
+        name: sorted(member for member in schema["properties"] if "_" in member)
+        for name, schema in checked.items()
+    }
+
+    assert set(NOT_ALWAYS_PRESENT_MEMBERS) <= set(schemas), "an exclusion names no schema"
+    assert checked, "no response schema is left to check, so this rule checks nothing"
+    assert not {name: members for name, members in not_required.items() if members}
+    assert not {name: members for name, members in snake_case.items() if members}
 
 
 def Given_both_contracts_When_decimal_patterns_are_compared_Then_they_are_the_ledgers_pattern(
