@@ -6,6 +6,10 @@ import type { ProxyOptions } from 'vite';
 // the triple-slash reference used to supply before this file imported from vitest at all.
 import { coverageConfigDefaults, defineConfig } from 'vitest/config';
 
+// Vite's forward-compat warning for `configLoader: 'native'` flags this extensionless import.
+// The active default loader is still `bundle`, which supports it, so nothing here is broken;
+// `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` would silence the warning, and is deliberately not
+// set, so a future move to the native loader stays a decision rather than a muted surprise.
 import {
     ASSISTANT_BACKEND,
     LEDGER_BACKEND,
