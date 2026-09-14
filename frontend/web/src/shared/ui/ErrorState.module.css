@@ -20,3 +20,10 @@
 .field {
     font-weight: var(--font-weight-strong);
 }
+
+.action {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-block-start: var(--space-3);
+}

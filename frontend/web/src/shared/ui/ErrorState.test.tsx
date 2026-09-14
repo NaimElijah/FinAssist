@@ -96,4 +96,17 @@ describe('ErrorState', () => {
 
         expect(screen.getByRole('alert').textContent).toBe(GENERIC_SENTENCE);
     });
+
+    it('Given_an_action_When_rendered_Then_it_is_offered_inside_the_alert', () => {
+        render(<ErrorState error={apiError(undefined, 503)} action={<button>Try again</button>} />);
+
+        const alert = screen.getByRole('alert');
+        expect(within(alert).getByRole('button', { name: 'Try again' })).toBeDefined();
+    });
+
+    it('Given_no_action_When_rendered_Then_no_control_is_offered', () => {
+        render(<ErrorState error={apiError(undefined, 503)} />);
+
+        expect(screen.queryByRole('button')).toBeNull();
+    });
 });
