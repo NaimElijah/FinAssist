@@ -283,6 +283,28 @@ class PlannedFlowControllerTest {
     }
 
     /**
+     * A fraction is not an integer. Jackson would otherwise truncate it into {@code interval} or {@code
+     * count}, and plan a recurrence the client never sent: 1.5 months would become one.
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "{\"kind\": \"UNTIL\", \"cadence\": \"MONTHLY\", \"interval\": 1.5, \"until\": \"2027-01-01\"}",
+                "{\"kind\": \"TIMES\", \"cadence\": \"MONTHLY\", \"interval\": 1, \"count\": 12.5}"
+            })
+    void Given_a_fractional_interval_or_count_When_planned_Then_it_is_a_400_problem(String recurrence)
+            throws Exception {
+        mvc.perform(post(PLANNED_FLOWS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(carRequest("60000.00", recurrence)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+
+        verifyNoInteractions(planner);
+    }
+
+    /**
      * A recurrence's numbers are the domain's to refuse, as the amount's sign is: a well-formed request
      * breaking a rule is 422, and it is refused before the port is called.
      */

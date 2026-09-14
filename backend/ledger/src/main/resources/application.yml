@@ -25,6 +25,13 @@ springdoc:
   paths-to-match: /api/v1/**
 
 spring:
+  jackson:
+    deserialization:
+      # A fraction is not an integer. Jackson 3 truncates one into an int member by default, so
+      # "interval": 1.5 would quietly plan a recurrence the client never sent. Off, it is a
+      # malformed body and a 400, like any other wrong type (ADR-028).
+      accept-float-as-int: false
+
   application:
     # Becomes OpenTelemetry's service.name. Fixed per service on purpose: one shared name
     # across two services would merge their telemetry into one stream (ADR-019).
