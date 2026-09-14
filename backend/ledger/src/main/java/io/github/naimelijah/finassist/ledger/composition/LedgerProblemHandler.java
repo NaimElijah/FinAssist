@@ -46,8 +46,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  *       does not start before it ends. Its messages hold no secrets, as the ledger holds none (ADR-019).
  *       It is not the domain's only refusal: {@code IllegalTransitionException} and {@code
  *       IllegalPlanTransitionException} extend {@link RuntimeException}, so each is left to its own
- *       context's advice. Accounting's maps the first; the second reaches this handler as a 500 until
- *       planning's advice maps it;
+ *       context's advice. Accounting's maps the first and planning's the second, each to 409;
  *   <li>{@link CurrencyMismatchException} is 422 {@code CURRENCY_MISMATCH}. It is mapped once here
  *       because all three contexts throw it;
  *   <li>anything else is 500 {@code INTERNAL_ERROR}.

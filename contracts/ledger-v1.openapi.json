@@ -332,6 +332,135 @@
         ],
         "type": "object"
       },
+      "PlanCancelRequest": {
+        "properties": {
+          "on": {
+            "format": "date",
+            "type": "string"
+          },
+          "reason": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "on",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "PlanFlowRequest": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "description": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "INFLOW",
+              "OUTFLOW",
+              "INVESTMENT"
+            ],
+            "type": "string"
+          },
+          "recurrence": {
+            "$ref": "#/components/schemas/RecurrenceRequest"
+          },
+          "startsOn": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "description",
+          "direction",
+          "recurrence",
+          "startsOn"
+        ],
+        "type": "object"
+      },
+      "PlanStateResponse": {
+        "properties": {
+          "on": {
+            "format": "date",
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PLANNED",
+              "COMMITTED",
+              "REALISED",
+              "CANCELLED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "PlanTransitionRequest": {
+        "properties": {
+          "on": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "on"
+        ],
+        "type": "object"
+      },
+      "PlannedFlowResponse": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "description": {
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "INFLOW",
+              "OUTFLOW",
+              "INVESTMENT"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "recurrence": {
+            "$ref": "#/components/schemas/RecurrenceResponse"
+          },
+          "startsOn": {
+            "format": "date",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PlanStateResponse"
+          }
+        },
+        "required": [
+          "amount",
+          "description",
+          "direction",
+          "id",
+          "recurrence",
+          "startsOn",
+          "state"
+        ],
+        "type": "object"
+      },
       "Problem": {
         "properties": {
           "code": {
@@ -396,6 +525,78 @@
           "description",
           "entries",
           "occurredOn"
+        ],
+        "type": "object"
+      },
+      "RecurrenceRequest": {
+        "properties": {
+          "cadence": {
+            "enum": [
+              "WEEKLY",
+              "MONTHLY",
+              "YEARLY"
+            ],
+            "type": "string"
+          },
+          "count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "interval": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "ONCE",
+              "UNTIL",
+              "TIMES"
+            ],
+            "type": "string"
+          },
+          "until": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "RecurrenceResponse": {
+        "properties": {
+          "cadence": {
+            "enum": [
+              "WEEKLY",
+              "MONTHLY",
+              "YEARLY"
+            ],
+            "type": "string"
+          },
+          "count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "interval": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "ONCE",
+              "UNTIL",
+              "TIMES"
+            ],
+            "type": "string"
+          },
+          "until": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
         ],
         "type": "object"
       },
@@ -843,6 +1044,230 @@
         },
         "tags": [
           "categorisation-rule-controller"
+        ]
+      }
+    },
+    "/api/v1/planned-flows": {
+      "get": {
+        "operationId": "listPlannedFlows",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlannedFlowResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "planned-flow-controller"
+        ]
+      },
+      "post": {
+        "operationId": "planFlow",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanFlowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedFlowResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "planned-flow-controller"
+        ]
+      }
+    },
+    "/api/v1/planned-flows/{id}/cancel": {
+      "post": {
+        "operationId": "cancelPlannedFlow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanCancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedFlowResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "planned-flow-controller"
+        ]
+      }
+    },
+    "/api/v1/planned-flows/{id}/commit": {
+      "post": {
+        "operationId": "commitPlannedFlow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanTransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedFlowResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "planned-flow-controller"
+        ]
+      }
+    },
+    "/api/v1/planned-flows/{id}/realise": {
+      "post": {
+        "operationId": "realisePlannedFlow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanTransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedFlowResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "planned-flow-controller"
         ]
       }
     },

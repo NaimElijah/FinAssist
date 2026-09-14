@@ -252,7 +252,8 @@ class LedgerArchitectureTest {
      * springdoc names a schema by simple class name and silently keeps only one of two classes that
      * share one, so a second context's DTO can shadow the first's without either build failing on its
      * own (Ruling 21). {@code MoneyDto} is the one deliberate exception: each context declares an
-     * identical copy, on purpose, because the slice rule leaves no legal shared home for it.
+     * identical copy, on purpose, because the slice rule leaves no legal shared home for it. {@code
+     * MoneyDtoShapesTest} is what holds the copies identical.
      */
     private static final String SHARED_DTO_SIMPLE_NAME = "MoneyDto";
 

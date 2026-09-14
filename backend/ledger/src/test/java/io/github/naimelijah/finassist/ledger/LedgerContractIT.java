@@ -102,10 +102,11 @@ class LedgerContractIT extends PostgresFixture {
 
     /**
      * A client generated from the document trusts {@code required} to say which members every response
-     * carries; without it, every member of every response reads as optional. A transaction state's
-     * {@code on} and {@code reason} are the deliberate exceptions, because a variant that lacks one omits
-     * it. The names are spelled out rather than read from the transport types, because they are the
-     * contract.
+     * carries; without it, every member of every response reads as optional. The members of a flattened
+     * sealed type other than its discriminator are the deliberate exceptions — a transaction state's or a
+     * plan state's {@code on} and {@code reason}, a recurrence's {@code cadence}, {@code interval}, {@code
+     * until} and {@code count} — because a variant that lacks one omits it. The names are spelled out
+     * rather than read from the transport types, because they are the contract.
      */
     @Test
     void Given_the_generated_document_When_response_schemas_are_read_Then_they_require_what_is_always_present()
@@ -132,6 +133,11 @@ class LedgerContractIT extends PostgresFixture {
         assertThat(requiredMembers(schemas, "UnbudgetedSpendResponse")).containsExactlyInAnyOrder("category", "spent");
         assertThat(requiredMembers(schemas, "CategorisationRuleResponse"))
                 .containsExactlyInAnyOrder("fragment", "category");
+        assertThat(requiredMembers(schemas, "PlannedFlowResponse"))
+                .containsExactlyInAnyOrder(
+                        "id", "description", "amount", "direction", "startsOn", "recurrence", "state");
+        assertThat(requiredMembers(schemas, "RecurrenceResponse")).containsExactly("kind");
+        assertThat(requiredMembers(schemas, "PlanStateResponse")).containsExactly("status");
     }
 
     /**
