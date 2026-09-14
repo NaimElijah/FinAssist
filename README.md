@@ -330,7 +330,7 @@ in the repository, the logs or an error message.
 | `OTEL_EXPORT_ENABLED` | Whether to export telemetry at all — traces and metrics both. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` |
 | `ASSISTANT_LOG_LEVEL` | Threshold for the assistant's structured logger; one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
 | `ASSISTANT_HOST` | Interface the assistant binds. Loopback by default — nothing runs it in a container yet | `127.0.0.1` |
-| `ASSISTANT_ALLOWED_HOSTS` | Comma-separated host names the assistant answers to, without ports or wildcards; an IPv6 literal cannot be matched. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `localhost,127.0.0.1` |
+| `ASSISTANT_ALLOWED_HOSTS` | Comma-separated host names the assistant answers to. An entry with a port, a colon or a bracket, which covers every IPv6 literal, or with a wildcard is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `localhost,127.0.0.1` |
 | `OTLP_HTTP_PORT`, `OTLP_GRPC_PORT` | Host ports for the collector | `4318`, `4317` |
 | `PROMETHEUS_PORT`, `GRAFANA_PORT` | Host ports for the monitoring profile | `9090`, `3000` |
 

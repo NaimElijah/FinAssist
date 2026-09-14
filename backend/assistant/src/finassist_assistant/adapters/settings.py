@@ -7,12 +7,19 @@ put a documented variable outside the validation this file provides.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+# `TrustedHostMiddleware` reads `*` as any host, and `*.example.com` as a suffix.
+_WILDCARD: Final = "*"
+
+# A port's colon and an IPv6 literal's colon or bracket. The middleware compares only the text
+# before a Host header's first colon, so an allowed entry holding one of these matches no request.
+_PORT_OR_BRACKET: Final = (":", "[")
 
 
 class Settings(BaseSettings):
@@ -60,21 +67,29 @@ class Settings(BaseSettings):
     @field_validator("allowed_hosts")
     @classmethod
     def require_literal_host_names(cls, hosts: list[str]) -> list[str]:
-        """Drops blank entries and lower-cases the rest; refuses an empty list or a wildcard.
+        """Drops blank entries and lower-cases the rest; refuses any list the check cannot honour.
 
         An empty list refuses every request, which looks like an outage rather than the
-        configuration mistake it is; the ledger refuses one for the same reason. A wildcard is
-        refused because ``TrustedHostMiddleware`` reads ``*`` as any host and ``*.example.com``
+        configuration mistake it is; the ledger refuses one for the same reason. An entry with a
+        port or a bracket is refused for that reason too. ``TrustedHostMiddleware`` compares only
+        the text before a ``Host`` header's first colon, so ``localhost:8000``, ``[::1]`` and
+        ``::1`` match no request, and one listed alone refuses them all.
+
+        A wildcard is refused because the middleware reads ``*`` as any host and ``*.example.com``
         as a suffix, either of which quietly switches the defence off. The ledger's list has no
         wildcards.
 
-        :raises ValueError: if no name is left, or any name contains ``*``.
+        :raises ValueError: if no name is left, or a name holds a wildcard, a colon or a bracket.
         """
         names = [host.strip().lower() for host in hosts if host.strip()]
         if not names:
             raise ValueError("names no host, so every request would be refused")
-        if any("*" in name for name in names):
+        if any(_WILDCARD in name for name in names):
             raise ValueError("must name hosts literally; a wildcard admits hosts nobody listed")
+        if any(mark in name for name in names for mark in _PORT_OR_BRACKET):
+            raise ValueError(
+                "must name hosts without a port or brackets, which no Host header would match"
+            )
         return names
 
     @property

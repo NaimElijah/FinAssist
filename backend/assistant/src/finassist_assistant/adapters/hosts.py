@@ -49,8 +49,9 @@ class HostAllowList:
 
     Two differences from the ledger's filter come with the stock matching, which compares the text
     before the header's first colon exactly. An IPv6 literal such as ``[::1]`` can never be
-    allowed, and case is significant in the header. Browsers send host names in lower case, and
-    ``Settings`` lower-cases the allowed names.
+    allowed, so ``Settings`` refuses an entry with a colon or a bracket rather than accept one that
+    matches nothing. And case is significant in the header: browsers send host names in lower
+    case, and ``Settings`` lower-cases the allowed names.
 
     :param app: the application behind the check.
     :param allowed_hosts: the names to admit, as ``Settings.allowed_hosts`` has validated them.
