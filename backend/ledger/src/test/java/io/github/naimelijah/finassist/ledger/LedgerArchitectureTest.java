@@ -257,10 +257,19 @@ class LedgerArchitectureTest {
      */
     private static final String SHARED_DTO_SIMPLE_NAME = "MoneyDto";
 
+    /**
+     * Anonymous classes are skipped. springdoc has no name to key a schema by, and ArchUnit gives every one
+     * the same empty simple name. javac emits one wherever a class switches over an enum declared elsewhere,
+     * the synthetic {@code $SwitchMap$} holder such as {@code RecurrenceRequest$1}, so without the skip a
+     * second such switch in any web adapter would fail this rule on two classes that share nothing but the
+     * absence of a name.
+     */
     @ArchTest
     static final ArchRule web_dto_names_are_unique_across_contexts = classes()
             .that()
             .resideInAPackage(ROOT + "..adapter.in.web..")
+            .and()
+            .areNotAnonymousClasses()
             .should(haveASimpleNameUniqueAcrossContexts())
             .because("springdoc silently drops one schema when two classes share a simple name");
 
