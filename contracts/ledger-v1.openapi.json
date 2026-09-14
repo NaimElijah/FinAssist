@@ -1,0 +1,58 @@
+{
+  "components": {
+    "schemas": {
+      "Problem": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "format": "uri-reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "FinAssist ledger",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {},
+  "servers": [
+    {
+      "url": "/"
+    }
+  ]
+}

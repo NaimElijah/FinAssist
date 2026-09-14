@@ -16,6 +16,14 @@ finassist:
     # refuses those with 403, Actuator included (ADR-027).
     allowed-hosts: ${LEDGER_ALLOWED_HOSTS:localhost,127.0.0.1}
 
+springdoc:
+  # LedgerContractIT compares the generated document with contracts/ledger-v1.openapi.json, so it
+  # must be deterministic and hold only the contract (ADR-028). Sorted keys keep a regenerated
+  # file's diff down to what actually changed.
+  writer-with-order-by-keys: true
+  # Actuator and anything else outside the versioned API stay out of the contract.
+  paths-to-match: /api/v1/**
+
 spring:
   application:
     # Becomes OpenTelemetry's service.name. Fixed per service on purpose: one shared name

@@ -20,6 +20,21 @@ final class Problems {
      */
     static final URI BLANK_TYPE = URI.create("about:blank");
 
+    /** RFC 9457's member identifying the problem type. */
+    static final String TYPE_MEMBER = "type";
+
+    /** RFC 9457's short, human-readable summary of the problem type. */
+    static final String TITLE_MEMBER = "title";
+
+    /** RFC 9457's copy of the HTTP status code. */
+    static final String STATUS_MEMBER = "status";
+
+    /** RFC 9457's explanation specific to this occurrence. */
+    static final String DETAIL_MEMBER = "detail";
+
+    /** RFC 9457's reference to this occurrence; Spring sets it to the request path. */
+    static final String INSTANCE_MEMBER = "instance";
+
     /** The extension member carrying a problem's code. */
     static final String CODE_MEMBER = "code";
 
