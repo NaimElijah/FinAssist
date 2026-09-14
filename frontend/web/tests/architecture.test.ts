@@ -12,13 +12,14 @@
  * `tests/test_architecture.py`. See docs/ADRs/ADR-010-bounded-context-map.md.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
 const FEATURES_DIR = join(SRC, 'features');
+const APP_DIR = join(SRC, 'app');
 
 /**
  * Matches the specifier of a static or dynamic import, a re-export, a `require`, or a
@@ -114,5 +115,78 @@ describe('feature boundaries', () => {
         }
 
         expect(offences, 'shared is the kernel; it may not depend on a feature').toEqual([]);
+    });
+});
+
+/**
+ * The absolute path a specifier names inside the source tree, or undefined for a package.
+ *
+ * Resolves the `@/` alias as vite.config.ts defines it, and a relative specifier against the
+ * importing file's directory. No extension is added: the rules below compare directories and
+ * file stems, which `./routes` and `./routes.tsx` share.
+ */
+function resolveInSrc(specifier: string, fromFile: string): string | undefined {
+    if (specifier.startsWith('@/')) return join(SRC, specifier.slice('@/'.length));
+    if (specifier.startsWith('.')) return join(fromFile, '..', specifier);
+    return undefined;
+}
+
+/** Whether `path` is `dir` itself or lies anywhere inside it. */
+function isWithin(dir: string, path: string): boolean {
+    const rel = relative(dir, path);
+    return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/** Whether a path inside `src/features` is a feature's public entry: its directory or `index`. */
+function isFeatureEntry(path: string): boolean {
+    const [feature = '', ...rest] = relative(FEATURES_DIR, path).split(sep);
+    if (feature === '') return false;
+    return rest.length === 0 || (rest.length === 1 && /^index(\.tsx?)?$/.test(rest[0] ?? ''));
+}
+
+describe('composition direction', () => {
+    it('Given_src_app_When_its_sources_are_read_Then_it_imports_a_feature_only_through_its_index', () => {
+        const offences: string[] = [];
+        let featureImports = 0;
+
+        for (const file of sourceFilesUnder(APP_DIR)) {
+            for (const specifier of importSpecifiers(file)) {
+                const resolved = resolveInSrc(specifier, file);
+                if (resolved === undefined || !isWithin(FEATURES_DIR, resolved)) continue;
+                featureImports += 1;
+                if (!isFeatureEntry(resolved)) {
+                    offences.push(`${relative(SRC, file)} -> ${specifier}`);
+                }
+            }
+        }
+
+        // Guards the rule from passing vacuously. src/app composes every feature's routes, so a
+        // scan that finds no feature import at all has stopped reading imports, not found none.
+        expect(featureImports, 'src/app imports no feature at all').toBeGreaterThan(0);
+        expect(
+            offences,
+            "src/app reaches past a feature's index.ts. Export what it needs from the index.",
+        ).toEqual([]);
+    });
+
+    it('Given_the_features_When_their_sources_are_read_Then_none_imports_src_app', () => {
+        const offences: string[] = [];
+        let specifiersRead = 0;
+
+        for (const file of sourceFilesUnder(FEATURES_DIR)) {
+            for (const specifier of importSpecifiers(file)) {
+                specifiersRead += 1;
+                const resolved = resolveInSrc(specifier, file);
+                if (resolved !== undefined && isWithin(APP_DIR, resolved)) {
+                    offences.push(`${relative(SRC, file)} -> ${specifier}`);
+                }
+            }
+        }
+
+        expect(specifiersRead, 'no import was read under src/features').toBeGreaterThan(0);
+        expect(
+            offences,
+            'a feature depends on the app that composes it. Pass what it needs in from src/app.',
+        ).toEqual([]);
     });
 });

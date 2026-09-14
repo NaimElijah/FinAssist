@@ -5,4 +5,12 @@
  * this feature exposes to the rest of the app is re-exported here; nothing outside reaches
  * past this file, and this feature imports no other feature.
  */
-export {};
+import type { RouteObject } from 'react-router';
+
+import { AccountsPage } from './components/AccountsPage';
+
+/**
+ * The accounting area's routes, under the base path `accounts`. src/app mounts them inside the
+ * shared layout. This is the route contract; the page behind it is replaced as screens are built.
+ */
+export const accountingRoutes: RouteObject[] = [{ path: 'accounts', Component: AccountsPage }];

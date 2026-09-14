@@ -207,7 +207,7 @@ backend/assistant/      Python 3.13 + FastAPI - pure-function cores, no aggregat
   marketdata/             ... adapters/outbound/feed/               <- ACL, no feed chosen
   shared/
 frontend/web/           React 19 + Vite 8 - one feature per user-facing context
-  src/features/           accounting/ budgeting/ portfolio/ assistance/
+  src/features/           accounting/ budgeting/ planning/ portfolio/ assistance/
   src/shared/             ui/ api/ lib/
   src/app/                the only place that knows every feature at once
 contracts/              Versioned OpenAPI contract - the Published Language
@@ -265,7 +265,7 @@ behaviour they describe.
 | Assistant domain | FIFO cost basis, the grounding rule, quote staleness, Money and Currency | `make test-assistant` |
 | Assistant properties | The same Money laws, plus FIFO conservation, via Hypothesis run derandomised | `make test-assistant` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
-| Web architecture | No feature imports another; `shared` imports no feature | `make test-web` |
+| Web architecture | No feature imports another; `shared` imports no feature; `src/app` imports a feature only through its `index.ts`, and no feature imports `src/app` | `make test-web` |
 | Web unit | The HTTP client's failure contracts and `Accept` header, a jsdom render of the app shell, and the shared UI primitives: labelled fields, a pending button, money formatted from its exact decimal string, and dates that never shift with the timezone | `make test-web` |
 
 Deliberately absent are running test counts. Every commit that adds a source file changes the

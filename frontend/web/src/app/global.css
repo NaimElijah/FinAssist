@@ -30,6 +30,14 @@ textarea {
     font: inherit;
 }
 
+/* Every page opens with one h1 naming its area, so its size is set once here. */
+h1 {
+    margin: 0 0 var(--space-5);
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-strong);
+    line-height: var(--line-height-tight);
+}
+
 a {
     color: var(--color-accent);
 }

@@ -40,6 +40,14 @@
     --radius-control: 3px;
     --radius-panel: 6px;
 
+    --content-max-width: 72rem;
+
+    /* The header band. The page's focus ring is too close in luminance to spruce to meet 3:1 on
+       it (1.21:1), so focus inside the band has its own colour. */
+    --color-chrome: #1d5c48;
+    --color-on-chrome: #ffffff;
+    --color-focus-on-chrome: #ffffff;
+
     --color-surface: #f2f5f1;
     --color-surface-raised: #ffffff;
     --color-text: #1a2420;
@@ -60,6 +68,10 @@
 
 @media (prefers-color-scheme: dark) {
     :root {
+        --color-chrome: #1f3a30;
+        --color-on-chrome: #e2eae4;
+        --color-focus-on-chrome: #8fb5ff;
+
         --color-surface: #141c18;
         --color-surface-raised: #1b2520;
         --color-text: #e2eae4;
