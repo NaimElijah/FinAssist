@@ -2,6 +2,7 @@ package io.github.naimelijah.finassist.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.naimelijah.finassist.ledger.composition.HostAllowListFilter;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -14,10 +15,16 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
+import org.apache.catalina.Context;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.tomcat.TomcatWebServer;
+import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -45,6 +52,9 @@ class LedgerApplicationIT extends PostgresFixture {
 
     @LocalServerPort
     private int port;
+
+    @Autowired
+    private ServletWebServerApplicationContext context;
 
     /**
      * One client for the class, closed afterwards. {@link HttpClient} owns a selector thread and
@@ -133,6 +143,25 @@ class LedgerApplicationIT extends PostgresFixture {
     void Given_a_request_naming_a_foreign_host_When_it_reaches_the_ledger_Then_it_is_refused_with_403()
             throws Exception {
         assertThat(statusLineFor("/actuator/health", "evil.example")).startsWith("HTTP/1.1 403");
+    }
+
+    /**
+     * The Host allow-list must see a request before any other filter does (ADR-027), and its
+     * registration alone does not guarantee that. Spring's character-encoding filter has the same order,
+     * {@code Integer.MIN_VALUE}, and the allow-list comes first only because Spring Boot adds
+     * registration beans ahead of the filters it adapts and sorts them stably. A Boot upgrade or a new
+     * filter could change that silently, so this reads the chain the running server actually built.
+     */
+    @Test
+    void Given_the_running_ledger_When_its_filter_chain_is_read_Then_the_host_allow_list_is_first() {
+        TomcatWebServer server = (TomcatWebServer) context.getWebServer();
+        List<String> chain = Arrays.stream(server.getTomcat().getHost().findChildren())
+                .map(Context.class::cast)
+                .flatMap(web -> Arrays.stream(web.findFilterMaps())
+                        .map(map -> web.findFilterDef(map.getFilterName()).getFilterClass()))
+                .toList();
+
+        assertThat(chain).first().isEqualTo(HostAllowListFilter.class.getName());
     }
 
     /**
