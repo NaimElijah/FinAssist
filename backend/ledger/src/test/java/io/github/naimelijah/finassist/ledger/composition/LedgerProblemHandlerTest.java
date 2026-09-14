@@ -209,6 +209,25 @@ class LedgerProblemHandlerTest {
                 .andExpect(jsonPath("$.code").value(code));
     }
 
+    /**
+     * A 5xx's detail is replaced whoever raised it, not only when this handler built the problem without
+     * one. The reason given to a {@link ResponseStatusException} becomes its detail on the way in, and
+     * must not survive the way out.
+     */
+    @Test
+    void Given_a_5xx_raised_with_a_reason_When_handled_Then_the_reason_is_not_served() throws Exception {
+        String body = mvc.perform(get("/unavailable"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                .andExpect(jsonPath("$.detail").isNotEmpty())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(body).doesNotContain(MARKER);
+    }
+
     /** The fallback fills in what a problem lacks, and does not overwrite what a raiser chose. */
     @Test
     void Given_a_problem_that_names_its_own_type_When_handled_Then_the_type_is_kept_and_a_code_is_added()
@@ -252,6 +271,11 @@ class LedgerProblemHandlerTest {
         @GetMapping("/status/{value}")
         void status(@PathVariable int value) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(value));
+        }
+
+        @GetMapping("/unavailable")
+        void unavailable() {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, MARKER);
         }
 
         @GetMapping("/typed")

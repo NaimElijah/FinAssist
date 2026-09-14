@@ -82,6 +82,7 @@ class HostAllowListFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(response.getContentType()).isEqualTo(PROBLEM_JSON);
+        assertThat(response.getContentLength()).isEqualTo(response.getContentAsByteArray().length);
         JsonNode problem = JSON.readTree(response.getContentAsByteArray());
         assertThat(problem.path("type").asString()).isEqualTo("about:blank");
         assertThat(problem.path("title").asString()).isEqualTo("Forbidden");
