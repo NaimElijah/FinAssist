@@ -126,6 +126,10 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
         # Fixed rather than taken from wherever the document is served, so the document generated
         # in a test is the one a running assistant serves. The ledger fixes its own to "/" too.
         servers=[{"url": "/"}],
+        # No Swagger UI and no ReDoc: both pages load their UI from a CDN, and the ledger serves no
+        # such UI either (ADR-028). The document itself is still served at /openapi.json.
+        docs_url=None,
+        redoc_url=None,
     )
     install_problem_handlers(app)
     document_problems(app)

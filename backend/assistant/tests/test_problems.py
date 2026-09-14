@@ -416,6 +416,26 @@ def Given_a_route_that_does_not_take_the_method_When_requested_Then_it_is_a_405_
     assert response.headers["allow"] == "GET"
 
 
+@pytest.mark.parametrize("path", ["/docs", "/redoc"])
+def Given_the_interactive_docs_When_requested_Then_they_are_a_404_problem(
+    client: TestClient, path: str
+) -> None:
+    """Their pages load a UI from a CDN, and the ledger serves no such UI either (ADR-028)."""
+    response = client.get(path)
+
+    problem = _problem(response)
+    assert response.status_code == 404
+    assert problem["code"] == "NOT_FOUND"
+
+
+def Given_the_openapi_document_When_requested_Then_it_is_still_served(client: TestClient) -> None:
+    """The document is what a client is generated from; only the UI over it goes."""
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    assert response.json()["info"]["version"] == "v1"
+
+
 # --- the Host allow-list --------------------------------------------------------------------
 
 
