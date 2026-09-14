@@ -18,6 +18,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The only test that boots Spring, and the only one that touches HTTP.
@@ -132,5 +133,20 @@ class LedgerApplicationIT extends PostgresFixture {
     void Given_a_request_naming_a_foreign_host_When_it_reaches_the_ledger_Then_it_is_refused_with_403()
             throws Exception {
         assertThat(statusLineFor("/actuator/health", "evil.example")).startsWith("HTTP/1.1 403");
+    }
+
+    /**
+     * An unknown route under the API prefix is answered as a problem by the composition fallback,
+     * not by Boot's own error JSON (ADR-028). The static-resource handler raises the 404 here, which
+     * is why the fallback has to keep Spring MVC's exceptions at their own statuses.
+     */
+    @Test
+    void Given_the_running_ledger_When_an_unknown_api_route_is_requested_Then_it_is_a_404_problem() throws Exception {
+        HttpResponse<String> response = get("/api/v1/does-not-exist");
+
+        assertThat(response.statusCode()).isEqualTo(404);
+        assertThat(response.headers().firstValue("Content-Type")).hasValue("application/problem+json");
+        assertThat(JsonMapper.shared().readTree(response.body()).path("code").asString())
+                .isEqualTo("NOT_FOUND");
     }
 }

@@ -23,8 +23,41 @@ final class Problems {
     /** The extension member carrying a problem's code. */
     static final String CODE_MEMBER = "code";
 
+    /** The extension member listing what bean validation rejected, one entry per field or parameter. */
+    static final String ERRORS_MEMBER = "errors";
+
+    /** Within an {@code errors} entry: the rejected field, or the parameter when there is no field. */
+    static final String FIELD_MEMBER = "field";
+
+    /** Within an {@code errors} entry: why it was rejected. */
+    static final String MESSAGE_MEMBER = "message";
+
     /** The request's {@code Host} header is missing, malformed or not on the allow-list (ADR-027). */
     static final String HOST_NOT_ALLOWED = "HOST_NOT_ALLOWED";
+
+    /** Unparseable JSON, a wrong type, a missing or invalid field or parameter: fix the request. */
+    static final String MALFORMED_REQUEST = "MALFORMED_REQUEST";
+
+    /** An unknown route. A context names its own code for a missing resource. */
+    static final String NOT_FOUND = "NOT_FOUND";
+
+    /** The route exists and does not take this method. */
+    static final String METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED";
+
+    /** The route cannot produce any media type the {@code Accept} header allows. */
+    static final String NOT_ACCEPTABLE = "NOT_ACCEPTABLE";
+
+    /** The body is not {@code application/json}, which every write requires (ADR-027). */
+    static final String UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE";
+
+    /** Well-formed, and refused by a domain rule the request broke. */
+    static final String RULE_VIOLATED = "RULE_VIOLATED";
+
+    /** The request would combine amounts in two currencies, which the ledger never converts (ADR-012). */
+    static final String CURRENCY_MISMATCH = "CURRENCY_MISMATCH";
+
+    /** The ledger failed. Nothing about the request explains it, and the detail says nothing more. */
+    static final String INTERNAL_ERROR = "INTERNAL_ERROR";
 
     private Problems() {}
 }
