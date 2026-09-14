@@ -5,6 +5,10 @@ portfolio screens call (ADR-026), and the health and readiness probes. The probe
 the OpenAPI document: they are for whatever runs the process, not for a client generated from the
 contract (ADR-028).
 
+That document is committed as ``contracts/assistant-v1.openapi.json`` and pinned by
+``tests/test_contract.py``. :mod:`~finassist_assistant.adapters.openapi` adjusts what FastAPI
+generates so that it describes every failure as the problem the assistant actually sends.
+
 The use cases are assembled by :func:`~finassist_assistant.adapters.wiring.assemble`, hung on
 ``app.state.assembly``, and handed to each router as arguments. A router never imports this
 package, and the architecture tests fail the build if one does.
@@ -38,6 +42,7 @@ from finassist_assistant.adapters.observability import (
     configure_tracing,
     set_correlation_id,
 )
+from finassist_assistant.adapters.openapi import document_problems
 from finassist_assistant.adapters.problems import answer_unexpected, install_problem_handlers
 from finassist_assistant.adapters.settings import Settings
 from finassist_assistant.adapters.wiring import Assembly, assemble
@@ -46,6 +51,11 @@ from finassist_assistant.portfolio.adapters.inbound.api.router import portfolio_
 CORRELATION_ID_HEADER: Final = "X-Correlation-Id"
 
 PORTFOLIO_PREFIX: Final = "/api/v1/portfolio"
+
+CONTRACT_TITLE: Final = "FinAssist assistant"
+
+CONTRACT_VERSION: Final = "v1"
+"""The contract's version, which is the one in the path, not the package's own version."""
 
 # A W3C trace id is 32 lowercase hex characters, and all-zero is explicitly invalid.
 _TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -110,8 +120,15 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
     configure_logging(resolved)
     configure_tracing(resolved)
 
-    app = FastAPI(title="FinAssist assistant", version="0.1.0")
+    app = FastAPI(
+        title=CONTRACT_TITLE,
+        version=CONTRACT_VERSION,
+        # Fixed rather than taken from wherever the document is served, so the document generated
+        # in a test is the one a running assistant serves. The ledger fixes its own to "/" too.
+        servers=[{"url": "/"}],
+    )
     install_problem_handlers(app)
+    document_problems(app)
 
     # The readiness probe deliberately does not consult the assembly: every adapter behind it is
     # in-memory, so a check against one would report health that no dependency had been asked about.

@@ -1,0 +1,367 @@
+{
+  "components": {
+    "schemas": {
+      "DispositionModel": {
+        "description": "What selling units would realise, and the lots that would remain, oldest first.",
+        "properties": {
+          "costOfSale": {
+            "$ref": "#/components/schemas/MoneyModel"
+          },
+          "proceeds": {
+            "$ref": "#/components/schemas/MoneyModel"
+          },
+          "quantity": {
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "realisedGain": {
+            "$ref": "#/components/schemas/MoneyModel"
+          },
+          "remaining": {
+            "items": {
+              "$ref": "#/components/schemas/LotModel"
+            },
+            "title": "Remaining",
+            "type": "array"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "quantity",
+          "proceeds",
+          "costOfSale",
+          "realisedGain",
+          "remaining"
+        ],
+        "title": "DispositionModel",
+        "type": "object"
+      },
+      "LotModel": {
+        "description": "One purchase still held: how many units, at what unit cost, acquired on which date.",
+        "properties": {
+          "acquiredOn": {
+            "format": "date",
+            "title": "Acquiredon",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "unitCost": {
+            "$ref": "#/components/schemas/MoneyModel"
+          }
+        },
+        "required": [
+          "quantity",
+          "unitCost",
+          "acquiredOn"
+        ],
+        "title": "LotModel",
+        "type": "object"
+      },
+      "MoneyModel": {
+        "description": "An exact amount in one currency, the amount a decimal string at the currency's scale.",
+        "properties": {
+          "amount": {
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "title": "MoneyModel",
+        "type": "object"
+      },
+      "PositionModel": {
+        "description": "What is held in one instrument, and what it cost in total.",
+        "properties": {
+          "cost": {
+            "$ref": "#/components/schemas/MoneyModel"
+          },
+          "quantity": {
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "quantity",
+          "cost"
+        ],
+        "title": "PositionModel",
+        "type": "object"
+      },
+      "Problem": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "format": "uri-reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
+      "ValuationModel": {
+        "description": "A holding valued at the latest unit price, and the gain that price implies.",
+        "properties": {
+          "cost": {
+            "$ref": "#/components/schemas/MoneyModel"
+          },
+          "marketValue": {
+            "$ref": "#/components/schemas/MoneyModel"
+          },
+          "quantity": {
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "unitPrice": {
+            "$ref": "#/components/schemas/MoneyModel"
+          },
+          "unrealisedGain": {
+            "$ref": "#/components/schemas/MoneyModel"
+          }
+        },
+        "required": [
+          "symbol",
+          "quantity",
+          "cost",
+          "unitPrice",
+          "marketValue",
+          "unrealisedGain"
+        ],
+        "title": "ValuationModel",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "FinAssist assistant",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/portfolio/holdings/{symbol}/disposal": {
+      "get": {
+        "description": "What selling a quantity of units for the given proceeds would realise, oldest lot first.\n\nA calculation that records nothing: no lot is consumed, so it is safe to repeat.",
+        "operationId": "priceDisposal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "quantity",
+            "required": true,
+            "schema": {
+              "pattern": "^-?\\d+(\\.\\d+)?$",
+              "title": "Quantity",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "proceeds",
+            "required": true,
+            "schema": {
+              "pattern": "^-?\\d+(\\.\\d+)?$",
+              "title": "Proceeds",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "currency",
+            "required": true,
+            "schema": {
+              "enum": [
+                "ILS",
+                "USD",
+                "EUR",
+                "GBP",
+                "JPY"
+              ],
+              "title": "Currency",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispositionModel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "summary": "Price Disposal"
+      }
+    },
+    "/api/v1/portfolio/holdings/{symbol}/position": {
+      "get": {
+        "description": "What is held in one instrument, and what it cost in total.",
+        "operationId": "readPosition",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionModel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "summary": "Read Position"
+      }
+    },
+    "/api/v1/portfolio/holdings/{symbol}/valuation": {
+      "get": {
+        "description": "What a holding is worth at the latest price, and the gain that is not yet realised.",
+        "operationId": "valueHolding",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValuationModel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "summary": "Value Holding"
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ]
+}
