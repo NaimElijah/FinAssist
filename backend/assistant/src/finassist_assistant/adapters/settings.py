@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     :param anthropic_api_key: secret. ``SecretStr`` so it cannot reach a ``repr``, a
         ``model_dump`` or a validation error — the redaction boundary covers log events, not
         the accidental printing of this object.
+    :param dev_seed: loads a small set of fictional holdings and quotes at start-up, so the
+        portfolio screens have something to show by hand. The data is invented and never meant
+        for real use; off by default so a production-shaped run never serves it by accident.
     """
 
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
@@ -57,6 +60,7 @@ class Settings(BaseSettings):
     traces_export_enabled: bool = Field(default=False, alias="OTEL_EXPORT_ENABLED")
     log_level: LogLevel = Field(default="INFO", alias="ASSISTANT_LOG_LEVEL")
     anthropic_api_key: SecretStr | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    dev_seed: bool = Field(default=False, alias="ASSISTANT_DEV_SEED")
 
     @field_validator("allowed_hosts", mode="before")
     @classmethod

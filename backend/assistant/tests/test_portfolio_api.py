@@ -28,6 +28,7 @@ from finassist_assistant.adapters.app import create_app
 from finassist_assistant.adapters.observability import forget_secrets, reset_logging
 from finassist_assistant.adapters.settings import Settings
 from finassist_assistant.adapters.wiring import Assembly, assemble
+from finassist_assistant.marketdata.adapters.outbound.feed import InMemoryQuoteFeed
 from finassist_assistant.portfolio.adapters.inbound.api.models import CurrencyCode, currency_for
 from finassist_assistant.portfolio.adapters.inbound.api.router import portfolio_router
 from finassist_assistant.portfolio.domain.model import Lot, Symbol
@@ -50,6 +51,17 @@ def _disposal(
     quantity: str = "12", amount: str = "3000.00", currency: str = "USD"
 ) -> dict[str, Any]:
     return {"quantity": quantity, "proceeds": {"amount": amount, "currency": currency}}
+
+
+def _seam(assembly: Assembly) -> InMemoryQuoteFeed:
+    """Narrows ``Assembly.feed`` back to the development seam's own API.
+
+    The ``assembly`` fixture below builds with ``assemble()``'s default feed, so the widened
+    ``QuoteFeedPort`` type is always an ``InMemoryQuoteFeed`` here — checked, never cast.
+    """
+    feed = assembly.feed
+    assert isinstance(feed, InMemoryQuoteFeed)
+    return feed
 
 
 class _ScopeRecorder:
@@ -155,7 +167,7 @@ def Given_a_holding_in_yen_When_its_position_is_read_Then_the_amount_has_no_mino
 def Given_a_fresh_price_When_a_holding_is_valued_Then_amounts_are_strings_at_the_currency_scale(
     client: TestClient, assembly: Assembly
 ) -> None:
-    assembly.feed.publish("voo", "250", Currency.USD, NOON - timedelta(minutes=5))
+    _seam(assembly).publish("voo", "250", Currency.USD, NOON - timedelta(minutes=5))
 
     response = client.get(f"{HOLDINGS}/VOO/valuation")
 
@@ -184,7 +196,7 @@ def Given_a_quote_older_than_an_hour_When_a_holding_is_valued_Then_it_is_price_u
     client: TestClient, assembly: Assembly
 ) -> None:
     """A stale price values a holding with a number that looks current and is not."""
-    assembly.feed.publish("voo", "250.00", Currency.USD, NOON - timedelta(hours=1, minutes=1))
+    _seam(assembly).publish("voo", "250.00", Currency.USD, NOON - timedelta(hours=1, minutes=1))
 
     response = client.get(f"{HOLDINGS}/VOO/valuation")
 

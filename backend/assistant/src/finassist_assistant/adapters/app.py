@@ -44,6 +44,7 @@ from finassist_assistant.adapters.observability import (
 )
 from finassist_assistant.adapters.openapi import document_problems
 from finassist_assistant.adapters.problems import answer_unexpected, install_problem_handlers
+from finassist_assistant.adapters.seed import SEED_SYMBOLS, seeded_assembly
 from finassist_assistant.adapters.settings import Settings
 from finassist_assistant.adapters.wiring import Assembly, assemble
 from finassist_assistant.portfolio.adapters.inbound.api.router import portfolio_router
@@ -110,8 +111,10 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
     :param settings: configuration to use. Defaults to reading the environment, which is what
         the entry point does; tests pass an explicit instance instead.
     :param assembly: the use cases and adapters to serve. Defaults to :func:`assemble` with the
-        wall clock, which is what the entry point does; a test passes one it has seeded, or one
-        built on a fixed clock, and then reaches the very instances the app holds.
+        wall clock — or, when ``settings.dev_seed`` is set, to the development seed's own
+        assembly — which is what the entry point does; a test passes one it has built itself,
+        seeded or not, on a fixed clock or the wall clock, and then reaches the very instances
+        the app holds.
     :returns: a configured FastAPI application with logging and tracing already installed, and
         the assembly hung on ``app.state.assembly``.
     """
@@ -136,7 +139,15 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
 
     # The readiness probe deliberately does not consult the assembly: every adapter behind it is
     # in-memory, so a check against one would report health that no dependency had been asked about.
-    served: Assembly = assembly if assembly is not None else assemble()
+    served: Assembly
+    if assembly is not None:
+        served = assembly
+    elif resolved.dev_seed:
+        served = seeded_assembly()
+        # No amount here, and none in SEED_SYMBOLS: names only, same as every other start-up field.
+        _log.info("development seed loaded", symbols=list(SEED_SYMBOLS))
+    else:
+        served = assemble()
     app.state.assembly = served
 
     portfolio = served.portfolio
