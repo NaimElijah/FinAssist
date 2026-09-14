@@ -6,10 +6,21 @@ import { Button } from './Button';
 /** Matches the controls a person fills in, so focus lands on a field rather than a button. */
 const FIELD_SELECTOR = 'input, select, textarea';
 
+/** A panel's title level: below the page's h1, and no deeper than an h4 in a screen this size. */
+export type ActionPanelHeadingLevel = 2 | 3 | 4;
+
+/** The element each heading level renders. */
+const HEADING_ELEMENTS = { 2: 'h2', 3: 'h3', 4: 'h4' } as const;
+
 /** The action's title, its fields, and what submitting or cancelling does. */
 export interface ActionPanelProps {
     /** Names the panel, such as "Void transaction". */
     readonly title: string;
+    /**
+     * The title's heading level, so the panel fits the outline of the page around it. Defaults to
+     * 3, because a panel usually sits under the page's h1 and a section's h2.
+     */
+    readonly headingLevel?: ActionPanelHeadingLevel;
     /** The fields the action needs, rendered by the caller, which also holds their state. */
     readonly children: ReactNode;
     /** The submit button's text, naming what happens, such as "Void". */
@@ -35,6 +46,7 @@ export interface ActionPanelProps {
  */
 export function ActionPanel({
     title,
+    headingLevel = 3,
     children,
     submitLabel,
     onSubmit,
@@ -43,6 +55,7 @@ export function ActionPanel({
 }: ActionPanelProps) {
     const titleId = useId();
     const regionRef = useRef<HTMLElement>(null);
+    const Heading = HEADING_ELEMENTS[headingLevel];
 
     useEffect(() => {
         regionRef.current?.querySelector<HTMLElement>(FIELD_SELECTOR)?.focus();
@@ -50,9 +63,9 @@ export function ActionPanel({
 
     return (
         <section ref={regionRef} aria-labelledby={titleId} className={styles.panel}>
-            <h2 id={titleId} className={styles.title}>
+            <Heading id={titleId} className={styles.title}>
                 {title}
-            </h2>
+            </Heading>
             <form
                 className={styles.form}
                 onSubmit={(event) => {

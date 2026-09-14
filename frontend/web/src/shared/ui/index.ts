@@ -5,7 +5,7 @@
  * each primitive below reads them through its own CSS Module (ADR-029). Nothing here imports a
  * feature, which `tests/architecture.test.ts` enforces.
  */
-export { ActionPanel, type ActionPanelProps } from './ActionPanel';
+export { ActionPanel, type ActionPanelHeadingLevel, type ActionPanelProps } from './ActionPanel';
 export { Button, type ButtonProps, type ButtonVariant } from './Button';
 export { type Column, type ColumnAlign, DataTable, type DataTableProps } from './DataTable';
 export { DateField, type DateFieldProps } from './DateField';

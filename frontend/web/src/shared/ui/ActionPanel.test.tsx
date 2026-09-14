@@ -42,6 +42,35 @@ describe('ActionPanel', () => {
         expect(screen.getByRole('region', { name: 'Void transaction' })).toBeDefined();
     });
 
+    it('Given_no_heading_level_When_rendered_Then_its_title_is_a_level_3_heading', () => {
+        // A panel sits inside a page, under its h1 and usually a section's h2.
+        renderVoidPanel();
+
+        expect(screen.getByRole('heading', { level: 3, name: 'Void transaction' })).toBeDefined();
+    });
+
+    for (const level of [2, 4] as const) {
+        it(`Given_heading_level_${String(level)}_When_rendered_Then_its_title_is_a_level_${String(level)}_heading`, () => {
+            render(
+                <ActionPanel
+                    title="Clear transaction"
+                    submitLabel="Clear"
+                    onSubmit={vi.fn()}
+                    onCancel={vi.fn()}
+                    pending={false}
+                    headingLevel={level}
+                >
+                    <label>
+                        Clear on
+                        <input type="date" name="on" />
+                    </label>
+                </ActionPanel>,
+            );
+
+            expect(screen.getByRole('heading', { level, name: 'Clear transaction' })).toBeDefined();
+        });
+    }
+
     it('Given_a_panel_When_it_opens_Then_its_first_field_has_focus', () => {
         renderVoidPanel();
 
