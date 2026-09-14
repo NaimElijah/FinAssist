@@ -17,6 +17,14 @@
     transform: none;
 }
 
+/* Shown, the link sits over the spruce band, and the 2px outline offset leaves band colour on both
+   sides of the ring. The page's --color-focus measures 1.21:1 against the band, so the ring takes
+   the band's own focus colour instead: #ffffff on #1d5c48 is 7.85:1 in the light theme, and
+   #8fb5ff on #1f3a30 is 5.99:1 in the dark one, both above the 3:1 a focus indicator needs. */
+.skipLink:focus-visible {
+    outline-color: var(--color-focus-on-chrome);
+}
+
 /* The binding of the ledger: a spruce band carrying the product name, with the four areas as
    index tabs along its lower edge. The open area's tab takes the page's own colour, so it reads
    as joined to the page beneath it - a change of shape, not only of hue. */
