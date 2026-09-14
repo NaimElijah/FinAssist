@@ -2,6 +2,7 @@ package io.github.naimelijah.finassist.ledger.accounting.application.port.out;
 
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.Account;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -25,6 +26,17 @@ public interface AccountRepository {
      * {@code Category} makes the same choice in {@code budgeting}, and says the same thing about it.
      */
     Optional<Account> findByName(String name);
+
+    /**
+     * Every account, ordered by name ignoring case — {@code ORDER BY normalised_name}, the same
+     * uniquely indexed column {@link #findByName} matches on.
+     *
+     * <p>A stable order is what makes a listing reproducible. Two calls with no write between them
+     * must read the same as far as a caller can tell; an order nothing promised is one a query
+     * planner is free to change between them, and a UI rendering the difference as a reorder would
+     * be showing a defect rather than a fact about the chart of accounts.
+     */
+    List<Account> all();
 
     /**
      * Stores the account, replacing any earlier state of the same identity.

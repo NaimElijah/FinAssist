@@ -117,6 +117,24 @@ class JdbcAccountRepositoryIT extends PostgresFixture {
         assertThat(accounts.findById(tokyo.id()).orElseThrow().currency()).isEqualTo(Currency.JPY);
     }
 
+    /**
+     * The order a listing promises: name, ignoring case. {@code normalised_name} is what the unique
+     * index and this {@code ORDER BY} both key on, so the two can never disagree.
+     */
+    @Test
+    void Given_several_accounts_When_all_are_listed_Then_they_come_back_ordered_by_name_ignoring_case() {
+        accounts.save(Account.open("savings", AccountType.ASSET, Currency.ILS));
+        accounts.save(Account.open("Cash", AccountType.ASSET, Currency.ILS));
+        accounts.save(Account.open("brokerage", AccountType.ASSET, Currency.ILS));
+
+        assertThat(accounts.all()).extracting(Account::name).containsExactly("brokerage", "Cash", "savings");
+    }
+
+    @Test
+    void Given_no_accounts_at_all_When_they_are_listed_Then_the_answer_is_empty_rather_than_null() {
+        assertThat(accounts.all()).isEmpty();
+    }
+
     /** The claim the whole exercise was for: it is in the database, not in this process. */
     @Test
     void Given_an_account_When_read_over_an_independent_connection_Then_it_is_still_there() {

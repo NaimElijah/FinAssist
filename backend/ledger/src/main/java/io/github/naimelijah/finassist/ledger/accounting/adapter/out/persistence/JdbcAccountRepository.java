@@ -7,6 +7,7 @@ import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountType;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import org.springframework.dao.DuplicateKeyException;
@@ -47,6 +48,11 @@ public class JdbcAccountRepository implements AccountRepository {
             SELECT id, name, type, currency FROM accounting.account WHERE normalised_name = :normalisedName
             """;
 
+    /** {@code AccountRepository.all}'s contract: every account, ordered by name ignoring case. */
+    private static final String SELECT_ALL = """
+            SELECT id, name, type, currency FROM accounting.account ORDER BY normalised_name
+            """;
+
     private final JdbcClient jdbc;
 
     public JdbcAccountRepository(JdbcClient jdbc) {
@@ -69,6 +75,11 @@ public class JdbcAccountRepository implements AccountRepository {
                 .param("normalisedName", AccountingRows.normalise(name))
                 .query(JdbcAccountRepository::toAccount)
                 .optional();
+    }
+
+    @Override
+    public List<Account> all() {
+        return jdbc.sql(SELECT_ALL).query(JdbcAccountRepository::toAccount).list();
     }
 
     /**
