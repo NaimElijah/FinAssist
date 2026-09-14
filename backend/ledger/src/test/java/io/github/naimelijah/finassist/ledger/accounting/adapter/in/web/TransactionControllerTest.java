@@ -111,8 +111,8 @@ class TransactionControllerTest {
                 .andExpect(jsonPath("$.entries[1].account").value(CASH.toString()))
                 .andExpect(jsonPath("$.entries[1].amount.amount").value("-12.50"))
                 .andExpect(jsonPath("$.state.status").value("PENDING"))
-                .andExpect(jsonPath("$.state.on").doesNotExist())
-                .andExpect(jsonPath("$.state.reason").doesNotExist());
+                .andExpect(jsonPath("$.state.on").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.state.reason").doesNotHaveJsonPath());
     }
 
     @Test
@@ -285,7 +285,7 @@ class TransactionControllerTest {
                 .andExpect(jsonPath("$.id").value(cleared.id().toString()))
                 .andExpect(jsonPath("$.state.status").value("CLEARED"))
                 .andExpect(jsonPath("$.state.on").value("2026-03-05"))
-                .andExpect(jsonPath("$.state.reason").doesNotExist());
+                .andExpect(jsonPath("$.state.reason").doesNotHaveJsonPath());
     }
 
     @Test
@@ -301,7 +301,7 @@ class TransactionControllerTest {
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.state.status").value("RECONCILED"))
                 .andExpect(jsonPath("$.state.on").value("2026-03-05"))
-                .andExpect(jsonPath("$.state.reason").doesNotExist());
+                .andExpect(jsonPath("$.state.reason").doesNotHaveJsonPath());
     }
 
     @Test
