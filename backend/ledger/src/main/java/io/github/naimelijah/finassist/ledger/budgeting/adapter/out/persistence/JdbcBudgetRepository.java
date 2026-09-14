@@ -29,6 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
  */
 public class JdbcBudgetRepository implements BudgetRepository {
 
+    private static final String BUDGET_TABLE = "budgeting.budget";
+    private static final String LIMIT_TABLE = "budgeting.budget_limit";
+
     private static final String UPSERT_BUDGET = """
             INSERT INTO budgeting.budget (id, period_start, period_end, currency)
             VALUES (:id, :periodStart, :periodEnd, :currency)
@@ -132,8 +135,8 @@ public class JdbcBudgetRepository implements BudgetRepository {
         List<Map.Entry<Category, Money>> rows = jdbc.sql(SELECT_LIMITS)
                 .param("budgetId", id.value())
                 .query((row, rowNumber) -> Map.entry(
-                        Category.of(row.getString("category")),
-                        new Money(row.getBigDecimal("amount"), Currency.valueOf(row.getString("currency")))))
+                        category(row.getString("category")),
+                        BudgetingRows.money(row, LIMIT_TABLE, "amount", "currency")))
                 .list();
 
         Map<Category, Money> limits = new LinkedHashMap<>();
@@ -141,12 +144,31 @@ public class JdbcBudgetRepository implements BudgetRepository {
         return limits;
     }
 
-    /** Shared by {@link #findById} and {@link #all}, so the two never map a row two different ways. */
+    private static Category category(String stored) {
+        try {
+            return Category.of(stored);
+        } catch (IllegalArgumentException refused) {
+            throw BudgetingRows.unmappable(LIMIT_TABLE, "category", stored, refused);
+        }
+    }
+
+    /**
+     * Shared by {@link #findById} and {@link #all}, so the two never map a row two different ways.
+     *
+     * <p>Each column reads back on its own, but no constraint ties a limit's currency to its budget's,
+     * because they sit in two tables. {@link Budget} refuses that pair, and a stored pair it refuses is a
+     * server fault naming the budget rather than a rule a caller broke.
+     */
     private Budget toBudget(ResultSet row, int rowNumber) throws SQLException {
         BudgetId id = new BudgetId(row.getObject("id", UUID.class));
-        BudgetPeriod period = new BudgetPeriod(
-                row.getObject("period_start", LocalDate.class), row.getObject("period_end", LocalDate.class));
-        Currency currency = Currency.valueOf(row.getString("currency"));
-        return new Budget(id, period, currency, limitsOf(id));
+        Currency currency = BudgetingRows.currency(row, BUDGET_TABLE, "currency");
+        Map<Category, Money> limits = limitsOf(id);
+        try {
+            BudgetPeriod period = new BudgetPeriod(
+                    row.getObject("period_start", LocalDate.class), row.getObject("period_end", LocalDate.class));
+            return new Budget(id, period, currency, limits);
+        } catch (IllegalArgumentException refused) {
+            throw BudgetingRows.unreconstructable("budget", id.value(), BUDGET_TABLE + " and " + LIMIT_TABLE, refused);
+        }
     }
 }

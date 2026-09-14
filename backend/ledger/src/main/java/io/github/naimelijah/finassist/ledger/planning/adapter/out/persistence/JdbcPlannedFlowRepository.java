@@ -4,8 +4,6 @@ import io.github.naimelijah.finassist.ledger.planning.application.port.out.Plann
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Direction;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanId;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlannedFlow;
-import io.github.naimelijah.finassist.ledger.shared.Currency;
-import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
@@ -125,8 +123,9 @@ public class JdbcPlannedFlowRepository implements PlannedFlowRepository {
         return new PlannedFlow(
                 new PlanId(row.getObject("id", UUID.class)),
                 row.getString("description"),
-                new Money(row.getBigDecimal("amount"), Currency.valueOf(row.getString("currency"))),
-                Direction.valueOf(row.getString("direction")),
+                PlanningRows.money(row, PlanningRows.PLANNED_FLOW, "amount", "currency"),
+                PlanningRows.enumerated(
+                        Direction.class, PlanningRows.PLANNED_FLOW, "direction", row.getString("direction")),
                 row.getObject("starts_on", LocalDate.class),
                 recurrence.toDomain(),
                 state.toDomain());

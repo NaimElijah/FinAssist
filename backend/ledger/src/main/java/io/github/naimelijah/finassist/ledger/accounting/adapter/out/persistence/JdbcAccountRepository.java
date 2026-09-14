@@ -23,6 +23,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  */
 public class JdbcAccountRepository implements AccountRepository {
 
+    private static final String TABLE = "accounting.account";
+
     /**
      * Re-saving the same account is accepted; a different account claiming its name is not.
      *
@@ -109,7 +111,7 @@ public class JdbcAccountRepository implements AccountRepository {
         return new Account(
                 new AccountId(row.getObject("id", java.util.UUID.class)),
                 row.getString("name"),
-                AccountType.valueOf(row.getString("type")),
-                AccountingRows.currency(row, "currency"));
+                AccountingRows.enumerated(AccountType.class, TABLE, "type", row.getString("type")),
+                AccountingRows.currency(row, TABLE, "currency"));
     }
 }

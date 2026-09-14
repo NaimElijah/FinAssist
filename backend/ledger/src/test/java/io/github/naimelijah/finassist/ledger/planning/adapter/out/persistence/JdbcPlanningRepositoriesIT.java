@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger.planning.adapter.out.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.PlannedFlowRepository;
@@ -247,6 +248,47 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
         PlannedFlowRepository elsewhere = new JdbcPlannedFlowRepository(freshConnection());
 
         assertThat(elsewhere.findById(car.id())).contains(car);
+    }
+
+    /**
+     * {@code numeric} keeps whatever scale it is given, and {@link Money} refuses more precision than a
+     * currency admits. Reading such a row is a server fault naming the column, not an {@code
+     * IllegalArgumentException} a problem handler would answer as a broken rule.
+     */
+    @Test
+    void Given_a_flow_stored_with_more_precision_than_its_currency_admits_When_read_Then_it_is_a_server_fault() {
+        PlanId id = PlanId.generate();
+        jdbc().sql("""
+                        INSERT INTO planning.planned_flow
+                            (id, description, amount, currency, direction, starts_on, recurrence, state)
+                        VALUES (:id, 'Too precise', 40000.005, 'ILS', 'OUTFLOW', :startsOn, 'ONCE', 'PLANNED')
+                        """).param("id", id.value()).param("startsOn", FEB_1).update();
+
+        assertThatThrownBy(() -> flows.findById(id))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("planning.planned_flow.amount");
+    }
+
+    /**
+     * No constraint ties a flow's currency to a scenario's, because they sit in two tables. {@code
+     * Scenario} refuses the pair, and a stored pair it refuses is a server fault naming the scenario.
+     */
+    @Test
+    void Given_a_scenario_stored_over_a_flow_in_another_currency_When_read_Then_it_is_a_server_fault() {
+        PlannedFlow car = stored("New car", "40000.00");
+        ScenarioId id = ScenarioId.generate();
+        jdbc().sql("INSERT INTO planning.scenario VALUES (:id, 'In dollars', 'USD', 0)")
+                .param("id", id.value())
+                .update();
+        jdbc().sql("INSERT INTO planning.scenario_flow VALUES (:id, 0, :flow)")
+                .param("id", id.value())
+                .param("flow", car.id().value())
+                .update();
+
+        assertThatThrownBy(() -> scenarios.findById(id))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("planning.scenario")
+                .hasMessageContaining(id.value().toString());
     }
 
     private PlannedFlow stored(String description, String amount) {

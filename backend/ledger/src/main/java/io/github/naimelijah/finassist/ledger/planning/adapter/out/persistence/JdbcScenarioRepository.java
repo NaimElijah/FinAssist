@@ -26,6 +26,9 @@ import org.springframework.transaction.annotation.Transactional;
  */
 public class JdbcScenarioRepository implements ScenarioRepository {
 
+    private static final String SCENARIO_TABLE = "planning.scenario";
+    private static final String SCENARIO_FLOW_TABLE = "planning.scenario_flow";
+
     private static final String UPSERT_SCENARIO = """
             INSERT INTO planning.scenario (id, name, currency, growth_per_step)
             VALUES (:id, :name, :currency, :growthPerStep)
@@ -118,14 +121,26 @@ public class JdbcScenarioRepository implements ScenarioRepository {
                 .list();
     }
 
-    /** Shared by {@link #findById} and {@link #all}, so the two never map a row two different ways. */
+    /**
+     * Shared by {@link #findById} and {@link #all}, so the two never map a row two different ways.
+     *
+     * <p>Each column reads back on its own, but no constraint ties a flow's currency to the scenario's,
+     * because they sit in two tables. {@link Scenario} refuses that pair, and a stored pair it refuses is
+     * a server fault naming the scenario rather than a rule a caller broke.
+     */
     private Scenario toScenario(ResultSet row, int rowNumber) throws SQLException {
         ScenarioId id = new ScenarioId(row.getObject("id", UUID.class));
         String name = row.getString("name");
-        Currency currency = Currency.valueOf(row.getString("currency"));
-        // The constructor re-applies stripTrailingZeros, so a rate stored as 100 and read back at
-        // scale 0 normalises to the same value the caller wrote.
-        GrowthAssumption growth = new GrowthAssumption(row.getBigDecimal("growth_per_step"));
-        return new Scenario(id, name, currency, flowsOf(id), growth);
+        Currency currency = PlanningRows.currency(row, SCENARIO_TABLE, "currency");
+        List<PlannedFlow> flows = flowsOf(id);
+        try {
+            // The constructor re-applies stripTrailingZeros, so a rate stored as 100 and read back at
+            // scale 0 normalises to the same value the caller wrote.
+            GrowthAssumption growth = new GrowthAssumption(row.getBigDecimal("growth_per_step"));
+            return new Scenario(id, name, currency, flows, growth);
+        } catch (IllegalArgumentException refused) {
+            throw PlanningRows.unreconstructable(
+                    "scenario", id.value(), SCENARIO_TABLE + " and " + SCENARIO_FLOW_TABLE, refused);
+        }
     }
 }

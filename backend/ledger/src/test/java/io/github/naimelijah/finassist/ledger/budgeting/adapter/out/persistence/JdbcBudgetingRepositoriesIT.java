@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger.budgeting.adapter.out.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.BudgetRepository;
@@ -145,6 +146,51 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
         BudgetRepository elsewhere = new JdbcBudgetRepository(freshConnection());
 
         assertThat(elsewhere.findById(budget.id())).contains(budget);
+    }
+
+    /**
+     * {@code numeric} keeps whatever scale it is given, and {@link Money} refuses more precision than a
+     * currency admits. Reading such a row is a server fault naming the column, not an {@code
+     * IllegalArgumentException} a problem handler would answer as a broken rule.
+     */
+    @Test
+    void Given_a_limit_stored_with_more_precision_than_its_currency_admits_When_read_Then_it_is_a_server_fault() {
+        BudgetId id = budgetStoredDirectly();
+        jdbc().sql("INSERT INTO budgeting.budget_limit VALUES (:id, 'groceries', 1200.005, 'ILS')")
+                .param("id", id.value())
+                .update();
+
+        assertThatThrownBy(() -> budgets.findById(id))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("budgeting.budget_limit.amount");
+    }
+
+    /**
+     * No constraint ties a limit's currency to its budget's, because they sit in two tables. {@code
+     * Budget} refuses the pair, and a stored pair it refuses is a server fault naming the budget.
+     */
+    @Test
+    void Given_a_limit_stored_in_another_currency_than_its_budget_When_read_Then_it_is_a_server_fault() {
+        BudgetId id = budgetStoredDirectly();
+        jdbc().sql("INSERT INTO budgeting.budget_limit VALUES (:id, 'groceries', 1200.00, 'USD')")
+                .param("id", id.value())
+                .update();
+
+        assertThatThrownBy(() -> budgets.findById(id))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("budgeting.budget")
+                .hasMessageContaining(id.value().toString());
+    }
+
+    /** An ILS budget for March with no limits yet, written past the aggregate so a test can add a bad one. */
+    private BudgetId budgetStoredDirectly() {
+        BudgetId id = BudgetId.generate();
+        jdbc().sql("INSERT INTO budgeting.budget VALUES (:id, :start, :end, 'ILS')")
+                .param("id", id.value())
+                .param("start", MARCH.start())
+                .param("end", MARCH.end())
+                .update();
+        return id;
     }
 
     private static Money ils(String amount) {

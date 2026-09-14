@@ -176,6 +176,38 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
         assertThat(transactions.findById(yen.id())).contains(yen);
     }
 
+    /**
+     * {@code numeric} keeps whatever scale it is given, and {@link Money} refuses more precision than a
+     * currency admits. A row holding such an amount is the store's fault, not the caller's, so reading it
+     * must be a server fault naming where the value sits. An {@code IllegalArgumentException} here would
+     * reach the problem handler as a broken domain rule and be answered 422, unlogged.
+     */
+    @Test
+    void Given_an_entry_stored_with_more_precision_than_its_currency_admits_When_read_Then_it_is_a_server_fault() {
+        TransactionId id = TransactionId.generate();
+        jdbc().sql("INSERT INTO accounting.journal_transaction VALUES (:id, :on, 'Too precise', 'ILS')")
+                .param("id", id.value())
+                .param("on", MARCH_1)
+                .update();
+        // One statement, so the deferred balance check sees both entries at commit.
+        jdbc().sql("""
+                        INSERT INTO accounting.journal_entry VALUES
+                            (:id, 0, :groceries, 10.005, 'ILS'),
+                            (:id, 1, :cash, -10.005, 'ILS')
+                        """)
+                .param("id", id.value())
+                .param("groceries", groceries.id().value())
+                .param("cash", cash.id().value())
+                .update();
+        jdbc().sql("INSERT INTO accounting.journal_transaction_state VALUES (:id, 0, 'PENDING', NULL, NULL)")
+                .param("id", id.value())
+                .update();
+
+        assertThatThrownBy(() -> transactions.findById(id))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("accounting.journal_entry.amount");
+    }
+
     private Transaction record(LocalDate on, String description, String amount) {
         Transaction recorded = Transaction.record(
                 on,
