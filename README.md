@@ -13,11 +13,11 @@ language, and analyse the portfolio behind it.**
 </div>
 
 > [!IMPORTANT]
-> **All six bounded contexts have a domain layer; nothing above it exists yet.** The models,
-> their invariants and their tests are real — no application services, ports, adapters, HTTP or
-> persistence. The ledger boots and answers its Actuator health probes; the assistant has no
-> entry point; the web client renders a placeholder. Everything below describes what exists on
-> `main`. Planned work appears only under [Status and limitations](#status-and-limitations).
+> **All six bounded contexts have a domain and an application layer.** The ledger is persisted in
+> PostgreSQL and served over HTTP — accounting, budgeting and planning under `/api/v1`, with a
+> published OpenAPI contract — and answers its Actuator health probes. The assistant has no HTTP
+> API yet, and the web client renders a placeholder. See
+> [Known limitations](#status-and-limitations) for what does not exist yet.
 
 ## Contents
 
