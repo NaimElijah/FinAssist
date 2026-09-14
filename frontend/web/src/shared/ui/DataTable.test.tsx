@@ -47,6 +47,48 @@ describe('DataTable', () => {
         expect(screen.getByRole('table', { name: 'Accounts' })).toBeDefined();
     });
 
+    it('Given_a_table_When_rendered_Then_it_sits_in_a_focusable_scroll_region_named_by_its_caption', () => {
+        renderAccounts();
+
+        const region = screen.getByRole('region', { name: 'Accounts' });
+        expect(within(region).getByRole('table', { name: 'Accounts' })).toBeDefined();
+        // Focusable, so a keyboard user can scroll a table wider than the screen with arrow keys.
+        expect(region.tabIndex).toBe(0);
+    });
+
+    it('Given_a_visually_hidden_caption_When_rendered_Then_it_still_names_the_scroll_region', () => {
+        renderAccounts(true);
+
+        expect(screen.getByRole('region', { name: 'Accounts' })).toBeDefined();
+    });
+
+    it('Given_two_tables_When_rendered_Then_each_scroll_region_is_named_by_its_own_caption', () => {
+        render(
+            <>
+                <DataTable
+                    caption="Accounts"
+                    columns={COLUMNS}
+                    rows={ROWS}
+                    rowKey={(row) => row.id}
+                />
+                <DataTable
+                    caption="Closed accounts"
+                    columns={COLUMNS}
+                    rows={[]}
+                    rowKey={(row) => row.id}
+                />
+            </>,
+        );
+
+        const [firstId, secondId] = screen
+            .getAllByRole('region')
+            .map((region) => region.getAttribute('aria-labelledby'));
+        expect(firstId).not.toBe(secondId);
+        expect(screen.getByRole('region', { name: 'Accounts' })).not.toBe(
+            screen.getByRole('region', { name: 'Closed accounts' }),
+        );
+    });
+
     it('Given_columns_When_rendered_Then_their_headers_are_column_headers_in_order', () => {
         renderAccounts();
 

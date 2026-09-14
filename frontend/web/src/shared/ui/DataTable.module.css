@@ -1,5 +1,12 @@
 /* Ruled like an analysis pad: a firm rule under the column headings, a faint one under each row,
    and no vertical lines, so the eye runs along a row and down a column of figures. */
+
+/* A table wider than its container scrolls here, so the page itself never scrolls sideways. */
+.region {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
 .table {
     width: 100%;
     border-collapse: collapse;

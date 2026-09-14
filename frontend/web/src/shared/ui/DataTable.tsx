@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useId } from 'react';
 
 import styles from './DataTable.module.css';
 
@@ -35,12 +35,16 @@ export interface DataTableProps<Row> {
 }
 
 /**
- * A semantic table, typed over its row type.
+ * A semantic table, typed over its row type, inside its own horizontal scroll region.
  *
  * Every cell uses tabular numerals, so figures in an `end`-aligned column line up digit for digit.
  * Alignment is exposed on each header and body cell as `data-align`, which the stylesheet keys
  * on. An empty `rows` renders the header row alone; show an `EmptyState` instead when there is
  * nothing to tabulate.
+ *
+ * A table wider than the screen scrolls inside a `role="region"` wrapper rather than making the
+ * whole page scroll sideways. The wrapper is focusable, so a keyboard user can scroll it with the
+ * arrow keys, and it is named by the caption, so what it holds is announced.
  *
  * @param props - see `DataTableProps`.
  */
@@ -51,40 +55,47 @@ export function DataTable<Row>({
     rows,
     rowKey,
 }: DataTableProps<Row>) {
+    const captionId = useId();
+
     return (
-        <table className={styles.table}>
-            <caption className={captionHidden ? styles.hiddenCaption : styles.caption}>
-                {caption}
-            </caption>
-            <thead>
-                <tr>
-                    {columns.map((column) => (
-                        <th
-                            key={column.key}
-                            scope="col"
-                            data-align={column.align ?? 'start'}
-                            className={styles.header}
-                        >
-                            {column.header}
-                        </th>
-                    ))}
-                </tr>
-            </thead>
-            <tbody>
-                {rows.map((row) => (
-                    <tr key={rowKey(row)} className={styles.row}>
+        <div role="region" aria-labelledby={captionId} tabIndex={0} className={styles.region}>
+            <table className={styles.table}>
+                <caption
+                    id={captionId}
+                    className={captionHidden ? styles.hiddenCaption : styles.caption}
+                >
+                    {caption}
+                </caption>
+                <thead>
+                    <tr>
                         {columns.map((column) => (
-                            <td
+                            <th
                                 key={column.key}
+                                scope="col"
                                 data-align={column.align ?? 'start'}
-                                className={styles.cell}
+                                className={styles.header}
                             >
-                                {column.render(row)}
-                            </td>
+                                {column.header}
+                            </th>
                         ))}
                     </tr>
-                ))}
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    {rows.map((row) => (
+                        <tr key={rowKey(row)} className={styles.row}>
+                            {columns.map((column) => (
+                                <td
+                                    key={column.key}
+                                    data-align={column.align ?? 'start'}
+                                    className={styles.cell}
+                                >
+                                    {column.render(row)}
+                                </td>
+                            ))}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
     );
 }
