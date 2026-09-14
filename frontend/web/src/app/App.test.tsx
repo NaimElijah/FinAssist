@@ -5,7 +5,7 @@
 import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
 import { createQueryClient } from './queryClient';
@@ -18,6 +18,31 @@ const AREAS = [
     { heading: 'Planning', path: '/planning' },
     { heading: 'Portfolio', path: '/portfolio' },
 ] as const;
+
+/** The one request the shell's pages make: the Accounts area listing accounts. */
+const ACCOUNTS_URL = '/ledger/api/v1/accounts';
+
+beforeEach(() => {
+    // The shell is under test here, not the Accounts screen, so its request is answered locally
+    // with no accounts and nothing reaches the network. Anything else is refused loudly.
+    vi.stubGlobal(
+        'fetch',
+        vi.fn<typeof fetch>().mockImplementation((input) =>
+            input === ACCOUNTS_URL
+                ? Promise.resolve(
+                      new Response('[]', {
+                          status: 200,
+                          headers: { 'Content-Type': 'application/json' },
+                      }),
+                  )
+                : Promise.reject(new Error('the shell test made a request it does not answer')),
+        ),
+    );
+});
+
+afterEach(() => {
+    vi.unstubAllGlobals();
+});
 
 /** Render the provider composition main.tsx uses, over an in-memory router starting at `path`. */
 function renderAt(path: string) {

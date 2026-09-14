@@ -4,7 +4,8 @@ What the system must do. *How* it is built is [architecture](../architecture/arc
 *why* a given solution was chosen is [the ADRs](../ADRs/).
 
 > **Status: the domain and application layers are written, the ledger's store is PostgreSQL, and
-> both backend services now have a transport — the web client does not.** The store is
+> both backend services now have a transport; the web client has its first screen, over the
+> ledger's.** The store is
 > [ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md) and
 > [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md). The transport's decisions
 > are recorded in [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md),
@@ -15,8 +16,8 @@ What the system must do. *How* it is built is [architecture](../architecture/arc
 > with its generated OpenAPI document pinned by `tests/test_portfolio_api.py` and
 > `tests/test_contract.py`; its portfolio data still comes from nowhere real — an opt-in
 > development seed aside — because neither a ledger client nor a price feed exists. The web
-> client calls neither service. Requirements marked
-> **Enforced** name the class and the test that hold them today, so this document can be
+> client calls the ledger from its accounts screen, and the assistant not at all. Requirements
+> marked **Enforced** name the class and the test that hold them today, so this document can be
 > checked rather than trusted. Everything still marked `TODO` is a decision waiting on its
 > owner, not an omission to be filled in by inference — behaviour found in code is evidence
 > of a requirement, never proof of one.
@@ -177,15 +178,16 @@ practice.
 
 ### Web client
 
-The owner enumerated the web client on 2026-09-14. **None of it is implemented yet**: no endpoint
-and no screen exists, so no requirement below names an enforcing test, and each gains one in the
-commit that builds it. How the client reaches the two services is
-[ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), and what it is
-built with is [ADR-029](../ADRs/ADR-029-web-client-stack.md).
+The owner enumerated the web client on 2026-09-14. **Most of it is not implemented yet.** A
+requirement below names its enforcing test once a screen implements it, in the commit that builds
+that screen; a requirement naming no test has no screen yet. How the client reaches the two
+services is [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), and
+what it is built with is [ADR-029](../ADRs/ADR-029-web-client-stack.md).
 
 Through the web client, the owner can:
 
-- Open an account, and see every account with its derived balance.
+- Open an account, and see every account with its derived balance. `AccountsPage`,
+  `OpenAccountForm`; `AccountsPage.test.tsx`, `accountingApi.test.ts`
 - Record a transaction by hand, and see an account's transactions with their lifecycle state.
 - Clear, reconcile or void a transaction.
 - Define a budget for a month with a limit per category, and review spend against it: what is

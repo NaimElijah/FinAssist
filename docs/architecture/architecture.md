@@ -5,7 +5,8 @@ The system as it actually is. *What it must do* is
 [the ADRs](../ADRs/).
 
 > **All six contexts have a domain and an application layer, and the ledger's store is
-> PostgreSQL. Both backend services now have a transport; the web client does not.** The
+> PostgreSQL. Both backend services now have a transport, and the web client calls the ledger's
+> from its first screen.** The
 > ledger's repository ports are backed by hand-written SQL
 > ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md),
 > [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)). It serves accounting,
@@ -29,8 +30,8 @@ The system as it actually is. *What it must do* is
 > holdings and quotes from the composition root alone (`adapters/seed.py`), so the portfolio
 > screens have something to show by hand — a development aid, never a data source. The assistant
 > still has no store and no ledger client — its assembled use cases run over in-memory stand-ins
-> regardless of the seed — and the web client still renders a placeholder and calls neither
-> service. Both services now run under Compose, alongside natively (`./mvnw spring-boot:run`,
+> regardless of the seed — and the web client calls only the ledger, from its accounts screen.
+> Both services now run under Compose, alongside natively (`./mvnw spring-boot:run`,
 > `uv run python -m finassist_assistant.adapters`) for the faster inner loop. Both emit structured
 > logs and OTLP traces — see [Cross-cutting concerns](#cross-cutting-concerns). Where a structure
 > is defined but not yet inhabited, this document says so.
@@ -62,10 +63,10 @@ flowchart LR
 
 `DB`, `Ledger` and `Assistant` all run under Compose now (`docker compose up`); `Ledger` reaches
 `DB` over JDBC, and `./mvnw spring-boot:run` / `uv run python -m finassist_assistant.adapters`
-against the Compose `DB` still work for the native inner loop. No edge leaving `Web` or
-`Assistant` is implemented — the ledger serves its side of the `Web -> Ledger` and
-`Assistant -> Ledger` edges, and the assistant now serves its side of `Web -> Assistant` too (the
-portfolio endpoints), but no caller of any of the three exists yet; the web client's two edges are
+against the Compose `DB` still work for the native inner loop. `Web -> Ledger` is the one edge
+leaving `Web` or `Assistant` with a caller: the web client's accounts screen. The ledger also
+serves its side of `Assistant -> Ledger`, and the assistant its side of `Web -> Assistant` (the
+portfolio endpoints), but neither has a caller yet; the web client's two edges are
 [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)'s decision.
 
 ## Bounded contexts
@@ -119,7 +120,7 @@ had been: `times_rounded` raised on a large product in Python where Java returne
 |---|---|---|
 | `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain and application layers complete, with unit, seeded-property and shared-vector tests, **live architecture rules** (layering, context isolation, both framework-free layers, the two web-adapter direction rules, and DTO name uniqueness), and Spring tests covering the Actuator probes, the observability wiring, the Host allow-list, the problem+json fallback and the assembled composition root; structured logs, OTLP traces and Prometheus metrics. Every repository port is backed by PostgreSQL; the in-memory ones are gone. The only remaining in-memory adapters are the two event publishers, which nothing subscribes to yet. **It now has an inbound adapter**: a component-scanned `@RestController` per context under `/api/v1`, calling in-ports only, with its generated OpenAPI document pinned by `LedgerContractIT`. Runs under Compose (`build: ./backend/ledger`) as well as natively |
 | `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain and application layers complete, with unit, Hypothesis-property and shared-vector tests, and 7 architecture rules parametrised over every source file (those that do not apply to a given file skip; one now forbids an inbound adapter reaching an outbound one). **It now has an inbound adapter**: `portfolio_router` under `/api/v1`, a `HostAllowList` middleware, and problem+json handling from the composition root, with its generated OpenAPI document pinned by `tests/test_contract.py`. Also serves `/health` and `/ready`. A development seed (`ASSISTANT_DEV_SEED`, off by default) loads fictional holdings and quotes from `adapters/seed.py` alone. `AnswerQuestion` is written and deliberately unwired — an LLM adapter would settle the privacy question by implication. Runs under Compose (`build: ./backend/assistant`) as well as natively |
-| `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and routes between four placeholder areas — accounts, budgets, planning and portfolio — inside a shared layout, under an error boundary and a TanStack Query client; design tokens and the shared UI primitives every screen is built from, in `src/shared/ui`; architecture rules, HTTP-client tests, jsdom tests of the shell and of each primitive, and a structured logger that generates the `traceparent` every request carries; no feature implemented |
+| `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and routes between four areas — accounts, budgets, planning and portfolio — inside a shared layout, under an error boundary and a TanStack Query client. **The accounts area is implemented**: it lists accounts, reading each balance by its own request, and opens an account, calling the ledger through the dev proxy with wire types generated from `contracts/` and mapped to the feature's own in its `api/`. Budgets, planning and portfolio are still placeholders. Design tokens and the shared UI primitives every screen is built from, in `src/shared/ui`; a render-with-providers test helper in `src/shared/testing`; architecture rules, HTTP-client tests, jsdom tests of the shell, of each primitive and of the accounts screen, and a structured logger that generates the `traceparent` every request carries |
 | `contracts/` | The versioned wire contract, and the cross-language `Money` conformance vectors | `money-vectors.v1.json`, the README, `ledger-v1.openapi.json` — generated by springdoc, pinned by `LedgerContractIT` — and `assistant-v1.openapi.json` — generated by FastAPI, pinned by `tests/test_contract.py` |
 | PostgreSQL 18 | The ledger's store | Runs via Compose. Three schemas — `accounting`, `budgeting`, `planning` — with no foreign key crossing one; migrated by Flyway from a directory per context. The journal is append-only in the database, enforced by triggers |
 
@@ -149,7 +150,7 @@ backend/assistant/src/finassist_assistant/
 frontend/web/src/
   features/{accounting,budgeting,planning,portfolio,assistance}/{api,components,hooks,types}/
                 each index.ts exports its area's routes; assistance has no route
-  shared/{ui,api,lib}/
+  shared/{ui,api,lib,testing}/
   app/          the only place that knows every feature at once: routes.tsx composes their routes
 ```
 
@@ -170,13 +171,13 @@ that the `monitoring` Compose profile mounts.
 
 - **Owner to web** — HTTPS.
 - **Web to ledger** — HTTP, for the accounting, budgeting and planning screens. **Implemented on
-  the ledger side; the web client does not call it yet.** The ledger serves `/api/v1/accounts`,
-  `/api/v1/transactions`, `/api/v1/budgets`, `/api/v1/categorisation-rules`,
-  `/api/v1/planned-flows`, `/api/v1/scenarios` and `/api/v1/scenario-comparisons`. In development the
-  browser is meant to call `/ledger/…` on the Vite origin, with the proxy forwarding to the
-  ledger on loopback so no call crosses an origin
-  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)) — that proxy,
-  and every caller of it, is still unbuilt.
+  both sides for accounts, on the ledger side alone for the rest.** The ledger serves
+  `/api/v1/accounts`, `/api/v1/transactions`, `/api/v1/budgets`, `/api/v1/categorisation-rules`,
+  `/api/v1/planned-flows`, `/api/v1/scenarios` and `/api/v1/scenario-comparisons`. The web client's
+  accounts screen calls `GET` and `POST /api/v1/accounts` and `GET /api/v1/accounts/{id}/balance`,
+  one balance request per account (ADR-028). In development the browser calls `/ledger/…` on the
+  Vite origin, and the dev proxy forwards to the ledger on loopback so no call crosses an origin
+  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)).
 - **Web to assistant** — HTTP, for the portfolio screens, through the same proxy under
   `/assistant/…`. **Implemented on the assistant side; the web client does not call it yet.** The
   assistant serves `/api/v1/portfolio/holdings/{symbol}/position` (`GET`),

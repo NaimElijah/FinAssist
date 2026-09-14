@@ -10,16 +10,23 @@ import type { RouteObject } from 'react-router';
 import type { RouteHandle } from '@/shared/lib/routeHandle';
 
 import { AccountsPage } from './components/AccountsPage';
+import { ACCOUNTS_PATH } from './components/paths';
 
 /**
- * The accounting area's routes, under the base path `accounts`. src/app mounts them inside the
- * shared layout, which titles the document from each route's `handle`. This is the route
- * contract; the page behind it is replaced as screens are built.
+ * The accounting area's routes, under the base path `/accounts`. src/app mounts them inside the
+ * shared layout, which titles the document from each route's `handle`.
  */
 export const accountingRoutes: RouteObject[] = [
     {
-        path: 'accounts',
+        path: ACCOUNTS_PATH,
         Component: AccountsPage,
         handle: { title: 'Accounts' } satisfies RouteHandle,
     },
 ];
+
+/**
+ * Exported for src/app alone, which adapts the accounts into another feature's terms rather than
+ * letting that feature import this one (ADR-029).
+ */
+export { useAccounts } from './hooks/accountQueries';
+export type { Account } from './types/account';

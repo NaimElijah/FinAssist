@@ -102,6 +102,9 @@ export default defineConfig({
                 ...coverageConfigDefaults.exclude,
                 'src/**/*.test.{ts,tsx}',
                 'src/**/index.ts',
+                // Test helpers: code that only tests run, so measuring it would report on the
+                // tests rather than on the source they exercise.
+                'src/shared/testing/**',
                 // Generated from the committed OpenAPI documents (ADR-029): types only, no
                 // runtime code, so there is nothing here for coverage to measure.
                 'src/shared/api/contracts/**',

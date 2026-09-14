@@ -18,7 +18,8 @@ language, and analyse the portfolio behind it.**
 > published OpenAPI contract — and answers its Actuator health probes. The assistant now serves
 > `portfolio` under `/api/v1` too, with its own published contract, but its data comes only from
 > an opt-in development seed, off by default — no ledger client and no price feed exist. The web
-> client still renders a placeholder and calls neither service. See
+> client's accounts screen lists and opens accounts over the ledger's API; its other areas are
+> still placeholders, and it does not call the assistant. See
 > [Known limitations](#status-and-limitations) for what does not exist yet.
 
 ## Contents
@@ -97,7 +98,8 @@ cd backend/ledger && ./mvnw spring-boot:run
 cd backend/assistant && uv run python -m finassist_assistant.adapters
 ```
 
-The web client runs too, and renders a placeholder:
+The web client runs too. Its accounts screen needs the ledger running; the other areas are still
+placeholders:
 
 ```bash
 cd frontend/web && npm ci && npm run dev   # http://localhost:5173
@@ -145,18 +147,18 @@ flowchart LR
     Owner[Owner] -->|HTTPS| Web[frontend/web - React SPA]
     Web -->|HTTP| Assistant[backend/assistant - Python, FastAPI]
     Assistant -->|HTTP, Published Language| Ledger[backend/ledger - Java, Spring Boot]
+    Web -->|HTTP| Ledger
     Assistant -->|HTTPS| Claude[Anthropic API]
     Ledger --> DB[(PostgreSQL 18)]
 ```
 
 `DB`, the ledger and the assistant all run under Compose now, and `Ledger --> DB` is real: the
-ledger serves its side of the `Assistant -> Ledger` edge under `/api/v1`, with an OpenAPI
-document to prove it
-([contracts/ledger-v1.openapi.json](contracts/ledger-v1.openapi.json)). Nothing calls it yet —
-the assistant has no ledger client. The assistant serves its own `portfolio` endpoints under
-`/api/v1` too, published as
-[contracts/assistant-v1.openapi.json](contracts/assistant-v1.openapi.json), but the web client
-still renders a placeholder and calls neither service.
+ledger serves `/api/v1`, with an OpenAPI document to prove it
+([contracts/ledger-v1.openapi.json](contracts/ledger-v1.openapi.json)). The web client's accounts
+screen calls it; the assistant does not yet, having no ledger client. The assistant serves its own
+`portfolio` endpoints under `/api/v1` too, published as
+[contracts/assistant-v1.openapi.json](contracts/assistant-v1.openapi.json), and nothing calls them
+yet.
 
 **Six bounded contexts**, each owned by exactly one service, each one directory
 ([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md), extended by
@@ -451,11 +453,11 @@ to end.
 
 Known limitations:
 
-- **Neither backend HTTP API has a caller yet.** The ledger serves accounting, budgeting and
+- **The backend HTTP APIs have one caller so far.** The ledger serves accounting, budgeting and
   planning under `/api/v1`, with an OpenAPI document pinned by `LedgerContractIT`; the assistant
-  serves `portfolio` under `/api/v1`, pinned by `tests/test_contract.py`. The assistant has no
-  ledger client of its own — `LedgerPort` is still an in-memory stand-in — and the web client
-  renders a placeholder and calls neither service.
+  serves `portfolio` under `/api/v1`, pinned by `tests/test_contract.py`. Only the web client's
+  accounts screen calls either. The assistant has no ledger client of its own — `LedgerPort` is
+  still an in-memory stand-in — and nothing calls the assistant's API.
 - **The assistant's portfolio data comes only from an opt-in development seed.**
   `ASSISTANT_DEV_SEED`, off by default, loads a small set of fictional lots and quotes from the
   composition root so the endpoints have something to answer by hand; it is a development aid,

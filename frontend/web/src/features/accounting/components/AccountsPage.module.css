@@ -1,0 +1,10 @@
+.loading {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+/* A figure not yet known, or not available: muted, so it never reads as an amount. */
+.placeholder {
+    color: var(--color-muted);
+    white-space: nowrap;
+}
