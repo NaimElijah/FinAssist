@@ -22,9 +22,9 @@ import org.springframework.boot.test.web.server.LocalServerPort;
  * sentence. A claim in a document that no test holds is a claim waiting to become false.
  *
  * <p>It asserts the wiring, not any behaviour of FinAssist's own: that the context loads with
- * every context's domain on the classpath, that {@code application.yml} parses, and that the
- * three probes the file configures are actually exposed. The health response touches no FinAssist
- * code.
+ * every context's domain on the classpath, that {@code application.yml} parses, that the three
+ * probes the file configures are actually exposed, and that springdoc serves an OpenAPI document
+ * (ADR-028). The health response touches no FinAssist code.
  *
  * <p>Uses the JDK's {@link HttpClient} rather than {@code TestRestTemplate}, which Spring Boot 4
  * moved out of {@code spring-boot-starter-test} into a separate {@code spring-boot-resttestclient}
@@ -82,5 +82,19 @@ class LedgerApplicationIT extends PostgresFixture {
     @Test
     void Given_the_application_When_an_unexposed_endpoint_is_requested_Then_it_is_not_served() throws Exception {
         assertThat(get("/actuator/env").statusCode()).isEqualTo(404);
+    }
+
+    /**
+     * Nothing else in this repository has run springdoc 3.1.1 against Spring Boot 4.1.1
+     * (ADR-028); this is the proof that the pairing starts a context and serves a document rather
+     * than a claim taken on faith from the release notes.
+     */
+    @Test
+    void Given_the_running_ledger_When_its_api_document_is_requested_Then_an_openapi_document_is_served()
+            throws Exception {
+        HttpResponse<String> response = get("/v3/api-docs");
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).containsPattern("\"openapi\"\\s*:\\s*\"3\\.");
     }
 }

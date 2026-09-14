@@ -25,12 +25,21 @@
     <jacoco.version>0.8.13</jacoco.version>
     <pitest.version>1.19.1</pitest.version>
     <pitest-junit5.version>1.2.2</pitest-junit5.version>
+    <springdoc.version>3.1.1</springdoc.version>
   </properties>
 
   <dependencies>
+    <!-- spring-boot-starter-web is deprecated in favor of this one as of Boot 4.1.1. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-web</artifactId>
+      <artifactId>spring-boot-starter-webmvc</artifactId>
+    </dependency>
+    <!-- Generates the ledger's OpenAPI document from the code (ADR-028); the -api artifact only,
+         no Swagger UI. -->
+    <dependency>
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+      <version>${springdoc.version}</version>
     </dependency>
     <!-- Health and readiness endpoints are a baseline requirement, not a later addition. -->
     <dependency>
@@ -81,6 +90,12 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- @WebMvcTest and MockMvc; spring-boot-starter-test alone does not provide them on Boot 4. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc-test</artifactId>
       <scope>test</scope>
     </dependency>
     <!-- InMemorySpanExporter, so a test can assert a span was recorded without a collector. -->

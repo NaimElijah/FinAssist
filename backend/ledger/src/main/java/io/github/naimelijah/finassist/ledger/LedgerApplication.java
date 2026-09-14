@@ -14,7 +14,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * <p>The wiring itself lives in {@code composition}, which is Spring-aware by design and is the only
  * package permitted to see two contexts at once (ADR-022).
  *
- * <p>Starting this exposes Actuator only — there are no business endpoints yet. See {@code
+ * <p>Starting this exposes Actuator and the springdoc-generated OpenAPI document at {@code
+ * /v3/api-docs} — there are no business endpoints yet. See {@code
  * docs/architecture/architecture.md}.
  */
 @SpringBootApplication
