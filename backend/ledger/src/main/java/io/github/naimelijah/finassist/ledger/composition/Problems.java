@@ -65,7 +65,7 @@ final class Problems {
     /** The body is not {@code application/json}, which every write requires (ADR-027). */
     static final String UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE";
 
-    /** Well-formed, and refused by a domain rule the request broke. */
+    /** Well-formed, and refused by a rule the request broke, whether the domain's or the adapter's. */
     static final String RULE_VIOLATED = "RULE_VIOLATED";
 
     /** The request would combine amounts in two currencies, which the ledger never converts (ADR-012). */

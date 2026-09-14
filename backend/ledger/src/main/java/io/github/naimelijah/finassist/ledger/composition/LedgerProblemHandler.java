@@ -41,11 +41,13 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  *       UNSUPPORTED_MEDIA_TYPE}. Bean-validation failures also list each rejection under {@code
  *       errors};
  *   <li>{@link IllegalArgumentException} is 422 {@code RULE_VIOLATED}, with the exception's message as
- *       the detail. The domain raises it when a well-formed request breaks a rule, and its messages hold
- *       no secrets, as the ledger holds none (ADR-019). It is not the domain's only refusal: {@code
- *       IllegalTransitionException} and {@code IllegalPlanTransitionException} extend {@link
- *       RuntimeException}, so each is left to its own context's advice. Accounting's maps the first; the
- *       second reaches this handler as a 500 until planning's advice maps it;
+ *       the detail. It signals that a well-formed request broke a rule: the domain raises it for its own
+ *       invariants, and an inbound adapter for a rule about the request itself, such as a period that
+ *       does not start before it ends. Its messages hold no secrets, as the ledger holds none (ADR-019).
+ *       It is not the domain's only refusal: {@code IllegalTransitionException} and {@code
+ *       IllegalPlanTransitionException} extend {@link RuntimeException}, so each is left to its own
+ *       context's advice. Accounting's maps the first; the second reaches this handler as a 500 until
+ *       planning's advice maps it;
  *   <li>{@link CurrencyMismatchException} is 422 {@code CURRENCY_MISMATCH}. It is mapped once here
  *       because all three contexts throw it;
  *   <li>anything else is 500 {@code INTERNAL_ERROR}.
@@ -74,7 +76,7 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
             HttpStatus.NOT_ACCEPTABLE, Problems.NOT_ACCEPTABLE,
             HttpStatus.UNSUPPORTED_MEDIA_TYPE, Problems.UNSUPPORTED_MEDIA_TYPE);
 
-    /** A domain rule refused a well-formed request. */
+    /** A well-formed request broke a rule, which the domain or an inbound adapter enforces. */
     @ExceptionHandler(IllegalArgumentException.class)
     ResponseEntity<Object> handleRuleViolation(IllegalArgumentException exception, WebRequest request) {
         return respond(
