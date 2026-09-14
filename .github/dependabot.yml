@@ -63,6 +63,12 @@ updates:
         patterns:
           - "vitest"
           - "@vitest/*"
+      # Pre-1.0 (ADR-029): a minor release may change the generated output, so a bump lands as
+      # one grouped PR that regenerates src/shared/api/contracts, rather than several PRs each
+      # claiming a clean diff the others already broke.
+      hey-api:
+        patterns:
+          - "@hey-api/*"
     ignore:
       # typescript-eslint 8.68.0 declares `typescript: >=4.8.4 <6.1.0`. A bump past that makes
       # `npm ci` fail outright with ERESOLVE - PR #5 proved it, the Web job could not install.

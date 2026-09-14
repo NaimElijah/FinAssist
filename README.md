@@ -233,6 +233,7 @@ pipeline and the local commands cannot drift.
 | Test the assistant | `make test-assistant` | `cd backend/assistant && uv run pytest --cov --cov-report=term-missing --cov-report=xml` |
 | Test the web client | `make test-web` | `cd frontend/web && npm run test:coverage` |
 | Build the web bundle | `make build-web` | `cd frontend/web && npm run build` |
+| Regenerate the web client's contract types | `make generate-web-api` | `cd frontend/web && npm run generate:api` |
 | Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
 | Lint and types | `make lint` | `./mvnw -B spotless:check`; `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; `npm run lint`, `format:check`, `typecheck` |
 | Format | `make format` | `./mvnw -B spotless:apply`; `uv run ruff format .`; `npm run format` |

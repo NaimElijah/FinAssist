@@ -102,6 +102,9 @@ export default defineConfig({
                 ...coverageConfigDefaults.exclude,
                 'src/**/*.test.{ts,tsx}',
                 'src/**/index.ts',
+                // Generated from the committed OpenAPI documents (ADR-029): types only, no
+                // runtime code, so there is nothing here for coverage to measure.
+                'src/shared/api/contracts/**',
             ],
         },
     },

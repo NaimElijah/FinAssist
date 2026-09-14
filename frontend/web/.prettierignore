@@ -2,3 +2,6 @@ dist
 coverage
 node_modules
 package-lock.json
+# Generated from the committed OpenAPI documents (ADR-029); reformatting would fight the next
+# `npm run generate:api` rather than settle on anything.
+src/shared/api/contracts

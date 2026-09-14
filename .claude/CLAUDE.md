@@ -72,6 +72,8 @@ is **not installed** on the development machine, so the raw command is given for
   tests/test_contract.py` (no container needed); on a mismatch, copy
   `.contract-drift/assistant-v1.openapi.json` over `contracts/assistant-v1.openapi.json`. Run
   this after every endpoint change
+- Regenerate the web client's contract types: `make generate-web-api` —
+  `cd frontend/web && npm run generate:api`
 
 Keep this list in sync with the Development table in `README.md`.
 
@@ -244,6 +246,9 @@ These are enforced by the build, not by review. Breaking one fails CI.
   carries one either.
 - **The assistant's contract must be regenerated on any endpoint change**, exactly like the
   ledger's — see Commands above.
+- **The web client's contract types under `src/shared/api/contracts/` are generated, never
+  hand-written.** Regenerate them after either service's contract changes (`make
+  generate-web-api`), and CI fails the `web` job on a diff it did not expect (ADR-029).
 - **The assistant's development seed is off by default** (`ASSISTANT_DEV_SEED`) and lives only
   in the composition root (`adapters/seed.py`).
 - **The assistant's wire models hide input values in validation errors**

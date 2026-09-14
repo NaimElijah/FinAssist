@@ -97,6 +97,11 @@ jobs:
       - name: Install locked dependencies
         run: cd frontend/web && npm ci
 
+      - name: Contract types are current
+        run: |
+          cd frontend/web && npm run generate:api
+          git diff --exit-code -- src/shared/api/contracts
+
       - name: Lint, format check and types
         run: make lint-web
 

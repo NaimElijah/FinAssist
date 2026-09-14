@@ -1,0 +1,56 @@
+// @vitest-environment node
+/**
+ * Type-level proof that generation preserves the wire rules ADR-028 and ADR-029 depend on.
+ *
+ * Nothing here runs: `expectTypeOf` assertions are checked by `tsc`, so a regenerated file that
+ * silently loosens a type - every response member turning optional, a decimal becoming
+ * `number` - fails `npm run typecheck` and `npm run test:coverage` alike, without needing a
+ * value to assert against.
+ */
+import { describe, expectTypeOf, it } from 'vitest';
+
+import type {
+    AccountResponse,
+    MoneyDto,
+    Problem as LedgerProblem,
+    TransactionResponse,
+    TransactionStateResponse,
+} from './contracts/ledger/types.gen';
+import type {
+    MoneyModel,
+    PositionModel,
+    Problem as AssistantProblem,
+} from './contracts/assistant/types.gen';
+
+describe('generated contract types', () => {
+    it('Given_either_services_Problem_When_reading_its_code_Then_it_is_a_string', () => {
+        expectTypeOf<LedgerProblem['code']>().toBeString();
+        expectTypeOf<AssistantProblem['code']>().toBeString();
+    });
+
+    it('Given_a_money_amount_When_read_from_either_document_Then_it_is_a_string_not_a_number', () => {
+        expectTypeOf<MoneyDto['amount']>().toBeString();
+        expectTypeOf<MoneyModel['amount']>().toBeString();
+    });
+
+    it('Given_the_ledgers_always_present_response_members_When_generated_Then_they_are_not_optional', () => {
+        // Ruling 23: the ledger document marks an always-present response member `required`,
+        // so the generated type must drop the member from its optional side, not just keep it
+        // present in practice.
+        expectTypeOf<AccountResponse['id']>().toEqualTypeOf<string>();
+        expectTypeOf<TransactionResponse['id']>().toEqualTypeOf<string>();
+    });
+
+    it('Given_a_transactions_lifecycle_date_When_generated_Then_it_stays_optional', () => {
+        // `on` is absent until a transition sets it, so the schema never marks it required -
+        // the counterexample that proves the assertion above is not vacuously true.
+        expectTypeOf<TransactionStateResponse['on']>().toEqualTypeOf<string | undefined>();
+    });
+
+    it('Given_a_portfolio_positions_always_present_members_When_generated_Then_they_are_not_optional', () => {
+        // The assistant document follows the same rule: a pydantic field with no default is
+        // required in FastAPI's schema.
+        expectTypeOf<PositionModel['symbol']>().toEqualTypeOf<string>();
+        expectTypeOf<PositionModel['quantity']>().toEqualTypeOf<string>();
+    });
+});
