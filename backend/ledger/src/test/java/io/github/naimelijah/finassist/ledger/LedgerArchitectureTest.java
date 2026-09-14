@@ -189,14 +189,23 @@ class LedgerArchitectureTest {
     /**
      * An inbound adapter drives the application through its in-ports and nothing else.
      *
-     * <p>{@code layers_point_inward} treats every adapter as one layer, so on its own it lets a
-     * controller call a repository or an outbound adapter directly, skipping the use case and every
-     * rule the use case enforces.
+     * <p>{@code layers_point_inward} treats every adapter as one layer that may reach the whole
+     * application layer, so on its own it lets a controller depend on three things it must not:
      *
-     * <p>Only the <em>interfaces</em> in {@code port.out} are forbidden. The records there stay
-     * reachable, because an in-port's command may carry one: planning's {@code ProjectScenarioCommand}
-     * holds {@code AccountRef}, which lives in {@code port.out} beside the port that consumes it, so a
-     * controller building that command has to name it.
+     * <ul>
+     *   <li>an outbound adapter, or an out-port such as a repository, which skips the use case and every
+     *       rule the use case enforces;
+     *   <li>a concrete service in {@code application.service}. {@code LedgerConfiguration} registers each
+     *       service as a bean, so a controller injecting {@code TransactionService} starts and passes
+     *       every other rule. It is then bound to one implementation and to every port that
+     *       implementation also serves, rather than to the use case it calls.
+     * </ul>
+     *
+     * <p>A controller may still name what it translates: the in-ports with their commands and exceptions,
+     * the domain types they return, and {@code shared}. Only the <em>interfaces</em> in {@code port.out}
+     * are forbidden. The records there stay reachable, because an in-port's command may carry one:
+     * planning's {@code ProjectScenarioCommand} holds {@code AccountRef}, which lives in {@code port.out}
+     * beside the port that consumes it, so a controller building that command has to name it.
      */
     @ArchTest
     static final ArchRule web_adapters_reach_no_outbound_port = noClasses()
@@ -208,7 +217,10 @@ class LedgerArchitectureTest {
             .orShould()
             .dependOnClassesThat(
                     resideInAPackage(ROOT + "..application.port.out..").and(INTERFACES))
-            .because("a controller that bypasses its use case bypasses the rules the use case enforces");
+            .orShould()
+            .dependOnClassesThat()
+            .resideInAPackage(ROOT + "..application.service..")
+            .because("a controller reaches the application only through the in-ports it drives");
 
     /**
      * An outbound adapter serves the application and knows nothing of how the application was called.

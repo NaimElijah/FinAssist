@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
  * transactions (ADR-028).
  *
  * <p>It calls in-ports only. {@code LedgerArchitectureTest.web_adapters_reach_no_outbound_port} fails
- * the build if it reaches a repository or an outbound adapter. It is component-scanned rather than
+ * the build if it reaches a repository, an outbound adapter or a concrete service. It is component-scanned rather than
  * built in {@code LedgerConfiguration}, the one bounded exception ADR-028 makes to hand-built wiring,
  * so that a {@code @WebMvcTest} slice loads it.
  *
