@@ -1,5 +1,6 @@
 import { type ReactNode, useId } from 'react';
 
+import { joinClassNames } from './classNames';
 import styles from './DataTable.module.css';
 
 /** The edge a column's content sits against. Money and date columns use `end`. */
@@ -12,6 +13,12 @@ export interface Column<Row> {
     readonly header: string;
     /** Defaults to `start`. Use `end` for money and dates, so their digits line up. */
     readonly align?: ColumnAlign;
+    /**
+     * Render this column's body cells as `<th scope="row">`, so a screen reader names the row as
+     * it moves across it. Set it on the column that identifies a row, such as the account name.
+     * Defaults to `false`.
+     */
+    readonly rowHeader?: boolean;
     /** The content of this column's cell for one row. */
     readonly render: (row: Row) => ReactNode;
 }
@@ -83,15 +90,26 @@ export function DataTable<Row>({
                 <tbody>
                     {rows.map((row) => (
                         <tr key={rowKey(row)} className={styles.row}>
-                            {columns.map((column) => (
-                                <td
-                                    key={column.key}
-                                    data-align={column.align ?? 'start'}
-                                    className={styles.cell}
-                                >
-                                    {column.render(row)}
-                                </td>
-                            ))}
+                            {columns.map((column) =>
+                                column.rowHeader === true ? (
+                                    <th
+                                        key={column.key}
+                                        scope="row"
+                                        data-align={column.align ?? 'start'}
+                                        className={joinClassNames(styles.cell, styles.rowHeader)}
+                                    >
+                                        {column.render(row)}
+                                    </th>
+                                ) : (
+                                    <td
+                                        key={column.key}
+                                        data-align={column.align ?? 'start'}
+                                        className={styles.cell}
+                                    >
+                                        {column.render(row)}
+                                    </td>
+                                ),
+                            )}
                         </tr>
                     ))}
                 </tbody>

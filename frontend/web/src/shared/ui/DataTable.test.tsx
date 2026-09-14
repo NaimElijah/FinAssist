@@ -114,6 +114,34 @@ describe('DataTable', () => {
         ]);
     });
 
+    it('Given_a_row_header_column_When_rendered_Then_its_cells_are_row_headers_scoped_to_their_row', () => {
+        const columns: readonly Column<AccountRow>[] = [
+            { key: 'name', header: 'Account', rowHeader: true, render: (row) => row.name },
+            { key: 'balance', header: 'Balance', align: 'end', render: (row) => row.balance },
+        ];
+        render(
+            <DataTable caption="Accounts" columns={columns} rows={ROWS} rowKey={(row) => row.id} />,
+        );
+
+        const rowHeaders = screen.getAllByRole('rowheader');
+        expect(rowHeaders.map((header) => header.textContent)).toEqual(['Checking', 'Savings']);
+        expect(rowHeaders.map((header) => header.getAttribute('scope'))).toEqual(['row', 'row']);
+        expect(rowHeaders.map((header) => header.getAttribute('data-align'))).toEqual([
+            'start',
+            'start',
+        ]);
+        expect(screen.getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
+            '1234.50',
+            '-12.00',
+        ]);
+    });
+
+    it('Given_no_row_header_column_When_rendered_Then_no_cell_is_a_row_header', () => {
+        renderAccounts();
+
+        expect(screen.queryAllByRole('rowheader')).toEqual([]);
+    });
+
     it('Given_an_end_aligned_money_column_When_rendered_Then_its_header_and_cells_carry_the_end_alignment_hook', () => {
         renderAccounts();
 
