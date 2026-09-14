@@ -3,6 +3,7 @@
 The web client calls the ledger and the assistant alike (ADR-026) and parses one error shape from
 both (ADR-028). These tests hold the assistant to the ledger's half of that bargain: the same
 members, the same ``code`` strings where the meanings overlap, and no exception text on a 5xx.
+They also hold the log line a 5xx leaves to the rule that the owner's money is never logged.
 
 The routes that raise are added here, not served by the app. They exercise the mapping for every
 exception the table names without depending on which endpoint happens to raise which today.
@@ -28,6 +29,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from finassist_assistant.adapters.app import CORRELATION_ID_HEADER, create_app
 from finassist_assistant.adapters.observability import forget_secrets, reset_logging
 from finassist_assistant.adapters.settings import Settings
+from finassist_assistant.portfolio.adapters.inbound.api.models import MoneyModel
 from finassist_assistant.portfolio.application.port import (
     HoldingNotFoundError,
     PriceUnavailableError,
@@ -41,6 +43,11 @@ PROBLEM_JSON = "application/problem+json"
 # Stands in for whatever an exception might carry: a path, a query, a price, a key. It may reach a
 # log line, which is redacted at the boundary; it must never reach a response body.
 LEAK = "internal detail that must stay off the wire"
+
+# A recognisable amount, and an input no wire model accepts that carries it. The routes refer to it
+# by name, so the source line a traceback quotes cannot hold the digits either.
+AMOUNT = "98765.43"
+UNPARSEABLE_AMOUNT = f"{AMOUNT} USD"
 
 VOO = Symbol("VOO")
 
@@ -96,6 +103,14 @@ def _failing_routes() -> APIRouter:
     @router.get("/invalid-model")
     def invalid_model() -> None:
         _Count.model_validate({"count": LEAK})
+
+    @router.get("/wire-model-rejects-an-amount")
+    def wire_model_rejects_an_amount() -> None:
+        MoneyModel.model_validate({"amount": UNPARSEABLE_AMOUNT, "currency": "USD"})
+
+    @router.get("/response-model-rejects-an-amount", response_model=MoneyModel)
+    def response_model_rejects_an_amount() -> dict[str, str]:
+        return {"amount": UNPARSEABLE_AMOUNT, "currency": "USD"}
 
     @router.get("/unexpected")
     def unexpected() -> None:
@@ -249,6 +264,47 @@ def Given_a_model_that_fails_to_validate_When_it_is_answered_Then_it_is_500_not_
     assert response.status_code == 500
     assert problem["code"] == "INTERNAL_ERROR"
     assert LEAK not in response.text
+
+
+@pytest.mark.parametrize(
+    ("path", "location"),
+    [
+        ("/boom/wire-model-rejects-an-amount", "amount"),
+        ("/boom/response-model-rejects-an-amount", "response.amount"),
+    ],
+    ids=["built-by-hand", "response-model"],
+)
+def Given_a_model_rejecting_an_amount_When_the_500_is_logged_Then_the_amount_is_not_in_the_log(
+    client: TestClient, capsys: pytest.CaptureFixture[str], path: str, location: str
+) -> None:
+    """A validation error's text quotes the input it rejected, which here is the owner's money.
+
+    Money is never logged, so the line names where validation failed and why, and not what it saw.
+    The second case is FastAPI's own response check, whose error text quotes the input however the
+    model is configured.
+    """
+    capsys.readouterr()
+
+    response = client.get(path)
+
+    captured = capsys.readouterr().out
+    errors = _records(captured, "error")
+    assert response.status_code == 500
+    assert AMOUNT not in captured
+    assert [record["correlation_id"] for record in errors] == [
+        response.headers[CORRELATION_ID_HEADER]
+    ]
+    assert errors[0]["errors"] == [{"loc": location, "type": "string_pattern_mismatch"}]
+
+
+def Given_an_amount_a_wire_model_rejects_When_its_error_is_printed_Then_it_is_hidden() -> None:
+    """Anything that prints the error - a chained traceback, a debugger, a library's own log -
+    would otherwise print the owner's money with it."""
+    with pytest.raises(ValidationError) as rejected:
+        MoneyModel.model_validate({"amount": UNPARSEABLE_AMOUNT, "currency": "USD"})
+
+    assert AMOUNT not in str(rejected.value)
+    assert AMOUNT not in repr(rejected.value)
 
 
 def Given_an_unexpected_exception_When_it_is_answered_Then_nothing_of_it_reaches_the_wire(

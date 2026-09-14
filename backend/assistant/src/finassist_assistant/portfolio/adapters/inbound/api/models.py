@@ -59,9 +59,19 @@ def _decimal(value: Decimal) -> str:
 
 
 class _WireModel(BaseModel):
-    """camelCase on the wire and snake_case in Python, and immutable once built."""
+    """camelCase on the wire and snake_case in Python, immutable once built, and silent about input.
 
-    model_config = ConfigDict(alias_generator=to_camel, validate_by_name=True, frozen=True)
+    A rejected model's ``ValidationError`` text would otherwise quote the value it rejected, and
+    these models hold the owner's money; anything that prints the error, from a chained traceback
+    to a library's own log line, would print the amount with it.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        validate_by_name=True,
+        frozen=True,
+        hide_input_in_errors=True,
+    )
 
 
 class MoneyModel(_WireModel):

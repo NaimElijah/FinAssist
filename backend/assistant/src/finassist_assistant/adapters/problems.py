@@ -22,13 +22,14 @@ registration here is only the last resort for a failure outside it.
 
 from __future__ import annotations
 
+import traceback
 from collections.abc import Callable, Mapping, Sequence
 from http import HTTPStatus
 from typing import Any, Final
 
 import structlog
 from fastapi import FastAPI
-from fastapi.exceptions import RequestValidationError
+from fastapi.exceptions import RequestValidationError, ValidationException
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -140,8 +141,8 @@ def problem_response(
 def answer_unexpected(request: Request, exception: Exception) -> JSONResponse:
     """Answer an exception nothing else claimed: 500, with nothing of the exception on the wire.
 
-    Logged at ERROR with its traceback, through the redaction boundary. The line carries the
-    correlation id that the response hands the caller, which is how the withheld cause is found.
+    Logged at ERROR through the redaction boundary. The line carries the correlation id that the
+    response hands the caller, which is how the withheld cause is found.
 
     :param request: the request that failed.
     :param exception: what it failed with.
@@ -235,15 +236,41 @@ def _framework_failure(request: Request, exception: HTTPException) -> JSONRespon
 
 
 def _withheld(request: Request, exception: Exception, status: HTTPStatus) -> JSONResponse:
-    """A 5xx: logged at ERROR with its cause, and answered with nothing of it (ADR-028).
+    """A 5xx: logged at ERROR, and answered with nothing of its cause (ADR-028).
 
     An exception's message is among the likeliest carriers of internals and data, and an
     ``HTTPException``'s detail is no different.
+
+    A validation error is logged without its text at all. pydantic's and FastAPI's both quote the
+    input they rejected, and the input a response model rejects is the owner's money, which is
+    never logged. FastAPI's quotes it however the model is configured. Where validation failed, by
+    which rule, and the stack that reached it are enough to find the bug.
     """
-    _log.error("answered with a generic detail", status=int(status), exc_info=exception)
+    if isinstance(exception, ValidationError | ValidationException):
+        _log.error(
+            "answered with a generic detail",
+            status=int(status),
+            exception_type=type(exception).__name__,
+            errors=_rejections(exception),
+            stack="".join(traceback.format_tb(exception.__traceback__)),
+        )
+    else:
+        _log.error("answered with a generic detail", status=int(status), exc_info=exception)
     return problem_response(
         status, INTERNAL_ERROR, _INTERNAL_ERROR_DETAIL, instance=request.url.path
     )
+
+
+def _rejections(exception: ValidationError | ValidationException) -> list[dict[str, str]]:
+    """Each validation failure's location and error type, and never its input or its message.
+
+    The message is left out too: a validator's own ``ValueError`` becomes it, and that text can
+    quote the value it refused.
+    """
+    return [
+        {"loc": ".".join(str(part) for part in error["loc"]), "type": str(error["type"])}
+        for error in exception.errors()
+    ]
 
 
 def _field_of(location: Sequence[str | int]) -> str:
