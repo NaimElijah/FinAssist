@@ -14,6 +14,20 @@ import {
 } from './src/shared/api/backends';
 
 /**
+ * The proxy map key for one backend, anchored so only its own prefix matches.
+ *
+ * A plain string key is matched with `url.startsWith(context)`
+ * (`doesProxyContextMatchUrl`, `vite/dist/node/chunks/node.js`), so the literal prefix
+ * `/ledger` would also match `/ledgerx...` and `/ledgers/...` - any path merely starting with
+ * the same characters, not just the prefix itself. A key starting with `^` is instead compiled
+ * as a RegExp and matched with `.test()`, so anchoring the prefix to the end of the path or a
+ * following `/` accepts only the prefix and its own sub-paths.
+ */
+function proxyKey(backend: ProxiedBackend): string {
+    return `^${backend.prefix}(/|$)`;
+}
+
+/**
  * Build one backend's proxy entry: forward its prefix to its real origin with the prefix
  * stripped, and `changeOrigin` so the backend's own Host allow-list sees its own host rather
  * than the dev server's (ADR-027) — each backend then needs only its own name on its list.
@@ -29,8 +43,8 @@ function proxyEntry(backend: ProxiedBackend): ProxyOptions {
 // Defined once and given to both `server.proxy` and `preview.proxy` below, so `vite preview`
 // can never drift from `vite dev` (ADR-026: one origin, both environments).
 const proxy: Record<string, ProxyOptions> = {
-    [LEDGER_BACKEND.prefix]: proxyEntry(LEDGER_BACKEND),
-    [ASSISTANT_BACKEND.prefix]: proxyEntry(ASSISTANT_BACKEND),
+    [proxyKey(LEDGER_BACKEND)]: proxyEntry(LEDGER_BACKEND),
+    [proxyKey(ASSISTANT_BACKEND)]: proxyEntry(ASSISTANT_BACKEND),
 };
 
 export default defineConfig({

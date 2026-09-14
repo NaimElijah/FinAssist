@@ -12,18 +12,37 @@ import { ASSISTANT_BACKEND, LEDGER_BACKEND } from '../src/shared/api/backends';
 import viteConfig from '../vite.config';
 
 /**
- * Narrows one proxy map entry to `ProxyOptions`, ruling out the string-shorthand form that
- * `server.proxy`'s type also allows but this config never uses.
+ * Find the proxy map entry for a backend, keyed by its own anchored RegExp string rather than
+ * the plain prefix - Vite compiles a key starting with `^` as a RegExp instead of matching it
+ * with `startsWith`, so the map is no longer indexable by the plain prefix itself.
  */
+function findProxyEntry(
+    map: Record<string, string | ProxyOptions> | undefined,
+    prefix: string,
+): readonly [string, ProxyOptions] {
+    const found = Object.entries(map ?? {}).find(([key]) => key.includes(prefix));
+    const key = found?.[0];
+    const options = found?.[1];
+    if (key === undefined || typeof options !== 'object') {
+        throw new Error(`no ProxyOptions entry found for prefix '${prefix}'`);
+    }
+    return [key, options];
+}
+
+/** The `ProxyOptions` half of a backend's proxy entry, ruling out the string-shorthand form. */
 function proxyOptionsFor(
     map: Record<string, string | ProxyOptions> | undefined,
     prefix: string,
 ): ProxyOptions {
-    const entry = map?.[prefix];
-    if (typeof entry !== 'object') {
-        throw new Error(`expected a ProxyOptions object for '${prefix}', got ${typeof entry}`);
-    }
-    return entry;
+    return findProxyEntry(map, prefix)[1];
+}
+
+/** The map key half of a backend's proxy entry, compiled as the RegExp Vite matches paths with. */
+function regexKeyFor(
+    map: Record<string, string | ProxyOptions> | undefined,
+    prefix: string,
+): RegExp {
+    return new RegExp(findProxyEntry(map, prefix)[0]);
 }
 
 describe('the dev/preview server', () => {
@@ -69,5 +88,38 @@ describe('the dev/preview server', () => {
         expect(assistant.rewrite?.('/assistant/api/v1/portfolio/holdings/VOO/position')).toBe(
             '/api/v1/portfolio/holdings/VOO/position',
         );
+    });
+
+    it('Given_the_ledger_proxy_key_When_tested_as_a_RegExp_Then_it_matches_the_prefix_and_its_subpaths', () => {
+        const ledgerKey = regexKeyFor(viteConfig.server?.proxy, LEDGER_BACKEND.prefix);
+
+        expect(ledgerKey.test('/ledger')).toBe(true);
+        expect(ledgerKey.test('/ledger/')).toBe(true);
+        expect(ledgerKey.test('/ledger/api/v1/accounts')).toBe(true);
+    });
+
+    it('Given_the_ledger_proxy_key_When_tested_as_a_RegExp_Then_it_does_not_match_a_similarly_named_path', () => {
+        // The vulnerability this key exists to close: a plain-string key `/ledger` is matched
+        // with `url.startsWith('/ledger')`, so `/ledgerx...` and `/ledgers/...` would also be
+        // proxied to the ledger even though neither names its prefix.
+        const ledgerKey = regexKeyFor(viteConfig.server?.proxy, LEDGER_BACKEND.prefix);
+
+        expect(ledgerKey.test('/ledgerx')).toBe(false);
+        expect(ledgerKey.test('/ledgers/api')).toBe(false);
+    });
+
+    it('Given_the_assistant_proxy_key_When_tested_as_a_RegExp_Then_it_matches_the_prefix_and_its_subpaths', () => {
+        const assistantKey = regexKeyFor(viteConfig.server?.proxy, ASSISTANT_BACKEND.prefix);
+
+        expect(assistantKey.test('/assistant')).toBe(true);
+        expect(assistantKey.test('/assistant/')).toBe(true);
+        expect(assistantKey.test('/assistant/api/v1/portfolio/holdings/VOO/position')).toBe(true);
+    });
+
+    it('Given_the_assistant_proxy_key_When_tested_as_a_RegExp_Then_it_does_not_match_a_similarly_named_path', () => {
+        const assistantKey = regexKeyFor(viteConfig.server?.proxy, ASSISTANT_BACKEND.prefix);
+
+        expect(assistantKey.test('/assistantx')).toBe(false);
+        expect(assistantKey.test('/assistants/api')).toBe(false);
     });
 });
