@@ -3,7 +3,7 @@
 // Intl the browser build relies on; CI pins Node 24, so the exact strings below are stable there.
 
 import { render } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { MoneyText } from './MoneyText';
 
@@ -18,6 +18,12 @@ function renderedData(amount: string, currency: string): HTMLDataElement {
 }
 
 describe('MoneyText', () => {
+    afterEach(() => {
+        // In afterEach rather than at the end of a test, so a failing assertion cannot leave
+        // console.error silenced for every test after it.
+        vi.restoreAllMocks();
+    });
+
     it('Given_1234_50_ILS_When_rendered_Then_it_shows_the_en_IL_shekel_format', () => {
         expect(renderedData('1234.50', 'ILS').textContent).toBe('₪1,234.50');
     });
@@ -48,7 +54,5 @@ describe('MoneyText', () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
         expect(() => renderedData('12,50', 'ILS')).toThrow(/decimal/);
-
-        vi.restoreAllMocks();
     });
 });
