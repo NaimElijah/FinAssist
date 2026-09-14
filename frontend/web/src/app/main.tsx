@@ -1,3 +1,7 @@
+// Tokens first: the base sheet and every component module read the custom properties it defines.
+import '../shared/ui/tokens.css';
+import './global.css';
+
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 

@@ -1,0 +1,80 @@
+/*
+ * Design tokens, as CSS custom properties (ADR-029). Components read these through var() and
+ * never write a literal colour, size or radius, so the dark theme is a second set of values
+ * rather than a second set of stylesheets.
+ *
+ * The palette borrows from bookkeeping's own stationery: the pale green of an accountant's
+ * analysis pad for the page, and spruce ink for the binding and the main action. Every text pair
+ * meets WCAG AA at 4.5:1, and control edges and the focus ring meet 3:1, in both themes. The
+ * *-tint colours are each tone mixed 14% into the raised surface, and their tone colour meets
+ * 4.5:1 on them.
+ */
+:root {
+    color-scheme: light dark;
+
+    /* System faces only: no web font, and no network request before the first figure renders. */
+    --font-family-base:
+        system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+    /* Bringhurst's classical scale, 12 14 16 18 21 24px, at a 16px root. */
+    --font-size-xs: 0.75rem;
+    --font-size-sm: 0.875rem;
+    --font-size-body: 1rem;
+    --font-size-md: 1.125rem;
+    --font-size-lg: 1.3125rem;
+    --font-size-xl: 1.5rem;
+    --font-weight-regular: 400;
+    --font-weight-strong: 600;
+    --line-height-body: 1.5;
+    --line-height-tight: 1.25;
+
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.5rem;
+    --space-6: 2rem;
+    --space-7: 3rem;
+
+    /* Controls sit inside panels, so they take the tighter corner. */
+    --radius-control: 3px;
+    --radius-panel: 6px;
+
+    --color-surface: #f2f5f1;
+    --color-surface-raised: #ffffff;
+    --color-text: #1a2420;
+    --color-muted: #56645d;
+    --color-border: #d5ddd6;
+    --color-border-strong: #7d8d85;
+    --color-accent: #1d5c48;
+    --color-on-accent: #ffffff;
+    --color-positive: #1f6b3b;
+    --color-positive-tint: #e0eae4;
+    --color-negative: #a12a2a;
+    --color-negative-tint: #f2e1e1;
+    --color-on-negative: #ffffff;
+    --color-warning: #7f5400;
+    --color-warning-tint: #ede7db;
+    --color-focus: #2457c5;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --color-surface: #141c18;
+        --color-surface-raised: #1b2520;
+        --color-text: #e2eae4;
+        --color-muted: #a0b0a7;
+        --color-border: #2e3b34;
+        --color-border-strong: #6e8177;
+        --color-accent: #86c9ae;
+        --color-on-accent: #0f1c16;
+        --color-positive: #86cf9b;
+        --color-positive-tint: #2a3d31;
+        --color-negative: #f2968d;
+        --color-negative-tint: #39352f;
+        --color-on-negative: #1a0f0e;
+        --color-warning: #e6b863;
+        --color-warning-tint: #373a29;
+        --color-focus: #8fb5ff;
+    }
+}

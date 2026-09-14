@@ -1,0 +1,19 @@
+/**
+ * The shared UI kit every feature screen is built from.
+ *
+ * Design tokens are CSS custom properties in `tokens.css`, imported once by `src/app/main.tsx`;
+ * each primitive below reads them through its own CSS Module (ADR-029). Nothing here imports a
+ * feature, which `tests/architecture.test.ts` enforces.
+ */
+export { ActionPanel, type ActionPanelProps } from './ActionPanel';
+export { Button, type ButtonProps, type ButtonVariant } from './Button';
+export { type Column, type ColumnAlign, DataTable, type DataTableProps } from './DataTable';
+export { DateField, type DateFieldProps } from './DateField';
+export { DateText, type DateTextProps } from './DateText';
+export { EmptyState, type EmptyStateProps } from './EmptyState';
+export { ErrorState, type ErrorStateProps } from './ErrorState';
+export { DISPLAY_LOCALE } from './locale';
+export { MoneyText, type MoneyTextProps } from './MoneyText';
+export { SelectField, type SelectFieldProps, type SelectOption } from './SelectField';
+export { StateBadge, type StateBadgeProps, type Tone } from './StateBadge';
+export { TextField, type TextFieldProps } from './TextField';

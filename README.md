@@ -266,7 +266,7 @@ behaviour they describe.
 | Assistant properties | The same Money laws, plus FIFO conservation, via Hypothesis run derandomised | `make test-assistant` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
 | Web architecture | No feature imports another; `shared` imports no feature | `make test-web` |
-| Web unit | The HTTP client's failure contracts and `Accept` header, and a jsdom render of the app shell | `make test-web` |
+| Web unit | The HTTP client's failure contracts and `Accept` header, a jsdom render of the app shell, and the shared UI primitives: labelled fields, a pending button, money formatted from its exact decimal string, and dates that never shift with the timezone | `make test-web` |
 
 Deliberately absent are running test counts. Every commit that adds a source file changes the
 parametrised architecture case count, so a number here would be wrong by the next pull request
