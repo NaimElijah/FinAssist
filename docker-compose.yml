@@ -5,9 +5,10 @@
 #
 # The monitoring services sit behind a `monitoring` profile, so `docker compose up` stays
 # database-and-both-services-only and `docker compose --profile monitoring up` adds the
-# telemetry backend (ADR-019). Both services push OTLP, and Prometheus scrapes them directly by
-# their Compose service names — a natively-run service bound to loopback (ADR-027) is not
-# reachable that way.
+# telemetry backend (ADR-019). Both services push OTLP; the ledger is also scraped directly by
+# Prometheus, by its Compose service name — a natively-run ledger bound to loopback (ADR-027) is
+# not reachable that way. The assistant exposes no metrics endpoint yet, so only its OTLP push
+# is collected.
 name: finassist
 
 services:
@@ -73,7 +74,9 @@ services:
       # 127.0.0.1 (ADR-027).
       ASSISTANT_HOST: 0.0.0.0
       ASSISTANT_PORT: 8000
-      # `assistant` — this service's own Compose DNS name — lets Prometheus scrape it below.
+      # `assistant` — this service's own Compose DNS name, so a request reaching it that way
+      # inside this network is not refused. Nothing does yet: unlike the ledger, the assistant
+      # exposes no metrics endpoint, so Prometheus does not scrape it (see ops/prometheus.yml).
       ASSISTANT_ALLOWED_HOSTS: localhost,127.0.0.1,assistant
       ASSISTANT_DEV_SEED: ${ASSISTANT_DEV_SEED:-false}
       ASSISTANT_LOG_LEVEL: ${ASSISTANT_LOG_LEVEL:-INFO}
