@@ -131,6 +131,21 @@ class LedgerProblemHandlerTest {
                 .andExpect(jsonPath("$.errors[0].message").isNotEmpty());
     }
 
+    /**
+     * A constraint on what a handler returns is broken by the ledger, not by the request, so Spring
+     * answers 500. The constraint's messages describe the ledger's own output, and stay off the wire with
+     * the rest of a 5xx's detail.
+     */
+    @Test
+    void Given_a_handler_whose_answer_fails_its_own_constraint_When_requested_Then_the_500_lists_no_errors()
+            throws Exception {
+        mvc.perform(get("/invalid-answer"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+    }
+
     @Test
     void Given_a_body_that_is_not_json_When_posted_Then_it_is_a_400_problem() throws Exception {
         mvc.perform(post("/validated").contentType(MediaType.APPLICATION_JSON).content("{\"name\":"))
@@ -251,6 +266,12 @@ class LedgerProblemHandlerTest {
         @GetMapping("/count")
         ResponseEntity<Void> count(@RequestParam @Positive int value) {
             return ResponseEntity.noContent().build();
+        }
+
+        @GetMapping("/invalid-answer")
+        @NotBlank
+        String invalidAnswer() {
+            return "";
         }
 
         @PostMapping(value = "/validated", consumes = MediaType.APPLICATION_JSON_VALUE)

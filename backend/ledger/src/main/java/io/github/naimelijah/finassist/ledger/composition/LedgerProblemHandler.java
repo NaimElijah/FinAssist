@@ -112,7 +112,14 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
         return handleExceptionInternal(exception, problem, headers, status, request);
     }
 
-    /** Raised instead of the above when a constraint sits on a parameter rather than inside a body. */
+    /**
+     * Raised instead of the above when a constraint sits on a parameter rather than inside a body, and
+     * also when a handler's own return value breaks a constraint.
+     *
+     * <p>{@code errors} is listed for a 4xx only. A broken return-value constraint is the ledger's fault
+     * and Spring answers it 500; its messages describe the ledger's own output, so they stay off the wire
+     * with the rest of a 5xx's detail.
+     */
     @Override
     protected ResponseEntity<Object> handleHandlerMethodValidationException(
             HandlerMethodValidationException exception,
@@ -120,13 +127,15 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
             HttpStatusCode status,
             WebRequest request) {
         ProblemDetail problem = exception.updateAndGetBody(getMessageSource(), LocaleContextHolder.getLocale());
-        problem.setProperty(
-                Problems.ERRORS_MEMBER,
-                exception.getParameterValidationResults().stream()
-                        .flatMap(result -> result.getResolvableErrors().stream()
-                                .map(error -> violation(
-                                        error, result.getMethodParameter().getParameterName())))
-                        .toList());
+        if (status.is4xxClientError()) {
+            problem.setProperty(
+                    Problems.ERRORS_MEMBER,
+                    exception.getParameterValidationResults().stream()
+                            .flatMap(result -> result.getResolvableErrors().stream()
+                                    .map(error -> violation(
+                                            error, result.getMethodParameter().getParameterName())))
+                            .toList());
+        }
         return handleExceptionInternal(exception, problem, headers, status, request);
     }
 
