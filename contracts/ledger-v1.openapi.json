@@ -56,6 +56,30 @@
         ],
         "type": "object"
       },
+      "BalancePointResponse": {
+        "properties": {
+          "cash": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "date": {
+            "format": "date",
+            "type": "string"
+          },
+          "invested": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "total": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "cash",
+          "date",
+          "invested",
+          "total"
+        ],
+        "type": "object"
+      },
       "BalanceResponse": {
         "properties": {
           "account": {
@@ -230,6 +254,83 @@
         ],
         "type": "object"
       },
+      "ComparedScenarioResponse": {
+        "properties": {
+          "divergence": {
+            "items": {
+              "$ref": "#/components/schemas/DivergenceResponse"
+            },
+            "type": "array"
+          },
+          "endState": {
+            "$ref": "#/components/schemas/BalancePointResponse"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/BalancePointResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "divergence",
+          "endState",
+          "id",
+          "name",
+          "points"
+        ],
+        "type": "object"
+      },
+      "ComparisonResponse": {
+        "properties": {
+          "baseline": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "horizon": {
+            "$ref": "#/components/schemas/HorizonResponse"
+          },
+          "scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/ComparedScenarioResponse"
+            },
+            "type": "array"
+          },
+          "step": {
+            "enum": [
+              "WEEKLY",
+              "MONTHLY",
+              "YEARLY"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseline",
+          "currency",
+          "horizon",
+          "scenarios",
+          "step"
+        ],
+        "type": "object"
+      },
       "DefineBudgetRequest": {
         "properties": {
           "currency": {
@@ -259,6 +360,66 @@
         ],
         "type": "object"
       },
+      "DefineScenarioRequest": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "flows": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "growthRatePerStep": {
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "flows",
+          "growthRatePerStep",
+          "name"
+        ],
+        "type": "object"
+      },
+      "DivergenceResponse": {
+        "properties": {
+          "cash": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "date": {
+            "format": "date",
+            "type": "string"
+          },
+          "invested": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "total": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "cash",
+          "date",
+          "invested",
+          "total"
+        ],
+        "type": "object"
+      },
       "EntryDto": {
         "properties": {
           "account": {
@@ -272,6 +433,23 @@
         "required": [
           "account",
           "amount"
+        ],
+        "type": "object"
+      },
+      "HorizonResponse": {
+        "properties": {
+          "from": {
+            "format": "date",
+            "type": "string"
+          },
+          "to": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
         ],
         "type": "object"
       },
@@ -502,6 +680,53 @@
         ],
         "type": "object"
       },
+      "ProjectionResponse": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "firstShortfall": {
+            "format": "date",
+            "type": "string"
+          },
+          "horizon": {
+            "$ref": "#/components/schemas/HorizonResponse"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/BalancePointResponse"
+            },
+            "type": "array"
+          },
+          "scenario": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "step": {
+            "enum": [
+              "WEEKLY",
+              "MONTHLY",
+              "YEARLY"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "horizon",
+          "points",
+          "scenario",
+          "step"
+        ],
+        "type": "object"
+      },
       "RecordTransactionRequest": {
         "properties": {
           "description": {
@@ -597,6 +822,45 @@
         },
         "required": [
           "kind"
+        ],
+        "type": "object"
+      },
+      "ScenarioResponse": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "flows": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "growthRatePerStep": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "flows",
+          "growthRatePerStep",
+          "id",
+          "name"
         ],
         "type": "object"
       },
@@ -1268,6 +1532,279 @@
         },
         "tags": [
           "planned-flow-controller"
+        ]
+      }
+    },
+    "/api/v1/scenario-comparisons": {
+      "get": {
+        "operationId": "compareScenarios",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": true,
+            "schema": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 2147483647,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "baseline",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "step",
+            "required": true,
+            "schema": {
+              "enum": [
+                "WEEKLY",
+                "MONTHLY",
+                "YEARLY"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cash",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "invested",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComparisonResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "comparison-controller"
+        ]
+      }
+    },
+    "/api/v1/scenarios": {
+      "get": {
+        "operationId": "listScenarios",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ScenarioResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "scenario-controller"
+        ]
+      },
+      "post": {
+        "operationId": "defineScenario",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefineScenarioRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "scenario-controller"
+        ]
+      }
+    },
+    "/api/v1/scenarios/{id}/projection": {
+      "get": {
+        "operationId": "projectScenario",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "step",
+            "required": true,
+            "schema": {
+              "enum": [
+                "WEEKLY",
+                "MONTHLY",
+                "YEARLY"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cash",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "invested",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "projection-controller"
         ]
       }
     },

@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger.planning.adapter.in.web;
 
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanNotFoundException;
+import io.github.naimelijah.finassist.ledger.planning.application.port.in.ScenarioNotFoundException;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.IllegalPlanTransitionException;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -18,12 +19,14 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * to it. Whatever this does not map still reaches the fallback: an {@link IllegalArgumentException}
  * becomes 422 {@code RULE_VIOLATED}, and anything unexpected a logged 500.
  *
- * <p>Each detail is the exception's message. These are 4xx refusals whose messages name a plan's id or
- * state, and the ledger holds no secrets (ADR-019).
+ * <p>Each detail is the exception's message. These are 4xx refusals whose messages name a plan's or a
+ * scenario's id, or a plan's state, and the ledger holds no secrets (ADR-019).
  *
- * <p>A {@link PlanNotFoundException} is 404 here because a plan id in the path names the resource the
- * request is about. Where a plan id comes from somewhere else the same exception means something else,
- * and a controller handles it itself, which takes precedence over this advice.
+ * <p>Both not-found mappings are 404 because an id in the path names the resource the request is about.
+ * The same exceptions mean something else elsewhere, and there the controller handles them itself, which
+ * Spring MVC consults before any advice: a plan named in a scenario's body is 422 {@code UNKNOWN_PLAN}, a
+ * scenario named in a comparison's query is 422 {@code UNKNOWN_SCENARIO}, and a plan that goes missing
+ * during a projection or a comparison is a corrupt store, 500.
  */
 @RestControllerAdvice(basePackageClasses = PlannedFlowController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -32,6 +35,12 @@ public class PlanningProblemAdvice {
     @ExceptionHandler(PlanNotFoundException.class)
     ProblemDetail planNotFound(PlanNotFoundException exception) {
         return PlanningProblems.problem(HttpStatus.NOT_FOUND, PlanningProblems.PLAN_NOT_FOUND, exception.getMessage());
+    }
+
+    @ExceptionHandler(ScenarioNotFoundException.class)
+    ProblemDetail scenarioNotFound(ScenarioNotFoundException exception) {
+        return PlanningProblems.problem(
+                HttpStatus.NOT_FOUND, PlanningProblems.SCENARIO_NOT_FOUND, exception.getMessage());
     }
 
     /** A conflict with current state rather than a malformed request: the same call was legal earlier. */

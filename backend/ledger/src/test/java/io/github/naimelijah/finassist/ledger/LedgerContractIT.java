@@ -138,6 +138,19 @@ class LedgerContractIT extends PostgresFixture {
                         "id", "description", "amount", "direction", "startsOn", "recurrence", "state");
         assertThat(requiredMembers(schemas, "RecurrenceResponse")).containsExactly("kind");
         assertThat(requiredMembers(schemas, "PlanStateResponse")).containsExactly("status");
+        assertThat(requiredMembers(schemas, "ScenarioResponse"))
+                .containsExactlyInAnyOrder("id", "name", "currency", "flows", "growthRatePerStep");
+        assertThat(requiredMembers(schemas, "ProjectionResponse"))
+                .containsExactlyInAnyOrder("scenario", "horizon", "step", "currency", "points");
+        assertThat(requiredMembers(schemas, "HorizonResponse")).containsExactlyInAnyOrder("from", "to");
+        assertThat(requiredMembers(schemas, "BalancePointResponse"))
+                .containsExactlyInAnyOrder("date", "cash", "invested", "total");
+        assertThat(requiredMembers(schemas, "ComparisonResponse"))
+                .containsExactlyInAnyOrder("horizon", "step", "currency", "baseline", "scenarios");
+        assertThat(requiredMembers(schemas, "ComparedScenarioResponse"))
+                .containsExactlyInAnyOrder("id", "name", "points", "endState", "divergence");
+        assertThat(requiredMembers(schemas, "DivergenceResponse"))
+                .containsExactlyInAnyOrder("date", "cash", "invested", "total");
     }
 
     /**
