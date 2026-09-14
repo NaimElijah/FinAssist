@@ -92,8 +92,11 @@ once per stack is how one client ends up handling two answers.
   transaction; `…/commit`, `…/realise` and `…/cancel` on a planned flow — answered with the updated
   resource. A transition is a command carrying a date and sometimes a reason, not a field a client
   overwrites.
-- **A side-effect-free computation is a `GET` with query parameters**: a projection, a comparison of
-  scenarios, and pricing a disposal. None records anything, so each is safe to repeat.
+- **A side-effect-free computation is a `GET` with query parameters, unless an input is a monetary
+  amount**, which travels in a `POST` JSON body answered `200`, so amounts never enter a URL (access
+  logs, trace attributes, proxies): a projection and a comparison of scenarios are `GET`s, and
+  pricing a disposal, whose proceeds are an amount, is a `POST`. None records anything, so each is
+  safe to repeat.
 - **No single-item reads while lists are unpaginated.** A deep link resolves from the cached list,
   which already holds the item.
 - **List order is part of each port's contract**, not an accident of a query:
