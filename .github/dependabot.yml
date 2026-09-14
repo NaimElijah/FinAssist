@@ -66,6 +66,15 @@ updates:
       # Pre-1.0 (ADR-029): a minor release may change the generated output, so a bump lands as
       # one grouped PR that regenerates src/shared/api/contracts, rather than several PRs each
       # claiming a clean diff the others already broke.
+      #
+      # frontend/web/package.json also carries a root `overrides` entry pinning the transitive
+      # js-yaml @hey-api/openapi-ts pulls in (via @hey-api/json-schema-ref-parser, which
+      # declares js-yaml 4.2.0 exactly) up to 4.3.2: 4.2.0 carries three high-severity
+      # advisories - GHSA-52cp-r559-cp3m, GHSA-5p4m-2wfm-xmqj and GHSA-2883-xcg3-v3hh, all
+      # quadratic-CPU-consumption issues in YAML merge-key/omap handling - that fail
+      # `npm audit --audit-level=high`. Drop the override once
+      # @hey-api/json-schema-ref-parser (via @hey-api/openapi-ts) allows js-yaml >= 4.3.2 on
+      # its own.
       hey-api:
         patterns:
           - "@hey-api/*"
