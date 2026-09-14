@@ -4,27 +4,81 @@
 import { MutationObserver } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 
+import { ApiBodyError, ApiError } from '@/shared/api/client';
+
 import { createQueryClient } from './queryClient';
 
-describe('createQueryClient', () => {
-    it('Given_the_app_query_client_When_its_query_defaults_are_read_Then_queries_retry_once_and_do_not_refetch_on_focus', () => {
-        const { queries } = createQueryClient().getDefaultOptions();
+const URL = '/ledger/api/v1/accounts';
 
-        expect(queries?.retry).toBe(1);
-        expect(queries?.refetchOnWindowFocus).toBe(false);
+/** An ApiError carrying a problem with `status`, as requestJson throws for a non-2xx response. */
+function apiError(status: number): ApiError {
+    return new ApiError(status, URL, `failed with ${String(status)}`, {
+        status,
+        code: 'UNDER_TEST',
+    });
+}
+
+/**
+ * How many times the app's query client calls a query function that always fails with `error`.
+ *
+ * `retryDelay` is zeroed here and only here: the default backoff waits a second before a retry,
+ * and what is under test is how many attempts are made, not how long they are spaced.
+ */
+async function attemptsBeforeGivingUp(error: unknown): Promise<number> {
+    const queryFn = vi.fn<() => Promise<never>>().mockRejectedValue(error);
+
+    await expect(
+        createQueryClient().query({ queryKey: ['under-test'], queryFn, retryDelay: 0 }),
+    ).rejects.toBe(error);
+
+    return queryFn.mock.calls.length;
+}
+
+/** Failures a second attempt would only repeat: an answer from the server, or a bug. */
+const NOT_RETRIED: readonly { readonly name: string; readonly error: unknown }[] = [
+    { name: 'a_400', error: apiError(400) },
+    { name: 'a_404', error: apiError(404) },
+    { name: 'a_409', error: apiError(409) },
+    { name: 'a_2xx_without_its_JSON_body', error: new ApiBodyError(URL, 'Body was not JSON') },
+    { name: 'a_plain_Error', error: new Error('mapping failed') },
+];
+
+/** Failures a second attempt might not meet: the network, or the server failing. */
+const RETRIED_ONCE: readonly { readonly name: string; readonly error: unknown }[] = [
+    { name: 'a_500', error: apiError(500) },
+    { name: 'a_503', error: apiError(503) },
+    { name: 'a_network_TypeError', error: new TypeError('Failed to fetch') },
+];
+
+describe('createQueryClient', () => {
+    for (const { name, error } of NOT_RETRIED) {
+        it(`Given_a_query_failing_with_${name}_When_fetched_Then_it_is_attempted_once`, async () => {
+            expect(await attemptsBeforeGivingUp(error)).toBe(1);
+        });
+    }
+
+    for (const { name, error } of RETRIED_ONCE) {
+        it(`Given_a_query_failing_with_${name}_When_fetched_Then_it_is_retried_exactly_once`, async () => {
+            expect(await attemptsBeforeGivingUp(error)).toBe(2);
+        });
+    }
+
+    it('Given_the_app_query_client_When_its_query_defaults_are_read_Then_queries_do_not_refetch_on_focus', () => {
+        expect(createQueryClient().getDefaultOptions().queries?.refetchOnWindowFocus).toBe(false);
     });
 
     it('Given_the_app_query_client_When_its_mutation_defaults_are_read_Then_mutations_never_retry', () => {
         expect(createQueryClient().getDefaultOptions().mutations?.retry).toBe(0);
     });
 
-    it('Given_a_mutation_that_fails_When_run_through_the_app_query_client_Then_it_is_attempted_exactly_once', async () => {
-        // ADR-028: a retried POST could double-create, and the journal is append-only, so a
-        // failed write is never re-sent on the client's own initiative.
-        const mutationFn = vi.fn<() => Promise<never>>().mockRejectedValue(new Error('503'));
+    it('Given_a_mutation_failing_with_a_503_When_run_through_the_app_query_client_Then_it_is_attempted_exactly_once', async () => {
+        // ADR-028: a retried POST could double-create, and the journal is append-only, so even a
+        // failure a query would retry is never re-sent for a write.
+        const failure = apiError(503);
+        const mutationFn = vi.fn<() => Promise<never>>().mockRejectedValue(failure);
         const observer = new MutationObserver(createQueryClient(), { mutationFn });
 
-        await expect(observer.mutate()).rejects.toThrow('503');
+        await expect(observer.mutate()).rejects.toBe(failure);
         expect(mutationFn).toHaveBeenCalledTimes(1);
     });
 
