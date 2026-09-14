@@ -193,6 +193,48 @@ class ComparisonControllerTest {
     }
 
     /**
+     * Spring converts a blank {@code scenario} value to a null element rather than refusing it, whether the
+     * value is repeated empty or left dangling after a comma, so the list still counts two and passes its
+     * size check. The null is malformed, like an id that does not parse, and is refused before a {@code
+     * ScenarioId} is built from it.
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "?scenario=%1$s&scenario=&baseline=%1$s&from=2026-01-01&to=2026-04-01&step=MONTHLY",
+                "?scenario=%1$s,&baseline=%1$s&from=2026-01-01&to=2026-04-01&step=MONTHLY"
+            })
+    void Given_a_blank_scenario_value_When_compared_Then_it_is_a_400_problem_naming_the_scenario_parameter(String query)
+            throws Exception {
+        mvc.perform(get(COMPARISONS + query.formatted(DO_NOTHING.id())))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("scenario"));
+
+        verifyNoInteractions(comparer, lister);
+    }
+
+    /** A blank baseline converts to null too, which Spring reports as a missing required parameter. */
+    @Test
+    void Given_a_blank_baseline_When_compared_Then_it_is_a_400_problem() throws Exception {
+        mvc.perform(get(COMPARISONS)
+                        .param(
+                                "scenario",
+                                DO_NOTHING.id().toString(),
+                                BUY_THE_CAR.id().toString())
+                        .param("baseline", "")
+                        .param("from", "2026-01-01")
+                        .param("to", "2026-04-01")
+                        .param("step", "MONTHLY"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+
+        verifyNoInteractions(comparer, lister);
+    }
+
+    /**
      * A comparison of one is malformed on its face, like a transaction of one entry, so it is refused as a
      * 400 naming the parameter before anything is projected.
      */

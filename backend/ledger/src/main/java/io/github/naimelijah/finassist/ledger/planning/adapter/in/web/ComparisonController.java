@@ -11,6 +11,7 @@ import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Horizon;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Scenario;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.ScenarioId;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Cadence;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.util.List;
@@ -42,7 +43,7 @@ import org.springframework.web.bind.annotation.RestController;
  * ListScenariosUseCase}, an in-port, and are unique within a comparison because the service refuses two
  * scenarios sharing one.
  *
- * <p>Two refusals are the adapter's own, before anything is projected:
+ * <p>Three refusals are the adapter's own, before anything is projected:
  *
  * <ul>
  *   <li>fewer than {@value #MINIMUM_SCENARIOS} scenarios is 400 naming the {@code scenario} parameter. A
@@ -50,6 +51,9 @@ import org.springframework.web.bind.annotation.RestController;
  *       is checked here as well as by the domain;
  *   <li>a baseline that is not among the scenarios is 422 {@code RULE_VIOLATED}: the request is well-formed
  *       and asks for a divergence from something it did not compare.
+ *   <li>a blank {@code scenario} value is 400 naming the parameter as well. Spring converts it to a null
+ *       element rather than refusing it, so the list still counts two and passes its size check, and the
+ *       null would otherwise fail building a {@code ScenarioId} as a 500.
  * </ul>
  *
  * <p>Split from {@link ProjectionController} by the not-found semantics it needs. The scenario ids are in
@@ -86,7 +90,7 @@ public class ComparisonController {
      */
     @GetMapping
     public ComparisonResponse compareScenarios(
-            @RequestParam @Size(min = MINIMUM_SCENARIOS) List<UUID> scenario,
+            @RequestParam @Size(min = MINIMUM_SCENARIOS) List<@NotNull UUID> scenario,
             @RequestParam UUID baseline,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
