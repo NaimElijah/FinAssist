@@ -319,6 +319,17 @@ describe('problem responses', () => {
 
         await expect(requestJson(URL)).rejects.toMatchObject({ problem: undefined, status: 500 });
     });
+
+    it('Given_a_problem_with_a_title_but_no_detail_When_requested_Then_the_message_is_the_title', async () => {
+        const problem: Problem = {
+            status: 409,
+            code: 'DUPLICATE_ACCOUNT_NAME',
+            title: 'Conflict',
+        };
+        stubFetch(problemResponse(problem, 409));
+
+        await expect(requestJson(URL)).rejects.toMatchObject({ problem, message: 'Conflict' });
+    });
 });
 
 /** Narrows a caught value to `ApiError`, without an `as` cast on what a `.catch` hands back. */
