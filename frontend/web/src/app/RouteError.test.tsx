@@ -6,8 +6,8 @@ import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError } from '../shared/api/client';
-import { type LogRecord, setLogSink } from '../shared/lib/logger';
+import { ApiError } from '@/shared/api/client';
+import { type LogRecord, setLogSink } from '@/shared/lib/logger';
 import { RouteError } from './RouteError';
 
 const DETAIL = 'Account "Joint savings" is closed.';

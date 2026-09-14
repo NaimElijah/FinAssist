@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
 
-import { EmptyState } from '../shared/ui';
+import { EmptyState } from '@/shared/ui';
 
 /**
  * The page for a path no route matches.

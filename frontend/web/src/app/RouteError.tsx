@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
 import { isRouteErrorResponse, useRouteError } from 'react-router';
 
-import { ApiError } from '../shared/api/client';
-import { type LogFields, log } from '../shared/lib/logger';
-import { ErrorState } from '../shared/ui';
+import { ApiError } from '@/shared/api/client';
+import { type LogFields, log } from '@/shared/lib/logger';
+import { ErrorState } from '@/shared/ui';
 
 /**
  * The structured fields logged for a route failure.
