@@ -171,19 +171,26 @@ describe('composition direction', () => {
 
     it('Given_the_features_When_their_sources_are_read_Then_none_imports_src_app', () => {
         const offences: string[] = [];
-        let specifiersRead = 0;
+        let importsResolvedInSrc = 0;
 
         for (const file of sourceFilesUnder(FEATURES_DIR)) {
             for (const specifier of importSpecifiers(file)) {
-                specifiersRead += 1;
                 const resolved = resolveInSrc(specifier, file);
-                if (resolved !== undefined && isWithin(APP_DIR, resolved)) {
+                if (resolved === undefined) continue;
+                importsResolvedInSrc += 1;
+                if (isWithin(APP_DIR, resolved)) {
                     offences.push(`${relative(SRC, file)} -> ${specifier}`);
                 }
             }
         }
 
-        expect(specifiersRead, 'no import was read under src/features').toBeGreaterThan(0);
+        // Guards the rule from passing vacuously, as the rule above does. Every feature imports
+        // src/shared, so a scan that resolves no import inside src has stopped resolving
+        // specifiers - and could no longer see an import of src/app either - not found none.
+        expect(
+            importsResolvedInSrc,
+            'no import under src/features resolved inside src',
+        ).toBeGreaterThan(0);
         expect(
             offences,
             'a feature depends on the app that composes it. Pass what it needs in from src/app.',
