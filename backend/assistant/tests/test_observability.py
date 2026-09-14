@@ -35,6 +35,7 @@ from finassist_assistant.adapters.observability import (
     reset_logging,
 )
 from finassist_assistant.adapters.settings import Settings
+from finassist_assistant.adapters.wiring import assemble
 
 SECRET = "sk-ant-000000000000000000000000"
 VALID_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
@@ -93,6 +94,17 @@ def Given_the_app_When_readiness_is_requested_Then_it_reports_up(client: TestCli
 
     assert response.status_code == 200
     assert response.json() == {"status": "UP"}
+
+
+def Given_an_assembly_When_the_app_is_built_with_it_Then_the_app_holds_that_assembly(
+    settings: Settings,
+) -> None:
+    """A test seeds an assembly's in-memory adapters, so the app must serve those instances."""
+    assembly = assemble()
+
+    app = create_app(settings, assembly=assembly)
+
+    assert app.state.assembly is assembly
 
 
 # --- correlation ---------------------------------------------------------------------------

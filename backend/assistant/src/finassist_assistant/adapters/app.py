@@ -85,12 +85,16 @@ def _correlation_id_for(request: Request) -> str:
     return trace_id_of(request.headers.get(TRACEPARENT_HEADER)) or uuid.uuid4().hex
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, assembly: Assembly | None = None) -> FastAPI:
     """Build the application.
 
     :param settings: configuration to use. Defaults to reading the environment, which is what
         the entry point does; tests pass an explicit instance instead.
-    :returns: a configured FastAPI application with logging and tracing already installed.
+    :param assembly: the use cases and adapters to serve. Defaults to :func:`assemble` with the
+        wall clock, which is what the entry point does; a test passes one it has seeded, or one
+        built on a fixed clock, and then reaches the very instances the app holds.
+    :returns: a configured FastAPI application with logging and tracing already installed, and
+        the assembly hung on ``app.state.assembly``.
     """
     resolved = settings if settings is not None else Settings()
 
@@ -102,8 +106,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Assembled now, called by nothing yet. The readiness probe deliberately does not consult it:
     # every adapter behind it is in-memory, so a check against one would report health that no
     # dependency had been asked about.
-    assembly: Assembly = assemble()
-    app.state.assembly = assembly
+    served: Assembly = assembly if assembly is not None else assemble()
+    app.state.assembly = served
 
     @app.middleware("http")
     async def correlate(
@@ -143,6 +147,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "assistant started",
         service=resolved.service_name,
         traces_enabled=resolved.traces_enabled,
-        use_cases=len(fields(assembly.portfolio)),
+        use_cases=len(fields(served.portfolio)),
     )
     return app
