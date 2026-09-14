@@ -1,6 +1,6 @@
 """Enforces the structural rules declared in docs/architecture/architecture.md.
 
-Six rules:
+Seven rules:
 
 1. Dependencies point inward - no inward layer imports a framework.
 2. No inward layer imports the adapter layer, where the anti-corruption layers live.
@@ -8,6 +8,7 @@ Six rules:
 4. No context imports the composition root, where the frameworks are wired.
 5. No domain module names ``float``. Money is exact decimal, in both languages.
 6. No domain module reads the wall clock. The caller passes the time in.
+7. No inbound adapter imports an outbound one. A route reaches a client only through a use case.
 
 Rules 4 and 5 mirror commitments the ledger already enforces or documents:
 ``LedgerArchitectureTest.money_is_never_floating_point`` for the first, and the "pass the
@@ -328,6 +329,46 @@ def Given_a_context_module_When_parsed_Then_it_imports_no_composition_root(path:
     )
 
 
+INBOUND_SEGMENT = "inbound"
+OUTBOUND_SEGMENT = "outbound"
+
+
+def _is_inbound_adapter(path: Path) -> bool:
+    """A module under a context's ``adapters/inbound``: what calls the context."""
+    parts = path.relative_to(SRC).parts
+    return parts[0] in CONTEXTS and parts[1:3] == (ADAPTER_SEGMENT, INBOUND_SEGMENT)
+
+
+def _names_outbound_adapter(module: str) -> bool:
+    """A module name under any context's ``adapters/outbound``: what a context calls."""
+    parts = module.split(".")
+    return (
+        parts[0] == ROOT_PACKAGE
+        and len(parts) > 1
+        and parts[1] in CONTEXTS
+        and parts[2:4] == [ADAPTER_SEGMENT, OUTBOUND_SEGMENT]
+    )
+
+
+@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
+def Given_an_inbound_adapter_When_parsed_Then_it_imports_no_outbound_adapter(path: Path) -> None:
+    """What calls a context reaches what the context calls only through a use case.
+
+    A route importing an outbound adapter could read the in-memory ledger - or the ledger client
+    that replaces it - directly, skipping the use case and every rule behind the port. None of the
+    rules above covers it: both adapters sit under ``adapters``, which the inward rules skip, and
+    in one context, which the cross-context rule allows.
+    """
+    if not _is_inbound_adapter(path):
+        pytest.skip("only a context's inbound adapters are held to this")
+
+    leaked = sorted(module for module in _imported_modules(path) if _names_outbound_adapter(module))
+    assert not leaked, (
+        f"{path.relative_to(SRC)} imports an outbound adapter: {leaked}. An inbound adapter calls "
+        "a use case, and the use case reaches outbound adapters through the ports it declares."
+    )
+
+
 @pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
 def Given_a_domain_module_When_parsed_Then_it_names_no_float(path: Path) -> None:
     if not _is_domain(path):
@@ -468,3 +509,22 @@ def Given_a_parameter_named_now_When_scanned_Then_it_is_not_a_violation() -> Non
     # every bare name would fail the build on the very convention it exists to enforce.
     assert _clock_reads_in("def is_stale(now, other):\n    return now - other") == []
     assert _clock_reads_in("age = now - quote.as_of") == []
+
+
+def Given_a_module_path_When_asked_Then_only_a_contexts_inbound_adapters_are_inbound() -> None:
+    assert _is_inbound_adapter(SRC / "portfolio" / "adapters" / "inbound" / "api" / "router.py")
+    assert not _is_inbound_adapter(
+        SRC / "portfolio" / "adapters" / "outbound" / "ledger" / "__init__.py"
+    )
+    # The composition root sits under an `adapters` directory too, but belongs to no context.
+    assert not _is_inbound_adapter(SRC / "adapters" / "app.py")
+
+
+def Given_a_module_name_When_asked_Then_only_a_contexts_outbound_adapters_are_outbound() -> None:
+    assert _names_outbound_adapter(
+        f"{ROOT_PACKAGE}.portfolio.adapters.outbound.ledger.InMemoryLedger"
+    )
+    assert _names_outbound_adapter(f"{ROOT_PACKAGE}.marketdata.adapters.outbound")
+    assert not _names_outbound_adapter(f"{ROOT_PACKAGE}.portfolio.adapters.inbound.api")
+    assert not _names_outbound_adapter(f"{ROOT_PACKAGE}.adapters.wiring")
+    assert not _names_outbound_adapter("outbound.adapters")

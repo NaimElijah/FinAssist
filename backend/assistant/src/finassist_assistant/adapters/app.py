@@ -1,19 +1,19 @@
 """The assistant's HTTP entry point.
 
-It serves health and readiness and nothing else. ADR-004 — the wire contract every business
-endpoint must be described by — is still Proposed, so adding one here would pre-empt a decision
-that is deliberately open.
+It serves the portfolio context's routes under ``/api/v1/portfolio``, which the web client's
+portfolio screens call (ADR-026), and the health and readiness probes. The probes are left out of
+the OpenAPI document: they are for whatever runs the process, not for a client generated from the
+contract (ADR-028).
 
-The use cases *are* assembled, by :func:`~finassist_assistant.adapters.wiring.assemble`, and hung
-on ``app.state.assembly``. Nothing routes to them yet. Building them here means the wiring is
-exercised on every start rather than the first time somebody writes a route, which is when a
-constructor mismatch would otherwise be found.
+The use cases are assembled by :func:`~finassist_assistant.adapters.wiring.assemble`, hung on
+``app.state.assembly``, and handed to each router as arguments. A router never imports this
+package, and the architecture tests fail the build if one does.
 
 Every failure is answered as an RFC 9457 problem, by the handlers in
 :mod:`~finassist_assistant.adapters.problems`, and a request whose ``Host`` names no allowed host
 is refused before anything else runs, by :mod:`~finassist_assistant.adapters.hosts`.
 
-See ADR-019, ADR-021, ADR-027 and ADR-028.
+See ADR-019, ADR-021, ADR-026, ADR-027 and ADR-028.
 """
 
 from __future__ import annotations
@@ -41,8 +41,11 @@ from finassist_assistant.adapters.observability import (
 from finassist_assistant.adapters.problems import answer_unexpected, install_problem_handlers
 from finassist_assistant.adapters.settings import Settings
 from finassist_assistant.adapters.wiring import Assembly, assemble
+from finassist_assistant.portfolio.adapters.inbound.api.router import portfolio_router
 
 CORRELATION_ID_HEADER: Final = "X-Correlation-Id"
+
+PORTFOLIO_PREFIX: Final = "/api/v1/portfolio"
 
 # A W3C trace id is 32 lowercase hex characters, and all-zero is explicitly invalid.
 _TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -110,11 +113,16 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
     app = FastAPI(title="FinAssist assistant", version="0.1.0")
     install_problem_handlers(app)
 
-    # Assembled now, called by nothing yet. The readiness probe deliberately does not consult it:
-    # every adapter behind it is in-memory, so a check against one would report health that no
-    # dependency had been asked about.
+    # The readiness probe deliberately does not consult the assembly: every adapter behind it is
+    # in-memory, so a check against one would report health that no dependency had been asked about.
     served: Assembly = assembly if assembly is not None else assemble()
     app.state.assembly = served
+
+    portfolio = served.portfolio
+    app.include_router(
+        portfolio_router(portfolio.view_position, portfolio.value_holding, portfolio.dispose_units),
+        prefix=PORTFOLIO_PREFIX,
+    )
 
     @app.middleware("http")
     async def correlate(
@@ -142,12 +150,12 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
     # handler and is given no correlation id (ADR-027).
     app.add_middleware(HostAllowList, allowed_hosts=resolved.allowed_hosts)
 
-    @app.get("/health")
+    @app.get("/health", include_in_schema=False)
     async def health() -> JSONResponse:
         """Liveness: the process is up and serving. Checks no dependency on purpose."""
         return JSONResponse({"status": "UP"})
 
-    @app.get("/ready")
+    @app.get("/ready", include_in_schema=False)
     async def ready() -> JSONResponse:
         """Readiness: the assistant is willing to take traffic.
 
