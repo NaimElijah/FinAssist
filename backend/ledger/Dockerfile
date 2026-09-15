@@ -5,7 +5,7 @@
 # --- Build -----------------------------------------------------------------------------------
 # The wrapper and pom.xml are copied first so `dependency:go-offline` is cached across source
 # changes; only editing pom.xml busts this layer.
-FROM eclipse-temurin:21.0.9_10-jdk-noble AS build
+FROM eclipse-temurin:24.0.2_12-jdk-noble AS build
 WORKDIR /build
 
 COPY mvnw pom.xml ./
@@ -18,7 +18,7 @@ COPY src/ src/
 RUN ./mvnw -B package -DskipTests
 
 # --- Runtime -----------------------------------------------------------------------------------
-FROM eclipse-temurin:21.0.9_10-jre-noble
+FROM eclipse-temurin:24.0.2_12-jre-noble
 RUN groupadd --system ledger && useradd --system --gid ledger --no-create-home ledger
 WORKDIR /app
 # The narrower glob matters: spring-boot-maven-plugin repackages the artifact in place and
