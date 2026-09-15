@@ -1,22 +1,34 @@
 import type { UseQueryResult } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 
 import { ApiError } from '@/shared/api/client';
 import { useDocumentTitle } from '@/shared/lib/documentTitle';
+import { todayIsoDate } from '@/shared/lib/today';
 import {
+    ActionPanel,
     Button,
     type Column,
     DataTable,
+    DateField,
     DateText,
     EmptyState,
     ErrorState,
     MoneyText,
     StateBadge,
+    TextField,
     type Tone,
 } from '@/shared/ui';
 
 import { ACCOUNT_NOT_FOUND } from '../api/accountingApi';
-import { useAccountBalance, useAccounts, useAccountTransactions } from '../hooks/accountQueries';
+import {
+    useAccountBalance,
+    useAccounts,
+    useAccountTransactions,
+    useClearTransaction,
+    useReconcileTransaction,
+    useVoidTransaction,
+} from '../hooks/accountQueries';
 import { ACCOUNT_TYPE_LABELS } from '../types/account';
 import type { Money } from '../types/money';
 import type { Transaction, TransactionState, TransactionStatus } from '../types/transaction';
@@ -40,6 +52,196 @@ const STATUS_LABELS: Readonly<Record<TransactionStatus, string>> = {
     RECONCILED: 'Reconciled',
     VOIDED: 'Voided',
 };
+
+/** The three lifecycle actions a transaction can move through, each opening its own panel. */
+type LifecycleKind = 'CLEAR' | 'RECONCILE' | 'VOID';
+
+/** Which row's panel is open, and for which action; `undefined` when none is. */
+interface ActiveAction {
+    readonly transactionId: string;
+    readonly kind: LifecycleKind;
+}
+
+/**
+ * The lifecycle actions each status legally admits, mirroring the ledger's own sealed
+ * `TransactionState` transitions: `PENDING` clears or voids, `CLEARED` reconciles or voids, and a
+ * `RECONCILED` or `VOIDED` transaction admits none. The server stays authoritative regardless: a
+ * stale row offering an action it no longer allows still meets a 409 `ILLEGAL_TRANSITION`.
+ */
+const LEGAL_ACTIONS: Readonly<Record<TransactionStatus, readonly LifecycleKind[]>> = {
+    PENDING: ['CLEAR', 'VOID'],
+    CLEARED: ['RECONCILE', 'VOID'],
+    RECONCILED: [],
+    VOIDED: [],
+};
+
+const ACTION_LABELS: Readonly<Record<LifecycleKind, string>> = {
+    CLEAR: 'Clear',
+    RECONCILE: 'Reconcile',
+    VOID: 'Void',
+};
+
+const ACTION_TITLES: Readonly<Record<LifecycleKind, string>> = {
+    CLEAR: 'Clear transaction',
+    RECONCILE: 'Reconcile transaction',
+    VOID: 'Void transaction',
+};
+
+/** The buttons offering this status's legal actions, or nothing for a frozen transaction. */
+function LifecycleButtons({
+    status,
+    onOpen,
+}: {
+    readonly status: TransactionStatus;
+    readonly onOpen: (kind: LifecycleKind) => void;
+}) {
+    const actions = LEGAL_ACTIONS[status];
+    if (actions.length === 0) {
+        return null;
+    }
+    return (
+        <span className={styles.actions}>
+            {actions.map((kind) => (
+                <Button
+                    key={kind}
+                    variant={kind === 'VOID' ? 'danger' : 'secondary'}
+                    onClick={() => {
+                        onOpen(kind);
+                    }}
+                >
+                    {ACTION_LABELS[kind]}
+                </Button>
+            ))}
+        </span>
+    );
+}
+
+/**
+ * The inline panel for one lifecycle action: a date defaulting to today, a reason when voiding,
+ * and submit/cancel.
+ *
+ * On success it invalidates the balance and transactions of every account the transaction
+ * touches, and closes. On failure - including a 409 `ILLEGAL_TRANSITION` when the server no
+ * longer agrees this row's action is legal - it shows the server's detail and stays open, so the
+ * owner can see why and try something else.
+ *
+ * The Reason field's own `required` is the whole of its client-side validation: the browser
+ * refuses to fire the form's submit event while it is empty, so `submit` below is never even
+ * called for an empty reason, and no duplicate check is needed here.
+ */
+function LifecycleActionPanel({
+    kind,
+    transactionId,
+    onClose,
+}: {
+    readonly kind: LifecycleKind;
+    readonly transactionId: string;
+    readonly onClose: () => void;
+}) {
+    const clear = useClearTransaction();
+    const reconcile = useReconcileTransaction();
+    const voidTransaction = useVoidTransaction();
+    const [on, setOn] = useState(() => todayIsoDate(new Date()));
+    const [reason, setReason] = useState('');
+    const submitting = useRef(false);
+    const errorStateRef = useRef<HTMLDivElement>(null);
+
+    const mutation = kind === 'CLEAR' ? clear : kind === 'RECONCILE' ? reconcile : voidTransaction;
+    const failure = mutation.error;
+
+    // Runs after the render that shows the failure, so the error state is already on the page.
+    useEffect(() => {
+        if (failure === null) {
+            return;
+        }
+        errorStateRef.current?.focus();
+    }, [failure]);
+
+    function submit() {
+        // The disabled submit stops a click, not a submit event from elsewhere.
+        if (submitting.current) {
+            return;
+        }
+        submitting.current = true;
+        const onSettled = () => {
+            submitting.current = false;
+        };
+        if (kind === 'CLEAR') {
+            clear.mutate({ transactionId, on }, { onSuccess: onClose, onSettled });
+        } else if (kind === 'RECONCILE') {
+            reconcile.mutate({ transactionId, on }, { onSuccess: onClose, onSettled });
+        } else {
+            voidTransaction.mutate(
+                { transactionId, on, reason },
+                { onSuccess: onClose, onSettled },
+            );
+        }
+    }
+
+    return (
+        <ActionPanel
+            title={ACTION_TITLES[kind]}
+            headingLevel={2}
+            submitLabel={ACTION_LABELS[kind]}
+            onSubmit={submit}
+            onCancel={onClose}
+            pending={mutation.isPending}
+        >
+            <div className={styles.panelFields}>
+                {failure === null ? null : <ErrorState ref={errorStateRef} error={failure} />}
+                <DateField
+                    label="On"
+                    required
+                    value={on}
+                    onChange={(event) => {
+                        setOn(event.target.value);
+                    }}
+                />
+                {kind === 'VOID' ? (
+                    <TextField
+                        label="Reason"
+                        required
+                        value={reason}
+                        onChange={(event) => {
+                            setReason(event.target.value);
+                        }}
+                    />
+                ) : null}
+            </div>
+        </ActionPanel>
+    );
+}
+
+/** This row's actions cell: buttons for its legal transitions, or the one open panel. */
+function TransactionActionsCell({
+    transaction,
+    active,
+    onOpen,
+    onClose,
+}: {
+    readonly transaction: Transaction;
+    readonly active: ActiveAction | undefined;
+    readonly onOpen: (transactionId: string, kind: LifecycleKind) => void;
+    readonly onClose: () => void;
+}) {
+    if (active?.transactionId === transaction.id) {
+        return (
+            <LifecycleActionPanel
+                kind={active.kind}
+                transactionId={transaction.id}
+                onClose={onClose}
+            />
+        );
+    }
+    return (
+        <LifecycleButtons
+            status={transaction.state.status}
+            onOpen={(kind) => {
+                onOpen(transaction.id, kind);
+            }}
+        />
+    );
+}
 
 /** Whether a read failed because the ledger holds no account with the id in its path. */
 function isAccountNotFound(error: Error | null): boolean {
@@ -129,7 +331,12 @@ function StateCell({ state }: { readonly state: TransactionState }) {
 }
 
 /** The transactions table's columns. The description heads each row. */
-function transactionColumns(accountId: string): readonly Column<Transaction>[] {
+function transactionColumns(
+    accountId: string,
+    active: ActiveAction | undefined,
+    onOpen: (transactionId: string, kind: LifecycleKind) => void,
+    onClose: () => void,
+): readonly Column<Transaction>[] {
     return [
         {
             key: 'date',
@@ -159,6 +366,18 @@ function transactionColumns(accountId: string): readonly Column<Transaction>[] {
             key: 'state',
             header: 'State',
             render: (transaction) => <StateCell state={transaction.state} />,
+        },
+        {
+            key: 'actions',
+            header: 'Actions',
+            render: (transaction) => (
+                <TransactionActionsCell
+                    transaction={transaction}
+                    active={active}
+                    onOpen={onOpen}
+                    onClose={onClose}
+                />
+            ),
         },
     ];
 }
@@ -201,6 +420,10 @@ function Transactions({
     readonly accountId: string;
     readonly transactions: UseQueryResult<Transaction[]>;
 }) {
+    // At most one row's panel is open at a time, across the whole table. Declared before any
+    // early return below, as every hook must be.
+    const [active, setActive] = useState<ActiveAction | undefined>(undefined);
+
     if (transactions.isPending) {
         return <p className={styles.placeholder}>Loading transactions…</p>;
     }
@@ -216,7 +439,16 @@ function Transactions({
             ) : (
                 <DataTable
                     caption="Transactions"
-                    columns={transactionColumns(accountId)}
+                    columns={transactionColumns(
+                        accountId,
+                        active,
+                        (transactionId, kind) => {
+                            setActive({ transactionId, kind });
+                        },
+                        () => {
+                            setActive(undefined);
+                        },
+                    )}
                     rows={transactions.data}
                     rowKey={(transaction) => transaction.id}
                 />

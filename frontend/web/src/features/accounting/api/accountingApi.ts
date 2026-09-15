@@ -16,6 +16,8 @@ import type {
     RecordTransactionRequest,
     TransactionResponse,
     TransactionStateResponse,
+    TransitionRequest,
+    VoidRequest,
 } from '@/shared/api/contracts/ledger/types.gen';
 import { log } from '@/shared/lib/logger';
 
@@ -40,6 +42,11 @@ const TRANSACTIONS_URL = `${LEDGER_API}/transactions`;
 /** The URL of one account's sub-resource, with the id encoded as a single path segment. */
 function accountUrl(accountId: string, subResource: string): string {
     return `${ACCOUNTS_URL}/${encodeURIComponent(accountId)}/${subResource}`;
+}
+
+/** The URL of one transaction's lifecycle action, with the id encoded as a single path segment. */
+function transactionUrl(transactionId: string, action: string): string {
+    return `${TRANSACTIONS_URL}/${encodeURIComponent(transactionId)}/${action}`;
 }
 
 function toAccount(wire: AccountResponse): Account {
@@ -205,4 +212,65 @@ export async function recordTransaction(input: RecordTransactionInput): Promise<
     };
     const wire = await sendJson<TransactionResponse>(TRANSACTIONS_URL, 'POST', body);
     return toTransaction(wire, TRANSACTIONS_URL);
+}
+
+/**
+ * Clear a transaction: mark it as having settled, on the given date.
+ *
+ * @param transactionId - the transaction's id.
+ * @param on - the ISO `YYYY-MM-DD` clearing date, never before the transaction occurred.
+ * @returns the transaction in its new, `CLEARED` state.
+ * @throws ApiError - on a non-2xx response: 404, 409 `ILLEGAL_TRANSITION` when the transaction is
+ *   not `PENDING`, 422 for a date before the transaction occurred.
+ * @throws ApiBodyError - when the response carries no JSON body.
+ */
+export async function clearTransaction(transactionId: string, on: string): Promise<Transaction> {
+    const url = transactionUrl(transactionId, 'clear');
+    const body: TransitionRequest = { on };
+    const wire = await sendJson<TransactionResponse>(url, 'POST', body);
+    return toTransaction(wire, url);
+}
+
+/**
+ * Reconcile a transaction: mark it as matched against a statement, on the given date. A
+ * reconciled transaction is frozen and admits no further transition.
+ *
+ * @param transactionId - the transaction's id.
+ * @param on - the ISO `YYYY-MM-DD` reconciling date, never before the transaction cleared.
+ * @returns the transaction in its new, `RECONCILED` state.
+ * @throws ApiError - on a non-2xx response: 404, 409 `ILLEGAL_TRANSITION` when the transaction is
+ *   not `CLEARED`, 422 for a date before it cleared.
+ * @throws ApiBodyError - when the response carries no JSON body.
+ */
+export async function reconcileTransaction(
+    transactionId: string,
+    on: string,
+): Promise<Transaction> {
+    const url = transactionUrl(transactionId, 'reconcile');
+    const body: TransitionRequest = { on };
+    const wire = await sendJson<TransactionResponse>(url, 'POST', body);
+    return toTransaction(wire, url);
+}
+
+/**
+ * Void a transaction: mark it as never having counted towards a balance, on the given date, for
+ * the given reason. The entries stay on the record; only their effect is withdrawn.
+ *
+ * @param transactionId - the transaction's id.
+ * @param on - the ISO `YYYY-MM-DD` voiding date, never before the transaction occurred.
+ * @param reason - why it is void, kept on the record.
+ * @returns the transaction in its new, `VOIDED` state.
+ * @throws ApiError - on a non-2xx response: 404, 409 `ILLEGAL_TRANSITION` when the transaction is
+ *   already `RECONCILED` or `VOIDED`, 422 for a date before it occurred.
+ * @throws ApiBodyError - when the response carries no JSON body.
+ */
+export async function voidTransaction(
+    transactionId: string,
+    on: string,
+    reason: string,
+): Promise<Transaction> {
+    const url = transactionUrl(transactionId, 'void');
+    const body: VoidRequest = { on, reason };
+    const wire = await sendJson<TransactionResponse>(url, 'POST', body);
+    return toTransaction(wire, url);
 }

@@ -8,11 +8,14 @@ import { ApiBodyError, ApiError } from '@/shared/api/client';
 import { setLogSink } from '@/shared/lib/logger';
 
 import {
+    clearTransaction,
     getBalance,
     listAccounts,
     listAccountTransactions,
     openAccount,
+    reconcileTransaction,
     recordTransaction,
+    voidTransaction,
 } from './accountingApi';
 
 const CHECKING_ID = '0b7d2a4e-4d8c-4f3a-9a61-2f1c5e0d9b11';
@@ -321,5 +324,87 @@ describe('recordTransaction', () => {
 
         expect(failure).toBeInstanceOf(ApiError);
         expect(failure).toMatchObject({ status: 422, problem: { code: 'RULE_VIOLATED' } });
+    });
+});
+
+describe('clearTransaction', () => {
+    it('Given_a_transaction_id_and_a_date_When_cleared_Then_it_posts_on_to_the_clear_path_and_maps_the_result', async () => {
+        const stub = stubFetch(
+            jsonResponse({
+                id: 'a1',
+                occurredOn: '2026-09-01',
+                description: 'Rent',
+                entries: [{ account: CHECKING_ID, amount: { amount: '-250.00', currency: 'ILS' } }],
+                state: { status: 'CLEARED', on: '2026-09-02' },
+            }),
+        );
+
+        const transaction = await clearTransaction('a1', '2026-09-02');
+
+        expect(transaction.state).toEqual({ status: 'CLEARED', on: '2026-09-02' });
+        const { url, init } = onlyCall(stub);
+        expect(url).toBe('/ledger/api/v1/transactions/a1/clear');
+        expect(init.method).toBe('POST');
+        expect(JSON.parse(init.body as string)).toEqual({ on: '2026-09-02' });
+    });
+
+    it('Given_an_illegal_transition_When_cleared_Then_it_rejects_with_an_ApiError_coded_ILLEGAL_TRANSITION', async () => {
+        stubFetch(problemResponse({ status: 409, code: 'ILLEGAL_TRANSITION' }, 409));
+
+        await expect(clearTransaction('a1', '2026-09-02')).rejects.toMatchObject({
+            status: 409,
+            problem: { code: 'ILLEGAL_TRANSITION' },
+        });
+    });
+});
+
+describe('reconcileTransaction', () => {
+    it('Given_a_transaction_id_and_a_date_When_reconciled_Then_it_posts_on_to_the_reconcile_path_and_maps_the_result', async () => {
+        const stub = stubFetch(
+            jsonResponse({
+                id: 'a1',
+                occurredOn: '2026-09-01',
+                description: 'Rent',
+                entries: [{ account: CHECKING_ID, amount: { amount: '-250.00', currency: 'ILS' } }],
+                state: { status: 'RECONCILED', on: '2026-09-03' },
+            }),
+        );
+
+        const transaction = await reconcileTransaction('a1', '2026-09-03');
+
+        expect(transaction.state).toEqual({ status: 'RECONCILED', on: '2026-09-03' });
+        const { url, init } = onlyCall(stub);
+        expect(url).toBe('/ledger/api/v1/transactions/a1/reconcile');
+        expect(init.method).toBe('POST');
+        expect(JSON.parse(init.body as string)).toEqual({ on: '2026-09-03' });
+    });
+});
+
+describe('voidTransaction', () => {
+    it('Given_a_transaction_id_a_date_and_a_reason_When_voided_Then_it_posts_both_to_the_void_path_and_maps_the_result', async () => {
+        const stub = stubFetch(
+            jsonResponse({
+                id: 'a1',
+                occurredOn: '2026-09-01',
+                description: 'Rent',
+                entries: [{ account: CHECKING_ID, amount: { amount: '-250.00', currency: 'ILS' } }],
+                state: { status: 'VOIDED', on: '2026-09-04', reason: 'Entered twice' },
+            }),
+        );
+
+        const transaction = await voidTransaction('a1', '2026-09-04', 'Entered twice');
+
+        expect(transaction.state).toEqual({
+            status: 'VOIDED',
+            on: '2026-09-04',
+            reason: 'Entered twice',
+        });
+        const { url, init } = onlyCall(stub);
+        expect(url).toBe('/ledger/api/v1/transactions/a1/void');
+        expect(init.method).toBe('POST');
+        expect(JSON.parse(init.body as string)).toEqual({
+            on: '2026-09-04',
+            reason: 'Entered twice',
+        });
     });
 });

@@ -7,6 +7,7 @@ import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
+import { todayIsoDate } from '@/shared/lib/today';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -277,5 +278,273 @@ describe('AccountDetailPage', () => {
         expect(within(alert).getByRole('button', { name: 'Try again' })).toBeDefined();
         expect(screen.getByRole('heading', { level: 1, name: 'Checking' })).toBeDefined();
         expect(screen.queryByRole('heading', { level: 1, name: 'Account not found' })).toBeNull();
+    });
+});
+
+describe('AccountDetailPage transaction lifecycle actions', () => {
+    const RECORD_URL = '/ledger/api/v1/transactions';
+
+    const PENDING_TX = {
+        id: 'p1',
+        occurredOn: '2026-09-01',
+        description: 'Pending purchase',
+        entries: [
+            { account: CHECKING.id, amount: { amount: '-40.00', currency: 'ILS' } },
+            { account: GROCERIES_ID, amount: { amount: '40.00', currency: 'ILS' } },
+        ],
+        state: { status: 'PENDING' },
+    } as const;
+    const CLEARED_TX = {
+        id: 'c1',
+        occurredOn: '2026-08-20',
+        description: 'Cleared purchase',
+        entries: [
+            { account: CHECKING.id, amount: { amount: '-20.00', currency: 'ILS' } },
+            { account: GROCERIES_ID, amount: { amount: '20.00', currency: 'ILS' } },
+        ],
+        state: { status: 'CLEARED', on: '2026-08-21' },
+    } as const;
+    const RECONCILED_TX = {
+        id: 'r1',
+        occurredOn: '2026-08-10',
+        description: 'Reconciled purchase',
+        entries: [
+            { account: CHECKING.id, amount: { amount: '-10.00', currency: 'ILS' } },
+            { account: GROCERIES_ID, amount: { amount: '10.00', currency: 'ILS' } },
+        ],
+        state: { status: 'RECONCILED', on: '2026-08-11' },
+    } as const;
+    const VOIDED_TX = {
+        id: 'v1',
+        occurredOn: '2026-08-01',
+        description: 'Voided purchase',
+        entries: [
+            { account: CHECKING.id, amount: { amount: '-5.00', currency: 'ILS' } },
+            { account: GROCERIES_ID, amount: { amount: '5.00', currency: 'ILS' } },
+        ],
+        state: { status: 'VOIDED', on: '2026-08-02', reason: 'Entered twice' },
+    } as const;
+
+    /**
+     * A ledger holding Checking, a fixed balance, and whichever transactions `getTransactions`
+     * returns at the time of each read; `extra` answers everything else, such as a lifecycle POST.
+     */
+    function lifecycleLedger(
+        getTransactions: () => readonly unknown[],
+        extra: FetchAnswer,
+    ): FetchAnswer {
+        return (request) => {
+            if (request.url === ACCOUNTS_URL) return jsonResponse([CHECKING]);
+            if (request.url === BALANCE_URL) {
+                return jsonResponse({
+                    account: CHECKING.id,
+                    balance: { amount: '0.00', currency: 'ILS' },
+                });
+            }
+            if (request.url === TRANSACTIONS_URL && request.method === 'GET') {
+                return jsonResponse(getTransactions());
+            }
+            return extra(request);
+        };
+    }
+
+    it('Given_a_pending_transaction_When_rendered_Then_its_row_offers_Clear_and_Void_but_not_Reconcile', async () => {
+        fakeFetch(lifecycleLedger(() => [PENDING_TX], unexpectedRequest));
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+
+        await screen.findByRole('table', { name: 'Transactions' });
+        const row = rowOf('Pending purchase');
+
+        expect(within(row).getByRole('button', { name: 'Clear' })).toBeDefined();
+        expect(within(row).getByRole('button', { name: 'Void' })).toBeDefined();
+        expect(within(row).queryByRole('button', { name: 'Reconcile' })).toBeNull();
+    });
+
+    it('Given_a_cleared_transaction_When_rendered_Then_its_row_offers_Reconcile_and_Void_but_not_Clear', async () => {
+        fakeFetch(lifecycleLedger(() => [CLEARED_TX], unexpectedRequest));
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+
+        await screen.findByRole('table', { name: 'Transactions' });
+        const row = rowOf('Cleared purchase');
+
+        expect(within(row).getByRole('button', { name: 'Reconcile' })).toBeDefined();
+        expect(within(row).getByRole('button', { name: 'Void' })).toBeDefined();
+        expect(within(row).queryByRole('button', { name: 'Clear' })).toBeNull();
+    });
+
+    it('Given_a_reconciled_or_a_voided_transaction_When_rendered_Then_neither_row_offers_any_action', async () => {
+        fakeFetch(lifecycleLedger(() => [RECONCILED_TX, VOIDED_TX], unexpectedRequest));
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+
+        await screen.findByRole('table', { name: 'Transactions' });
+
+        expect(within(rowOf('Reconciled purchase')).queryByRole('button')).toBeNull();
+        expect(within(rowOf('Voided purchase')).queryByRole('button')).toBeNull();
+    });
+
+    it('Given_a_pending_transaction_When_cleared_Then_it_posts_on_and_the_row_shows_the_Cleared_badge', async () => {
+        const today = todayIsoDate(new Date());
+        let transactions: readonly unknown[] = [PENDING_TX];
+        const requests = fakeFetch(
+            lifecycleLedger(
+                () => transactions,
+                (request) => {
+                    if (
+                        request.url === `${RECORD_URL}/${PENDING_TX.id}/clear` &&
+                        request.method === 'POST'
+                    ) {
+                        const cleared = { ...PENDING_TX, state: { status: 'CLEARED', on: today } };
+                        transactions = [cleared];
+                        return jsonResponse(cleared);
+                    }
+                    return unexpectedRequest(request);
+                },
+            ),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup();
+        await screen.findByRole('table', { name: 'Transactions' });
+
+        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Clear' }));
+        await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+        expect(await within(rowOf('Pending purchase')).findByText('Cleared')).toBeDefined();
+        expect(
+            requests
+                .filter((request) => request.method === 'POST')
+                .map(({ method, url, body }) => ({ method, url, body })),
+        ).toEqual([
+            { method: 'POST', url: `${RECORD_URL}/${PENDING_TX.id}/clear`, body: { on: today } },
+        ]);
+    });
+
+    it('Given_a_cleared_transaction_When_reconciled_Then_it_posts_on_and_the_row_shows_the_Reconciled_badge', async () => {
+        const today = todayIsoDate(new Date());
+        let transactions: readonly unknown[] = [CLEARED_TX];
+        fakeFetch(
+            lifecycleLedger(
+                () => transactions,
+                (request) => {
+                    if (
+                        request.url === `${RECORD_URL}/${CLEARED_TX.id}/reconcile` &&
+                        request.method === 'POST'
+                    ) {
+                        const reconciled = {
+                            ...CLEARED_TX,
+                            state: { status: 'RECONCILED', on: today },
+                        };
+                        transactions = [reconciled];
+                        return jsonResponse(reconciled);
+                    }
+                    return unexpectedRequest(request);
+                },
+            ),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup();
+        await screen.findByRole('table', { name: 'Transactions' });
+
+        await user.click(
+            within(rowOf('Cleared purchase')).getByRole('button', { name: 'Reconcile' }),
+        );
+        await user.click(screen.getByRole('button', { name: 'Reconcile' }));
+
+        expect(await within(rowOf('Cleared purchase')).findByText('Reconciled')).toBeDefined();
+    });
+
+    it('Given_a_pending_transaction_When_voided_without_a_reason_Then_the_required_field_refuses_submission_and_nothing_is_sent', async () => {
+        // The Reason field's own `required` is the whole client-side check: the browser refuses
+        // to fire the form's submit event while it is empty, so this is not a duplicate assertion
+        // of custom validation logic - there is none - but of the native constraint itself.
+        const requests = fakeFetch(lifecycleLedger(() => [PENDING_TX], unexpectedRequest));
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup();
+        await screen.findByRole('table', { name: 'Transactions' });
+
+        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Void' }));
+        await user.click(screen.getByRole('button', { name: 'Void' }));
+
+        const reasonField = screen.getByLabelText('Reason');
+        expect(reasonField).toHaveProperty('validity.valueMissing', true);
+        expect(requests.filter((request) => request.method === 'POST')).toHaveLength(0);
+        // The panel stays open, unsubmitted.
+        expect(screen.getByRole('button', { name: 'Cancel' })).toBeDefined();
+    });
+
+    it('Given_a_pending_transaction_When_voided_with_a_reason_Then_it_posts_on_and_reason_and_shows_the_Voided_badge', async () => {
+        const today = todayIsoDate(new Date());
+        let transactions: readonly unknown[] = [PENDING_TX];
+        const requests = fakeFetch(
+            lifecycleLedger(
+                () => transactions,
+                (request) => {
+                    if (
+                        request.url === `${RECORD_URL}/${PENDING_TX.id}/void` &&
+                        request.method === 'POST'
+                    ) {
+                        const voided = {
+                            ...PENDING_TX,
+                            state: { status: 'VOIDED', on: today, reason: 'Entered twice' },
+                        };
+                        transactions = [voided];
+                        return jsonResponse(voided);
+                    }
+                    return unexpectedRequest(request);
+                },
+            ),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup();
+        await screen.findByRole('table', { name: 'Transactions' });
+
+        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Void' }));
+        await user.type(screen.getByLabelText('Reason'), 'Entered twice');
+        await user.click(screen.getByRole('button', { name: 'Void' }));
+
+        expect(await within(rowOf('Pending purchase')).findByText('Voided')).toBeDefined();
+        expect(
+            requests
+                .filter((request) => request.method === 'POST')
+                .map(({ method, url, body }) => ({ method, url, body })),
+        ).toEqual([
+            {
+                method: 'POST',
+                url: `${RECORD_URL}/${PENDING_TX.id}/void`,
+                body: { on: today, reason: 'Entered twice' },
+            },
+        ]);
+    });
+
+    it('Given_a_409_response_When_an_action_is_submitted_Then_the_server_detail_is_shown_in_the_panel_and_it_stays_open', async () => {
+        fakeFetch(
+            lifecycleLedger(
+                () => [PENDING_TX],
+                (request) => {
+                    if (
+                        request.url === `${RECORD_URL}/${PENDING_TX.id}/clear` &&
+                        request.method === 'POST'
+                    ) {
+                        return problemResponse({
+                            status: 409,
+                            code: 'ILLEGAL_TRANSITION',
+                            detail: 'The transaction is no longer pending.',
+                        });
+                    }
+                    return unexpectedRequest(request);
+                },
+            ),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup();
+        await screen.findByRole('table', { name: 'Transactions' });
+
+        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Clear' }));
+        await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('The transaction is no longer pending.')).toBeDefined();
+        // The panel stays open: its submit button, and the Date field, are still on screen.
+        expect(screen.getByRole('button', { name: 'Clear' })).toBeDefined();
+        expect(screen.getByLabelText('On')).toBeDefined();
     });
 });

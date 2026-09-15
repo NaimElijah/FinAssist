@@ -7,11 +7,14 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
+    clearTransaction,
     getBalance,
     listAccounts,
     listAccountTransactions,
     openAccount,
+    reconcileTransaction,
     recordTransaction,
+    voidTransaction,
 } from '../api/accountingApi';
 import type { OpenAccountInput } from '../types/account';
 import type { RecordTransactionInput, Transaction } from '../types/transaction';
@@ -145,5 +148,58 @@ export function useRecordTransaction() {
                 invalidateAccounts(queryClient, accountIdsOf(transaction)),
                 queryClient.invalidateQueries({ queryKey: accountKeys.list }),
             ]),
+    });
+}
+
+/** One lifecycle mutation's variables: which transaction, and the date the action took effect. */
+interface TransitionVariables {
+    readonly transactionId: string;
+    readonly on: string;
+}
+
+/**
+ * Clear a transaction, then refetch the balance and transactions of every account it touches.
+ *
+ * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
+ */
+export function useClearTransaction() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ transactionId, on }: TransitionVariables) =>
+            clearTransaction(transactionId, on),
+        onSuccess: (transaction) => invalidateAccounts(queryClient, accountIdsOf(transaction)),
+    });
+}
+
+/**
+ * Reconcile a transaction, then refetch the balance and transactions of every account it touches.
+ *
+ * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
+ */
+export function useReconcileTransaction() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ transactionId, on }: TransitionVariables) =>
+            reconcileTransaction(transactionId, on),
+        onSuccess: (transaction) => invalidateAccounts(queryClient, accountIdsOf(transaction)),
+    });
+}
+
+/** `useVoidTransaction`'s variables: which transaction, the date, and why. */
+interface VoidVariables extends TransitionVariables {
+    readonly reason: string;
+}
+
+/**
+ * Void a transaction, then refetch the balance and transactions of every account it touches.
+ *
+ * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
+ */
+export function useVoidTransaction() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ transactionId, on, reason }: VoidVariables) =>
+            voidTransaction(transactionId, on, reason),
+        onSuccess: (transaction) => invalidateAccounts(queryClient, accountIdsOf(transaction)),
     });
 }
