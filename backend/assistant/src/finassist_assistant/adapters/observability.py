@@ -89,8 +89,16 @@ _MIN_SECRET_LENGTH: Final = 8
 # log call into a RecursionError, which is strictly worse than the line it failed to write.
 _MAX_REDACTION_DEPTH: Final = 6
 
+# httpx writes every request it sends at INFO as "HTTP Request: <method> <url>", the full URL with
+# its query string. Held at WARNING whatever ASSISTANT_LOG_LEVEL says, so the first outbound client
+# cannot put every URL it calls on a log line; a URL is no place to assume nothing sensitive
+# travels. Its warnings and errors still come through.
+_URL_LOGGER: Final = "httpx"
+_URL_LOGGER_LEVEL: Final = logging.WARNING
+
 _root_handlers_before: list[logging.Handler] | None = None
 _root_level_before: int | None = None
+_url_logger_level_before: int | None = None
 
 
 class _LazyStdout:
@@ -266,9 +274,10 @@ def configure_logging(settings: Settings) -> None:
     """Configure structlog to emit JSON on stdout, through the redaction boundary.
 
     Rebinds the stdlib root logger too, so a library that logs through ``logging`` is rendered
-    in the same format instead of bypassing the boundary with its own.
+    in the same format instead of bypassing the boundary with its own. The one exception to the
+    configured level is httpx, held at WARNING because it logs every request's full URL at INFO.
     """
-    global _root_handlers_before, _root_level_before
+    global _root_handlers_before, _root_level_before, _url_logger_level_before
 
     register_secret(settings.anthropic_api_key_value)
 
@@ -295,23 +304,26 @@ def configure_logging(settings: Settings) -> None:
         )
     )
     root = logging.getLogger()
+    url_logger = logging.getLogger(_URL_LOGGER)
     if _root_handlers_before is None:
         _root_handlers_before = list(root.handlers)
         _root_level_before = root.level
+        _url_logger_level_before = url_logger.level
     for existing in list(root.handlers):
         root.removeHandler(existing)
     root.addHandler(handler)
     root.setLevel(settings.log_level)
+    url_logger.setLevel(_URL_LOGGER_LEVEL)
 
 
 def reset_logging() -> None:
-    """Restore the root logger to what it was before ``configure_logging``.
+    """Restore the root logger, and httpx's level, to what they were before ``configure_logging``.
 
-    The root logger is process-wide state. Without this a test that configures logging leaves
-    every later test writing through its handler, which is the sort of ordering dependence the
-    test conventions rule out.
+    Both are process-wide state. Without this a test that configures logging leaves every later
+    test writing through its handler, which is the sort of ordering dependence the test
+    conventions rule out.
     """
-    global _root_handlers_before, _root_level_before
+    global _root_handlers_before, _root_level_before, _url_logger_level_before
 
     if _root_handlers_before is None:
         return
@@ -322,8 +334,11 @@ def reset_logging() -> None:
         root.addHandler(previous)
     if _root_level_before is not None:
         root.setLevel(_root_level_before)
+    if _url_logger_level_before is not None:
+        logging.getLogger(_URL_LOGGER).setLevel(_url_logger_level_before)
     _root_handlers_before = None
     _root_level_before = None
+    _url_logger_level_before = None
 
 
 def configure_tracing(settings: Settings) -> TracerProvider | None:

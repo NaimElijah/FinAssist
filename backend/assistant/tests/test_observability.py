@@ -12,6 +12,7 @@ import logging
 from collections.abc import Iterator
 from typing import Any, NoReturn
 
+import httpx
 import pytest
 import structlog
 import uvicorn
@@ -34,6 +35,7 @@ from finassist_assistant.adapters.observability import (
     configure_tracing,
     redact_secrets,
     register_secret,
+    reset_logging,
     trace_id_of,
 )
 from finassist_assistant.adapters.settings import Settings
@@ -433,6 +435,39 @@ def Given_a_log_event_When_written_Then_it_is_one_json_object_per_line(
     assert record["level"] == "info"
     assert record["account"] == "chequing"
     assert "timestamp" in record
+
+
+def Given_an_httpx_client_When_it_sends_a_request_Then_its_url_is_not_logged(
+    settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """httpx writes every request it sends at INFO, with the full URL and its query string. No
+    outbound client exists yet, and the first must not put every URL it calls on a log line: a URL
+    is no place to assume nothing sensitive travels. A warning from httpx still comes through."""
+    configure_logging(settings)
+    capsys.readouterr()
+
+    answer_ok = httpx.MockTransport(lambda _request: httpx.Response(200))
+    with httpx.Client(transport=answer_ok) as outbound:
+        outbound.get(f"http://ledger.invalid/api/v1/accounts?amount={AMOUNT}")
+    logging.getLogger("httpx").warning("the ledger answered slowly")
+
+    captured = capsys.readouterr().out
+    assert "ledger.invalid" not in captured
+    assert AMOUNT not in captured
+    assert "the ledger answered slowly" in captured
+
+
+def Given_logging_was_configured_When_it_is_reset_Then_httpx_logs_at_its_own_level_again(
+    settings: Settings,
+) -> None:
+    """The level is process-wide state, so it is restored with the root logger's."""
+    before = logging.getLogger("httpx").level
+
+    configure_logging(settings)
+    quieted = logging.getLogger("httpx").level
+    reset_logging()
+
+    assert (quieted, logging.getLogger("httpx").level) == (logging.WARNING, before)
 
 
 @pytest.mark.parametrize(
