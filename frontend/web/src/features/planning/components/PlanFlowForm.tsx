@@ -209,7 +209,9 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
     const [startsOn, setStartsOn] = useState(() => todayIsoDate(new Date()));
     const [recurrenceKind, setRecurrenceKind] = useState<RecurrenceKind>('ONCE');
     const [cadence, setCadence] = useState<Cadence>(DEFAULT_CADENCE);
-    const [interval, setInterval] = useState(DEFAULT_INTERVAL);
+    // Named for the Every field it feeds, not `interval`/`setInterval`, which would shadow the
+    // global timer function of the same name.
+    const [everyValue, setEveryValue] = useState(DEFAULT_INTERVAL);
     const [until, setUntil] = useState('');
     const [count, setCount] = useState('');
 
@@ -236,7 +238,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
         setStartsOn(todayIsoDate(new Date()));
         setRecurrenceKind('ONCE');
         setCadence(DEFAULT_CADENCE);
-        setInterval(DEFAULT_INTERVAL);
+        setEveryValue(DEFAULT_INTERVAL);
         setUntil('');
         setCount('');
     }
@@ -247,7 +249,13 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
         if (submitting.current) {
             return;
         }
-        const form: RecurrenceFormState = { kind: recurrenceKind, cadence, interval, until, count };
+        const form: RecurrenceFormState = {
+            kind: recurrenceKind,
+            cadence,
+            interval: everyValue,
+            until,
+            count,
+        };
         let recurrence: Recurrence;
         try {
             recurrence = buildRecurrence(form);
@@ -357,9 +365,9 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                                 pattern={POSITIVE_INTEGER_PATTERN}
                                 required
                                 autoComplete="off"
-                                value={interval}
+                                value={everyValue}
                                 onChange={(event) => {
-                                    setInterval(event.target.value);
+                                    setEveryValue(event.target.value);
                                 }}
                             />
                         </>
