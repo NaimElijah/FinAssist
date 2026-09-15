@@ -2,7 +2,7 @@
 // Renders the record-transaction screen through the feature's own routes, so it needs a DOM.
 // fetch is faked, so the feature's real api/ module and its mapping run under test.
 
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -422,6 +422,37 @@ describe('RecordTransactionPage submission', () => {
                 true,
             );
         });
+    });
+
+    it('Given_a_filled_form_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
+        // Two submit events can arrive in one tick, before the pending state has rendered, so a
+        // guard reading render-time state lets both through, and a duplicated transaction can only
+        // be voided (ADR-028).
+        const requests = fakeFetch(
+            ledger((request) =>
+                request.url === RECORD_URL && request.method === 'POST'
+                    ? pendingResponse()
+                    : unexpectedRequest(request),
+            ),
+        );
+        renderForm();
+        await fillValidTransaction(userEvent.setup({ delay: null }));
+        const form = screen.getByLabelText('Description').closest('form');
+        if (form === null) {
+            throw new Error('the Description field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+        fireEvent.submit(form);
+
+        // By the time pending has rendered, every request either submit started has reached fetch.
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: 'Record transaction' })).toHaveProperty(
+                'disabled',
+                true,
+            );
+        });
+        expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
 
     it('Given_a_row_with_both_a_debit_and_a_credit_When_submitted_Then_nothing_is_sent_and_the_row_shows_a_field_error', async () => {

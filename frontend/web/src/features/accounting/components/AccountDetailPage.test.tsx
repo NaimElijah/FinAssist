@@ -2,7 +2,7 @@
 // Renders an account's page through the feature's own routes, so it needs a DOM. fetch is faked,
 // so the feature's real api/ module and its mapping run under test.
 
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -698,6 +698,39 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         await user.type(screen.getByLabelText('Reason'), ' by mistake');
 
         expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('Given_a_lifecycle_panel_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
+        // Two submit events can arrive in one tick, before pending has rendered. The panel's own
+        // pending check reads render-time state, so only its in-flight ref stops the second, and a
+        // repeated clear or void is permanent in an append-only journal (ADR-028).
+        const requests = fakeFetch(
+            lifecycleLedger(
+                () => [PENDING_TX],
+                (request) =>
+                    request.url === `${RECORD_URL}/${PENDING_TX.id}/clear` &&
+                    request.method === 'POST'
+                        ? pendingResponse()
+                        : unexpectedRequest(request),
+            ),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Transactions' });
+        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Clear' }));
+        const form = screen.getByLabelText('On').closest('form');
+        if (form === null) {
+            throw new Error('the On field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+        fireEvent.submit(form);
+
+        // By the time pending has rendered, every request either submit started has reached fetch.
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: 'Clear' })).toHaveProperty('disabled', true);
+        });
+        expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
 
     it('Given_a_panel_open_on_a_pending_row_When_cancelled_Then_focus_returns_to_the_button_that_opened_it', async () => {
