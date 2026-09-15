@@ -156,7 +156,7 @@ class LedgerContractIT extends PostgresFixture {
     /**
      * springdoc makes each handler method's name an {@code operationId}, and silently appends
      * {@code _1} on a collision rather than failing — so a name that is not unique ledger-wide reaches
-     * the committed contract looking legitimate (Ruling 22).
+     * the committed contract looking legitimate.
      */
     @Test
     void Given_the_generated_document_When_operation_ids_are_read_Then_none_carries_a_springdoc_collision_suffix()

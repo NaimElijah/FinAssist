@@ -19,7 +19,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  *
  * <p>Each web adapter declares its own copy, because the slice rule leaves no legal shared home for one.
  * springdoc names a schema by simple class name and folds classes sharing one into a single {@code
- * MoneyDto} schema without a word, keeping whichever it met first (Ruling 21). {@code
+ * MoneyDto} schema without a word, keeping whichever it met first. {@code
  * LedgerArchitectureTest.web_dto_names_are_unique_across_contexts} exempts the name for that reason, so
  * this is what stops a copy drifting — a looser pattern, a dropped {@code @NotNull} — while the contract
  * goes on describing another context's.

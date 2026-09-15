@@ -17,7 +17,7 @@ import jakarta.validation.constraints.Pattern;
  * <p>Duplicated in each context's web adapter on purpose. The slice rule leaves no legal shared home
  * for it, and ADR-021 refused to let coupling accumulate in {@code shared}. This copy is identical to
  * accounting's, member for member and constraint for constraint, which is why springdoc is allowed to
- * fold the two into one {@code MoneyDto} schema (Ruling 21).
+ * fold the two into one {@code MoneyDto} schema.
  *
  * @param amount signed decimal text, such as {@code "-12.50"}
  * @param currency the one currency the amount is in
