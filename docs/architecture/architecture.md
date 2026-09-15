@@ -244,7 +244,9 @@ reaches 422** — the accepted trade-off ADR-028 records for `IllegalArgumentExc
 number carrying a fractional part or a decimal point — `1.5` and `1.0` alike — is refused as 400
 wherever an integer field expects one**, before the domain sees it:
 `spring.jackson.deserialization.accept-float-as-int: false` stops Jackson silently truncating
-one.
+one. **A JSON number is refused as 400 wherever a text field expects one**, a decimal sent as
+`12.50` included: `StrictTextCoercion`, registered in `composition`, stops Jackson reading the
+number as text that would then pass the decimal pattern.
 
 The two probe paths stay outside all of this: `GET /actuator/health` on the ledger → Spring
 Boot's health contributors → `{"status":"UP"}`, and `GET /health` on the assistant → a constant

@@ -239,7 +239,10 @@ These are enforced by the build, not by review. Breaking one fails CI.
   answers an id named in a body or query, since the same not-found exception is 404 from a path
   and 422 from a body (ADR-028).
 - **Every decimal on the wire is a string, never a JSON number** — money, growth rates and
-  quantities alike (ADR-028).
+  quantities alike (ADR-028). The ledger refuses a JSON number in any text member with 400
+  through `StrictTextCoercion`, proven against the running ledger by `AccountingHttpIT`. A
+  `@WebMvcTest` slice that sends a number must `@Import` it, since a slice loads no scanned
+  configuration.
 - **A lifecycle date comes from the request body, never the clock** — "pass the clock in",
   applied at the edge.
 - **A create answers `201` with the created representation and no `Location` header** — there is
