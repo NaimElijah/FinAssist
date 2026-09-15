@@ -247,8 +247,11 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
         if (submitting.current) {
             return;
         }
+        // `currency` too, not only `selectedFlowIds` membership: changing currency clears the
+        // selection, so this is normally redundant, but a scenario must never post a flow in
+        // another currency (ADR-012) even if that clearing were ever to regress.
         const flows = (flowsQuery.data ?? [])
-            .filter((flow) => selectedFlowIds.has(flow.id))
+            .filter((flow) => selectedFlowIds.has(flow.id) && flow.amount.currency === currency)
             .map((flow) => flow.id);
 
         submitting.current = true;

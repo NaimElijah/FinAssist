@@ -201,7 +201,10 @@ describe('ScenariosPage define-scenario form', () => {
         expect(label?.textContent).toContain('Planned');
     });
 
-    it('Given_a_USD_flow_selected_When_the_currency_changes_to_ILS_Then_the_USD_flow_is_no_longer_offered_and_its_selection_is_cleared', async () => {
+    it('Given_a_USD_flow_selected_When_the_currency_changes_to_ILS_and_back_to_USD_Then_its_selection_stays_cleared', async () => {
+        // A checkbox filtered out of view proves nothing about its underlying selection: it
+        // would read as absent from the DOM whether or not the selection itself was cleared.
+        // Switching back to USD is what actually exercises whether the clearing happened.
         fakeFetch(ledger([RENT_ILS, SALARY_USD], []));
         renderScenarios();
         const user = userEvent.setup({ delay: null });
@@ -214,9 +217,11 @@ describe('ScenariosPage define-scenario form', () => {
         expect(salaryCheckbox).toHaveProperty('checked', true);
 
         await user.selectOptions(screen.getByLabelText('Currency'), 'ILS');
-
         expect(screen.queryByLabelText(/Salary/)).toBeNull();
         expect(screen.getByLabelText(/Rent/)).toHaveProperty('checked', false);
+
+        await user.selectOptions(screen.getByLabelText('Currency'), 'USD');
+        expect(await screen.findByLabelText(/Salary/)).toHaveProperty('checked', false);
     });
 
     it('Given_zero_flows_selected_When_defined_Then_it_posts_an_empty_flows_array_for_the_do_nothing_baseline', async () => {
