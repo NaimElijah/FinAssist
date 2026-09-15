@@ -478,6 +478,42 @@ describe('PlannedFlowsPage plan-flow form', () => {
         expect(screen.queryByLabelText('Until')).toBeNull();
     });
 
+    it('Given_an_every_of_zero_When_submitted_Then_native_validation_refuses_it_and_nothing_is_sent', async () => {
+        const requests = fakeFetch(ledger([]));
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+
+        await user.type(screen.getByLabelText('Description'), 'Salary');
+        await user.type(screen.getByLabelText('Amount'), '1000.00');
+        await user.selectOptions(screen.getByLabelText('Repeats'), 'TIMES');
+        await user.clear(screen.getByLabelText('Every'));
+        await user.type(screen.getByLabelText('Every'), '0');
+        await user.clear(screen.getByLabelText('Times'));
+        await user.type(screen.getByLabelText('Times'), '12');
+        await user.click(screen.getByRole('button', { name: 'Plan flow' }));
+
+        expect(screen.getByLabelText('Every')).toHaveProperty('validity.patternMismatch', true);
+        expect(requests.filter((request) => request.method === 'POST')).toHaveLength(0);
+    });
+
+    it('Given_a_times_count_of_zero_When_submitted_Then_native_validation_refuses_it_and_nothing_is_sent', async () => {
+        const requests = fakeFetch(ledger([]));
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+
+        await user.type(screen.getByLabelText('Description'), 'Salary');
+        await user.type(screen.getByLabelText('Amount'), '1000.00');
+        await user.selectOptions(screen.getByLabelText('Repeats'), 'TIMES');
+        await user.clear(screen.getByLabelText('Times'));
+        await user.type(screen.getByLabelText('Times'), '0');
+        await user.click(screen.getByRole('button', { name: 'Plan flow' }));
+
+        expect(screen.getByLabelText('Times')).toHaveProperty('validity.patternMismatch', true);
+        expect(requests.filter((request) => request.method === 'POST')).toHaveLength(0);
+    });
+
     it('Given_a_complete_times_recurrence_When_submitted_Then_it_posts_the_mapped_body', async () => {
         const requests = fakeFetch(
             ledger([], (request) => {

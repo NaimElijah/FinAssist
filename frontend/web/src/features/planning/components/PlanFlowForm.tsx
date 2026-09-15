@@ -58,8 +58,12 @@ const DEFAULT_CURRENCY: Currency = 'ILS';
 const DEFAULT_CADENCE: Cadence = 'MONTHLY';
 const DEFAULT_INTERVAL = '1';
 
-/** Matches an integer count: `interval` and `count` are counts, never money (ADR-029). */
-const INTEGER_PATTERN = '[0-9]+';
+/**
+ * Matches a positive integer count, no leading zero and no zero itself: `interval` and `count`
+ * are counts, never money (ADR-029), and the ledger's own domain constructors refuse anything
+ * below one.
+ */
+const POSITIVE_INTEGER_PATTERN = '[1-9][0-9]*';
 
 /** ADR-028 lists field `errors` only on a 400. */
 const MALFORMED_REQUEST_STATUS = 400;
@@ -236,11 +240,12 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
         try {
             recurrence = buildRecurrence(form);
         } catch {
-            // Native `required` and the digit `pattern` on Interval, Until and Times keep this
-            // unreachable through the UI; a scripted or malformed value is refused rather than
-            // setting `submitting` and locking the form on a recurrence the ledger could never
-            // have accepted anyway. Computed before the ref is set, so a bad parse never leaves
-            // submit stuck disabled.
+            // Native `required` and the `[1-9][0-9]*` pattern on Every and Times refuse a blank,
+            // fractional, negative or zero value before the browser ever fires this handler, so
+            // this catch is unreachable through the UI; a scripted or malformed value is refused
+            // rather than setting `submitting` and locking the form on a recurrence the ledger
+            // could never have accepted anyway. Computed before the ref is set, so a bad parse
+            // never leaves submit stuck disabled.
             return;
         }
 
@@ -336,7 +341,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                             <TextField
                                 label="Every"
                                 inputMode="numeric"
-                                pattern={INTEGER_PATTERN}
+                                pattern={POSITIVE_INTEGER_PATTERN}
                                 required
                                 autoComplete="off"
                                 value={interval}
@@ -360,7 +365,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         <TextField
                             label="Times"
                             inputMode="numeric"
-                            pattern={INTEGER_PATTERN}
+                            pattern={POSITIVE_INTEGER_PATTERN}
                             required
                             autoComplete="off"
                             value={count}
