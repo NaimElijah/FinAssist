@@ -51,9 +51,15 @@ export interface EntryRowError {
     readonly message: string;
 }
 
-/** `value` with one leading `-` removed, or `value` unchanged when it carries none. */
+/** Every `-` at the start of a string, however many the owner typed. */
+const LEADING_MINUS_SIGNS = /^-+/;
+
+/**
+ * `value` with every leading `-` removed, or `value` unchanged when it carries none. Every one, not
+ * only the first: a doubled `--250.00` under Debit would otherwise be sent as `-250.00`, a credit.
+ */
 function unsignedMagnitude(value: string): string {
-    return value.startsWith('-') ? value.slice(1) : value;
+    return value.replace(LEADING_MINUS_SIGNS, '');
 }
 
 /**
@@ -62,8 +68,8 @@ function unsignedMagnitude(value: string): string {
  *
  * Both columns take an unsigned magnitude - the column alone carries the sign, never a sign the
  * owner happens to type. No arithmetic ever touches the digits (ADR-029): whichever side is
- * filled has any leading `-` stripped first, so a stray sign is corrected rather than doubled or,
- * under Debit, silently flipping the entry into a credit; a credit's magnitude then gets its
+ * filled has every leading `-` stripped first, so a stray sign is corrected rather than doubled
+ * or, under Debit, silently flipping the entry into a credit; a credit's magnitude then gets one
  * leading `-` added back.
  *
  * @param debit - the debit field's string, or `''` when left empty.

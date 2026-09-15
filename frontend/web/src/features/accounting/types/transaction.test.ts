@@ -28,6 +28,15 @@ describe('entryRowAmount', () => {
         expect(entryRowAmount('-250.00', '')).toBe('250.00');
     });
 
+    it('Given_a_debit_typed_with_a_doubled_minus_When_mapped_Then_every_sign_is_stripped_and_it_posts_positive', () => {
+        // Stripping one sign would leave "-250.00", which the ledger accepts as a credit.
+        expect(entryRowAmount('--250.00', '')).toBe('250.00');
+    });
+
+    it('Given_a_credit_typed_with_a_doubled_minus_When_mapped_Then_it_carries_exactly_one_sign', () => {
+        expect(entryRowAmount('', '--250.00')).toBe('-250.00');
+    });
+
     it('Given_both_a_debit_and_a_credit_When_mapped_Then_it_is_a_field_error', () => {
         expect(entryRowAmount('100.00', '50.00')).toEqual({ message: 'Enter a debit or a credit' });
     });
