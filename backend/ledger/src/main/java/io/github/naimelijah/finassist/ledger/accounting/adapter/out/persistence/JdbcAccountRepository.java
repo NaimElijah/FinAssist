@@ -7,6 +7,7 @@ import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountType;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import org.springframework.dao.DuplicateKeyException;
@@ -21,6 +22,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * behaviour there is.
  */
 public class JdbcAccountRepository implements AccountRepository {
+
+    private static final String TABLE = "accounting.account";
 
     /**
      * Re-saving the same account is accepted; a different account claiming its name is not.
@@ -47,6 +50,11 @@ public class JdbcAccountRepository implements AccountRepository {
             SELECT id, name, type, currency FROM accounting.account WHERE normalised_name = :normalisedName
             """;
 
+    /** {@code AccountRepository.all}'s contract: every account, ordered by name ignoring case. */
+    private static final String SELECT_ALL = """
+            SELECT id, name, type, currency FROM accounting.account ORDER BY normalised_name
+            """;
+
     private final JdbcClient jdbc;
 
     public JdbcAccountRepository(JdbcClient jdbc) {
@@ -69,6 +77,11 @@ public class JdbcAccountRepository implements AccountRepository {
                 .param("normalisedName", AccountingRows.normalise(name))
                 .query(JdbcAccountRepository::toAccount)
                 .optional();
+    }
+
+    @Override
+    public List<Account> all() {
+        return jdbc.sql(SELECT_ALL).query(JdbcAccountRepository::toAccount).list();
     }
 
     /**
@@ -98,7 +111,7 @@ public class JdbcAccountRepository implements AccountRepository {
         return new Account(
                 new AccountId(row.getObject("id", java.util.UUID.class)),
                 row.getString("name"),
-                AccountType.valueOf(row.getString("type")),
-                AccountingRows.currency(row, "currency"));
+                AccountingRows.enumerated(AccountType.class, TABLE, "type", row.getString("type")),
+                AccountingRows.currency(row, TABLE, "currency"));
     }
 }

@@ -20,11 +20,21 @@ public interface TransactionRepository {
 
     Optional<Transaction> findById(TransactionId id);
 
-    /** Every transaction holding an entry against {@code account}, voided ones included. */
+    /**
+     * Every transaction holding an entry against {@code account}, voided ones included, ordered by
+     * occurred date then identity ({@code occurredOn, id}) — the same order {@link #findBetween}
+     * promises.
+     */
     List<Transaction> findByAccount(AccountId account);
 
     /**
-     * Every transaction that occurred in the half-open range, voided ones included.
+     * Every transaction that occurred in the half-open range, voided ones included, ordered by
+     * occurred date then identity ({@code occurredOn, id}).
+     *
+     * <p>The index {@code journal_transaction_occurred_on_idx (occurred_on, id)} is what this order
+     * follows, and the durable adapter keeps it with an explicit {@code ORDER BY} rather than
+     * trusting the index to be read in order — a list whose order depends on a query planner is a
+     * defect for a caller folding over it, such as a projection or a budget review.
      *
      * @param fromInclusive the first date in range
      * @param toExclusive the first date past it, matching {@code BudgetPeriod} and {@code Horizon}

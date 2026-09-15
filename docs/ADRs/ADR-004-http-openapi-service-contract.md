@@ -1,6 +1,6 @@
 # ADR-004: HTTP with a versioned OpenAPI document as the service contract
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-29
 
 ## Context
@@ -13,7 +13,12 @@ The traffic is low volume, request/response, and internal. Both ecosystems have 
 OpenAPI support: Spring Boot can publish a document, and the assistant already depends on
 `httpx` and `pydantic`.
 
-This ADR is **Proposed**: it has not been ratified, and nothing implements it yet.
+This record was **Proposed** while no endpoint existed: the domain and application layers needed
+no wire contract, so ratifying it was deferred rather than guessed. It was ratified on
+2026-09-14, ahead of the first endpoint rather than with it, because the web client and the
+ledger's first controllers both need a settled contract to be built against. The web client's
+use of the contracts is recorded in ADR-026, and the wire conventions both services follow in
+ADR-028.
 
 ## Decision
 

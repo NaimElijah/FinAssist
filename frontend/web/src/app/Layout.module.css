@@ -1,0 +1,105 @@
+/* Off-screen until it takes keyboard focus, then shown over the header. Moved rather than
+   clipped, and without a transition: it is the first thing a keyboard user reaches. */
+.skipLink {
+    position: absolute;
+    inset-block-start: var(--space-2);
+    inset-inline-start: var(--space-2);
+    z-index: 1;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-control);
+    background: var(--color-surface-raised);
+    color: var(--color-text);
+    font-weight: var(--font-weight-strong);
+    transform: translateY(-200%);
+}
+
+.skipLink:focus {
+    transform: none;
+}
+
+/* Shown, the link sits over the spruce band, and the 2px outline offset leaves band colour on both
+   sides of the ring. The page's --color-focus measures 1.21:1 against the band, so the ring takes
+   the band's own focus colour instead: #ffffff on #1d5c48 is 7.85:1 in the light theme, and
+   #8fb5ff on #1f3a30 is 5.99:1 in the dark one, both above the 3:1 a focus indicator needs. */
+.skipLink:focus-visible {
+    outline-color: var(--color-focus-on-chrome);
+}
+
+/* The binding of the ledger: a spruce band carrying the product name, with the four areas as
+   index tabs along its lower edge. The open area's tab takes the page's own colour, so it reads
+   as joined to the page beneath it - a change of shape, not only of hue. */
+.header {
+    background: var(--color-chrome);
+    color: var(--color-on-chrome);
+}
+
+.header :focus-visible {
+    outline-color: var(--color-focus-on-chrome);
+}
+
+.headerInner {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    max-width: var(--content-max-width);
+    margin: 0 auto;
+    padding: var(--space-3) var(--space-5) 0;
+}
+
+.product {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-strong);
+    line-height: var(--line-height-tight);
+}
+
+.tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.tab {
+    display: block;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+    color: var(--color-on-chrome);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-strong);
+    text-decoration: none;
+}
+
+.tab:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+}
+
+.tab[aria-current='page'] {
+    background: var(--color-surface);
+    color: var(--color-text);
+    text-decoration: none;
+}
+
+/* Forced-colours mode replaces the tab backgrounds with system colours, and background is all that
+   marks the open tab otherwise. A thick rule in the system text colour under the open tab keeps it
+   distinguishable; the other tabs reserve the same space in the system canvas colour, so the row
+   does not shift as the open tab changes. */
+@media (forced-colors: active) {
+    .tab {
+        border-block-end: 3px solid Canvas;
+    }
+
+    .tab[aria-current='page'] {
+        border-block-end-color: CanvasText;
+    }
+}
+
+.main {
+    max-width: var(--content-max-width);
+    margin: 0 auto;
+    padding: var(--space-6) var(--space-5) var(--space-7);
+}

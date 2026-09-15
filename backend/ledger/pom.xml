@@ -25,12 +25,21 @@
     <jacoco.version>0.8.13</jacoco.version>
     <pitest.version>1.19.1</pitest.version>
     <pitest-junit5.version>1.2.2</pitest-junit5.version>
+    <springdoc.version>3.1.1</springdoc.version>
   </properties>
 
   <dependencies>
+    <!-- spring-boot-starter-web is deprecated in favor of this one as of Boot 4.1.1. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-web</artifactId>
+      <artifactId>spring-boot-starter-webmvc</artifactId>
+    </dependency>
+    <!-- Generates the ledger's OpenAPI document from the code (ADR-028); the -api artifact only,
+         no Swagger UI. -->
+    <dependency>
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+      <version>${springdoc.version}</version>
     </dependency>
     <!-- Health and readiness endpoints are a baseline requirement, not a later addition. -->
     <dependency>
@@ -81,6 +90,12 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- @WebMvcTest and MockMvc; spring-boot-starter-test alone does not provide them on Boot 4. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc-test</artifactId>
       <scope>test</scope>
     </dependency>
     <!-- InMemorySpanExporter, so a test can assert a span was recorded without a collector. -->
@@ -234,9 +249,9 @@
       notice if those lines were wrong, which is the question worth asking of a domain whose whole
       job is refusing things. See docs/ADRs/ADR-017-test-strategy.md.
 
-      Scoped to the domain and shared kernel. LedgerApplicationTest is excluded because PIT reruns
-      tests per mutant and booting Spring each time buys nothing - the wiring it checks has no
-      mutable logic in it.
+      Scoped to the domain, the shared kernel, the application services and the composition root.
+      LedgerApplicationIT and LedgerCompositionIT are excluded because PIT reruns tests per mutant
+      and booting Spring each time buys nothing - the wiring they check has no mutable logic in it.
     -->
     <profile>
       <id>mutation</id>
@@ -258,18 +273,18 @@
                 <param>io.github.naimelijah.finassist.ledger.composition.*</param>
               </targetClasses>
               <excludedTestClasses>
-                <param>io.github.naimelijah.finassist.ledger.LedgerApplicationTest</param>
+                <param>io.github.naimelijah.finassist.ledger.LedgerApplicationIT</param>
                 <param>io.github.naimelijah.finassist.ledger.LedgerArchitectureTest</param>
                 <!-- Boots Tomcat once per mutant for wiring that holds no logic. -->
-                <param>io.github.naimelijah.finassist.ledger.LedgerObservabilityTest</param>
-                <param>io.github.naimelijah.finassist.ledger.composition.LedgerCompositionTest</param>
+                <param>io.github.naimelijah.finassist.ledger.LedgerObservabilityIT</param>
+                <param>io.github.naimelijah.finassist.ledger.composition.LedgerCompositionIT</param>
               </excludedTestClasses>
               <excludedClasses>
-                <!-- Excluded because the only test that covers it is excluded above. Left in scope, every
-                     mutant planted in a @Bean method would report as uncovered by construction, and the
-                     report ADR-017 keeps to answer "would a test notice this being wrong?" would fill up
-                     with noise no test change could ever clear. The translations beside it stay in scope:
-                     they hold logic and have POJO tests. -->
+                <!-- Excluded because LedgerCompositionIT, the test that exists to cover it, is excluded above.
+                     Left in scope, every mutant planted in a @Bean method would be judged only by tests that
+                     boot the whole application, and the report ADR-017 keeps to answer "would a test notice
+                     this being wrong?" would fill up with noise no test change could ever clear. The
+                     translations beside it stay in scope: they hold logic and have POJO tests. -->
                 <param>io.github.naimelijah.finassist.ledger.composition.LedgerConfiguration</param>
               </excludedClasses>
               <outputFormats>

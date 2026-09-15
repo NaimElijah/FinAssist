@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.planning.application.service;
 
+import io.github.naimelijah.finassist.ledger.planning.application.port.in.ListPlannedFlowsUseCase;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanFlowCommand;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanFlowUseCase;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanNotFoundException;
@@ -11,6 +12,7 @@ import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanId;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanState;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlannedFlow;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -21,7 +23,7 @@ import java.util.Objects;
  * nothing to call, and the run-time guard exists because this service holds the state as the sealed
  * interface rather than a concrete type.
  */
-public class PlanService implements PlanFlowUseCase, TransitionPlanUseCase {
+public class PlanService implements PlanFlowUseCase, TransitionPlanUseCase, ListPlannedFlowsUseCase {
 
     private final PlannedFlowRepository flows;
     private final PlanningEvents events;
@@ -67,6 +69,11 @@ public class PlanService implements PlanFlowUseCase, TransitionPlanUseCase {
         PlanState.Cancelled state = (PlanState.Cancelled) cancelled.state();
         events.publish(new PlanningEvent.PlanCancelled(cancelled.id(), state.cancelledOn(), state.reason()));
         return cancelled;
+    }
+
+    @Override
+    public List<PlannedFlow> all() {
+        return flows.all();
     }
 
     private PlannedFlow require(PlanId plan) {

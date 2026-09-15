@@ -4,7 +4,12 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-    { ignores: ['dist', 'coverage', 'node_modules'] },
+    {
+        // Generated from the committed OpenAPI documents (ADR-029); hand-editing would be
+        // overwritten by the next `npm run generate:api`, so lint has nothing useful to say
+        // about it.
+        ignores: ['dist', 'coverage', 'node_modules', 'src/shared/api/contracts/**'],
+    },
     js.configs.recommended,
     {
         files: ['**/*.{ts,tsx}'],

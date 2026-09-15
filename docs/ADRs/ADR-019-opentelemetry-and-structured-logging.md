@@ -83,7 +83,8 @@ records are the same trace rather than two ids someone has to join by hand.
 Prometheus reads them. `spring-boot-starter-opentelemetry` also drags in
 `micrometer-registry-otlp`, which would otherwise POST to `localhost:4318/v1/metrics` every
 minute forever on a machine with no collector — so one variable, `OTEL_EXPORT_ENABLED`, gates
-both signals. Actuator exposure stays an explicit allow-list —
+every signal the ledger can export: traces, metrics, and the OTLP log export added later, which
+nothing feeds until a log appender exists. Actuator exposure stays an explicit allow-list —
 `health,info,metrics,prometheus`, never `"*"` — and the existing test asserting `/actuator/env`
 returns 404 is what stops that widening by accident.
 

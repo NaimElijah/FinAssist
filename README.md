@@ -13,18 +13,25 @@ language, and analyse the portfolio behind it.**
 </div>
 
 > [!IMPORTANT]
-> **All six bounded contexts have a domain layer; nothing above it exists yet.** The models,
-> their invariants and their tests are real — no application services, ports, adapters, HTTP or
-> persistence. The ledger boots and answers its Actuator health probes; the assistant has no
-> entry point; the web client renders a placeholder. Everything below describes what exists on
-> `main`. Planned work appears only under [Status and limitations](#status-and-limitations).
+> **All six bounded contexts have a domain and an application layer.** The ledger is persisted in
+> PostgreSQL and served over HTTP — accounting, budgeting and planning under `/api/v1`, with a
+> published OpenAPI contract — and answers its Actuator health probes. The assistant now serves
+> `portfolio` under `/api/v1` too, with its own published contract, but its data comes only from
+> an opt-in development seed, off by default — no ledger client and no price feed exist. The web
+> client's accounting area lists and opens accounts, records a transaction by hand, and clears,
+> reconciles or voids one; its budgeting area lists and defines budgets, reviews spend against
+> one, and adds categorisation rules; its planning area plans flows, defines scenarios, charts a
+> scenario's projection with its first shortfall, and compares scenarios against a baseline — all
+> over the ledger's API. Its portfolio area looks up a holding, shows its position and valuation,
+> and prices a disposal without recording it, over the assistant's. See
+> [Known limitations](#status-and-limitations) for what does not exist yet.
 
 ## Contents
 
 [What and why](#what-and-why) · [Scope](#scope) · [Quick start](#quick-start) ·
-[Tech stack](#tech-stack) · [Architecture](#architecture) ·
-[Project structure](#project-structure) · [Development](#development) ·
-[Testing](#testing) · [Configuration](#configuration) ·
+[Using the web client](#using-the-web-client) · [Tech stack](#tech-stack) ·
+[Architecture](#architecture) · [Project structure](#project-structure) ·
+[Development](#development) · [Testing](#testing) · [Configuration](#configuration) ·
 [Design decisions](#design-decisions) · [Status](#status-and-limitations)
 
 This README is ordered for a contributor rather than an evaluator — Quick start comes before
@@ -44,17 +51,24 @@ moves money — it records and explains, and nothing more. See
 
 ## Scope
 
-There is no feature list, because there are no features yet — listing one here that is
-absent from the code would be a bug report waiting to be filed. The confirmed scope is three
-capability areas:
+There is no feature list, because much of the confirmed scope below is not built yet — listing
+one here that outruns the code would be a bug report waiting to be filed. What does work, end to
+end through the web client: opening an account, recording a transaction by hand and moving it
+through Clear, Reconcile and Void; defining a budget for a month with a limit per category,
+reviewing spend against it and adding categorisation rules; planning flows, defining scenarios,
+and projecting and comparing them — all against the ledger; and looking up a holding, seeing its
+position and valuation, and pricing a disposal, against the assistant, whose figures come only
+from its development seed until a data source exists. The confirmed scope is four capability
+areas:
 
 - **Tracking** — accounts, transactions, categorisation, budgets.
 - **Assistance** — natural-language questions answered over the owner's own ledger data.
 - **Analysis** — portfolio composition and performance over holdings.
+- **Planning** — planned flows, projected balances over time, and comparison of strategies.
 
-The requirements within each are not yet written. See
-[requirements](docs/requirements/requirements.md), and the
-[open questions](docs/requirements/requirements.md#open-questions) that gate them.
+What each must do is stated in [requirements](docs/requirements/requirements.md), still `TODO`
+where a decision waits on its owner; the
+[open questions](docs/requirements/requirements.md#open-questions) are those decisions.
 
 ## Quick start
 
@@ -67,34 +81,70 @@ fetches its own Python 3.13, so no system Python upgrade is needed.
 ```bash
 git clone https://github.com/NaimElijah/FinAssist.git
 cd FinAssist
-cp .env.example .env        # then set POSTGRES_PASSWORD; Compose refuses to start without it
-                            # and LEDGER_DB_PASSWORD to the same value
-docker compose up -d db
+cp .env.example .env        # then set POSTGRES_PASSWORD and LEDGER_DB_PASSWORD to the same
+                            # value; Compose refuses to start either service without them
+docker compose up --build
 ```
 
-That starts PostgreSQL 18 and nothing else — it is the only service in the Compose file so
-far. Success looks like `pg_isready` passing on the `db` container within a few seconds.
-
-The ledger runs natively against that database. It applies its Flyway migrations at start-up
-and then answers health probes and nothing else:
+That starts PostgreSQL 18, the ledger and the assistant. The ledger applies its Flyway
+migrations at start-up; both services then answer their health probes, published on
+`127.0.0.1` only (ADR-027):
 
 ```bash
-cd backend/ledger && ./mvnw spring-boot:run
-curl http://localhost:8080/actuator/health
+curl http://127.0.0.1:8080/actuator/health
 # {"groups":["liveness","readiness"],"status":"UP"}
+curl http://127.0.0.1:8080/api/v1/accounts
+# []
+curl http://127.0.0.1:8000/health
+# {"status":"UP"}
+curl http://127.0.0.1:8000/api/v1/portfolio/holdings/VOO/position
+# a 404 problem — the assistant has no real data source yet; see ASSISTANT_DEV_SEED below
 ```
 
-The web client runs too, and renders a placeholder:
+For the faster native inner loop, run either service outside Compose against the same database:
 
 ```bash
-cd frontend/web && npm ci && npm run dev   # http://localhost:5173
+docker compose up -d db
+cd backend/ledger && ./mvnw spring-boot:run
+cd backend/assistant && uv run python -m finassist_assistant.adapters
 ```
+
+The web client runs on top of both services; see [Using the web client](#using-the-web-client).
 
 > [!NOTE]
 > `make` is a convenience here, not a prerequisite, and it is not installed on the author's
 > Windows machine. Every target is a one-line wrapper — the raw command is given alongside
 > it throughout this README, and in the [Makefile](Makefile) itself. See
 > [ADR-005](docs/ADRs/ADR-005-docker-compose-as-the-run-mechanism.md).
+
+## Using the web client
+
+The web client is a Vite dev server that forwards `/ledger/…` and `/assistant/…` to the two
+services on loopback
+([ADR-026](docs/ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)), so start them
+first — `docker compose up --build`, or each service natively, as in
+[Quick start](#quick-start) — then:
+
+```bash
+cd frontend/web && npm ci && npm run dev
+```
+
+and open [http://127.0.0.1:5173](http://127.0.0.1:5173). Accounts, Budgets and Planning read and
+write through the ledger. Portfolio reads through the assistant, which holds no real data yet, so
+every lookup answers that nothing is held until the assistant starts with its development seed.
+Under Compose, set `ASSISTANT_DEV_SEED=true` in `.env`, which Compose reads to fill in
+`docker-compose.yml`, or pass it for one run. The natively run assistant never reads `.env` — its
+settings come from the environment alone — so export the variable in the shell that starts it:
+
+```bash
+ASSISTANT_DEV_SEED=true docker compose up --build    # under Compose, for one run
+
+export ASSISTANT_DEV_SEED=true                       # natively, in the shell that runs it
+cd backend/assistant && uv run python -m finassist_assistant.adapters
+```
+
+then look up `VOO` or `DEMO`. The seeded lots and quotes are invented, and no figure on any screen
+is financial advice.
 
 ## Tech stack
 
@@ -104,6 +154,7 @@ cd frontend/web && npm ci && npm run dev   # http://localhost:5173
 | Ledger framework | Spring Boot | 4.1.1 | Actuator gives health, readiness and metrics without bespoke code; the domain stays framework-free |
 | Ledger build | Maven (wrapper) | 3.9.6 | Committed wrapper, so a clone needs only a JDK |
 | Ledger format | Spotless + palantir-java-format | 3.10.1 / 2.97.0 | One authoritative formatter; `spotless:check` gates CI |
+| Ledger OpenAPI | springdoc-openapi, API starter | 3.1.1 | Generates the ledger's contract from its controllers, with no Swagger UI; `LedgerContractIT` pins it to `contracts/` ([ADR-028](docs/ADRs/ADR-028-http-wire-conventions.md)) |
 | Assistant language | Python | 3.13 | Native home for the Anthropic SDK and the pandas numerical stack |
 | Assistant framework | FastAPI | 0.141.1 | Typed request and response validation from the same Pydantic models the domain uses |
 | Assistant packaging | uv | 0.12.7 | Resolves, locks and fetches the interpreter in one pinned tool |
@@ -116,28 +167,39 @@ cd frontend/web && npm ci && npm run dev   # http://localhost:5173
 | Monitoring | OTel Collector + Prometheus + Grafana | 0.139.0 / v3.7.3 / 12.3.1 | Local only, behind a Compose profile; dashboards provisioned from files, never clicked in |
 | Web framework | React + Vite | 19.2 / 8.2 | A static bundle; no Node server to operate for a single-owner tool |
 | Web language | TypeScript | 6.0.3 | Pinned below 7 because `typescript-eslint` caps at `<6.1.0`; type-aware linting is worth more than the newer compiler |
+| Web runtime | Node | 24 | The major CI runs, pinned in `.nvmrc` and `engines`, because tests pin dates and amounts as that major's ICU data formats them |
+| Web routing | React Router | 8.3.1 | URLs, history and deep links across every screen, in data mode ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
+| Web server state | TanStack Query | 5.102.8 | Caching, request races and invalidating what a mutation changed, instead of fetch hooks written per feature ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
+| Web contract types | @hey-api/openapi-ts | 0.99.0 | Types generated from both committed contracts, and no client; CI fails when they drift ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
 | Web test, lint, format | Vitest + Testing Library + ESLint + Prettier | 4.1 / 16.3 / 10.9 / 3.9 | Type-aware rules; they caught a `HeadersInit` bug before any code used it, and there is now a test for it |
 | Store | PostgreSQL | 18.6 | `NUMERIC` for exact money, and real constraints behind the domain's own |
 
 Every version above is pinned in `backend/ledger/pom.xml`, `backend/assistant/pyproject.toml`,
-`backend/assistant/uv.lock` or `docker-compose.yml` — not in this table.
+`backend/assistant/uv.lock`, `frontend/web/package.json`, `frontend/web/.nvmrc` or
+`docker-compose.yml` — not in this table.
 
 ## Architecture
 
-Two independently deployable services and a database. The ledger owns the records; the
-assistant reads them through the ledger's API, never its database.
+Two independently deployable backend services, a web client, and a database. The ledger owns
+the records; the assistant reads them through the ledger's API, never its database.
 
 ```mermaid
 flowchart LR
-    Owner[Owner] -->|HTTPS| Web[frontend/web - React SPA]
+    Owner[Owner] -->|"HTTP, 127.0.0.1:5173"| Web[frontend/web - React SPA]
     Web -->|HTTP| Assistant[backend/assistant - Python, FastAPI]
     Assistant -->|HTTP, Published Language| Ledger[backend/ledger - Java, Spring Boot]
+    Web -->|HTTP| Ledger
     Assistant -->|HTTPS| Claude[Anthropic API]
     Ledger --> DB[(PostgreSQL 18)]
 ```
 
-`DB` runs under Compose and the ledger boots with Actuator only. No edge in that diagram is
-implemented.
+`DB`, the ledger and the assistant all run under Compose now, and `Ledger --> DB` is real: the
+ledger serves `/api/v1`, with an OpenAPI document to prove it
+([contracts/ledger-v1.openapi.json](contracts/ledger-v1.openapi.json)). The web client's
+accounting, budgeting and planning screens call it; the assistant does not yet, having no ledger
+client. The assistant serves its own `portfolio` endpoints under `/api/v1` too, published as
+[contracts/assistant-v1.openapi.json](contracts/assistant-v1.openapi.json), and the web client's
+portfolio screens call them.
 
 **Six bounded contexts**, each owned by exactly one service, each one directory
 ([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md), extended by
@@ -148,9 +210,9 @@ implemented.
 | `accounting` — accounts, entries, balances | ledger | yes |
 | `budgeting` — budgets, categories, rules | ledger | yes |
 | `portfolio` — holdings, positions, valuation | assistant | yes |
-| `assistance` — questions and grounded answers | assistant | yes |
+| `assistance` — questions and grounded answers | assistant | no — excluded until the privacy question is answered |
 | `marketdata` — instruments and quotes, feed not chosen | assistant | no |
-| `planning` — planned flows, projections, strategy comparison | ledger | not yet built |
+| `planning` — planned flows, projections, strategy comparison | ledger | yes |
 
 Both services are hexagonal, but **only the ledger uses tactical DDD** — aggregates,
 value objects and domain events protect invariants, and the analysis side has none to
@@ -188,7 +250,7 @@ backend/assistant/      Python 3.13 + FastAPI - pure-function cores, no aggregat
   marketdata/             ... adapters/outbound/feed/               <- ACL, no feed chosen
   shared/
 frontend/web/           React 19 + Vite 8 - one feature per user-facing context
-  src/features/           accounting/ budgeting/ portfolio/ assistance/
+  src/features/           accounting/ budgeting/ planning/ portfolio/ assistance/
   src/shared/             ui/ api/ lib/
   src/app/                the only place that knows every feature at once
 contracts/              Versioned OpenAPI contract - the Published Language
@@ -206,7 +268,7 @@ pipeline and the local commands cannot drift.
 
 | Task | Make target | Raw command |
 |---|---|---|
-| Set up | `make setup` | `cd backend/ledger && ./mvnw -B dependency:go-offline`; `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci` |
+| Set up | `make setup` | `test -f .env \|\| cp .env.example .env`; `cd backend/ledger && ./mvnw -B -q dependency:go-offline`; `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci` |
 | Run | `make run` | `docker compose up --build` |
 | Run with monitoring | `make run-monitoring` | `docker compose --profile monitoring up --build` |
 | Test everything | `make test` | the three test rows below; all three measure coverage |
@@ -214,11 +276,14 @@ pipeline and the local commands cannot drift.
 | Test the assistant | `make test-assistant` | `cd backend/assistant && uv run pytest --cov --cov-report=term-missing --cov-report=xml` |
 | Test the web client | `make test-web` | `cd frontend/web && npm run test:coverage` |
 | Build the web bundle | `make build-web` | `cd frontend/web && npm run build` |
-| Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
+| Regenerate the web client's contract types | `make generate-web-api` | `cd frontend/web && npm run generate:api` |
+| Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
 | Lint and types | `make lint` | `./mvnw -B spotless:check`; `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; `npm run lint`, `format:check`, `typecheck` |
-| Format | `make format` | `./mvnw -B spotless:apply`; `uv run ruff format .`; `npm run format` |
+| Format | `make format` | `./mvnw -B spotless:apply`; `uv run ruff format .`, `uv run ruff check --fix .`; `npm run format` |
 | Audit | `make audit` | `cd backend/assistant && uv run pip-audit`; `cd frontend/web && npm audit --audit-level=high` |
 | Re-lock Python deps | `make lock` | `cd backend/assistant && uv lock` |
+| Regenerate the ledger's OpenAPI contract | — | `cd backend/ledger && ./mvnw -B verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running); on a mismatch, copy `target/contracts/ledger-v1.openapi.json` over `contracts/ledger-v1.openapi.json` |
+| Regenerate the assistant's OpenAPI contract | — | `cd backend/assistant && uv run pytest tests/test_contract.py` (no container needed); on a mismatch, copy `.contract-drift/assistant-v1.openapi.json` over `contracts/assistant-v1.openapi.json` |
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
 (`type(scope): imperative subject`, subject under 72 characters); branches are
@@ -233,19 +298,25 @@ behaviour they describe.
 
 | Layer | Covers | Command |
 |---|---|---|
-| Ledger architecture | Layering, **context isolation**, framework-free domain, no floating-point money, no aggregate cycles, a one-way composition root, a framework-free application layer (ArchUnit, 7 rules — live, not dormant) | `make test-ledger` |
+| Ledger architecture | Layering, **context isolation**, framework-free domain and application layers (now also forbidding Jackson 3, springdoc and Swagger types), no floating-point money, no aggregate cycles, a one-way composition root, a controller reaching only its in-ports, an outbound adapter never reaching an inbound one, and DTO simple-name uniqueness across contexts (ArchUnit, 10 rules — live, not dormant) | `make test-ledger` |
 | Ledger domain | The balancing invariant, the transaction lifecycle, derived balances, budget limits, planned flows, projections and comparison, Money and Currency | `make test-ledger` |
 | Ledger properties | Money's algebraic laws and Recurrence's date arithmetic, over generated inputs from a fixed seed | `make test-ledger` |
 | Ledger store | Every repository against a **real PostgreSQL** in Testcontainers: the ordering both journal queries promise, the unique index that makes an account name atomic, the sealed `Recurrence` and `PlanState` round trips, and `numeric` preserving a JPY amount at scale 0 | `make test-ledger` |
 | Ledger audit trail | The database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states, and a lifecycle change appends rather than overwrites ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)) | `make test-ledger` |
 | Ledger schema boundaries | No foreign key crosses a schema, so context isolation holds in the database as well as in the bytecode | `make test-ledger` |
 | Ledger smoke | The context loads and the Actuator health, liveness and readiness probes answer `UP` | `make test-ledger` |
+| Ledger HTTP | Each controller in a `@WebMvcTest` slice — `AccountControllerTest`, `TransactionControllerTest`, `BudgetControllerTest`, `CategorisationRuleControllerTest`, `PlannedFlowControllerTest`, `ScenarioControllerTest`, `ProjectionControllerTest` and `ComparisonControllerTest` — for its request validation, including a JSON number refused where the contract requires a decimal string, and each refusal's status and problem `code`; `HostAllowListFilterTest` and `LedgerProblemHandlerTest` for the Host allow-list and the problem+json fallback; `AccountingHttpIT`, `BudgetingHttpIT` and `PlanningHttpIT`, which boot the ledger and drive it over HTTP against a real PostgreSQL; and `LedgerContractIT`, which pins the generated OpenAPI document to `contracts/ledger-v1.openapi.json` | `make test-ledger` |
 | Assistant architecture | Every source file is parsed: no inward module imports a framework or the adapters, no module imports another context, no domain module names `float` or reads the wall clock. The scanner itself is unit-tested | `make test-assistant` |
 | Assistant domain | FIFO cost basis, the grounding rule, quote staleness, Money and Currency | `make test-assistant` |
 | Assistant properties | The same Money laws, plus FIFO conservation, via Hypothesis run derandomised | `make test-assistant` |
+| Assistant HTTP | `test_portfolio_api.py` calls the portfolio endpoints over HTTP against a seeded assembly: decimals as strings, camelCase members, 415 for a non-JSON disposal, and no amount in a URL or the access log; `test_problems.py` holds every failure to the ledger's problem shape and codes, a foreign `Host` to the ledger's 403, no exception text on a 5xx, and no rejected input in a 5xx's log line; `test_contract.py` pins the generated OpenAPI document to `contracts/assistant-v1.openapi.json` and holds its `Problem` schema identical to the ledger's | `make test-assistant` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
-| Web architecture | No feature imports another; `shared` imports no feature | `make test-web` |
-| Web unit | The HTTP client's failure contracts and `Accept` header, and a jsdom render of the app shell | `make test-web` |
+| Web architecture | No feature imports another; `shared` imports no feature and nothing from `src/app`; `src/app` imports a feature only through its `index.ts`, and no feature imports `src/app` | `make test-web` |
+| Web unit | The HTTP client's failure contracts and `Accept` header; the shared retry rule, `isRetryable` — a read retried once after a network failure or a 5xx other than a 503, a write never, and "Try again" offered on a failed read by the same rule — with focus moved to what a successful retry restores; a settled mutation cleared when its form is edited, and a pending one left alone; a jsdom render of the app shell; and the shared UI primitives: labelled fields, a pending button, a table region that is a Tab stop only while it overflows, money formatted from its exact decimal string, and dates that never shift with the timezone | `make test-web` |
+| Web accounting | The accounts, account-detail and record-transaction screens end to end against a faked `fetch`: opening an account, recording a transaction by hand — including its two-entry amount mirror and the entry-row mapper's no-arithmetic sign handling — and clearing, reconciling or voiding one, offered only for the states each legally admits | `make test-web` |
+| Web budgeting | The budgets, budget-review and categorisation-rules screens end to end against a faked `fetch`: listing and defining budgets, the month-to-period mapping's calendar arithmetic (including a December rollover) and a non-month period's own display-end arithmetic, reviewing spend with an overspent status and unbudgeted and uncategorised amounts, not-found by problem code, the static `/budgets/rules` route outranking the dynamic `/budgets/:budgetId` one, and adding a rule invalidating the rules list and every cached budget review, proven through the query client's own state | `make test-web` |
+| Web planning | The planned-flows, scenarios, projection and comparison screens end to end against a faked `fetch`: planning a flow and moving it through its lifecycle, defining a scenario, projecting one against chosen accounts with its first shortfall and its chart, comparing scenarios against a baseline, and the account choices `src/app` adapts from accounting | `make test-web` |
+| Web portfolio | The portfolio lookup and holding screens end to end against a faked `fetch`: looking a holding up by symbol, encoded as one path segment; its position and valuation with every figure's exact string, loss wording from a leading minus, and nothing held and no usable price as calm empty states; reading it afresh when its symbol is looked up again; and pricing a disposal — its `POST` body, the quantity and proceeds it priced, cost of sale, realised gain and remaining lots, its 400 and 422 failures, a result or failure cleared once an input is edited, one request per submit, no query invalidated, and a calculator that starts afresh on another holding | `make test-web` |
 
 Deliberately absent are running test counts. Every commit that adds a source file changes the
 parametrised architecture case count, so a number here would be wrong by the next pull request
@@ -268,9 +339,10 @@ Tests are named `Given<scenario>_When<action>_Then<result>` — the reason Ruff'
 disabled for `tests/**`, with the justification recorded in `backend/assistant/pyproject.toml`.
 
 **What CI gates on:** every push and pull request to `main` and `dev` must pass four jobs —
-the ledger's format check and build; the assistant's lint, format check, `mypy --strict`,
-tests and `pip-audit`; the web client's lint, format check, typecheck, tests and production
-build; and a `docker compose config` validation.
+the ledger's format check, build and tests; the assistant's lint, format check, `mypy --strict`,
+tests and `pip-audit`; the web client's contract types, regenerated from `contracts/` with no
+changed or new file, then lint, format check, typecheck, tests, production build and
+`npm audit`; and a `docker compose config` validation, `monitoring` profile included.
 
 **Coverage is measured everywhere and gates nothing.** JaCoCo, `pytest-cov` and
 `@vitest/coverage-v8` run as part of the test targets, and each CI job publishes its report as
@@ -281,7 +353,7 @@ says nothing about whether a test would notice them being wrong.
 **What answers that question is mutation testing**, on demand and also gated on nothing:
 
 ```bash
-cd backend/ledger && ./mvnw -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
+cd backend/ledger && ./mvnw -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
 ```
 
 It earned its place on the first run, finding that deleting `requireSameCurrency` from
@@ -299,7 +371,7 @@ in the repository, the logs or an error message.
 | `POSTGRES_DB` | Database name | `finassist` | No |
 | `POSTGRES_USER` | Database user | `finassist` | No |
 | `LEDGER_DB_PASSWORD` | Ledger database password. The ledger connects as the role Compose creates, so this must match `POSTGRES_PASSWORD` until it gets its own role | none | **Yes** — the ledger refuses to start without it |
-| `ANTHROPIC_API_KEY` | The LLM behind the assistant | none | Once the assistant exists |
+| `ANTHROPIC_API_KEY` | The LLM behind the assistant | none | No — the assistant only registers it for redaction, and nothing uses it until an LLM adapter is wired, which waits on the privacy question |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana admin password | none | **Yes** when using the `monitoring` profile |
 
 <details>
@@ -309,15 +381,19 @@ in the repository, the logs or an error message.
 | Variable | Purpose | Default |
 |---|---|---|
 | `LEDGER_PORT` | Ledger HTTP port | `8080` |
-| `LEDGER_DB_URL` | JDBC URL. `localhost`, because the ledger runs natively while only Postgres is in Compose; it becomes the service name `db` the day the ledger joins the Compose file | `jdbc:postgresql://localhost:5432/finassist` |
+| `LEDGER_ADDRESS` | Interface the ledger binds. Loopback by default, because the ledger has no authentication; `0.0.0.0` only inside a container ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `127.0.0.1` |
+| `LEDGER_ALLOWED_HOSTS` | Comma-separated host names the ledger answers to. An entry containing a `:`, a `[` or a `]`, which covers a port and every IPv6 literal, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `localhost,127.0.0.1` |
+| `LEDGER_DB_URL` | JDBC URL. Compose sets this itself, to the service name `db`, for the `ledger` container; this default targets a native `./mvnw spring-boot:run` at the Compose `db` service's published port | `jdbc:postgresql://localhost:5432/finassist` |
 | `LEDGER_DB_USERNAME` | Ledger database user | `finassist` |
 | `ASSISTANT_PORT` | Assistant HTTP port | `8000` |
 | `LEDGER_BASE_URL` | Where the assistant reaches the ledger | `http://ledger:8080` |
 | `POSTGRES_PORT` | Host port mapped to Postgres. Change it, and `LEDGER_DB_URL` with it, if something already owns 5432 — a natively installed PostgreSQL will otherwise answer instead of the container | `5432` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; each service appends its own signal path | `http://localhost:4318` |
-| `OTEL_EXPORT_ENABLED` | Whether to export telemetry at all — traces and metrics both. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` |
+| `OTEL_EXPORT_ENABLED` | Whether to export telemetry at all — traces, metrics, and the ledger's OTLP log export, which nothing feeds yet. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` |
 | `ASSISTANT_LOG_LEVEL` | Threshold for the assistant's structured logger; one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
-| `ASSISTANT_HOST` | Interface the assistant binds. Loopback by default — nothing runs it in a container yet | `127.0.0.1` |
+| `ASSISTANT_HOST` | Interface the assistant binds. Loopback by default, because the assistant has no authentication; `0.0.0.0` only inside a container, where Compose sets it ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `127.0.0.1` |
+| `ASSISTANT_ALLOWED_HOSTS` | Comma-separated host names the assistant answers to. An entry containing a `:` or a `[`, which covers a port and every IPv6 literal, or a wildcard, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `localhost,127.0.0.1` |
+| `ASSISTANT_DEV_SEED` | Loads a small set of fictional holdings and quotes at start-up, so the portfolio screens have something to show by hand. Invented data, never meant for real use | `false` |
 | `OTLP_HTTP_PORT`, `OTLP_GRPC_PORT` | Host ports for the collector | `4318`, `4317` |
 | `PROMETHEUS_PORT`, `GRAFANA_PORT` | Host ports for the monitoring profile | `9090`, `3000` |
 
@@ -326,8 +402,10 @@ in the repository, the logs or an error message.
 ## Deployment and operations
 
 Not deployed anywhere, and there is no target environment or migration strategy yet —
-stating one here would be fiction. `./mvnw package` produces an executable jar, which is the
-only build artefact that exists.
+stating one here would be fiction. Every build artefact stays on the machine that built it:
+`./mvnw package` produces the ledger's executable jar, `npm run build` the web client's static
+bundle, and `docker compose up --build` an image for each backend service from its own
+Dockerfile.
 
 | Concern | Endpoint or format | State |
 |---|---|---|
@@ -337,11 +415,14 @@ only build artefact that exists.
 | Traces | OTLP to `$OTEL_EXPORTER_OTLP_ENDPOINT` | Live when `OTEL_EXPORT_ENABLED=true`; dropped otherwise, and the services start either way |
 | Logs | JSON on stdout, carrying a W3C trace id | Live — ECS in the ledger, structlog in the assistant. Redaction is enforced in the assistant and the web client, where the secrets are; the ledger holds none and does not expose `/actuator/env` |
 | Dashboards | Grafana, provisioned from `ops/grafana/` | Live under the `monitoring` profile |
-| Audit trail | The append-only journal | Not implemented — needs a store ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)) |
+| Audit trail | The append-only journal | Live — the database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states; a lifecycle change appends rather than overwrites ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md), [ADR-024](docs/ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
+| Ledger API | `GET/POST /api/v1/...`; OpenAPI document at `GET /v3/api-docs`, pinned as [`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json) | Live for accounting, budgeting and planning; the web client's screens for all three call it |
+| Assistant API | `GET/POST /api/v1/portfolio/...`; OpenAPI document at `GET /openapi.json`, pinned as [`contracts/assistant-v1.openapi.json`](contracts/assistant-v1.openapi.json) | Live for portfolio, answering from the development seed or from nothing; the web client's portfolio screens call it |
 
 Run the telemetry backend with `docker compose --profile monitoring up`: Grafana on
 [localhost:3000](http://localhost:3000), Prometheus on
-[localhost:9090](http://localhost:9090), and an OTLP collector on `localhost:4318`. Point the
+[localhost:9090](http://localhost:9090), and an OTLP collector on `localhost:4318`, each published
+on `127.0.0.1` only. Point the
 ledger at it with `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 OTEL_EXPORT_ENABLED=true ./mvnw spring-boot:run`. Traces are printed by the collector
 (`docker compose logs otel-collector`) rather than stored — there is no trace backend, which
@@ -395,7 +476,7 @@ implies the ledger and assistant are one layer, when they are separate contexts 
 languages talking over a versioned contract.
 
 **The assistant never touches the ledger's database**
-([ADR-004](docs/ADRs/ADR-004-http-openapi-service-contract.md), Proposed) — a shared
+([ADR-004](docs/ADRs/ADR-004-http-openapi-service-contract.md), Accepted) — a shared
 database would be the cheapest thing to build and the most expensive to own. Cost: JSON over
 HTTP carries no runtime schema, and contract drift is silent until CI compares the documents.
 
@@ -407,23 +488,39 @@ real — double-entry accounting, periodic budgets, FIFO cost basis, grounded an
 staleness, deterministic projections and strategy comparison, and `Money` in both languages.
 Use cases sit behind ports and are wired by constructor, and the ledger's are backed by
 **PostgreSQL**: a schema per bounded context, Flyway migrations, hand-written SQL, and a journal
-the database itself refuses to rewrite. Twenty-five ADRs. Every architecture rule is live rather
-than dormant, and each was confirmed to fail against a planted violation — including the two new
-ones, which were checked by dropping the append-only trigger and by planting a foreign key across
-a schema boundary. CI gates build, lint,
-format and dependency audit across four jobs, and publishes a coverage report from each.
+the database itself refuses to rewrite. **The ledger now serves accounting, budgeting and
+planning over HTTP** under `/api/v1`, behind a Host allow-list and problem+json error handling,
+with its generated OpenAPI document pinned by `LedgerContractIT` and published as
+[`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json); it runs under Compose as
+well as natively. Twenty-nine ADRs. Every architecture rule is live rather than dormant, and each
+was confirmed to fail against a planted violation — including dropping the append-only trigger and
+planting a foreign key across a schema boundary. CI gates build, lint, format and dependency audit
+across four jobs, and publishes a coverage report from each.
 
-Planned next, in order: resolve the
-[open questions](docs/requirements/requirements.md#open-questions), ratify or reject
-[ADR-004](docs/ADRs/ADR-004-http-openapi-service-contract.md), then put a transport in front of
-the use cases that now have a store behind them. That one decision is what stands between this
-and the first tracking slice end to end.
+**Four slices now run end to end**: the web client's accounting area opens an account, records a
+transaction by hand, and moves one through `Clear`, `Reconcile` and `Void`; its budgeting area
+lists and defines budgets, reviews spend against one — overspent, unbudgeted and uncategorised —
+and adds categorisation rules in order; its planning area plans flows and moves them through their
+lifecycle, defines scenarios, charts a scenario's projection against chosen accounts with its
+first shortfall, and compares scenarios against a baseline — these three against the ledger's live
+HTTP API; and its portfolio area looks up a holding, shows its position and valuation, and prices a
+disposal without recording it, against the assistant's. Planned next, in order: resolve the
+[open questions](docs/requirements/requirements.md#open-questions), then give the assistant a
+ledger client behind its own `LedgerPort`.
 
 Known limitations:
 
-- **Nothing above the application layer exists.** No inbound adapter, no HTTP endpoint and no
-  OpenAPI document, so the use cases cannot be reached from outside the process. They are
-  assembled at start-up, connected to a real database, and called only by tests.
+- **The backend HTTP APIs have one caller so far: the web client.** The ledger serves accounting,
+  budgeting and planning under `/api/v1`, with an OpenAPI document pinned by `LedgerContractIT`;
+  the assistant serves `portfolio` under `/api/v1`, pinned by `tests/test_contract.py`. The web
+  client's accounting, budgeting and planning screens call the ledger's, and its portfolio screens
+  the assistant's. The assistant has no ledger client of its own — `LedgerPort` is still an
+  in-memory stand-in.
+- **The assistant's portfolio data comes only from an opt-in development seed.**
+  `ASSISTANT_DEV_SEED`, off by default, loads a small set of fictional lots and quotes from the
+  composition root so the endpoints have something to answer by hand; it is a development aid,
+  not a data source, and no ledger client or price feed exists yet. Without it, the web client's
+  portfolio screens answer every lookup with nothing held.
 - **The audit trail cannot say who.** The journal records what changed, when and — for a voided
   transaction — why, and the database refuses to let any of it be rewritten. It records no actor,
   because there is no authentication to name one. That gap is
@@ -470,12 +567,9 @@ Known limitations:
   because no price source has been chosen or licence-checked.
 - **TypeScript is one minor behind.** Pinned to 6.0.3 because `typescript-eslint` 8 caps at
   `<6.1.0`; lifts when it supports 7.
-- **Two ADRs are unratified.** Persistence and the service contract are both still open, so
-  the database in Compose has no client and `contracts/` is empty.
-- **`docker compose up` has not been executed** — the file validates with
-  `docker compose config`, but the Docker daemon was not running when it was written.
-- **The Postgres image tag is bumped by hand.** Dependabot has no `docker-compose`
-  ecosystem, and its `docker` ecosystem reads Dockerfiles and Kubernetes manifests only.
+- **The Postgres image tag, and the monitoring services' tags, are bumped by hand.** Dependabot's
+  `docker` ecosystem covers the ledger's and the assistant's own Dockerfiles; there is still no
+  `docker-compose` ecosystem for the image tags named directly in `docker-compose.yml`.
 
 ## Licence
 

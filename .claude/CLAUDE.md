@@ -9,27 +9,60 @@ CI-gated. **All six bounded contexts have a domain layer and an application laye
 Use cases sit behind ports and are wired by constructor. **The ledger's repository ports are
 backed by PostgreSQL** (ADR-006, ratified 2026-09-06): hand-written SQL over `JdbcClient`, Flyway
 migrations, a schema per bounded context, and a journal the database refuses to rewrite
-(ADR-024). Above that there is still nothing: **no inbound adapter, no HTTP endpoint and no
-OpenAPI document**, because ADR-004 is still Proposed. The assistant has no store and needs
-none — all five of its ports are outbound clients. Observability is live (ADR-019):
-the ledger answers Actuator probes, the assistant serves `/health` and `/ready` and assembles
-its use cases at start-up, and the web client renders a placeholder behind an error boundary.
-Both services emit structured JSON logs and OTLP traces.
+(ADR-024). **The ledger now has an inbound HTTP adapter for each of its three contexts**
+(accounting, budgeting, planning) under `/api/v1`, behind a `HostAllowListFilter` and
+problem+json error handling, and an OpenAPI document generated from the code and committed at
+`contracts/ledger-v1.openapi.json`, pinned by `LedgerContractIT`. ADR-004 is Accepted. **The
+assistant now serves `portfolio` under `/api/v1` too**, behind `HostAllowList` and its own
+problem+json handling in `adapters/problems.py`, with its OpenAPI document generated from the
+code and committed at `contracts/assistant-v1.openapi.json`, pinned by `tests/test_contract.py`.
+An opt-in, off-by-default development seed (`ASSISTANT_DEV_SEED`, `adapters/seed.py`) loads
+fictional holdings and quotes so those endpoints have something to answer by hand; the assistant
+still has no store, no ledger client and no price feed. **The web client has its accounting
+area**: `AccountsPage` opens an account and lists every one with its derived balance,
+`RecordTransactionPage` records a transaction by hand at the static route
+`/accounts/transactions/new`, and `AccountDetailPage` shows one account's transactions and moves
+each through `Clear`, `Reconcile` or `Void`, offering only the transitions its status legally
+admits. **It also has its budgeting area**: `BudgetsPage` lists every budget and defines one for
+a calendar month with a limit per category, `BudgetReviewPage` (`/budgets/:budgetId`) shows spend
+by category — overspent, unbudgeted and uncategorised — taking the budget's own period and
+currency from the cached list rather than a single-item read, and `CategorisationRulesPage`, at
+the static route `/budgets/rules`, lists rules in the order they are tried and adds another;
+`/budgets/rules` outranks the dynamic `/budgets/:budgetId` at the same depth by React Router's
+own static-over-dynamic ranking. **It also has its planning area**: `PlannedFlowsPage` plans flows
+and moves each through its lifecycle, `ScenariosPage` defines scenarios, `ProjectionPage`
+(`/planning/projection`) charts a scenario's projection, with its first shortfall, against the
+cash and invested accounts the owner chooses, and `ComparisonPage` (`/planning/compare`) compares
+two or more scenarios against a baseline in tables. Planning's account choices come from
+accounting through `PlanningAccountsBridge` in `src/app`, the web client's one cross-feature
+translation. All three areas call the ledger through the dev proxy, mapping generated wire types
+onto each feature's own in `api/`. **It also has its portfolio area**, calling the assistant
+through the same proxy (ADR-026): `PortfolioPage` looks a holding up by symbol, and `HoldingPage`
+(`/portfolio/:symbol`) shows its position and valuation — nothing held and no usable price as calm
+empty states rather than errors — and prices a disposal as a calculation that records nothing. All
+four screen areas now exist; only "ask a question" is deliberately left out.
+Observability is live (ADR-019): the ledger answers Actuator probes and now traces its business
+endpoints too, and the assistant serves `/health` and `/ready` and assembles its use cases at
+start-up. Both services emit structured JSON logs and OTLP traces. Both services run under
+Compose (`docker compose up`) as well as natively.
 
-Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. Several
-decisions are recorded but not yet ratified, and the requirements are deliberately `TODO`
-rather than inferred from code.
+Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
+Proposed today — all 29 are Accepted — and the requirements are still deliberately `TODO` in
+places rather than inferred from code.
 
 ## Commands
 
 Every target below is a thin wrapper defined in `Makefile`; CI invokes the same ones. `make`
 is **not installed** on the development machine, so the raw command is given for each.
 
-- Build / setup: `make setup` — `cd backend/ledger && ./mvnw -B dependency:go-offline`;
+- Build / setup: `make setup` — `test -f .env || cp .env.example .env`;
+  `cd backend/ledger && ./mvnw -B -q dependency:go-offline`;
   `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci`
-- Run: `make run` — `docker compose up --build` (starts PostgreSQL only). The ledger runs
-  natively with `cd backend/ledger && ./mvnw spring-boot:run` — it needs the database up first
-  and applies its Flyway migrations at start-up; the web client with
+- Run: `make run` — `docker compose up --build` (starts PostgreSQL, the ledger and the
+  assistant; every published port binds `127.0.0.1` only, per ADR-027). For the native inner loop:
+  `cd backend/ledger && ./mvnw spring-boot:run` — it needs the database up first
+  (`docker compose up -d db`) and applies its Flyway migrations at start-up;
+  `cd backend/assistant && uv run python -m finassist_assistant.adapters`; the web client with
   `cd frontend/web && npm run dev`
 - Test (all): `make test`
 - Test (ledger): `cd backend/ledger && ./mvnw -B verify`
@@ -42,17 +75,28 @@ is **not installed** on the development machine, so the raw command is given for
   unit suite) needs no Docker; failsafe does.
 - Test (single, assistant): `cd backend/assistant && uv run pytest tests/test_architecture.py -k <name>`
 - Test (single, web): `cd frontend/web && npx vitest run -t <name>`
-- Mutation testing (ledger): `make mutation-ledger` — `cd backend/ledger && ./mvnw -Pmutation
-  org.pitest:pitest-maven:mutationCoverage`. A diagnostic, gated on nothing (ADR-017)
+- Mutation testing (ledger): `make mutation-ledger` — `cd backend/ledger && ./mvnw -B -Pmutation
+  test-compile org.pitest:pitest-maven:mutationCoverage`. A diagnostic, gated on nothing (ADR-017)
 - Lint / types: `make lint` — `./mvnw -B spotless:check`; `uv run ruff check .`,
   `uv run ruff format --check .`, `uv run mypy src tests`; `npm run lint`,
   `npm run format:check`, `npm run typecheck`
-- Format: `make format` — `./mvnw -B spotless:apply`; `uv run ruff format .`; `npm run format`
+- Format: `make format` — `./mvnw -B spotless:apply`; `uv run ruff format .`,
+  `uv run ruff check --fix .`; `npm run format`
 - Audit: `make audit` — `uv run pip-audit`; `npm audit --audit-level=high`
 - Re-lock Python deps: `make lock` — `cd backend/assistant && uv lock` (required after any
   `pyproject.toml` dependency edit, or CI's `uv sync --locked` fails)
 - Run with telemetry: `make run-monitoring` — `docker compose --profile monitoring up --build`
   (collector, Prometheus, Grafana). `make stop-monitoring` tears the profile down
+- Regenerate the ledger's OpenAPI contract: `cd backend/ledger && ./mvnw -B verify -Dtest=NONE
+  -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running); on a
+  mismatch, copy `target/contracts/ledger-v1.openapi.json` over
+  `contracts/ledger-v1.openapi.json`. Run this after every endpoint change
+- Regenerate the assistant's OpenAPI contract: `cd backend/assistant && uv run pytest
+  tests/test_contract.py` (no container needed); on a mismatch, copy
+  `.contract-drift/assistant-v1.openapi.json` over `contracts/assistant-v1.openapi.json`. Run
+  this after every endpoint change
+- Regenerate the web client's contract types: `make generate-web-api` —
+  `cd frontend/web && npm run generate:api`
 
 Keep this list in sync with the Development table in `README.md`.
 
@@ -71,7 +115,9 @@ so it can be extracted by moving it (ADR-010).
   `observability.py`).
 - `frontend/web/` — React 19, Vite 8, TypeScript. `src/features/` holds one directory per
   user-facing context; `src/shared/`; `src/app/` composes them.
-- `contracts/` — the versioned OpenAPI contract. Empty until the first endpoint.
+- `contracts/` — the versioned OpenAPI contract. Holds `ledger-v1.openapi.json`, generated by
+  springdoc and pinned by `LedgerContractIT`, and `assistant-v1.openapi.json`, generated by
+  FastAPI and pinned by `tests/test_contract.py`.
 - `docs/ADRs/` — one file per decision, `ADR-NNN-short-kebab-title.md`, zero-padded and
   monotonically increasing. Append-only: supersede, never rewrite.
 - `docs/requirements/` — what the system must do. `docs/architecture/` — what it actually is.
@@ -131,8 +177,8 @@ These are enforced by the build, not by review. Breaking one fails CI.
   `adapters/observability.py`, `shared/lib/logger.ts`, or Logback's ECS format (ADR-019).
   Redaction lives at that boundary, never at a call site.
 - **Telemetry is a no-op when unconfigured.** A service must start with no collector named. An
-  endpoint alone never enables export; `OTEL_EXPORT_ENABLED` does, for traces and metrics
-  alike.
+  endpoint alone never enables export; `OTEL_EXPORT_ENABLED` does, for every signal — traces,
+  metrics, and the ledger's OTLP log export, which nothing feeds until a log appender is added.
 - **The assistant's composition root is `src/finassist_assistant/adapters/`.** It is the only
   package that may import FastAPI, structlog or OpenTelemetry outside a context's own
   `adapters`. No context may import it.
@@ -184,8 +230,67 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **`@Transactional` goes on the adapter, never on an application service** —
   `the_application_layer_depends_on_no_framework` fails the build for the latter. When a use case
   must write across two aggregates, the boundary moves to a decorator in `composition`.
+- **A controller calls in-ports only.** `inbound_adapters_reach_only_in_ports` fails the build
+  for a controller reaching a repository, an outbound adapter, or a concrete `application.service`
+  class; `outbound_adapters_do_not_reach_inbound` forbids the reverse.
+- **Problem+json is layered.** A per-context `@RestControllerAdvice` runs at the highest
+  precedence and maps that context's typed exceptions; `LedgerProblemHandler`, the composition
+  fallback, runs at the lowest and catches what none of them claimed; a controller-local handler
+  answers an id named in a body or query, since the same not-found exception is 404 from a path
+  and 422 from a body (ADR-028).
+- **Every decimal on the wire is a string, never a JSON number** — money, growth rates and
+  quantities alike (ADR-028). The ledger refuses a JSON number in any text member with 400
+  through `StrictTextCoercion`, proven against the running ledger by `AccountingHttpIT`. A
+  `@WebMvcTest` slice that sends a number must `@Import` it, since a slice loads no scanned
+  configuration.
+- **A lifecycle date comes from the request body, never the clock** — "pass the clock in",
+  applied at the edge.
+- **A create answers `201` with the created representation and no `Location` header** — there is
+  no single-item read for one to name (ADR-028).
+- **Every POST `consumes` `application/json`.** A form post from a cross-site page is refused 415
+  before a handler runs (ADR-027).
+- **The Host allow-list lives in `composition`.** `HostAllowListFilter`, at the highest filter
+  precedence, refuses a `Host` outside `LEDGER_ALLOWED_HOSTS` with 403 — before Actuator, and
+  before any controller (ADR-027).
+- **A web DTO's simple name is unique across every context** — `MoneyDto` alone is exempt, one
+  identical copy per context on purpose. `web_dto_names_are_unique_across_contexts`;
+  `MoneyDtoShapesTest` keeps the copies identical.
+- **The contract snapshot must be regenerated with every endpoint change**, or `LedgerContractIT`
+  fails the build — see Commands above. It also refuses an `operationId` ending `_<digits>` (a
+  springdoc collision) and a response schema missing `required` for an always-present member.
+- **A fractional or decimal-pointed JSON number in an integer field is a 400**, `1.5` and `1.0`
+  alike, ledger-wide (`spring.jackson.deserialization.accept-float-as-int: false`).
+- **The assistant's router is a factory taking use cases, and never reads `app.state`.** Its
+  handlers are `def`, never `async def` — every port behind them is synchronous (ADR-021).
+- **The assistant's problem handlers live in the composition root**, `adapters/problems.py` —
+  the one assistant package allowed to see every context's exceptions, mirroring
+  `LedgerProblemHandler`.
+- **Wire members are camelCase and currency is a `Literal` of ISO codes, resolved by code** — on
+  both services.
+- **No money amount travels in a URL, on either service.** A disposal calculation is priced by
+  `POST` with a JSON body, never a `GET` with query parameters; none of the ledger's `GET`s
+  carries one either.
+- **The assistant's contract must be regenerated on any endpoint change**, exactly like the
+  ledger's — see Commands above.
+- **The web client's contract types under `src/shared/api/contracts/` are generated, never
+  hand-written.** Regenerate them after either service's contract changes (`make
+  generate-web-api`), and CI fails the `web` job on a diff it did not expect (ADR-029).
+- **The assistant's development seed is off by default** (`ASSISTANT_DEV_SEED`) and lives only
+  in the composition root (`adapters/seed.py`).
+- **A logged 500 never carries an amount.** The guarantee is the assistant's problem handlers:
+  `_withheld` logs a 500 caused by a validation failure through `_rejections`
+  (`adapters/problems.py`): each error's `loc` and `type` alone, never its message, its input or
+  `exc_info`, because FastAPI's `ResponseValidationError` quotes the input however a model is
+  configured. The wire models' `hide_input_in_errors=True` is defence in depth for anything else
+  that prints a pydantic `ValidationError`, not the guarantee. A 503 `PRICE_UNAVAILABLE` logs the
+  event and the symbol only, never a traceback.
+- **Both Host allow-lists refuse, at start-up, an entry naming a port or an IPv6 literal**:
+  `ASSISTANT_ALLOWED_HOSTS` refuses one containing a `:` or a `[`, and
+  `HostAllowListFilter` refuses a `:`, a `[` or a `]` in `LEDGER_ALLOWED_HOSTS`.
+- **Neither service serves a `/docs` or `/redoc` UI.** `/openapi.json` (and the ledger's own
+  OpenAPI route) stays.
 
-The ledger's seven ArchUnit rules are **live**. The `archRule.failOnEmptyShould=false` escape
+The ledger's ten ArchUnit rules are **live**. The `archRule.failOnEmptyShould=false` escape
 hatch was deleted with the first domain class, so a rule matching nothing now fails rather than
 passing quietly. Do not reintroduce it.
 
@@ -193,3 +298,70 @@ TypeScript is pinned to 6.0.3, not 7.x, because `typescript-eslint` 8 declares
 `typescript: >=4.8.4 <6.1.0` — past that, `npm ci` fails with ERESOLVE. Dependabot is
 configured to ignore `typescript >=6.1.0` so it stops proposing the bump every week. Lift
 both the pin and that ignore entry together, once typescript-eslint supports 7.
+
+## Review conventions (not build-enforced)
+
+Nothing here fails CI. These are patterns to check for in review, worth naming so they stay
+consistent rather than because a test would catch a deviation.
+
+- **A web feature's `api/` is its anti-corruption layer.** It types each response with the
+  generated wire type and maps it, member by member, onto the feature's own type in `types/`;
+  nothing outside `api/` imports a generated type (ADR-029).
+- **A web feature's query keys come from one factory constant**, such as `accountKeys`, never a
+  key literal spelled at the call site. A mutation invalidates only the keys that can have
+  changed, never a wider prefix that would refetch data nothing touched.
+- **A web mutation's submit control disables itself while the mutation is pending**, and a
+  submit event arriving anyway is ignored by an in-flight `useRef` guard, not the render-time
+  `isPending` — two submit events can arrive before pending has rendered (ADR-028: no double
+  submit).
+- **A lifecycle date on the web client defaults to the browser's local today**, built through a
+  helper that takes the date as an argument, such as `todayIsoDate(new Date())` — never
+  `toISOString()`, which reads UTC and never `now()` called inside the helper itself.
+- **A mutation that can affect an unknown number of cached queries invalidates them by a
+  hierarchical key prefix, not by enumeration or a predicate.** `useAddCategorisationRule` cannot
+  list which budgets exist, so `budgetKeys` gives every review a shared parent -
+  `reviews: ['budgets', 'reviews']` and `review(id): ['budgets', 'reviews', id]` - and the
+  mutation invalidates `queryKey: budgetKeys.reviews`, a plain prefix match that reaches every
+  review and nothing else, since a sibling such as `list` sits outside that prefix by
+  construction. Reach for `predicate` only when the affected keys cannot be given a common
+  prefix without also catching a key that must not be invalidated. A mutation that already knows
+  the affected ids (such as `useRecordTransaction` knowing which accounts an entry set names)
+  still invalidates each key directly. A test proves the scope through the query client's own
+  state (`getQueryState(key)?.isInvalidated`), not just the call's arguments.
+- **A web date helper does calendar-part arithmetic on integers, never `Date` parsed from a
+  string.** `period.ts`'s month-to-period mapping and day-before calculation use plain year/month
+  integers with a leap-year-aware days-in-month table; a `Date` is built only to hand an already
+  computed instant to `Intl.DateTimeFormat`, pinned to `timeZone: 'UTC'` exactly as `DateText`
+  does, so formatting cannot shift the result with the browser's own zone.
+- **Cross-feature data enters a web feature only through a context the feature declares and
+  `src/app` provides.** Planning declares `AccountOptionsContext`, in its own terms, and
+  `PlanningAccountsBridge` in `src/app` fills it from accounting's `useAccounts` (ADR-010,
+  ADR-022). `tests/architecture.test.ts` enforces that no feature imports another; that the data
+  arrives through a declared context rather than, say, a prop threaded from `src/app`, and that
+  the hook reading it throws without a provider, is held in review.
+- **A chart's scale function is the only place an amount becomes a number**, and only to compute a
+  pixel coordinate - `scalePoints` in `features/planning/components/chartScale.ts`. Every figure a
+  person reads - labels, axis extremes, tables, title text - is the server's string through
+  `MoneyText` (ADR-029).
+- **A form section scoped to one entity is keyed by that entity's id**, so navigating to another
+  entity on the same route starts it afresh instead of carrying one entity's inputs or result onto
+  the next. `HoldingPage` keys `DisposalSection` and its lookup by `symbol`; a test proves the reset
+  by returning to an entity whose data is already cached, where only the key can cause a remount.
+- **A lookup that can land on the URL already open invalidates that entity's key prefix**, since
+  navigating to the same URL changes no query key and refetch on focus is off. `SymbolLookup`
+  invalidates `portfolioKeys.holding(symbol)` through `useRefreshHolding`, pinned by a test
+  asserting the whole invalidation set and that another cached entity stays valid.
+- **Editing any field of a settled form clears its answer.** Each field's change handler calls
+  `clearSettledOutcome(mutation)` from `src/shared/lib/settledMutation.ts`, which resets a mutation
+  whose status is `error` or `success`, so its alert, its field errors or its result, such as a
+  priced disposal, never stands beside inputs it no longer answers. A pending mutation is left
+  alone: resetting it would detach the `onSettled` that releases the in-flight guard, and the form
+  would stay locked. Each form has a test that editing a field clears its failure, and, for the
+  disposal, its result.
+- **A failed read offers "Try again" only when `isRetryable(error)` holds** — a network failure,
+  or a 5xx other than a 503. The predicate lives in `src/shared/api/retry.ts`, and the query
+  client's automatic retry imports the same one, so the two never disagree; a 4xx is the server's
+  considered answer, shown with nothing to press. Every feature renders a failed read through the
+  shared `QueryErrorState` from `src/shared/ui`, which renders its `RetryButton`, never a copy of
+  its own; moves focus to what a successful retry restores with `useRetryFocus`; and checks a
+  problem's code with `hasProblemCode`, beside `ApiError`.

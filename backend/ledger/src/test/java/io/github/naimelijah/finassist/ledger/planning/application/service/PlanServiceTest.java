@@ -20,6 +20,7 @@ import io.github.naimelijah.finassist.ledger.planning.domain.plan.Recurrence;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.LocalDate;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -141,6 +142,18 @@ class PlanServiceTest {
         service.cancel(planned.id(), FEB_10, "  too expensive  ");
 
         assertThat(events.published()).contains(new PlanningEvent.PlanCancelled(planned.id(), FEB_10, "too expensive"));
+    }
+
+    /** Listing derives nothing of its own - ordering is the repository's job. */
+    @Test
+    void Given_flows_stored_When_listed_Then_they_come_back_in_the_repositorys_order() {
+        PlannedFlow car = PlannedFlow.plan(
+                "New car", Money.of("40000.00", Currency.ILS), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+        PlannedFlow bike = PlannedFlow.plan(
+                "Bike", Money.of("500.00", Currency.ILS), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+        when(flows.all()).thenReturn(List.of(bike, car));
+
+        assertThat(service.all()).containsExactly(bike, car);
     }
 
     /**

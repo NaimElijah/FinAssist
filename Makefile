@@ -10,9 +10,9 @@ MVNW      := ./mvnw -B
 UV        := uv
 
 .PHONY: help setup lock run run-monitoring stop stop-monitoring \
-        test test-ledger test-assistant test-web \
+        test test-ledger test-assistant test-web mutation-ledger \
         lint lint-ledger lint-assistant lint-web \
-        build-web format audit audit-assistant audit-web clean
+        build-web generate-web-api format audit audit-assistant audit-web clean
 
 help: ## List available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -70,6 +70,9 @@ lint-web:
 
 build-web: ## Production bundle
 	cd $(WEB) && npm run build
+
+generate-web-api: ## Regenerate the web client's contract types from contracts/*.openapi.json
+	cd $(WEB) && npm run generate:api
 
 format: ## Rewrite sources to match the formatters
 	cd $(LEDGER) && $(MVNW) spotless:apply

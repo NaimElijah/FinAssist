@@ -1,0 +1,49 @@
+/*
+ * The base every element inherits. Component styles live beside their components as CSS Modules;
+ * this sheet only sets what no single component owns. The values come from
+ * src/shared/ui/tokens.css, which main.tsx imports first.
+ */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    text-size-adjust: 100%;
+}
+
+body {
+    margin: 0;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-body);
+    line-height: var(--line-height-body);
+}
+
+/* Form controls do not inherit the page's font by default. */
+button,
+input,
+select,
+textarea {
+    font: inherit;
+}
+
+/* Every page opens with one h1 naming its area, so its size is set once here. */
+h1 {
+    margin: 0 0 var(--space-5);
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-strong);
+    line-height: var(--line-height-tight);
+}
+
+a {
+    color: var(--color-accent);
+}
+
+/* One focus ring for everything, shown for keyboard focus and never removed. */
+:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+}

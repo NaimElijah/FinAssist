@@ -1,0 +1,32 @@
+.section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-block-start: var(--space-6);
+}
+
+.heading {
+    margin: 0;
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-strong);
+    line-height: var(--line-height-tight);
+}
+
+.form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+/* Fields top-aligned, so one showing an error beneath it does not push its neighbours down. */
+.fields {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--space-3) var(--space-4);
+}
+
+.noFlows {
+    margin: 0;
+    color: var(--color-muted);
+}

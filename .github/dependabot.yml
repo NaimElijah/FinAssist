@@ -1,10 +1,10 @@
 # Java has no `pip-audit` equivalent wired into CI; Dependabot is what keeps the Maven
 # tree, the Python tree and the workflows themselves current.
 #
-# The postgres image tag in docker-compose.yml is NOT covered: Dependabot's `docker`
-# ecosystem fetches Dockerfiles, Containerfiles and Kubernetes manifests only, and there is
-# no `docker-compose` ecosystem. Bump that tag by hand, or add a `docker` entry here once
-# the services have Dockerfiles.
+# The ledger's and the assistant's Dockerfile base images are covered below. The image tags in
+# docker-compose.yml (postgres, the monitoring services) are NOT: Dependabot's `docker`
+# ecosystem fetches Dockerfiles, Containerfiles and Kubernetes manifests only, and there is no
+# `docker-compose` ecosystem. Bump those tags by hand.
 version: 2
 
 # Every update targets `dev`, not the default branch. Dependabot defaults to `main`, which
@@ -21,7 +21,25 @@ updates:
     commit-message:
       prefix: "chore(deps)"
 
+  - package-ecosystem: docker
+    directory: /backend/ledger
+    schedule:
+      interval: weekly
+    target-branch: dev
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
   - package-ecosystem: uv
+    directory: /backend/assistant
+    schedule:
+      interval: weekly
+    target-branch: dev
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: docker
     directory: /backend/assistant
     schedule:
       interval: weekly
@@ -45,6 +63,21 @@ updates:
         patterns:
           - "vitest"
           - "@vitest/*"
+      # Pre-1.0 (ADR-029): a minor release may change the generated output, so a bump lands as
+      # one grouped PR that regenerates src/shared/api/contracts, rather than several PRs each
+      # claiming a clean diff the others already broke.
+      #
+      # frontend/web/package.json also carries a root `overrides` entry pinning the transitive
+      # js-yaml @hey-api/openapi-ts pulls in (via @hey-api/json-schema-ref-parser, which
+      # declares js-yaml 4.2.0 exactly) up to 4.3.2: 4.2.0 carries three high-severity
+      # advisories - GHSA-52cp-r559-cp3m, GHSA-5p4m-2wfm-xmqj and GHSA-2883-xcg3-v3hh, all
+      # quadratic-CPU-consumption issues in YAML merge-key/omap handling - that fail
+      # `npm audit --audit-level=high`. Drop the override once
+      # @hey-api/json-schema-ref-parser (via @hey-api/openapi-ts) allows js-yaml >= 4.3.2 on
+      # its own.
+      hey-api:
+        patterns:
+          - "@hey-api/*"
     ignore:
       # typescript-eslint 8.68.0 declares `typescript: >=4.8.4 <6.1.0`. A bump past that makes
       # `npm ci` fail outright with ERESOLVE - PR #5 proved it, the Web job could not install.

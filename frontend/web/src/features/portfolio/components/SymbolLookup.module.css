@@ -1,0 +1,21 @@
+.section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-block-start: var(--space-6);
+}
+
+.heading {
+    margin: 0;
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-strong);
+    line-height: var(--line-height-tight);
+}
+
+/* The button sits beside the field and drops beneath it when the row runs out of room. */
+.form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3) var(--space-4);
+}

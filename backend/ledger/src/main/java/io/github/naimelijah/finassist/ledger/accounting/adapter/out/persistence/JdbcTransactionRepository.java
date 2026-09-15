@@ -40,6 +40,9 @@ import org.springframework.transaction.annotation.Transactional;
  */
 public class JdbcTransactionRepository implements TransactionRepository {
 
+    private static final String ENTRY_TABLE = "accounting.journal_entry";
+    private static final String STATE_TABLE = "accounting.journal_transaction_state";
+
     /**
      * Every read starts here. The lateral join takes the newest state row per transaction, and the
      * entry join fans out one row per entry; {@link #toTransactions} regroups them. One statement
@@ -283,8 +286,9 @@ public class JdbcTransactionRepository implements TransactionRepository {
         static final org.springframework.jdbc.core.RowMapper<Row> MAPPER = Row::map;
 
         static Row map(ResultSet row, int rowNumber) throws SQLException {
+            UUID transactionId = row.getObject("transaction_id", UUID.class);
             return new Row(
-                    row.getObject("transaction_id", UUID.class),
+                    transactionId,
                     row.getObject("occurred_on", LocalDate.class),
                     row.getString("description"),
                     new StoredState(
@@ -292,7 +296,12 @@ public class JdbcTransactionRepository implements TransactionRepository {
                             row.getObject("effective_on", LocalDate.class),
                             row.getString("reason")),
                     row.getObject("account_id", UUID.class),
-                    AccountingRows.money(row, "amount", "currency"));
+                    AccountingRows.money(
+                            row,
+                            ENTRY_TABLE,
+                            "transaction_id=" + transactionId + ", ordinal=" + row.getInt("ordinal"),
+                            "amount",
+                            "currency"));
         }
     }
 
@@ -325,7 +334,7 @@ public class JdbcTransactionRepository implements TransactionRepository {
                 case "CLEARED" -> new TransactionState.Cleared(effectiveOn);
                 case "RECONCILED" -> new TransactionState.Reconciled(effectiveOn);
                 case "VOIDED" -> new TransactionState.Voided(effectiveOn, reason);
-                default -> throw new IllegalStateException("Unknown stored transaction state: " + state);
+                default -> throw AccountingRows.unmappable(STATE_TABLE, "state", state);
             };
         }
     }

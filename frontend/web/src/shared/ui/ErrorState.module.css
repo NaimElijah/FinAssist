@@ -1,0 +1,29 @@
+.error {
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-negative);
+    border-radius: var(--radius-panel);
+    background: var(--color-negative-tint);
+    color: var(--color-text);
+}
+
+.message {
+    margin: 0;
+    font-weight: var(--font-weight-strong);
+}
+
+.fields {
+    margin: var(--space-2) 0 0;
+    padding-inline-start: var(--space-5);
+    font-size: var(--font-size-sm);
+}
+
+.field {
+    font-weight: var(--font-weight-strong);
+}
+
+.action {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-block-start: var(--space-3);
+}

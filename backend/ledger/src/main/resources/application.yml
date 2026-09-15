@@ -3,16 +3,48 @@
 # code that needs it.
 server:
   port: ${LEDGER_PORT:8080}
+  # Loopback by default. The ledger has no authentication, which is safe only while nothing but
+  # this machine can reach it; a container overrides this with 0.0.0.0, because its own loopback
+  # is unreachable from the host (ADR-027).
+  address: ${LEDGER_ADDRESS:127.0.0.1}
+
+finassist:
+  http:
+    # Host names the ledger answers to, compared without the port. Loopback alone does not stop
+    # DNS rebinding: a hostile page whose name has been repointed at 127.0.0.1 is same-origin with
+    # the ledger, yet every request it sends still names the page's own host. HostAllowListFilter
+    # refuses those with 403, Actuator included (ADR-027).
+    allowed-hosts: ${LEDGER_ALLOWED_HOSTS:localhost,127.0.0.1}
+
+springdoc:
+  api-docs:
+    # The ledger serves its contract on purpose (ADR-028), so the switch is set rather than left to
+    # springdoc's default. Left unset, springdoc 3.1.1 serves the document anyway and warns at every
+    # start-up that the endpoint "is enabled by default"; set, that warning is gone.
+    enabled: true
+  # LedgerContractIT compares the generated document with contracts/ledger-v1.openapi.json, so it
+  # must be deterministic and hold only the contract (ADR-028). Sorted keys keep a regenerated
+  # file's diff down to what actually changed.
+  writer-with-order-by-keys: true
+  # Actuator and anything else outside the versioned API stay out of the contract.
+  paths-to-match: /api/v1/**
 
 spring:
+  jackson:
+    deserialization:
+      # A fraction is not an integer. Jackson 3 truncates one into an int member by default, so
+      # "interval": 1.5 would quietly plan a recurrence the client never sent. Off, it is a
+      # malformed body and a 400, like any other wrong type (ADR-028).
+      accept-float-as-int: false
+
   application:
     # Becomes OpenTelemetry's service.name. Fixed per service on purpose: one shared name
     # across two services would merge their telemetry into one stream (ADR-019).
     name: finassist-ledger
 
   datasource:
-    # Defaults target the Compose database on localhost, because the ledger runs natively on the
-    # host; the variables move to the service name the day it joins docker-compose.yml. No
+    # Defaults serve the native run: a ledger on the host reaching the Compose database through its
+    # published port on localhost. The Compose ledger overrides them with the service name, db. No
     # password default — an unset one should fail to connect, not silently try an empty string.
     url: ${LEDGER_DB_URL:jdbc:postgresql://localhost:5432/finassist}
     username: ${LEDGER_DB_USERNAME:finassist}
@@ -41,7 +73,7 @@ management:
   endpoints:
     web:
       exposure:
-        # An explicit allow-list, never "*". LedgerApplicationTest asserts /actuator/env is 404,
+        # An explicit allow-list, never "*". LedgerApplicationIT asserts /actuator/env is 404,
         # which is what stops this being widened by accident.
         include: health,info,metrics,prometheus
   endpoint:
@@ -69,14 +101,31 @@ management:
       # of for gaps in the only traces that exist.
       probability: 1.0
     export:
-      # Both signals are gated by one flag. Metrics need it as much as traces:
-      # spring-boot-starter-opentelemetry drags in micrometer-registry-otlp, which otherwise
-      # POSTs to localhost:4318/v1/metrics every minute forever on a machine with no
-      # collector — exactly the noise ADR-019's no-op promise exists to avoid.
-      enabled: ${OTEL_EXPORT_ENABLED:false}
+      otlp:
+        # The OTLP exporter's own switch, deliberately not management.tracing.export.enabled.
+        # Spring Boot documents that global one as "export and propagate": off, it removes both
+        # W3C propagators (OpenTelemetryPropagationConfigurations) and leaves a no-op one, so every
+        # request would start a new trace instead of continuing the caller's traceparent.
+        # Correlation holds with export off (ADR-019); only export is opt-in. Any tracing exporter
+        # added later needs its own management.tracing.export.<name>.enabled set to
+        # ${OTEL_EXPORT_ENABLED:false}, because the global switch no longer gates export.
+        #
+        # Every signal is gated by one flag. Metrics need it as much as traces:
+        # spring-boot-starter-opentelemetry drags in micrometer-registry-otlp, which otherwise
+        # POSTs to localhost:4318/v1/metrics every minute forever on a machine with no
+        # collector — exactly the noise ADR-019's no-op promise exists to avoid.
+        enabled: ${OTEL_EXPORT_ENABLED:false}
   otlp:
     metrics:
       export:
+        enabled: ${OTEL_EXPORT_ENABLED:false}
+  logging:
+    export:
+      otlp:
+        # Logs too. Spring Boot maps OTEL_EXPORTER_OTLP_ENDPOINT onto the log exporter's endpoint as
+        # well, and OnEnabledLoggingExportCondition treats an unset switch as on, so the endpoint alone
+        # builds an OtlpHttpLogRecordExporter with export off. Nothing feeds it until an OpenTelemetry
+        # log appender is added; this keeps log export opt-in for the day one is.
         enabled: ${OTEL_EXPORT_ENABLED:false}
 
 # The OTLP endpoint is deliberately not set here. Spring Boot 4.1 registers

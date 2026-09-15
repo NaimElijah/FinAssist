@@ -1,0 +1,19 @@
+/* A result always follows the form that asked for it, so it keeps that form's distance above. */
+.section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-block-start: var(--space-6);
+}
+
+.heading {
+    margin: 0;
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-strong);
+    line-height: var(--line-height-tight);
+}
+
+.pending {
+    margin: 0;
+    color: var(--color-muted);
+}

@@ -4,6 +4,7 @@ import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Acco
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.JournalLine;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.ViewBalanceUseCase;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.ViewJournalUseCase;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.ViewTransactionsUseCase;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.out.AccountRepository;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.out.TransactionRepository;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.Account;
@@ -24,7 +25,7 @@ import java.util.Objects;
  * <p>Both answers are derived on every call. That is the whole point of "derived, never stored": a
  * balance cannot drift from its entries when there is no second copy of it to drift.
  */
-public class JournalService implements ViewBalanceUseCase, ViewJournalUseCase {
+public class JournalService implements ViewBalanceUseCase, ViewJournalUseCase, ViewTransactionsUseCase {
 
     private final AccountRepository accounts;
     private final TransactionRepository transactions;
@@ -76,6 +77,22 @@ public class JournalService implements ViewBalanceUseCase, ViewJournalUseCase {
             }
         }
         return List.copyOf(lines);
+    }
+
+    @Override
+    public List<Transaction> between(LocalDate fromInclusive, LocalDate toExclusive) {
+        Objects.requireNonNull(fromInclusive, "fromInclusive");
+        Objects.requireNonNull(toExclusive, "toExclusive");
+        return transactions.findBetween(fromInclusive, toExclusive);
+    }
+
+    @Override
+    public List<Transaction> forAccount(AccountId account) {
+        Objects.requireNonNull(account, "account");
+        // Checked before querying transactions so an unknown account fails as AccountNotFoundException
+        // rather than reading as "no transactions" - the same distinction balanceOf draws.
+        require(account);
+        return transactions.findByAccount(account);
     }
 
     private Account require(AccountId id) {

@@ -87,6 +87,16 @@ class ScenarioServiceTest {
                         defined.id(), "Buy the car", Currency.ILS, List.of(car.id())));
     }
 
+    /** Listing derives nothing of its own - ordering is the repository's job. */
+    @Test
+    void Given_scenarios_stored_When_listed_Then_they_come_back_in_the_repositorys_order() {
+        Scenario baseline = Scenario.baseline("Do nothing", Currency.ILS, GrowthAssumption.none());
+        Scenario aggressive = Scenario.baseline("Aggressive", Currency.ILS, GrowthAssumption.none());
+        when(scenarios.all()).thenReturn(List.of(aggressive, baseline));
+
+        assertThat(service.all()).containsExactly(aggressive, baseline);
+    }
+
     private Scenario define(String name, Currency currency, List<PlanId> ids) {
         return service.define(new DefineScenarioCommand(name, currency, ids, GrowthAssumption.none()));
     }

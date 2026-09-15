@@ -17,10 +17,10 @@ scrape_configs:
     static_configs:
       - targets: ['otel-collector:8889']
 
-  # The ledger runs natively on the host, not in Compose - README's Quick start starts it with
-  # `./mvnw spring-boot:run`. host.docker.internal is how a container reaches back out; the
-  # extra_hosts entry in docker-compose.yml is what makes that name resolve on Linux.
+  # The monitoring profile scrapes the Compose ledger, by its service name on the shared Compose
+  # network. A natively-run ledger bound to loopback (ADR-027, `./mvnw spring-boot:run`) is not
+  # reachable this way and is not scraped.
   - job_name: finassist-ledger
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ['host.docker.internal:8080']
+      - targets: ['ledger:8080']

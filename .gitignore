@@ -25,6 +25,8 @@ coverage.xml
 htmlcov/
 dist/
 *.egg-info/
+# The assistant's generated OpenAPI document, written only when it differs from contracts/
+backend/assistant/.contract-drift/
 
 # Node / frontend
 node_modules/

@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.AccountNotFoundException;
@@ -133,6 +135,49 @@ class JournalServiceTest {
                         List.of(new Entry(dangling, ils("1.00")), new Entry(cash.id(), ils("-1.00"))))));
 
         assertThatThrownBy(() -> service.postedBetween(MARCH_1, APRIL_1)).isInstanceOf(AccountNotFoundException.class);
+    }
+
+    /**
+     * The point of this port next to {@code ViewJournalUseCase}: a lifecycle view must show what was
+     * voided, not silently drop it the way a balance and a spend total do.
+     */
+    @Test
+    void Given_transactions_in_range_including_a_voided_one_When_read_Then_all_are_returned_in_the_stores_order() {
+        Transaction voided = purchase(MARCH_1, "Groceries", "12.50").markVoided(MARCH_15, "entered twice");
+        Transaction posted = purchase(MARCH_15, "Rent", "2000.00");
+        when(transactions.findBetween(MARCH_1, APRIL_1)).thenReturn(List.of(voided, posted));
+
+        assertThat(service.between(MARCH_1, APRIL_1)).containsExactly(voided, posted);
+    }
+
+    /**
+     * An unknown account must fail before the store is asked for transactions, or a typo'd id would
+     * read as "no transactions" rather than "no such account" — the same distinction {@code
+     * balanceOf} draws.
+     */
+    @Test
+    void Given_an_unknown_account_When_its_transactions_are_read_Then_it_is_refused_and_transactions_are_not_queried() {
+        AccountId unknown = AccountId.generate();
+        when(accounts.findById(unknown)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.forAccount(unknown)).isInstanceOf(AccountNotFoundException.class);
+
+        verify(transactions, never()).findByAccount(any());
+    }
+
+    @Test
+    void Given_a_known_account_with_no_transactions_When_read_Then_the_answer_is_empty_rather_than_an_error() {
+        when(transactions.findByAccount(cash.id())).thenReturn(List.of());
+
+        assertThat(service.forAccount(cash.id())).isEmpty();
+    }
+
+    @Test
+    void Given_a_known_account_with_transactions_When_read_Then_the_stores_result_is_returned_verbatim() {
+        List<Transaction> stored = List.of(purchase(MARCH_1, "Groceries", "12.50"));
+        when(transactions.findByAccount(cash.id())).thenReturn(stored);
+
+        assertThat(service.forAccount(cash.id())).containsExactlyElementsOf(stored);
     }
 
     private Transaction purchase(LocalDate on, String description, String amount) {

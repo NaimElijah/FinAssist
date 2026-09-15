@@ -1,16 +1,28 @@
 package io.github.naimelijah.finassist.ledger;
 
 import static com.tngtech.archunit.base.DescribedPredicate.alwaysTrue;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.INTERFACES;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
+import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Enforces the structural rules the ledger is built on, so that they fail a build rather than a
@@ -39,6 +51,27 @@ class LedgerArchitectureTest {
      * them is what it is for. Mirrors the assistant's {@code adapters/} package. See ADR-022.
      */
     private static final String COMPOSITION = ROOT + ".composition..";
+
+    /**
+     * What {@code domain_depends_on_no_framework} and {@code
+     * the_application_layer_depends_on_no_framework} both forbid.
+     *
+     * <p>{@code tools.jackson..} sits beside {@code com.fasterxml.jackson..} because Spring Boot 4
+     * moved Jackson 3's databind and core packages to {@code tools.jackson}, while its annotations
+     * stayed at {@code com.fasterxml.jackson.annotation}. Naming only the old package would let a
+     * {@code tools.jackson.databind.ObjectMapper} field into either layer undetected. {@code
+     * io.swagger..} and {@code org.springdoc..} close the same gap for the OpenAPI annotations and
+     * generator the build gained alongside it (ADR-028).
+     */
+    private static final String[] FORBIDDEN_FRAMEWORK_PACKAGES = {
+        "org.springframework..",
+        "jakarta..",
+        "javax..",
+        "com.fasterxml.jackson..",
+        "tools.jackson..",
+        "io.swagger..",
+        "org.springdoc.."
+    };
 
     /**
      * Dependencies point inward only, in every context at once. The patterns span contexts
@@ -94,7 +127,7 @@ class LedgerArchitectureTest {
             .resideInAPackage(ROOT + "..domain..")
             .should()
             .dependOnClassesThat()
-            .resideInAnyPackage("org.springframework..", "jakarta..", "javax..", "com.fasterxml.jackson..")
+            .resideInAnyPackage(FORBIDDEN_FRAMEWORK_PACKAGES)
             .because("the domain is the product; frameworks are replaceable detail");
 
     /**
@@ -161,6 +194,123 @@ class LedgerArchitectureTest {
             .resideInAPackage(ROOT + "..application..")
             .should()
             .dependOnClassesThat()
-            .resideInAnyPackage("org.springframework..", "jakarta..", "javax..", "com.fasterxml.jackson..")
+            .resideInAnyPackage(FORBIDDEN_FRAMEWORK_PACKAGES)
             .because("a use case that needs a container to construct cannot be tested by calling it");
+
+    /**
+     * An inbound adapter drives the application through its in-ports and nothing else.
+     *
+     * <p>{@code layers_point_inward} treats every adapter as one layer that may reach the whole
+     * application layer, so on its own it lets a controller depend on three things it must not:
+     *
+     * <ul>
+     *   <li>an outbound adapter, or an out-port such as a repository, which skips the use case and every
+     *       rule the use case enforces;
+     *   <li>a concrete service in {@code application.service}. {@code LedgerConfiguration} registers each
+     *       service as a bean, so a controller injecting {@code TransactionService} starts and passes
+     *       every other rule. It is then bound to one implementation and to every port that
+     *       implementation also serves, rather than to the use case it calls.
+     * </ul>
+     *
+     * <p>A controller may still name what it translates: the in-ports with their commands and exceptions,
+     * the domain types they return, and {@code shared}. Only the <em>interfaces</em> in {@code port.out}
+     * are forbidden. The records there stay reachable, because an in-port's command may carry one:
+     * planning's {@code ProjectScenarioCommand} holds {@code AccountRef}, which lives in {@code port.out}
+     * beside the port that consumes it, so a controller building that command has to name it.
+     */
+    @ArchTest
+    static final ArchRule inbound_adapters_reach_only_in_ports = noClasses()
+            .that()
+            .resideInAPackage(ROOT + "..adapter.in..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage(ROOT + "..adapter.out..")
+            .orShould()
+            .dependOnClassesThat(
+                    resideInAPackage(ROOT + "..application.port.out..").and(INTERFACES))
+            .orShould()
+            .dependOnClassesThat()
+            .resideInAPackage(ROOT + "..application.service..")
+            .because("a controller reaches the application only through the in-ports it drives");
+
+    /**
+     * An outbound adapter serves the application and knows nothing of how the application was called.
+     *
+     * <p>A store that named a controller's transport type would tie the schema mapping to the wire
+     * shape, so a change to the contract would reach the database.
+     */
+    @ArchTest
+    static final ArchRule outbound_adapters_do_not_reach_inbound = noClasses()
+            .that()
+            .resideInAPackage(ROOT + "..adapter.out..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage(ROOT + "..adapter.in..")
+            .because("the wire shape must not reach the store");
+
+    /**
+     * springdoc names a schema by simple class name and silently keeps only one of two classes that
+     * share one, so a second context's DTO can shadow the first's without either build failing on its
+     * own. {@code MoneyDto} is the one deliberate exception: each context declares an
+     * identical copy, on purpose, because the slice rule leaves no legal shared home for it. {@code
+     * MoneyDtoShapesTest} is what holds the copies identical.
+     */
+    private static final String SHARED_DTO_SIMPLE_NAME = "MoneyDto";
+
+    /**
+     * Anonymous classes are skipped. springdoc has no name to key a schema by, and ArchUnit gives every one
+     * the same empty simple name. javac emits one wherever a class switches over an enum declared elsewhere,
+     * the synthetic {@code $SwitchMap$} holder such as {@code RecurrenceRequest$1}, so without the skip a
+     * second such switch in any web adapter would fail this rule on two classes that share nothing but the
+     * absence of a name.
+     */
+    @ArchTest
+    static final ArchRule web_dto_names_are_unique_across_contexts = classes()
+            .that()
+            .resideInAPackage(ROOT + "..adapter.in.web..")
+            .and()
+            .areNotAnonymousClasses()
+            .should(haveASimpleNameUniqueAcrossContexts())
+            .because("springdoc silently drops one schema when two classes share a simple name");
+
+    /**
+     * {@link ArchCondition#init} sees every matched class before {@link ArchCondition#check} is asked
+     * about any one of them, which is what makes a cross-class check like "no two classes share a
+     * name" possible without a second import pass.
+     */
+    private static ArchCondition<JavaClass> haveASimpleNameUniqueAcrossContexts() {
+        return new ArchCondition<>("have a simple name unique across every context, except MoneyDto") {
+
+            private final Map<String, List<JavaClass>> classesByName = new HashMap<>();
+
+            @Override
+            public void init(Collection<JavaClass> allClasses) {
+                classesByName.clear();
+                for (JavaClass clazz : allClasses) {
+                    classesByName
+                            .computeIfAbsent(clazz.getSimpleName(), name -> new ArrayList<>())
+                            .add(clazz);
+                }
+            }
+
+            @Override
+            public void check(JavaClass item, ConditionEvents events) {
+                String name = item.getSimpleName();
+                List<JavaClass> sharingTheName = classesByName.getOrDefault(name, List.of());
+                if (!SHARED_DTO_SIMPLE_NAME.equals(name) && sharingTheName.size() > 1) {
+                    events.add(SimpleConditionEvent.violated(
+                            item,
+                            item.getFullName() + " shares the simple name " + name + " with "
+                                    + otherFullNames(sharingTheName, item)));
+                }
+            }
+
+            private String otherFullNames(List<JavaClass> sharingTheName, JavaClass self) {
+                return sharingTheName.stream()
+                        .filter(other -> !other.equals(self))
+                        .map(JavaClass::getFullName)
+                        .collect(Collectors.joining(", "));
+            }
+        };
+    }
 }

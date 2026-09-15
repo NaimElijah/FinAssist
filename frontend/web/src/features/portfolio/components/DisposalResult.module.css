@@ -1,0 +1,13 @@
+.result {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-block-start: var(--space-4);
+}
+
+.heading {
+    margin: 0;
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-strong);
+    line-height: var(--line-height-tight);
+}

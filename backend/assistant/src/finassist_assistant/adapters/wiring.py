@@ -6,8 +6,10 @@ other — so the class that turns a ``Symbol`` into a ``Ticker`` and a ``Quote``
 can live in neither. It lives here, where seeing two contexts at once is the job (ADR-022), and
 ``tests/test_architecture.py`` already forbids any context from importing back into this package.
 
-Everything assembled here is backed by an in-memory adapter. Neither is a client: ADR-004 is
-still Proposed and the ledger has no endpoint, so what exists is the shape a client must fit.
+Everything assembled here is backed by an in-memory adapter. Neither is a client: the assistant
+has no ledger client yet, so what exists is the shape one must fit — not because there is
+nothing to call. ADR-004 is Accepted and the ledger now serves accounting, budgeting and
+planning under `/api/v1`.
 
 ``assistance`` is deliberately absent. ``AnswerQuestion`` is written and tested, and wiring it
 would mean building an LLM adapter, which would decide by implication whether the owner's
@@ -22,7 +24,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from finassist_assistant.marketdata.adapters.outbound.feed import InMemoryQuoteFeed
-from finassist_assistant.marketdata.application.port import QuoteUnavailableError
+from finassist_assistant.marketdata.application.port import QuoteFeedPort, QuoteUnavailableError
 from finassist_assistant.marketdata.application.usecase import LatestQuote, StaleQuoteError
 from finassist_assistant.marketdata.domain.model import Ticker
 from finassist_assistant.portfolio.adapters.outbound.ledger import InMemoryLedger
@@ -35,7 +37,7 @@ from finassist_assistant.portfolio.application.usecase import (
 from finassist_assistant.portfolio.domain.model import Symbol
 from finassist_assistant.shared import Money
 
-__all__ = ["Assembly", "MarketDataQuotes", "Portfolio", "assemble", "utc_now"]
+__all__ = ["Assembly", "Clock", "MarketDataQuotes", "Portfolio", "assemble", "utc_now"]
 
 Clock = Callable[[], datetime]
 """Reads the current instant. A parameter everywhere else; supplied once, here."""
@@ -91,28 +93,40 @@ class Assembly:
     The two adapters are exposed alongside the use cases because they are the only way to put
     data in while there is no client to fetch it. That is a property of a development seam, and
     it disappears with the seam.
+
+    ``feed`` is typed by the port it satisfies rather than by ``InMemoryQuoteFeed`` alone.
+    ``assemble`` normally wires the latter, but the development seed
+    (:mod:`~finassist_assistant.adapters.seed`) wires its own object that satisfies the same
+    port and never goes stale, and ``Assembly`` has one shape for both rather than a second
+    field nothing else would read. A caller that needs the concrete seam back — ``publish``,
+    which only ``InMemoryQuoteFeed`` has — narrows with ``isinstance`` first; nothing here casts
+    the difference away.
     """
 
     ledger: InMemoryLedger
-    feed: InMemoryQuoteFeed
+    feed: QuoteFeedPort
     portfolio: Portfolio
 
 
-def assemble(clock: Clock = utc_now) -> Assembly:
+def assemble(clock: Clock = utc_now, feed: QuoteFeedPort | None = None) -> Assembly:
     """Builds every adapter and use case, wiring them by constructor.
 
     :param clock: how to read the current instant. Tests pass a fixed one, which is the whole
         reason it is an argument.
+    :param feed: the quote source backing every valuation. Defaults to a fresh, empty
+        ``InMemoryQuoteFeed`` — the development seam ``assembly.feed.publish(...)`` fills in
+        tests. A caller assembling the development seed passes its own feed instead, so the same
+        object this function wires into ``ValueHolding`` is the one ``Assembly.feed`` exposes.
     """
     ledger = InMemoryLedger()
-    feed = InMemoryQuoteFeed()
+    resolved_feed: QuoteFeedPort = feed if feed is not None else InMemoryQuoteFeed()
 
     # Annotated, so mypy checks that the translation really satisfies the port it claims to.
-    quotes: QuotePort = MarketDataQuotes(LatestQuote(feed), clock)
+    quotes: QuotePort = MarketDataQuotes(LatestQuote(resolved_feed), clock)
 
     return Assembly(
         ledger=ledger,
-        feed=feed,
+        feed=resolved_feed,
         portfolio=Portfolio(
             view_position=ViewPosition(ledger),
             value_holding=ValueHolding(ledger, quotes),

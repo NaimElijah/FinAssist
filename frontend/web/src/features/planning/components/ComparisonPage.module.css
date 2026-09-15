@@ -1,0 +1,39 @@
+.section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.heading {
+    margin: 0;
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-strong);
+    line-height: var(--line-height-tight);
+}
+
+.form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+/* Fields top-aligned, so one showing an error beneath it does not push its neighbours down. */
+.fields {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--space-3) var(--space-4);
+}
+
+/* Matches the shared field frame's own error, so a group's error reads like a field's. */
+.error {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-strong);
+    color: var(--color-negative);
+}
+
+.baselineMark {
+    color: var(--color-muted);
+    font-weight: var(--font-weight-regular);
+}

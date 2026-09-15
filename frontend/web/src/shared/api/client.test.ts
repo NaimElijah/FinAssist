@@ -7,7 +7,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { traceIdOf } from '../lib/correlation';
 import { type LogRecord, setLogSink } from '../lib/logger';
-import { ApiBodyError, ApiError, requestJson, TRACEPARENT_HEADER } from './client';
+import {
+    ApiBodyError,
+    ApiError,
+    ASSISTANT_API,
+    hasProblemCode,
+    LEDGER_API,
+    type Problem,
+    requestJson,
+    sendJson,
+    TRACEPARENT_HEADER,
+} from './client';
 
 const URL = 'https://ledger.test/api/v1/accounts';
 
@@ -30,6 +40,15 @@ function jsonResponse(body: unknown, status = 200): () => Response {
         new Response(JSON.stringify(body), {
             status,
             headers: { 'Content-Type': 'application/json' },
+        });
+}
+
+/** An RFC 9457 problem response, `application/problem+json`, as both services answer failures. */
+function problemResponse(body: unknown, status: number): () => Response {
+    return () =>
+        new Response(JSON.stringify(body), {
+            status,
+            headers: { 'Content-Type': 'application/problem+json' },
         });
 }
 
@@ -193,6 +212,67 @@ describe('failure logging', () => {
         expect(String(written[0]?.traceId)).toMatch(/^[0-9a-f]{32}$/);
     });
 
+    it.each([400, 404, 409, 422])(
+        'Given_a_%i_refusal_When_requested_Then_it_is_logged_at_info_with_the_same_fields',
+        async (status) => {
+            // A 4xx is the server's considered answer: the UI shows it and nobody has to act on
+            // it, so it must not raise an application error in the console.
+            stubFetch(problemResponse({ status, code: 'REFUSED' }, status));
+
+            await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiError);
+
+            expect(written).toHaveLength(1);
+            expect(written[0]).toMatchObject({
+                level: 'info',
+                event: 'http request returned an error status',
+                url: URL,
+                status,
+                code: 'REFUSED',
+            });
+            expect(String(written[0]?.traceId)).toMatch(/^[0-9a-f]{32}$/);
+        },
+    );
+
+    it.each([500, 502, 503])(
+        'Given_a_%i_server_failure_When_requested_Then_it_is_logged_at_error',
+        async (status) => {
+            stubFetch(() => new Response('', { status }));
+
+            await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiError);
+
+            expect(written).toHaveLength(1);
+            expect(written[0]).toMatchObject({
+                level: 'error',
+                event: 'http request returned an error status',
+                status,
+            });
+        },
+    );
+
+    it('Given_a_transport_failure_When_requested_Then_it_is_logged_at_error', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn<typeof fetch>()
+                .mockImplementation(() => Promise.reject(new TypeError('offline'))),
+        );
+
+        await expect(requestJson(URL)).rejects.toBeInstanceOf(TypeError);
+
+        expect(written.map((record) => record.level)).toEqual(['error']);
+    });
+
+    it.each([204, 205])(
+        'Given_a_body_less_%i_When_requested_Then_it_is_logged_at_error',
+        async (status) => {
+            stubFetch(() => new Response(null, { status }));
+
+            await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiBodyError);
+
+            expect(written.map((record) => record.level)).toEqual(['error']);
+        },
+    );
+
     it('Given_a_transport_failure_When_requested_Then_it_is_logged_and_rethrown', async () => {
         // The one failure mode that reaches none of the status checks, so without its own
         // branch it would be the only one producing no record at all.
@@ -235,5 +315,191 @@ describe('failure logging', () => {
         await requestJson(URL);
 
         expect(written).toEqual([]);
+    });
+
+    it('Given_a_problem_body_When_requested_Then_code_is_logged_but_detail_never_is', async () => {
+        // detail can carry the owner's own descriptions - account names, memo text - which is
+        // financial data (ADR-019). code is a stable identifier and safe to log.
+        stubFetch(
+            problemResponse(
+                {
+                    status: 409,
+                    code: 'DUPLICATE_ACCOUNT_NAME',
+                    detail: 'An account named "Checking" already exists.',
+                },
+                409,
+            ),
+        );
+
+        await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiError);
+
+        expect(written[0]).toMatchObject({ code: 'DUPLICATE_ACCOUNT_NAME' });
+        expect(written[0]).not.toHaveProperty('detail');
+    });
+});
+
+describe('problem responses', () => {
+    it('Given_a_problem_body_When_requested_Then_it_is_parsed_onto_ApiError_and_the_message_is_the_detail', async () => {
+        const problem: Problem = {
+            status: 422,
+            code: 'ACCOUNT_CURRENCY_MISMATCH',
+            title: 'Unprocessable Entity',
+            detail: 'Entries must share one currency.',
+        };
+        stubFetch(problemResponse(problem, 422));
+
+        await expect(requestJson(URL)).rejects.toMatchObject({
+            problem,
+            message: problem.detail,
+        });
+    });
+
+    it('Given_an_error_response_with_a_plain_json_content_type_When_requested_Then_problem_is_undefined', async () => {
+        // The body would satisfy isProblem, but the content type does not say problem+json, so
+        // it is read as an ordinary error body, not a problem.
+        stubFetch(jsonResponse({ status: 500, code: 'INTERNAL' }, 500));
+
+        await expect(requestJson(URL)).rejects.toMatchObject({ problem: undefined });
+    });
+
+    it('Given_a_problem_content_type_but_a_body_missing_code_When_requested_Then_problem_is_undefined', async () => {
+        stubFetch(problemResponse({ status: 400, title: 'Bad Request' }, 400));
+
+        await expect(requestJson(URL)).rejects.toMatchObject({ problem: undefined });
+    });
+
+    it('Given_a_problem_content_type_but_an_unparseable_body_When_requested_Then_reading_it_does_not_throw_a_second_error', async () => {
+        // A truncated or otherwise unreadable body must not turn one failure (the error status)
+        // into two: the call still rejects with a plain ApiError, problem simply undefined.
+        stubFetch(
+            () =>
+                new Response('not json', {
+                    status: 500,
+                    headers: { 'Content-Type': 'application/problem+json' },
+                }),
+        );
+
+        await expect(requestJson(URL)).rejects.toMatchObject({ problem: undefined, status: 500 });
+    });
+
+    it('Given_a_problem_with_a_title_but_no_detail_When_requested_Then_the_message_is_the_title', async () => {
+        const problem: Problem = {
+            status: 409,
+            code: 'DUPLICATE_ACCOUNT_NAME',
+            title: 'Conflict',
+        };
+        stubFetch(problemResponse(problem, 409));
+
+        await expect(requestJson(URL)).rejects.toMatchObject({ problem, message: 'Conflict' });
+    });
+});
+
+/** Narrows a caught value to `ApiError`, without an `as` cast on what a `.catch` hands back. */
+function isApiError(value: unknown): value is ApiError {
+    return value instanceof ApiError;
+}
+
+describe('problem field errors', () => {
+    it('Given_a_problem_with_a_well_formed_errors_array_When_requested_Then_it_is_kept', async () => {
+        const problem: Problem = {
+            status: 400,
+            code: 'VALIDATION_FAILED',
+            errors: [{ field: 'amount', message: 'must be positive' }],
+        };
+        stubFetch(problemResponse(problem, 400));
+
+        const failure = await requestJson(URL).catch((caught: unknown) => caught);
+        if (!isApiError(failure)) {
+            throw new Error('expected requestJson to reject with an ApiError');
+        }
+
+        expect(failure.problem).toEqual(problem);
+    });
+
+    it('Given_a_problem_with_a_malformed_errors_entry_When_requested_Then_errors_is_omitted_but_the_rest_of_the_problem_is_kept', async () => {
+        stubFetch(
+            problemResponse(
+                {
+                    status: 400,
+                    code: 'VALIDATION_FAILED',
+                    title: 'Bad Request',
+                    // `message` is missing, so every() over the field-error shape must reject it.
+                    errors: [{ field: 'amount' }],
+                },
+                400,
+            ),
+        );
+
+        const failure = await requestJson(URL).catch((caught: unknown) => caught);
+        if (!isApiError(failure)) {
+            throw new Error('expected requestJson to reject with an ApiError');
+        }
+
+        expect(failure.problem).toEqual({
+            status: 400,
+            code: 'VALIDATION_FAILED',
+            title: 'Bad Request',
+        });
+    });
+});
+
+describe('sendJson', () => {
+    it('Given_a_body_When_sent_Then_it_posts_json_with_a_content_type_and_a_traceparent', async () => {
+        const stub = stubFetch(jsonResponse({ id: 'txn-1' }, 201));
+
+        await sendJson(URL, 'POST', { amount: '12.50' });
+
+        const [, sent] = stub.mock.calls[0] ?? [];
+        const headers = new Headers(sent?.headers);
+        expect(sent?.method).toBe('POST');
+        expect(sent?.body).toBe(JSON.stringify({ amount: '12.50' }));
+        expect(headers.get('Content-Type')).toBe('application/json');
+        expect(traceIdOf(headers.get(TRACEPARENT_HEADER))).toMatch(/^[0-9a-f]{32}$/);
+    });
+
+    it('Given_a_201_response_When_sent_Then_the_created_body_is_resolved', async () => {
+        stubFetch(jsonResponse({ id: 'txn-1' }, 201));
+
+        await expect(sendJson(URL, 'POST', { amount: '12.50' })).resolves.toEqual({
+            id: 'txn-1',
+        });
+    });
+});
+
+describe('hasProblemCode', () => {
+    const NOT_FOUND = 'ACCOUNT_NOT_FOUND';
+
+    it('Given_an_ApiError_whose_problem_carries_the_code_When_checked_Then_it_matches', () => {
+        const error = new ApiError(404, URL, 'missing', { status: 404, code: NOT_FOUND });
+
+        expect(hasProblemCode(error, NOT_FOUND)).toBe(true);
+    });
+
+    it('Given_an_ApiError_whose_problem_carries_another_code_When_checked_Then_it_does_not_match', () => {
+        const error = new ApiError(404, URL, 'missing', { status: 404, code: 'BUDGET_NOT_FOUND' });
+
+        expect(hasProblemCode(error, NOT_FOUND)).toBe(false);
+    });
+
+    it('Given_an_ApiError_without_a_problem_When_checked_Then_it_does_not_match', () => {
+        // A status alone is never enough: the same 404 is a missing account or a missing route.
+        const error = new ApiError(404, URL, 'Request failed with 404', undefined);
+
+        expect(hasProblemCode(error, NOT_FOUND)).toBe(false);
+    });
+
+    it('Given_an_error_that_is_not_an_ApiError_When_checked_Then_it_does_not_match', () => {
+        expect(hasProblemCode(new Error(NOT_FOUND), NOT_FOUND)).toBe(false);
+    });
+
+    it('Given_no_error_When_checked_Then_it_does_not_match', () => {
+        expect(hasProblemCode(null, NOT_FOUND)).toBe(false);
+    });
+});
+
+describe('base paths', () => {
+    it('Given_the_module_When_read_Then_LEDGER_API_and_ASSISTANT_API_are_the_proxied_v1_paths', () => {
+        expect(LEDGER_API).toBe('/ledger/api/v1');
+        expect(ASSISTANT_API).toBe('/assistant/api/v1');
     });
 });

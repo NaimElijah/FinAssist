@@ -1,0 +1,141 @@
+/**
+ * The budgeting feature's server state, held in TanStack Query's cache (ADR-029).
+ *
+ * Every query key comes from `budgetKeys` or `categorisationRuleKeys`, so a mutation invalidates
+ * exactly what a query reads rather than a key spelled twice.
+ */
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
+import {
+    addCategorisationRule,
+    defineBudget,
+    listBudgets,
+    listCategorisationRules,
+    reviewBudget,
+} from '../api/budgetingApi';
+import type { DefineBudgetInput } from '../types/budget';
+import type { CategorisationRule } from '../types/rule';
+
+/** The prefix every budgeting key starts with. */
+const BUDGETS_KEY = ['budgets'] as const;
+
+/** The segment every budget review key shares, between the feature prefix and the budget id. */
+const REVIEWS_SEGMENT = 'reviews';
+
+/**
+ * The query keys the budgeting feature reads and invalidates for budgets.
+ *
+ * Every key starts with `all`, and TanStack Query matches an invalidation by prefix - but nothing
+ * here invalidates `all` itself. `list` and `reviews` are siblings under `all` (`['budgets',
+ * 'list']` and `['budgets', 'reviews']`), so invalidating one by prefix can never also match the
+ * other: defining a budget adds a row to the list; it cannot change any budget's review, so
+ * `useDefineBudget` invalidates `list` alone. Adding a categorisation rule is the
+ * opposite: it cannot change the list (a budget's period, currency and limits are unaffected),
+ * but can change how any budget's spend categorises, so `useAddCategorisationRule` invalidates
+ * the whole `reviews` prefix instead - a plain prefix match, not a predicate, since the hierarchy
+ * itself keeps `list` out of it.
+ */
+export const budgetKeys = {
+    /** The prefix of every budgeting key. */
+    all: BUDGETS_KEY,
+    /** The budgets list. */
+    list: [...BUDGETS_KEY, 'list'] as const,
+    /** The prefix of every budget's review key, for invalidating all of them at once. */
+    reviews: [...BUDGETS_KEY, REVIEWS_SEGMENT] as const,
+    /** One budget's review. */
+    review: (budgetId: string) => [...BUDGETS_KEY, REVIEWS_SEGMENT, budgetId] as const,
+};
+
+/** The prefix every categorisation-rule key starts with. */
+const CATEGORISATION_RULES_KEY = ['categorisationRules'] as const;
+
+/** The query keys the budgeting feature reads and invalidates for categorisation rules. */
+export const categorisationRuleKeys = {
+    /** The prefix of every categorisation-rule key. */
+    all: CATEGORISATION_RULES_KEY,
+    /** The rules list. */
+    list: [...CATEGORISATION_RULES_KEY, 'list'] as const,
+};
+
+/**
+ * Every budget, in the ledger's order (period start descending).
+ *
+ * @returns the query for the budgets list. Its error is an `ApiError` or `ApiBodyError` from the
+ *   client, or a `TypeError` for a network failure.
+ */
+export function useBudgets() {
+    return useQuery({ queryKey: budgetKeys.list, queryFn: () => listBudgets() });
+}
+
+/**
+ * One budget's review, derived fresh by the ledger on every call.
+ *
+ * @param budgetId - the budget's id.
+ * @returns the query for that review. A 404 `BUDGET_NOT_FOUND` is not retried.
+ */
+export function useBudgetReview(budgetId: string) {
+    return useQuery({
+        queryKey: budgetKeys.review(budgetId),
+        queryFn: () => reviewBudget(budgetId),
+    });
+}
+
+/**
+ * Define a budget, then refetch the budgets list and nothing else.
+ *
+ * The list's refetch is returned from `onSuccess`, so the mutation stays pending until the list
+ * holds the new budget: submit stays disabled until then, narrowing ADR-028's double-submit
+ * window, and a caller's own `onSuccess` runs once the new row can be found.
+ *
+ * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
+ */
+export function useDefineBudget() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (input: DefineBudgetInput) => defineBudget(input),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: budgetKeys.list }),
+    });
+}
+
+/**
+ * Every categorisation rule, in the order it was added.
+ *
+ * @returns the query for the rules list. Its error is an `ApiError` or `ApiBodyError` from the
+ *   client, or a `TypeError` for a network failure.
+ */
+export function useCategorisationRules() {
+    return useQuery({
+        queryKey: categorisationRuleKeys.list,
+        queryFn: () => listCategorisationRules(),
+    });
+}
+
+/**
+ * Refetch the rules list and every budget review the cache currently holds.
+ *
+ * A new rule can change how any budget's spend categorises, so every `review` query is
+ * invalidated, however many budgets exist; nothing else is, since a rule cannot change a budget's
+ * period, currency or limits, and so cannot change the list.
+ *
+ * @returns the settled refetches, so a caller can return it from `onSuccess` and stay pending
+ *   until they land.
+ */
+function invalidateRulesAndReviews(queryClient: QueryClient): Promise<unknown> {
+    return Promise.all([
+        queryClient.invalidateQueries({ queryKey: categorisationRuleKeys.list }),
+        queryClient.invalidateQueries({ queryKey: budgetKeys.reviews }),
+    ]);
+}
+
+/**
+ * Add a categorisation rule, then refetch the rules list and every budget review.
+ *
+ * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
+ */
+export function useAddCategorisationRule() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (input: CategorisationRule) => addCategorisationRule(input),
+        onSuccess: () => invalidateRulesAndReviews(queryClient),
+    });
+}
