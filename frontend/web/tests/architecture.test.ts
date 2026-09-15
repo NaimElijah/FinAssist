@@ -196,6 +196,35 @@ describe('composition direction', () => {
             'a feature depends on the app that composes it. Pass what it needs in from src/app.',
         ).toEqual([]);
     });
+
+    it('Given_src_shared_When_its_sources_are_read_Then_none_imports_src_app', () => {
+        // src/app composes src/shared, so shared reaching back into it would close a cycle, and
+        // src/app is the composition root nothing may import back into.
+        const offences: string[] = [];
+        let importsResolvedInSrc = 0;
+
+        for (const file of sourceFilesUnder(join(SRC, 'shared'))) {
+            for (const specifier of importSpecifiers(file)) {
+                const resolved = resolveInSrc(specifier, file);
+                if (resolved === undefined) continue;
+                importsResolvedInSrc += 1;
+                if (isWithin(APP_DIR, resolved)) {
+                    offences.push(`${relative(SRC, file)} -> ${specifier}`);
+                }
+            }
+        }
+
+        // Guards the rule from passing vacuously: shared's modules import one another, so a scan
+        // that resolves no import inside src has stopped resolving specifiers.
+        expect(
+            importsResolvedInSrc,
+            'no import under src/shared resolved inside src',
+        ).toBeGreaterThan(0);
+        expect(
+            offences,
+            'src/shared depends on the app that composes it. Pass what it needs in instead.',
+        ).toEqual([]);
+    });
 });
 
 const TESTING_DIR = join(SRC, 'shared', 'testing');
