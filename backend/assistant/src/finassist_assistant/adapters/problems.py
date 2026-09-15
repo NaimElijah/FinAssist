@@ -175,8 +175,18 @@ def install_problem_handlers(app: FastAPI) -> None:
 def _refusal(status: HTTPStatus, code: str) -> Callable[[Request, Exception], JSONResponse]:
     """A handler for a 4xx whose exception message is the detail, because it says what was wrong.
 
-    Safe for these exceptions only: each is raised by the domain about what the caller asked for,
-    and its message names nothing the caller did not send.
+    That rests on an assumption the registration does not enforce: every exception these handlers
+    receive was raised by the domain about what the caller asked for, so its message names nothing
+    the caller did not send. The typed entries hold it by construction. The ``ValueError`` entry
+    holds it only because every plain ``ValueError`` reachable today is a domain rule about the
+    caller's input, such as a blank symbol, a disposal of no units or an amount finer than its
+    currency.
+
+    Python raises ``ValueError`` for far more than that: ``int()``, ``UUID()``,
+    ``date.fromisoformat()``, ``json.loads()`` and a failed decode all do. A parse failure in a
+    future outbound adapter, such as a ledger client or a price feed, would be answered 422 with
+    its internal message as the detail. Such an adapter converts its parse failures to typed
+    exceptions of its own, or this entry is narrowed.
     """
 
     def refuse(request: Request, exception: Exception) -> JSONResponse:
