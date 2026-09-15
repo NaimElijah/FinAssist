@@ -37,10 +37,10 @@ two or more scenarios against a baseline in tables. Planning's account choices c
 accounting through `PlanningAccountsBridge` in `src/app`, the web client's one cross-feature
 translation. All three areas call the ledger through the dev proxy, mapping generated wire types
 onto each feature's own in `api/`; portfolio still renders a placeholder behind an error boundary.
-Observability is live (ADR-019): the ledger answers
-Actuator probes and now traces its business endpoints too, and the assistant serves `/health`
-and `/ready` and assembles its use cases at start-up. Both services emit structured JSON logs and
-OTLP traces. Both services run under Compose (`docker compose up`) as well as natively.
+Observability is live (ADR-019): the ledger answers Actuator probes and now traces its business
+endpoints too, and the assistant serves `/health` and `/ready` and assembles its use cases at
+start-up. Both services emit structured JSON logs and OTLP traces. Both services run under
+Compose (`docker compose up`) as well as natively.
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
 Proposed today — all 29 are Accepted — and the requirements are still deliberately `TODO` in

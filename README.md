@@ -23,8 +23,7 @@ language, and analyse the portfolio behind it.**
 > one, and adds categorisation rules; its planning area plans flows, defines scenarios, charts a
 > scenario's projection with its first shortfall, and compares scenarios against a baseline — all
 > over the ledger's API. Portfolio is still a placeholder, and the web client does not call the
-> assistant. See
-> [Known limitations](#status-and-limitations) for what does not exist yet.
+> assistant. See [Known limitations](#status-and-limitations) for what does not exist yet.
 
 ## Contents
 

@@ -175,10 +175,9 @@ that the `monitoring` Compose profile mounts.
 
 - **Owner to web** — HTTPS.
 - **Web to ledger** — HTTP, for the accounting, budgeting and planning screens. **Implemented on
-  both sides for all three.** The ledger
-  serves `/api/v1/accounts`, `/api/v1/transactions`, `/api/v1/budgets`,
-  `/api/v1/categorisation-rules`, `/api/v1/planned-flows`, `/api/v1/scenarios` and
-  `/api/v1/scenario-comparisons`. The web client's accounting screens call `GET` and
+  both sides for all three.** The ledger serves `/api/v1/accounts`, `/api/v1/transactions`,
+  `/api/v1/budgets`, `/api/v1/categorisation-rules`, `/api/v1/planned-flows`, `/api/v1/scenarios`
+  and `/api/v1/scenario-comparisons`. The web client's accounting screens call `GET` and
   `POST /api/v1/accounts`, `GET /api/v1/accounts/{id}/balance` — one request per account on the
   list (ADR-028) — and `GET /api/v1/accounts/{id}/transactions`, then `POST /api/v1/transactions`
   to record one and `POST /api/v1/transactions/{id}/clear`, `.../reconcile` or `.../void` to move
@@ -190,8 +189,8 @@ that the `monitoring` Compose profile mounts.
   `.../cancel`, `GET` and `POST /api/v1/scenarios`, `GET /api/v1/scenarios/{id}/projection` and
   `GET /api/v1/scenario-comparisons` — the last two carrying only ids, dates and the step in their
   query, one repeated `scenario`, `cash` or `invested` parameter per value, never an amount
-  (ADR-028). In development the browser calls `/ledger/…` on the Vite
-  origin, and the dev proxy forwards to the ledger on loopback so no call crosses an origin
+  (ADR-028). In development the browser calls `/ledger/…` on the Vite origin, and the dev proxy
+  forwards to the ledger on loopback so no call crosses an origin
   ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)).
 - **Web to assistant** — HTTP, for the portfolio screens, through the same proxy under
   `/assistant/…`. **Implemented on the assistant side; the web client does not call it yet.** The
