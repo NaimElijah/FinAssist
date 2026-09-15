@@ -60,14 +60,36 @@ def Given_the_seed_is_off_When_a_seeded_symbol_is_read_Then_it_is_holding_not_fo
     assert response.json()["code"] == "HOLDING_NOT_FOUND"
 
 
-def Given_the_seed_is_on_When_a_seeded_position_is_read_Then_its_quantity_is_the_seeded_total() -> (
-    None
-):
+@pytest.mark.parametrize(
+    ("symbol", "quantity", "currency"),
+    [("VOO", "15", "USD"), ("DEMO", "100", "ILS")],
+    ids=["two-usd-lots", "one-ils-lot"],
+)
+def Given_the_seed_is_on_When_a_seeded_position_is_read_Then_it_is_the_seeded_total(
+    symbol: str, quantity: str, currency: str
+) -> None:
     with TestClient(create_app(_settings(dev_seed=True))) as client:
-        response = client.get(f"{HOLDINGS}/VOO/position")
+        response = client.get(f"{HOLDINGS}/{symbol}/position")
 
     assert response.status_code == 200
-    assert response.json()["quantity"] == "15"
+    assert response.json()["quantity"] == quantity
+    assert response.json()["cost"]["currency"] == currency
+
+
+@pytest.mark.parametrize(("symbol", "currency"), [("VOO", "USD"), ("DEMO", "ILS")])
+def Given_the_seed_is_on_When_a_seeded_holding_is_valued_Then_it_is_priced_in_its_own_currency(
+    symbol: str, currency: str
+) -> None:
+    """Each seeded price must be in its lots' currency. A price typed in another would answer this
+    valuation 422 ``CURRENCY_MISMATCH``, because no amount is ever converted (ADR-012)."""
+    app = create_app(_settings(dev_seed=True), assembly=seeded_assembly(_MovableClock(START)))
+
+    with TestClient(app) as client:
+        response = client.get(f"{HOLDINGS}/{symbol}/valuation")
+
+    assert response.status_code == 200
+    amounts = ("cost", "unitPrice", "marketValue", "unrealisedGain")
+    assert {response.json()[amount]["currency"] for amount in amounts} == {currency}
 
 
 def Given_the_seed_is_on_and_two_hours_have_passed_When_valued_Then_the_price_is_still_fresh() -> (
