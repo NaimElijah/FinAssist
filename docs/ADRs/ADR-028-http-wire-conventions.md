@@ -192,6 +192,14 @@ rendered — and the log line carries the trace id that finds it.
   raises `IllegalArgumentException` reads as 422, not 500. Syntax is parsed before the domain sees
   input — UUID-typed parameters, enums, decimal patterns — so 400 and 422 stay distinct; what
   cannot be told apart is a rule the domain meant from one it hit by mistake.
+- **The assistant's `ValueError` is its `IllegalArgumentException`, with the same conflation.**
+  `adapters/problems.py` answers every plain `ValueError` no more specific handler claims with 422
+  `RULE_VIOLATED`, and puts the exception's message in the detail. That is safe only while every
+  plain `ValueError` reachable is a domain rule about the caller's input — a blank symbol, a
+  disposal of no units, an amount finer than its currency — as each is today. Python raises
+  `ValueError` for far more: `int()`, `UUID()`, `date.fromisoformat()`, `json.loads()` and a failed
+  decode among them, so a parse failure in an outbound adapter would be answered 422, with its
+  internal message on the wire.
 - **A double-submitted create is permanent.** The journal is append-only, so the only remedy for a
   duplicated transaction is to void it. The UI disables submit while a request is pending, which
   narrows the window without closing it.
@@ -228,3 +236,6 @@ annotations on an aggregate.
 - **A list exceeds about 1,000 items, or its latency is measured as a problem.** Paginate it. The
   per-account balance requests share this trigger.
 - **Single-item reads are added.** A create then sends `Location`, because it has a URL to name.
+- **The assistant's first outbound adapter lands** — a ledger client or a price feed. It converts
+  its parse failures to typed exceptions of its own, or the `ValueError` entry in
+  `adapters/problems.py` is narrowed, so that a parse failure is not answered as a refusal.
