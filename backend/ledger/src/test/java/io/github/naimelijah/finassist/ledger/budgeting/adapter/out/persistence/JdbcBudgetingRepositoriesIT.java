@@ -203,6 +203,21 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
                 .hasMessageContaining(id.value().toString());
     }
 
+    /**
+     * {@code Budget} refuses a budget with no limits, and the schema cannot, because the limits sit in a
+     * table of their own. A stored budget with none is a server fault naming the budget, not a rule the
+     * caller broke.
+     */
+    @Test
+    void Given_a_budget_stored_with_no_limits_When_read_Then_it_is_a_server_fault() {
+        BudgetId id = budgetStoredDirectly();
+
+        assertThatThrownBy(() -> budgets.findById(id))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("budgeting.budget")
+                .hasMessageContaining(id.value().toString());
+    }
+
     /** An ILS budget for March with no limits yet, written past the aggregate so a test can add a bad one. */
     private BudgetId budgetStoredDirectly() {
         BudgetId id = BudgetId.generate();
