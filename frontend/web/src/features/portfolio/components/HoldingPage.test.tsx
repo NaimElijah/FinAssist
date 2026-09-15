@@ -356,6 +356,20 @@ describe('HoldingPage', () => {
         ]);
     });
 
+    it('Given_a_blank_symbol_in_the_URL_When_the_page_renders_Then_no_holding_is_found_and_nothing_is_read', async () => {
+        // The lookup refuses a blank symbol, but an address can still carry one. Asking the
+        // assistant would only earn a 422 for each read, shown as two failures under no name.
+        const requests = fakeFetch(unexpectedRequest);
+
+        renderHolding('/portfolio/%20');
+
+        expect(
+            await screen.findByRole('heading', { level: 1, name: 'Holding not found' }),
+        ).toBeDefined();
+        expect(screen.queryByRole('alert')).toBeNull();
+        expect(requests).toHaveLength(0);
+    });
+
     it('Given_a_holding_shown_When_its_symbol_is_looked_up_again_Then_its_position_and_valuation_are_read_again_and_shown', async () => {
         // The same symbol is the same URL and the same query keys, and refetching on window focus
         // is off, so without an explicit refresh the owner could never see a newer figure.

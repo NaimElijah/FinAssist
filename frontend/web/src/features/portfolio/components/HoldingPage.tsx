@@ -178,8 +178,26 @@ function Holding({ symbol }: { readonly symbol: string }) {
 }
 
 /**
+ * The page for an address whose symbol is blank, such as `/portfolio/%20`. The lookup refuses a
+ * blank symbol, but an address can still carry one, and no holding is kept under it: asking the
+ * assistant would only earn a 422 for each read, shown as two failures under an empty heading.
+ */
+function BlankSymbol() {
+    return (
+        <>
+            <p className={styles.back}>
+                <Link to={PORTFOLIO_PATH}>Back to Portfolio</Link>
+            </p>
+            <h1>Holding not found</h1>
+            <EmptyState message="This address names no symbol to look up." />
+            <SymbolLookup heading="Look up a holding" />
+        </>
+    );
+}
+
+/**
  * `/portfolio/:symbol`: one holding's position and valuation, a calculator pricing a disposal of
- * it, and a lookup for another.
+ * it, and a lookup for another. A blank symbol is not found, and nothing is read for it.
  *
  * @throws Error - when mounted on a route without a `:symbol` segment, which only a broken route
  *   table can do.
@@ -188,6 +206,9 @@ export function HoldingPage() {
     const { symbol } = useParams();
     if (symbol === undefined) {
         throw new Error('HoldingPage is mounted on a route without a :symbol segment');
+    }
+    if (symbol.trim() === '') {
+        return <BlankSymbol />;
     }
     return <Holding symbol={symbol} />;
 }
