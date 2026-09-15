@@ -1,4 +1,4 @@
-import { type ReactNode, type SubmitEvent, useEffect, useRef, useState } from 'react';
+import { type ReactNode, type Ref, type SubmitEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
@@ -11,6 +11,7 @@ import {
     SelectField,
     type SelectOption,
     TextField,
+    useRetryFocus,
 } from '@/shared/ui';
 
 import { useAccounts, useRecordTransaction } from '../hooks/accountQueries';
@@ -205,10 +206,13 @@ function EntryRowFields({
 function RecordTransactionForm({
     accounts,
     accountsFailure,
+    headingRef,
 }: {
     readonly accounts: readonly Account[];
     /** A failed background refetch of the accounts list, shown above the form; `null` otherwise. */
     readonly accountsFailure: ReactNode;
+    /** The form's heading, where a retry that restored the accounts list moves focus. */
+    readonly headingRef: Ref<HTMLHeadingElement>;
 }) {
     const navigate = useNavigate();
     const formRef = useRef<HTMLFormElement>(null);
@@ -335,7 +339,9 @@ function RecordTransactionForm({
 
     return (
         <>
-            <h1>Record a transaction</h1>
+            <h1 ref={headingRef} tabIndex={-1}>
+                Record a transaction
+            </h1>
             {accountsFailure}
             {errors.unplaced === null ? null : (
                 <ErrorState ref={errorStateRef} error={errors.unplaced} />
@@ -409,6 +415,13 @@ function RecordTransactionForm({
  */
 export function RecordTransactionPage() {
     const accounts = useAccounts();
+    const { targetRef, onRetry } = useRetryFocus<HTMLHeadingElement>(
+        accounts.error,
+        accounts.isFetching,
+        () => {
+            void accounts.refetch();
+        },
+    );
 
     if (accounts.isPending) {
         return (
@@ -419,13 +432,7 @@ export function RecordTransactionPage() {
         );
     }
     const accountsFailure = (
-        <QueryErrorState
-            error={accounts.error}
-            retrying={accounts.isFetching}
-            onRetry={() => {
-                void accounts.refetch();
-            }}
-        />
+        <QueryErrorState error={accounts.error} retrying={accounts.isFetching} onRetry={onRetry} />
     );
     if (accounts.data === undefined) {
         return (
@@ -437,5 +444,11 @@ export function RecordTransactionPage() {
     }
     // A failed background refetch never hides the form already on screen: TanStack Query keeps
     // the data it holds, so the failure is shown above the form rather than in its place.
-    return <RecordTransactionForm accounts={accounts.data} accountsFailure={accountsFailure} />;
+    return (
+        <RecordTransactionForm
+            accounts={accounts.data}
+            accountsFailure={accountsFailure}
+            headingRef={targetRef}
+        />
+    );
 }

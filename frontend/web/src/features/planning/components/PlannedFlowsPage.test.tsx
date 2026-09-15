@@ -16,6 +16,7 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { planKeys } from '../hooks/planQueries';
@@ -210,6 +211,10 @@ describe('PlannedFlowsPage', () => {
 
         expect(await screen.findByText('No planned flows yet')).toBeDefined();
         expect(requests.filter((request) => request.url === FLOWS_URL)).toHaveLength(2);
+        // The retry button went with the failure, so focus lands on what the retry restored.
+        await waitFor(() => {
+            expect(focusedElementHolds(screen.getByText('No planned flows yet'))).toBe(true);
+        });
     });
 });
 

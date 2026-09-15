@@ -271,6 +271,44 @@ describe('HoldingPage', () => {
             expect(screen.queryByRole('alert')).toBeNull();
         });
         expect(requests.filter((request) => isRead(request, 'position'))).toHaveLength(2);
+        // The retry button went with the failure, so focus lands on the section it restored.
+        await waitFor(() => {
+            expect(document.activeElement).toBe(
+                screen.getByRole('heading', { level: 2, name: 'Position' }),
+            );
+        });
+    });
+
+    it('Given_the_valuation_read_fails_otherwise_When_Try_again_restores_it_Then_focus_moves_to_its_heading', async () => {
+        let failing = true;
+        fakeFetch(
+            assistant({
+                position: () => jsonResponse(POSITION),
+                valuation: () =>
+                    failing
+                        ? problemResponse({
+                              status: 500,
+                              code: 'INTERNAL_ERROR',
+                              detail: 'The assistant failed to handle this request.',
+                          })
+                        : jsonResponse(VALUATION),
+            }),
+        );
+        renderHolding();
+        const valuation = await screen.findByRole('region', { name: 'Valuation' });
+        const alert = await within(valuation).findByRole('alert');
+
+        failing = false;
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
+
+        expect(await screen.findByText('US$5,187.44')).toBeDefined();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(
+                screen.getByRole('heading', { level: 2, name: 'Valuation' }),
+            );
+        });
     });
 
     it('Given_the_valuation_read_fails_otherwise_When_the_page_renders_Then_an_error_state_offers_a_retry_beside_the_position', async () => {

@@ -1,6 +1,12 @@
 import { useId } from 'react';
 
-import { DateField, QueryErrorState, SelectField, type SelectOption } from '@/shared/ui';
+import {
+    DateField,
+    QueryErrorState,
+    SelectField,
+    type SelectOption,
+    useRetryFocus,
+} from '@/shared/ui';
 
 import { useAccountOptions } from '../hooks/accountOptions';
 import type { AccountOption, AccountOptionsFailure } from '../types/accountOption';
@@ -29,14 +35,15 @@ function oneOf<Value extends string>(allowed: readonly Value[], value: string): 
 }
 
 /** The accounts could not be read: the failure, and any retry, in place of the pickers alone. */
-function AccountsFailure({ failure }: { readonly failure: AccountOptionsFailure }) {
-    return (
-        <QueryErrorState
-            error={failure.error}
-            retrying={failure.retrying}
-            onRetry={failure.retry}
-        />
-    );
+function AccountsFailure({
+    failure,
+    onRetry,
+}: {
+    readonly failure: AccountOptionsFailure;
+    /** Sends the read again, through `useRetryFocus` so a success moves focus to the pickers. */
+    readonly onRetry: () => void;
+}) {
+    return <QueryErrorState error={failure.error} retrying={failure.retrying} onRetry={onRetry} />;
 }
 
 /** One checkbox group of accounts, already filtered to `currency`. */
@@ -91,20 +98,30 @@ function AccountPickers({
 }: ProjectionSettingsFieldsProps) {
     const accountOptions = useAccountOptions();
     const hintId = useId();
+    const accountsFailure = accountOptions.status === 'loading' ? null : accountOptions.failure;
+    // Loading counts as retrying: a retry after the accounts never arrived loads them afresh, and
+    // the pickers it should focus are not on screen until that load settles.
+    const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
+        accountsFailure?.error ?? null,
+        accountOptions.status === 'loading' || accountsFailure?.retrying === true,
+        () => {
+            accountsFailure?.retry();
+        },
+    );
 
     if (accountOptions.status === 'loading') {
         return <p className={styles.muted}>Loading accounts…</p>;
     }
     if (accountOptions.status === 'failed') {
-        return <AccountsFailure failure={accountOptions.failure} />;
+        return <AccountsFailure failure={accountOptions.failure} onRetry={onRetry} />;
     }
     const failure =
         accountOptions.failure === null ? null : (
-            <AccountsFailure failure={accountOptions.failure} />
+            <AccountsFailure failure={accountOptions.failure} onRetry={onRetry} />
         );
     if (currency === undefined) {
         return (
-            <div className={styles.accounts}>
+            <div ref={targetRef} tabIndex={-1} className={styles.accounts}>
                 {failure}
                 <p className={styles.hint}>{noCurrencyMessage}</p>
             </div>
@@ -112,7 +129,7 @@ function AccountPickers({
     }
     const inCurrency = accountOptions.options.filter((option) => option.currency === currency);
     return (
-        <div className={styles.accounts}>
+        <div ref={targetRef} tabIndex={-1} className={styles.accounts}>
             {failure}
             <p id={hintId} className={styles.hint}>
                 {`A ${noun} covers one currency, so only accounts in ${currency} are offered.`}

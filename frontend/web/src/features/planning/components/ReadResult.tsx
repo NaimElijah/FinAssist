@@ -1,7 +1,7 @@
 import type { UseQueryResult } from '@tanstack/react-query';
 import { type ReactNode, useEffect, useId, useRef } from 'react';
 
-import { QueryErrorState } from '@/shared/ui';
+import { QueryErrorState, useRetryFocus } from '@/shared/ui';
 
 import styles from './ReadResult.module.css';
 
@@ -24,7 +24,8 @@ export interface ReadResultProps<Data> {
  * A failure takes focus, the rule every form in the app keeps for a submission nothing on a field
  * explains, and every new failure takes it again. A retry is offered only where a second attempt
  * could change the answer - a network failure, or a 5xx other than a 503 - so a 422 for a horizon
- * that is not whole steps is explained and offers nothing to press.
+ * that is not whole steps is explained and offers nothing to press. A retry that succeeds moves
+ * focus to the section's heading, since the control it was pressed on goes with the failure.
  *
  * @param props - see `ReadResultProps`.
  */
@@ -37,6 +38,13 @@ export function ReadResult<Data>({
     const headingId = useId();
     const failureRef = useRef<HTMLDivElement>(null);
     const failure = query.error;
+    const { targetRef, onRetry } = useRetryFocus<HTMLHeadingElement>(
+        failure,
+        query.isFetching,
+        () => {
+            void query.refetch();
+        },
+    );
 
     // Runs after the render that shows the failure, so the error state is already on the page;
     // each failed read is a new error object, so each one moves focus.
@@ -48,7 +56,7 @@ export function ReadResult<Data>({
 
     return (
         <section aria-labelledby={headingId} className={styles.section}>
-            <h2 id={headingId} className={styles.heading}>
+            <h2 ref={targetRef} id={headingId} tabIndex={-1} className={styles.heading}>
                 {heading}
             </h2>
             {query.isPending ? <p className={styles.pending}>{pendingMessage}</p> : null}
@@ -56,9 +64,7 @@ export function ReadResult<Data>({
                 ref={failureRef}
                 error={failure}
                 retrying={query.isFetching}
-                onRetry={() => {
-                    void query.refetch();
-                }}
+                onRetry={onRetry}
             />
             {query.data === undefined ? null : children(query.data)}
         </section>

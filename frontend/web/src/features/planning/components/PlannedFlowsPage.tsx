@@ -15,6 +15,7 @@ import {
     StateBadge,
     TextField,
     type Tone,
+    useRetryFocus,
 } from '@/shared/ui';
 
 import {
@@ -413,6 +414,13 @@ function PlannedFlowsList({
     // reflects the close; state, not a ref, so it is never read or written during render.
     const [closedAction, setClosedAction] = useState<ClosedAction | undefined>(undefined);
     const flows = usePlannedFlows();
+    const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
+        flows.error,
+        flows.isFetching,
+        () => {
+            void flows.refetch();
+        },
+    );
 
     // Runs after a panel closes, whether by cancel or by success - both go through closeAction
     // below, and a failure never does (the panel stays open and keeps its own focus). Prefers the
@@ -449,19 +457,13 @@ function PlannedFlowsList({
         return <p className={styles.loading}>Loading planned flows…</p>;
     }
     const failure = (
-        <QueryErrorState
-            error={flows.error}
-            retrying={flows.isFetching}
-            onRetry={() => {
-                void flows.refetch();
-            }}
-        />
+        <QueryErrorState error={flows.error} retrying={flows.isFetching} onRetry={onRetry} />
     );
     if (flows.data === undefined) {
         return failure;
     }
     return (
-        <div className={styles.stack}>
+        <div ref={targetRef} tabIndex={-1} className={styles.stack}>
             {failure}
             {flows.data.length === 0 ? (
                 <EmptyState message={EMPTY_MESSAGE} />

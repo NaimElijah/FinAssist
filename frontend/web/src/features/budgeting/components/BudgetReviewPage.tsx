@@ -10,6 +10,7 @@ import {
     QueryErrorState,
     StateBadge,
     type Tone,
+    useRetryFocus,
 } from '@/shared/ui';
 
 import { BUDGET_NOT_FOUND } from '../api/budgetingApi';
@@ -165,6 +166,17 @@ function ReviewSections({ review }: { readonly review: BudgetReview }) {
 function BudgetDetail({ budgetId }: { readonly budgetId: string }) {
     const budgets = useBudgets();
     const review = useBudgetReview(budgetId);
+    const { targetRef: budgetHeadingRef, onRetry: retryBudgets } =
+        useRetryFocus<HTMLHeadingElement>(budgets.error, budgets.isFetching, () => {
+            void budgets.refetch();
+        });
+    const { targetRef: reviewRef, onRetry: retryReview } = useRetryFocus<HTMLDivElement>(
+        review.error,
+        review.isFetching,
+        () => {
+            void review.refetch();
+        },
+    );
     const notFound = hasProblemCode(review.error, BUDGET_NOT_FOUND);
     const budget = budgets.data?.find((candidate: Budget) => candidate.id === budgetId);
     // Called before any early return, as every hook must be.
@@ -179,9 +191,7 @@ function BudgetDetail({ budgetId }: { readonly budgetId: string }) {
         <QueryErrorState
             error={budgets.error}
             retrying={budgets.isFetching}
-            onRetry={() => {
-                void budgets.refetch();
-            }}
+            onRetry={retryBudgets}
         />
     );
     if (budgets.data === undefined) {
@@ -210,7 +220,7 @@ function BudgetDetail({ budgetId }: { readonly budgetId: string }) {
             </p>
             {budgetsFailure}
             <header className={styles.header}>
-                <h1 className={styles.name}>
+                <h1 ref={budgetHeadingRef} tabIndex={-1} className={styles.name}>
                     <PeriodLabel period={budget.period} />
                 </h1>
                 <p className={styles.meta}>{budget.currency}</p>
@@ -218,13 +228,11 @@ function BudgetDetail({ budgetId }: { readonly budgetId: string }) {
             {review.isPending ? (
                 <p className={styles.placeholder}>Loading review…</p>
             ) : (
-                <div className={styles.stack}>
+                <div ref={reviewRef} tabIndex={-1} className={styles.stack}>
                     <QueryErrorState
                         error={review.error}
                         retrying={review.isFetching}
-                        onRetry={() => {
-                            void review.refetch();
-                        }}
+                        onRetry={retryReview}
                     />
                     {review.data === undefined ? null : <ReviewSections review={review.data} />}
                 </div>

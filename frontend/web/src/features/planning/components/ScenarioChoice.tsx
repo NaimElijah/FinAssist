@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { EmptyState, QueryErrorState } from '@/shared/ui';
+import { EmptyState, QueryErrorState, useRetryFocus } from '@/shared/ui';
 
 import { useScenarios } from '../hooks/planQueries';
 import type { Scenario } from '../types/scenario';
@@ -19,12 +19,20 @@ export interface ScenarioChoiceProps {
  * state their request is in: loading, failed, none defined, or loaded.
  *
  * A failed background refetch never hides a form already on screen: TanStack Query keeps the list
- * it holds, so the failure is shown above the form rather than in its place.
+ * it holds, so the failure is shown above the form rather than in its place. A retry that restores
+ * the list moves focus to what it restored.
  *
  * @param props - see `ScenarioChoiceProps`.
  */
 export function ScenarioChoice({ emptyMessage, children }: ScenarioChoiceProps) {
     const scenarios = useScenarios();
+    const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
+        scenarios.error,
+        scenarios.isFetching,
+        () => {
+            void scenarios.refetch();
+        },
+    );
 
     if (scenarios.isPending) {
         return <p className={styles.loading}>Loading scenarios…</p>;
@@ -33,21 +41,22 @@ export function ScenarioChoice({ emptyMessage, children }: ScenarioChoiceProps) 
         <QueryErrorState
             error={scenarios.error}
             retrying={scenarios.isFetching}
-            onRetry={() => {
-                void scenarios.refetch();
-            }}
+            onRetry={onRetry}
         />
     );
     if (scenarios.data === undefined) {
         return failure;
     }
-    if (scenarios.data.length === 0) {
-        return <EmptyState message={emptyMessage} />;
-    }
     return (
-        <>
-            {failure}
-            {children(scenarios.data)}
-        </>
+        <div ref={targetRef} tabIndex={-1} className={styles.choice}>
+            {scenarios.data.length === 0 ? (
+                <EmptyState message={emptyMessage} />
+            ) : (
+                <>
+                    {failure}
+                    {children(scenarios.data)}
+                </>
+            )}
+        </div>
     );
 }

@@ -2,7 +2,7 @@
 // Renders the review screen through the feature's own routes, so it needs a DOM. fetch is
 // stubbed, so the feature's real api/ module and its mapping run under test.
 
-import { act, screen, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -14,6 +14,7 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { budgetKeys } from '../hooks/budgetQueries';
@@ -244,6 +245,40 @@ describe('BudgetReviewPage', () => {
             .click(within(alert).getByRole('button', { name: 'Try again' }));
 
         expect(await screen.findByRole('rowheader', { name: 'groceries' })).toBeDefined();
+        // The retry button went with the failure, so focus lands on what the retry restored.
+        await waitFor(() => {
+            expect(focusedElementHolds(screen.getByRole('rowheader', { name: 'groceries' }))).toBe(
+                true,
+            );
+        });
+    });
+
+    it('Given_the_budgets_list_fails_When_Try_again_restores_it_Then_focus_moves_to_the_budgets_heading', async () => {
+        let failing = true;
+        fakeFetch((request) => {
+            if (request.url === reviewUrl(SEPTEMBER_BUDGET.id)) return jsonResponse(REVIEW);
+            if (request.url !== BUDGETS_URL) return unexpectedRequest(request);
+            return failing
+                ? problemResponse({
+                      status: 502,
+                      code: 'UNAVAILABLE',
+                      detail: 'The ledger is restarting.',
+                  })
+                : jsonResponse([SEPTEMBER_BUDGET]);
+        });
+
+        renderReview(SEPTEMBER_BUDGET.id);
+
+        const alert = await screen.findByRole('alert');
+        failing = false;
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
+
+        const heading = await screen.findByRole('heading', { level: 1, name: 'September 2026' });
+        await waitFor(() => {
+            expect(document.activeElement).toBe(heading);
+        });
     });
 
     it('Given_the_review_is_already_on_screen_When_a_background_refetch_of_it_fails_Then_the_data_stays_and_a_non_blocking_retry_is_offered', async () => {

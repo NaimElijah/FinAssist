@@ -18,6 +18,7 @@ import {
     type RecordedRequest,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { AccountOptionsContext } from '../hooks/accountOptions';
@@ -475,6 +476,12 @@ describe('ComparisonPage', () => {
 
         expect(await screen.findByRole('table', { name: 'End states' })).toBeDefined();
         expect(requests.filter(isComparison)).toHaveLength(2);
+        // The retry button went with the failure, so focus lands on the section it restored.
+        await waitFor(() => {
+            expect(document.activeElement).toBe(
+                screen.getByRole('heading', { level: 2, name: 'Comparison' }),
+            );
+        });
     });
 
     it('Given_no_scenario_chosen_When_the_page_renders_Then_no_account_is_offered_and_the_hint_says_why', async () => {
@@ -543,5 +550,11 @@ describe('ComparisonPage', () => {
 
         expect(await screen.findByRole('group', { name: 'Scenarios' })).toBeDefined();
         expect(requests).toHaveLength(2);
+        // The retry button went with the failure, so focus lands on the form the retry restored.
+        await waitFor(() => {
+            expect(focusedElementHolds(screen.getByRole('group', { name: 'Scenarios' }))).toBe(
+                true,
+            );
+        });
     });
 });

@@ -14,6 +14,7 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { budgetKeys } from '../hooks/budgetQueries';
@@ -138,6 +139,12 @@ describe('BudgetsPage', () => {
 
         expect(await screen.findByText('No budgets yet — define one below')).toBeDefined();
         expect(requests.filter((request) => request.url === BUDGETS_URL)).toHaveLength(2);
+        // The retry button went with the failure, so focus lands on what the retry restored.
+        await waitFor(() => {
+            expect(focusedElementHolds(screen.getByText('No budgets yet — define one below'))).toBe(
+                true,
+            );
+        });
     });
 });
 

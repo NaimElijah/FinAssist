@@ -16,6 +16,7 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { accountKeys } from '../hooks/accountQueries';
@@ -265,6 +266,12 @@ describe('AccountDetailPage', () => {
 
         expect(await screen.findByText('No transactions touch this account yet')).toBeDefined();
         expect(requests.filter((request) => request.url === TRANSACTIONS_URL)).toHaveLength(2);
+        // The retry button went with the failure, so focus lands on what the retry restored.
+        await waitFor(() => {
+            expect(
+                focusedElementHolds(screen.getByText('No transactions touch this account yet')),
+            ).toBe(true);
+        });
     });
 
     it('Given_the_balance_fails_with_a_5xx_When_rendered_Then_an_error_state_offers_a_retry_and_the_account_is_still_shown', async () => {
@@ -290,6 +297,75 @@ describe('AccountDetailPage', () => {
         expect(within(alert).getByRole('button', { name: 'Try again' })).toBeDefined();
         expect(screen.getByRole('heading', { level: 1, name: 'Checking' })).toBeDefined();
         expect(screen.queryByRole('heading', { level: 1, name: 'Account not found' })).toBeNull();
+    });
+
+    it('Given_the_balance_fails_with_a_5xx_When_Try_again_restores_it_Then_focus_moves_to_the_balance', async () => {
+        let failing = true;
+        fakeFetch(
+            ledger(TRANSACTIONS, (request) => {
+                if (request.url === BALANCE_URL) {
+                    return failing
+                        ? problemResponse({
+                              status: 500,
+                              code: 'INTERNAL_ERROR',
+                              detail: 'The ledger failed to handle this request.',
+                          })
+                        : jsonResponse({
+                              account: CHECKING.id,
+                              balance: { amount: '1234.50', currency: 'ILS' },
+                          });
+                }
+                if (request.url === TRANSACTIONS_URL) return jsonResponse([]);
+                return unexpectedRequest(request);
+            }),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const alert = await screen.findByRole('alert');
+
+        failing = false;
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
+
+        const balance = await screen.findByText('₪1,234.50');
+        await waitFor(() => {
+            expect(focusedElementHolds(balance)).toBe(true);
+        });
+    });
+
+    it('Given_the_accounts_list_fails_When_Try_again_restores_it_Then_focus_moves_to_the_accounts_heading', async () => {
+        let failing = true;
+        fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL) {
+                return failing
+                    ? problemResponse({
+                          status: 502,
+                          code: 'UNAVAILABLE',
+                          detail: 'The ledger is restarting.',
+                      })
+                    : jsonResponse([CHECKING]);
+            }
+            if (request.url === BALANCE_URL) {
+                return jsonResponse({
+                    account: CHECKING.id,
+                    balance: { amount: '1234.50', currency: 'ILS' },
+                });
+            }
+            if (request.url === TRANSACTIONS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const alert = await screen.findByRole('alert');
+
+        failing = false;
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
+
+        const heading = await screen.findByRole('heading', { level: 1, name: 'Checking' });
+        await waitFor(() => {
+            expect(document.activeElement).toBe(heading);
+        });
     });
 });
 

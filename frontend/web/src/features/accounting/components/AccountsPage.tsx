@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 
-import { type Column, DataTable, EmptyState, MoneyText, QueryErrorState } from '@/shared/ui';
+import {
+    type Column,
+    DataTable,
+    EmptyState,
+    MoneyText,
+    QueryErrorState,
+    useRetryFocus,
+} from '@/shared/ui';
 
 import { useAccountBalance, useAccounts } from '../hooks/accountQueries';
 import { ACCOUNT_TYPE_LABELS, type Account } from '../types/account';
@@ -97,24 +104,25 @@ function AccountsList({
     readonly onFocused: () => void;
 }) {
     const accounts = useAccounts();
+    const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
+        accounts.error,
+        accounts.isFetching,
+        () => {
+            void accounts.refetch();
+        },
+    );
 
     if (accounts.isPending) {
         return <p className={styles.loading}>Loading accounts…</p>;
     }
     const failure = (
-        <QueryErrorState
-            error={accounts.error}
-            retrying={accounts.isFetching}
-            onRetry={() => {
-                void accounts.refetch();
-            }}
-        />
+        <QueryErrorState error={accounts.error} retrying={accounts.isFetching} onRetry={onRetry} />
     );
     if (accounts.data === undefined) {
         return failure;
     }
     return (
-        <div className={styles.stack}>
+        <div ref={targetRef} tabIndex={-1} className={styles.stack}>
             {failure}
             {accounts.data.length === 0 ? (
                 <EmptyState message={EMPTY_MESSAGE} />

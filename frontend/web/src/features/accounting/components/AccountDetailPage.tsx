@@ -19,6 +19,7 @@ import {
     StateBadge,
     TextField,
     type Tone,
+    useRetryFocus,
 } from '@/shared/ui';
 
 import { ACCOUNT_NOT_FOUND } from '../api/accountingApi';
@@ -398,36 +399,32 @@ function transactionColumns(
 }
 
 /**
- * A failed read's error state, offering a retry when one could change the answer, or nothing when
- * the read has not failed.
- *
- * Each section below shows it beside data it still holds: TanStack Query keeps a query's data
- * when a later refetch fails, so the failure never replaces what the owner was reading.
+ * The account's balance in whichever state its read is in. A failed refetch is shown beside a
+ * balance it still holds: TanStack Query keeps a query's data when a later refetch fails, so the
+ * failure never replaces what the owner was reading.
  */
-function failureOf(query: UseQueryResult) {
-    return (
-        <QueryErrorState
-            error={query.error}
-            retrying={query.isFetching}
-            onRetry={() => {
-                void query.refetch();
-            }}
-        />
-    );
-}
-
 function Balance({ balance }: { readonly balance: UseQueryResult<Money> }) {
+    const { targetRef, onRetry } = useRetryFocus<HTMLParagraphElement>(
+        balance.error,
+        balance.isFetching,
+        () => {
+            void balance.refetch();
+        },
+    );
+
     if (balance.isPending) {
         return <p className={styles.placeholder}>Loading balance…</p>;
     }
-    const failure = failureOf(balance);
+    const failure = (
+        <QueryErrorState error={balance.error} retrying={balance.isFetching} onRetry={onRetry} />
+    );
     if (balance.data === undefined) {
         return failure;
     }
     return (
         <>
             {failure}
-            <p className={styles.balance}>
+            <p ref={targetRef} tabIndex={-1} className={styles.balance}>
                 <span className={styles.balanceLabel}>Balance</span>
                 <MoneyText amount={balance.data.amount} currency={balance.data.currency} />
             </p>
@@ -448,6 +445,13 @@ function Transactions({
     // Which row and action a just-closed panel was for, so focus can return there once the DOM
     // reflects the close; state, not a ref, so it is never read or written during render.
     const [closedAction, setClosedAction] = useState<ClosedAction | undefined>(undefined);
+    const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
+        transactions.error,
+        transactions.isFetching,
+        () => {
+            void transactions.refetch();
+        },
+    );
 
     // Runs after a panel closes, whether by cancel or by success - both go through closeAction
     // below, and a failure never does (the panel stays open and keeps its own focus). Prefers
@@ -491,12 +495,18 @@ function Transactions({
     if (transactions.isPending) {
         return <p className={styles.placeholder}>Loading transactions…</p>;
     }
-    const failure = failureOf(transactions);
+    const failure = (
+        <QueryErrorState
+            error={transactions.error}
+            retrying={transactions.isFetching}
+            onRetry={onRetry}
+        />
+    );
     if (transactions.data === undefined) {
         return failure;
     }
     return (
-        <div className={styles.stack}>
+        <div ref={targetRef} tabIndex={-1} className={styles.stack}>
             {failure}
             {transactions.data.length === 0 ? (
                 <EmptyState message={NO_TRANSACTIONS_MESSAGE} />
@@ -526,6 +536,10 @@ function AccountDetail({ accountId }: { readonly accountId: string }) {
     const accounts = useAccounts();
     const balance = useAccountBalance(accountId);
     const transactions = useAccountTransactions(accountId);
+    const { targetRef: accountHeadingRef, onRetry: retryAccounts } =
+        useRetryFocus<HTMLHeadingElement>(accounts.error, accounts.isFetching, () => {
+            void accounts.refetch();
+        });
     const notFound =
         hasProblemCode(balance.error, ACCOUNT_NOT_FOUND) ||
         hasProblemCode(transactions.error, ACCOUNT_NOT_FOUND);
@@ -536,7 +550,13 @@ function AccountDetail({ accountId }: { readonly accountId: string }) {
     if (notFound) {
         return <AccountNotFound />;
     }
-    const accountsFailure = accounts.isPending ? null : failureOf(accounts);
+    const accountsFailure = (
+        <QueryErrorState
+            error={accounts.error}
+            retrying={accounts.isFetching}
+            onRetry={retryAccounts}
+        />
+    );
     if (accounts.data === undefined) {
         return (
             <>
@@ -563,7 +583,9 @@ function AccountDetail({ accountId }: { readonly accountId: string }) {
             </p>
             {accountsFailure}
             <header className={styles.header}>
-                <h1 className={styles.name}>{account.name}</h1>
+                <h1 ref={accountHeadingRef} tabIndex={-1} className={styles.name}>
+                    {account.name}
+                </h1>
                 <p className={styles.meta}>
                     {ACCOUNT_TYPE_LABELS[account.type]} · {account.currency}
                 </p>

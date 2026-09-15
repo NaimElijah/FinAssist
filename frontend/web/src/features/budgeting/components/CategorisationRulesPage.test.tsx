@@ -15,6 +15,7 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { budgetKeys, categorisationRuleKeys } from '../hooks/budgetQueries';
@@ -127,6 +128,10 @@ describe('CategorisationRulesPage', () => {
 
         expect(await screen.findByText('"coffee" → dining')).toBeDefined();
         expect(requests.filter((request) => request.url === RULES_URL)).toHaveLength(2);
+        // The retry button went with the failure, so focus lands on what the retry restored.
+        await waitFor(() => {
+            expect(focusedElementHolds(screen.getByText('"coffee" → dining'))).toBe(true);
+        });
     });
 });
 

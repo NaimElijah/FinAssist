@@ -15,6 +15,7 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { planKeys } from '../hooks/planQueries';
@@ -175,6 +176,16 @@ describe('ScenariosPage', () => {
             ),
         ).toBeDefined();
         expect(requests.filter((request) => request.url === SCENARIOS_URL)).toHaveLength(2);
+        // The retry button went with the failure, so focus lands on what the retry restored.
+        await waitFor(() => {
+            expect(
+                focusedElementHolds(
+                    screen.getByText(
+                        'No scenarios yet — the do-nothing baseline is a scenario with no flows',
+                    ),
+                ),
+            ).toBe(true);
+        });
     });
 
     it('Given_scenarios_on_screen_When_a_background_refetch_fails_Then_the_rows_stay_and_a_retry_is_offered', async () => {
@@ -239,6 +250,29 @@ describe('ScenariosPage define-scenario form', () => {
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('Try later.')).toBeDefined();
         expect(screen.getByLabelText(/Rent/)).toBeDefined();
+    });
+
+    it('Given_the_flows_read_fails_When_Try_again_restores_it_Then_focus_moves_to_the_flows_group', async () => {
+        let failing = true;
+        fakeFetch((request) => {
+            if (request.url === SCENARIOS_URL && request.method === 'GET') return jsonResponse([]);
+            if (request.url !== FLOWS_URL) return unexpectedRequest(request);
+            return failing
+                ? problemResponse({ status: 502, code: 'UNAVAILABLE', detail: 'Try later.' })
+                : jsonResponse([RENT_ILS]);
+        });
+        renderScenarios();
+        const alert = await screen.findByRole('alert');
+
+        failing = false;
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
+
+        const flows = await screen.findByRole('group', { name: 'Flows' });
+        await waitFor(() => {
+            expect(document.activeElement).toBe(flows);
+        });
     });
 
     it('Given_a_USD_flow_selected_When_the_currency_changes_to_ILS_and_back_to_USD_Then_its_selection_stays_cleared', async () => {

@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 
-import { type Column, DataTable, EmptyState, MoneyText, QueryErrorState } from '@/shared/ui';
+import {
+    type Column,
+    DataTable,
+    EmptyState,
+    MoneyText,
+    QueryErrorState,
+    useRetryFocus,
+} from '@/shared/ui';
 
 import { useBudgets } from '../hooks/budgetQueries';
 import type { Budget } from '../types/budget';
@@ -91,24 +98,25 @@ function BudgetsList({
     readonly onFocused: () => void;
 }) {
     const budgets = useBudgets();
+    const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
+        budgets.error,
+        budgets.isFetching,
+        () => {
+            void budgets.refetch();
+        },
+    );
 
     if (budgets.isPending) {
         return <p className={styles.loading}>Loading budgets…</p>;
     }
     const failure = (
-        <QueryErrorState
-            error={budgets.error}
-            retrying={budgets.isFetching}
-            onRetry={() => {
-                void budgets.refetch();
-            }}
-        />
+        <QueryErrorState error={budgets.error} retrying={budgets.isFetching} onRetry={onRetry} />
     );
     if (budgets.data === undefined) {
         return failure;
     }
     return (
-        <div className={styles.stack}>
+        <div ref={targetRef} tabIndex={-1} className={styles.stack}>
             {failure}
             {budgets.data.length === 0 ? (
                 <EmptyState message={EMPTY_MESSAGE} />

@@ -1,4 +1,4 @@
-import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
+import { type Ref, type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
 import {
@@ -9,6 +9,7 @@ import {
     SelectField,
     type SelectOption,
     TextField,
+    useRetryFocus,
 } from '@/shared/ui';
 
 import { useDefineScenario, usePlannedFlows } from '../hooks/planQueries';
@@ -140,15 +141,18 @@ function FlowsFieldset({
     currency,
     selectedFlowIds,
     onToggle,
+    ref,
 }: {
     readonly flows: readonly PlannedFlow[];
     readonly currency: Currency;
     readonly selectedFlowIds: ReadonlySet<string>;
     readonly onToggle: (flowId: string) => void;
+    /** The group's element, where a retry that restored the flows moves focus. */
+    readonly ref: Ref<HTMLFieldSetElement>;
 }) {
     const flowsInCurrency = flows.filter((flow) => flow.amount.currency === currency);
     return (
-        <fieldset className={groupStyles.group}>
+        <fieldset ref={ref} tabIndex={-1} className={groupStyles.group}>
             <legend className={groupStyles.legend}>Flows</legend>
             {flowsInCurrency.length === 0 ? (
                 <p className={styles.noFlows}>{`No planned flows in ${currency} yet.`}</p>
@@ -208,6 +212,13 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
     const [growthRatePerStep, setGrowthRatePerStep] = useState(DEFAULT_GROWTH_RATE);
 
     const flowsQuery = usePlannedFlows();
+    const { targetRef: flowsRef, onRetry: retryFlows } = useRetryFocus<HTMLFieldSetElement>(
+        flowsQuery.error,
+        flowsQuery.isFetching,
+        () => {
+            void flowsQuery.refetch();
+        },
+    );
     const defineScenario = useDefineScenario();
     const failure = defineScenario.error;
     const errors = submissionErrors(failure);
@@ -270,9 +281,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
         <QueryErrorState
             error={flowsQuery.error}
             retrying={flowsQuery.isFetching}
-            onRetry={() => {
-                void flowsQuery.refetch();
-            }}
+            onRetry={retryFlows}
         />
     );
 
@@ -329,6 +338,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                             shown above them rather than in their place. */}
                         {flowsFailure}
                         <FlowsFieldset
+                            ref={flowsRef}
                             flows={flowsQuery.data}
                             currency={currency}
                             selectedFlowIds={selectedFlowIds}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { type Column, DataTable, EmptyState, QueryErrorState } from '@/shared/ui';
+import { type Column, DataTable, EmptyState, QueryErrorState, useRetryFocus } from '@/shared/ui';
 
 import { useScenarios } from '../hooks/planQueries';
 import type { Scenario } from '../types/scenario';
@@ -91,6 +91,13 @@ function ScenariosList({
     readonly onFocused: () => void;
 }) {
     const scenarios = useScenarios();
+    const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
+        scenarios.error,
+        scenarios.isFetching,
+        () => {
+            void scenarios.refetch();
+        },
+    );
 
     if (scenarios.isPending) {
         return <p className={styles.loading}>Loading scenarios…</p>;
@@ -99,16 +106,14 @@ function ScenariosList({
         <QueryErrorState
             error={scenarios.error}
             retrying={scenarios.isFetching}
-            onRetry={() => {
-                void scenarios.refetch();
-            }}
+            onRetry={onRetry}
         />
     );
     if (scenarios.data === undefined) {
         return failure;
     }
     return (
-        <div className={styles.stack}>
+        <div ref={targetRef} tabIndex={-1} className={styles.stack}>
             {failure}
             {scenarios.data.length === 0 ? (
                 <EmptyState message={EMPTY_MESSAGE} />

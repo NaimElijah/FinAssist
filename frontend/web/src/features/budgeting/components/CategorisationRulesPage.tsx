@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { EmptyState, QueryErrorState } from '@/shared/ui';
+import { EmptyState, QueryErrorState, useRetryFocus } from '@/shared/ui';
 
 import { useCategorisationRules } from '../hooks/budgetQueries';
 import styles from './CategorisationRulesPage.module.css';
@@ -34,6 +34,13 @@ function RulesList({
 }) {
     const rules = useCategorisationRules();
     const lastItemRef = useRef<HTMLLIElement>(null);
+    const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
+        rules.error,
+        rules.isFetching,
+        () => {
+            void rules.refetch();
+        },
+    );
 
     useEffect(() => {
         if (!awaitingFocus) {
@@ -53,19 +60,13 @@ function RulesList({
         return <p className={styles.loading}>Loading rules…</p>;
     }
     const failure = (
-        <QueryErrorState
-            error={rules.error}
-            retrying={rules.isFetching}
-            onRetry={() => {
-                void rules.refetch();
-            }}
-        />
+        <QueryErrorState error={rules.error} retrying={rules.isFetching} onRetry={onRetry} />
     );
     if (rules.data === undefined) {
         return failure;
     }
     return (
-        <div className={styles.stack}>
+        <div ref={targetRef} tabIndex={-1} className={styles.stack}>
             {failure}
             {rules.data.length === 0 ? (
                 <EmptyState message={EMPTY_MESSAGE} />

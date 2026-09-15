@@ -2,3 +2,11 @@
     margin: 0;
     color: var(--color-muted);
 }
+
+/* The one focus target a retry lands on; it keeps the gap its section would give a failure and the
+   form beneath it, which it now holds in that section's place. */
+.choice {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}

@@ -18,6 +18,7 @@ import {
     type RecordedRequest,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { AccountOptionsContext } from '../hooks/accountOptions';
@@ -343,6 +344,12 @@ describe('ProjectionPage', () => {
 
         expect(await screen.findByRole('table', { name: 'Projection' })).toBeDefined();
         expect(requests.filter(isProjection)).toHaveLength(2);
+        // The retry button went with the failure, so focus lands on the section it restored.
+        await waitFor(() => {
+            expect(document.activeElement).toBe(
+                screen.getByRole('heading', { level: 2, name: 'Projected balances' }),
+            );
+        });
     });
 
     it('Given_scenarios_in_two_currencies_When_each_is_chosen_Then_only_accounts_in_its_currency_are_offered', async () => {
@@ -527,5 +534,9 @@ describe('ProjectionPage', () => {
 
         expect(await screen.findByLabelText('Scenario')).toBeDefined();
         expect(requests).toHaveLength(2);
+        // The retry button went with the failure, so focus lands on the form the retry restored.
+        await waitFor(() => {
+            expect(focusedElementHolds(screen.getByLabelText('Scenario'))).toBe(true);
+        });
     });
 });

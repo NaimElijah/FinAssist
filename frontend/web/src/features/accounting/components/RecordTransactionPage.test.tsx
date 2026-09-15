@@ -489,6 +489,13 @@ describe('RecordTransactionPage accounts read', () => {
             .click(within(alert).getByRole('button', { name: 'Try again' }));
 
         expect(await screen.findByLabelText('Description')).toBeDefined();
+        // The retry button went with the failure, so focus lands on the form's heading rather than
+        // being left on the page body.
+        await waitFor(() => {
+            expect(document.activeElement).toBe(
+                screen.getByRole('heading', { level: 1, name: 'Record a transaction' }),
+            );
+        });
     });
 
     it('Given_the_form_already_on_screen_When_a_background_refetch_of_accounts_fails_Then_a_non_blocking_error_state_appears_and_the_form_stays_usable', async () => {

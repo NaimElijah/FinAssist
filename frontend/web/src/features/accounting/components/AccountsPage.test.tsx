@@ -15,6 +15,7 @@ import {
     type RecordedRequest,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { accountKeys } from '../hooks/accountQueries';
@@ -177,6 +178,12 @@ describe('AccountsPage', () => {
 
         expect(await screen.findByText('No accounts yet — open one below')).toBeDefined();
         expect(requests.filter((request) => request.url === ACCOUNTS_URL)).toHaveLength(2);
+        // The retry button went with the failure, so focus lands on what the retry restored.
+        await waitFor(() => {
+            expect(focusedElementHolds(screen.getByText('No accounts yet — open one below'))).toBe(
+                true,
+            );
+        });
     });
 });
 
@@ -599,9 +606,14 @@ describe('AccountsPage opening an account', () => {
             .setup({ delay: null })
             .click(within(alert).getByRole('button', { name: 'Try again' }));
 
-        expect(await screen.findByRole('link', { name: 'Visa' })).toBeDefined();
+        const visa = await screen.findByRole('link', { name: 'Visa' });
         await waitFor(() => {
             expect(screen.queryByRole('alert')).toBeNull();
+        });
+        // The account just opened takes focus as its row renders; the retry that restored the list
+        // must not take focus back from it.
+        await waitFor(() => {
+            expect(document.activeElement).toBe(visa);
         });
     });
 });

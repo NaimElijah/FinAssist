@@ -20,3 +20,4 @@ export { RetryButton, type RetryButtonProps } from './RetryButton';
 export { SelectField, type SelectFieldProps, type SelectOption } from './SelectField';
 export { StateBadge, type StateBadgeProps, type Tone } from './StateBadge';
 export { TextField, type TextFieldProps } from './TextField';
+export { type RetryFocus, useRetryFocus } from './useRetryFocus';

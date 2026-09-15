@@ -18,6 +18,7 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { focusedElementHolds } from '@/shared/testing/focus';
 
 import { App } from './App';
 import { routes } from './routes';
@@ -211,6 +212,14 @@ describe('PlanningAccountsBridge', () => {
 
         failing = false;
         await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+        // The retry button went with the failure, so focus lands on the pickers it restored.
+        await waitFor(() => {
+            expect(
+                focusedElementHolds(
+                    screen.getByText('Choose a scenario to offer the accounts in its currency.'),
+                ),
+            ).toBe(true);
+        });
         await user.selectOptions(screen.getByLabelText('Scenario'), 'Aggressive saving (ILS)');
 
         expect(await screen.findAllByRole('checkbox')).toHaveLength(8);

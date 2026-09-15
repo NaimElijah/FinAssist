@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router';
 
 import { hasProblemCode } from '@/shared/api/client';
 import { useDocumentTitle } from '@/shared/lib/documentTitle';
-import { EmptyState, MoneyText, QueryErrorState } from '@/shared/ui';
+import { EmptyState, MoneyText, QueryErrorState, useRetryFocus } from '@/shared/ui';
 
 import { HOLDING_NOT_FOUND, PRICE_UNAVAILABLE } from '../api/portfolioApi';
 import { usePosition, useValuation } from '../hooks/portfolioQueries';
@@ -27,21 +27,22 @@ function nothingHeldMessage(symbol: string): string {
 
 function PositionSection({ query }: { readonly query: UseQueryResult<Position> }) {
     const headingId = useId();
+    const { targetRef, onRetry } = useRetryFocus<HTMLHeadingElement>(
+        query.error,
+        query.isFetching,
+        () => {
+            void query.refetch();
+        },
+    );
     const position = query.data;
     return (
         <section aria-labelledby={headingId} className={styles.section}>
-            <h2 id={headingId} className={styles.heading}>
+            <h2 ref={targetRef} id={headingId} tabIndex={-1} className={styles.heading}>
                 Position
             </h2>
             {query.isPending ? <p className={styles.pending}>Loading position…</p> : null}
             {/* A failed refetch sits above the figures it failed to refresh, which stay. */}
-            <QueryErrorState
-                error={query.error}
-                retrying={query.isFetching}
-                onRetry={() => {
-                    void query.refetch();
-                }}
-            />
+            <QueryErrorState error={query.error} retrying={query.isFetching} onRetry={onRetry} />
             {position === undefined ? null : (
                 <Figures>
                     {/* A number of units, not money: shown exactly as received, never formatted. */}
@@ -66,6 +67,13 @@ function ValuationSection({
     readonly query: UseQueryResult<Valuation>;
 }) {
     const headingId = useId();
+    const { targetRef, onRetry } = useRetryFocus<HTMLHeadingElement>(
+        query.error,
+        query.isFetching,
+        () => {
+            void query.refetch();
+        },
+    );
     const noPrice = hasProblemCode(query.error, PRICE_UNAVAILABLE);
     // Both reads answer 404 when nothing is held, and either can land first. The position's 404
     // replaces the page once it lands; until then the valuation's is the same considered answer,
@@ -77,7 +85,7 @@ function ValuationSection({
     const valuation = considered ? undefined : query.data;
     return (
         <section aria-labelledby={headingId} className={styles.section}>
-            <h2 id={headingId} className={styles.heading}>
+            <h2 ref={targetRef} id={headingId} tabIndex={-1} className={styles.heading}>
                 Valuation
             </h2>
             {query.isPending ? <p className={styles.pending}>Loading valuation…</p> : null}
@@ -87,9 +95,7 @@ function ValuationSection({
                 <QueryErrorState
                     error={query.error}
                     retrying={query.isFetching}
-                    onRetry={() => {
-                        void query.refetch();
-                    }}
+                    onRetry={onRetry}
                 />
             )}
             {valuation === undefined ? null : (
