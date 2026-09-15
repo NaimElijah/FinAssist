@@ -2,6 +2,7 @@
 // Reads the rendered alert, so it needs a DOM.
 
 import { render, screen, within } from '@testing-library/react';
+import { createRef } from 'react';
 import { describe, expect, it } from 'vitest';
 
 import { ApiError, type Problem } from '../api/client';
@@ -108,5 +109,23 @@ describe('ErrorState', () => {
         render(<ErrorState error={apiError(undefined, 503)} />);
 
         expect(screen.queryByRole('button')).toBeNull();
+    });
+
+    it('Given_a_ref_When_the_alert_is_focused_through_it_Then_the_alert_has_focus', () => {
+        // A form moves focus here after a failed submit, so the failure is read and the next Tab
+        // starts from it. A div takes programmatic focus only with a tabIndex.
+        const ref = createRef<HTMLDivElement>();
+        render(<ErrorState ref={ref} error={apiError(undefined, 503)} />);
+
+        ref.current?.focus();
+
+        expect(document.activeElement).toBe(screen.getByRole('alert'));
+    });
+
+    it('Given_an_error_state_When_rendered_Then_it_is_not_in_the_tab_order', () => {
+        // Focusable for a script, never a Tab stop of its own.
+        render(<ErrorState error={apiError(undefined, 503)} />);
+
+        expect(screen.getByRole('alert').getAttribute('tabindex')).toBe('-1');
     });
 });
