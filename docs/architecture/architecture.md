@@ -537,10 +537,14 @@ fields, lazy proxies — stay in `adapter/out/persistence`.
 
 **The database is private to the ledger.** The assistant has no connection string, by design.
 
-**The assistant's wire models hide their own input on a validation failure.** Every
-`_WireModel` sets `hide_input_in_errors=True`, so a rejected request's `ValidationError` never
-quotes the value it rejected. These models carry the owner's money, and the error text is exactly
-what `adapters/problems.py` might otherwise log or a chained traceback might otherwise print.
+**A validation failure the assistant logs never quotes the input it rejected.** The guarantee is
+`adapters/problems.py`: `_withheld` logs a 5xx caused by a pydantic `ValidationError` or by
+FastAPI's `ResponseValidationError` through `_rejections` alone — each failure's `loc` and `type`,
+never its message, its input or `exc_info` — because FastAPI's error quotes the input however a
+model is configured, and a validator's own message can quote it too. Every `_WireModel` also sets
+`hide_input_in_errors=True`, so its own `ValidationError` text leaves the value out: defence in
+depth for anything else that prints one. These models carry the owner's money, and
+`tests/test_problems.py` pins the log line.
 
 **Both Host allow-lists refuse, at start-up, an entry naming a port or an IPv6 literal.**
 `ASSISTANT_ALLOWED_HOSTS` refuses a `:` or a `[`, the same way a wildcard is refused:

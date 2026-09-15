@@ -274,9 +274,13 @@ These are enforced by the build, not by review. Breaking one fails CI.
   generate-web-api`), and CI fails the `web` job on a diff it did not expect (ADR-029).
 - **The assistant's development seed is off by default** (`ASSISTANT_DEV_SEED`) and lives only
   in the composition root (`adapters/seed.py`).
-- **The assistant's wire models hide input values in validation errors**
-  (`hide_input_in_errors=True`), so a logged 500 never carries an amount; a 503
-  `PRICE_UNAVAILABLE` logs the event and the symbol only, never a traceback.
+- **A logged 500 never carries an amount.** The guarantee is the assistant's problem handlers:
+  `_withheld` logs a 500 caused by a validation failure through `_rejections`
+  (`adapters/problems.py`): each error's `loc` and `type` alone, never its message, its input or
+  `exc_info`, because FastAPI's `ResponseValidationError` quotes the input however a model is
+  configured. The wire models' `hide_input_in_errors=True` is defence in depth for anything else
+  that prints a pydantic `ValidationError`, not the guarantee. A 503 `PRICE_UNAVAILABLE` logs the
+  event and the symbol only, never a traceback.
 - **Both Host allow-lists refuse, at start-up, an entry naming a port or an IPv6 literal**:
   `ASSISTANT_ALLOWED_HOSTS` refuses one containing a `:` or a `[`, and
   `HostAllowListFilter` refuses a `:`, a `[` or a `]` in `LEDGER_ALLOWED_HOSTS`.
