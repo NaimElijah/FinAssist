@@ -197,3 +197,41 @@ describe('composition direction', () => {
         ).toEqual([]);
     });
 });
+
+const TESTING_DIR = join(SRC, 'shared', 'testing');
+
+/** Whether a source file is a test: `*.test.ts` or `*.test.tsx`. */
+function isTestFile(file: string): boolean {
+    return /\.test\.tsx?$/.test(file);
+}
+
+describe('test helpers', () => {
+    // src/shared/testing imports vitest and stubs globals. Reached from production code, it would
+    // either break the build or ship a test double to the browser.
+    it('Given_src_When_its_sources_are_read_Then_only_test_files_import_src_shared_testing', () => {
+        const offences: string[] = [];
+        let testFileImports = 0;
+
+        for (const file of sourceFilesUnder(SRC)) {
+            // The helpers may use one another; the rule is about who else reaches them.
+            if (isWithin(TESTING_DIR, file)) continue;
+            for (const specifier of importSpecifiers(file)) {
+                const resolved = resolveInSrc(specifier, file);
+                if (resolved === undefined || !isWithin(TESTING_DIR, resolved)) continue;
+                if (isTestFile(file)) {
+                    testFileImports += 1;
+                } else {
+                    offences.push(`${relative(SRC, file)} -> ${specifier}`);
+                }
+            }
+        }
+
+        // Guards the rule from passing vacuously: the component tests all use the helpers, so a
+        // scan that sees no test importing them has stopped resolving specifiers.
+        expect(testFileImports, 'no test file imports src/shared/testing').toBeGreaterThan(0);
+        expect(
+            offences,
+            'production code reaches src/shared/testing. Only *.test.ts(x) files may import it.',
+        ).toEqual([]);
+    });
+});
