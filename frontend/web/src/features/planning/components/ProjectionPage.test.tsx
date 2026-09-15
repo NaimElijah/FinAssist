@@ -307,7 +307,7 @@ describe('ProjectionPage', () => {
         const requests = fakeFetch(
             ledger([SAVING], () =>
                 failing
-                    ? problemResponse({ status: 503, code: 'UNAVAILABLE', detail: 'Try later.' })
+                    ? problemResponse({ status: 502, code: 'UNAVAILABLE', detail: 'Try later.' })
                     : jsonResponse(WITH_SHORTFALL),
             ),
         );
@@ -421,7 +421,7 @@ describe('ProjectionPage', () => {
         renderProjection({
             status: 'failed',
             failure: {
-                error: new Error('network down'),
+                error: new TypeError('network down'),
                 retrying: false,
                 retry,
             },
@@ -457,7 +457,7 @@ describe('ProjectionPage', () => {
         fakeFetch(ledger([SAVING]));
         renderProjection({
             ...LOADED,
-            failure: { error: new Error('network down'), retrying: true, retry: vi.fn() },
+            failure: { error: new TypeError('network down'), retrying: true, retry: vi.fn() },
         });
         const user = userEvent.setup({ delay: null });
 
@@ -492,7 +492,7 @@ describe('ProjectionPage', () => {
         const requests = fakeFetch((request) => {
             if (request.url !== SCENARIOS_URL) return unexpectedRequest(request);
             return failing
-                ? problemResponse({ status: 503, code: 'UNAVAILABLE', detail: 'Try later.' })
+                ? problemResponse({ status: 502, code: 'UNAVAILABLE', detail: 'Try later.' })
                 : jsonResponse([SAVING]);
         });
         renderProjection();

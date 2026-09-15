@@ -438,7 +438,7 @@ describe('ComparisonPage', () => {
         const requests = fakeFetch(
             ledger(SCENARIOS, () =>
                 failing
-                    ? problemResponse({ status: 503, code: 'UNAVAILABLE', detail: 'Try later.' })
+                    ? problemResponse({ status: 502, code: 'UNAVAILABLE', detail: 'Try later.' })
                     : jsonResponse(COMPARISON),
             ),
         );
@@ -507,7 +507,7 @@ describe('ComparisonPage', () => {
         const requests = fakeFetch((request) => {
             if (request.url !== SCENARIOS_URL) return unexpectedRequest(request);
             return failing
-                ? problemResponse({ status: 503, code: 'UNAVAILABLE', detail: 'Try later.' })
+                ? problemResponse({ status: 502, code: 'UNAVAILABLE', detail: 'Try later.' })
                 : jsonResponse(SCENARIOS);
         });
         renderComparison();

@@ -227,7 +227,7 @@ describe('BudgetReviewPage', () => {
             if (request.url !== reviewUrl(SEPTEMBER_BUDGET.id)) return unexpectedRequest(request);
             return failing
                 ? problemResponse({
-                      status: 503,
+                      status: 502,
                       code: 'UNAVAILABLE',
                       detail: 'The ledger is restarting.',
                   })
@@ -255,7 +255,7 @@ describe('BudgetReviewPage', () => {
             return requestCount === 1
                 ? jsonResponse(REVIEW)
                 : problemResponse({
-                      status: 503,
+                      status: 502,
                       code: 'UNAVAILABLE',
                       detail: 'The ledger is restarting.',
                   });

@@ -249,7 +249,7 @@ describe('AccountDetailPage', () => {
                 }
                 if (request.url !== TRANSACTIONS_URL) return unexpectedRequest(request);
                 return failing
-                    ? problemResponse({ status: 503, code: 'UNAVAILABLE', detail: 'Try later.' })
+                    ? problemResponse({ status: 502, code: 'UNAVAILABLE', detail: 'Try later.' })
                     : jsonResponse([]);
             }),
         );

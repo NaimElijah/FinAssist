@@ -196,7 +196,7 @@ describe('PlanningAccountsBridge', () => {
             ledger(() =>
                 failing
                     ? problemResponse({
-                          status: 503,
+                          status: 502,
                           code: 'UNAVAILABLE',
                           detail: 'Accounts are unavailable.',
                       })

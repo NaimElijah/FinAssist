@@ -159,7 +159,7 @@ describe('AccountsPage', () => {
             if (request.url !== ACCOUNTS_URL) return unexpectedRequest(request);
             return failing
                 ? problemResponse({
-                      status: 503,
+                      status: 502,
                       code: 'UNAVAILABLE',
                       detail: 'The ledger is restarting.',
                   })
@@ -573,7 +573,7 @@ describe('AccountsPage opening an account', () => {
                 if (listReads === 1) return jsonResponse([CHECKING]);
                 if (listReads === 2) {
                     return problemResponse({
-                        status: 503,
+                        status: 502,
                         code: 'UNAVAILABLE',
                         detail: 'The ledger is restarting.',
                     });
