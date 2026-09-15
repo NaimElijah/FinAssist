@@ -10,3 +10,6 @@ export const FLOWS_PATH = '/planning/flows';
 
 /** Scenarios and the form that defines another. */
 export const SCENARIOS_PATH = '/planning/scenarios';
+
+/** One scenario projected against chosen accounts, with its first shortfall. */
+export const PROJECTION_PATH = '/planning/projection';

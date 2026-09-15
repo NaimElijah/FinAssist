@@ -2,18 +2,25 @@ import type { UseQueryResult } from '@tanstack/react-query';
 
 import { Button, ErrorState } from '@/shared/ui';
 
-/** A retry for a failed query, busy while the retry is in flight. */
-function RetryButton({
-    query,
+/**
+ * A retry for a failed read, busy while the retry is in flight.
+ *
+ * Takes the retry as a plain callback, so a read that is not a query of this feature's own - the
+ * account choices `src/app` provides - offers the same button.
+ */
+export function RetryButton({
+    retrying,
+    onRetry,
 }: {
-    readonly query: Pick<UseQueryResult, 'isFetching' | 'refetch'>;
+    readonly retrying: boolean;
+    readonly onRetry: () => void;
 }) {
     return (
         <Button
             variant="secondary"
-            pending={query.isFetching}
+            pending={retrying}
             onClick={() => {
-                void query.refetch();
+                onRetry();
             }}
         >
             Try again
@@ -26,11 +33,21 @@ function RetryButton({
  *
  * Shown beside data the query still holds: TanStack Query keeps a query's data when a later
  * refetch fails, so the failure never replaces what the owner was reading. Shared by every
- * planning list screen - `PlannedFlowsPage` and `ScenariosPage` - so the retry button and its
- * pending state read the same way everywhere.
+ * planning screen that reads a list, so the retry button and its pending state read the same way
+ * everywhere.
  */
 export function QueryFailure({ query }: { readonly query: UseQueryResult }) {
     return query.isError ? (
-        <ErrorState error={query.error} action={<RetryButton query={query} />} />
+        <ErrorState
+            error={query.error}
+            action={
+                <RetryButton
+                    retrying={query.isFetching}
+                    onRetry={() => {
+                        void query.refetch();
+                    }}
+                />
+            }
+        />
     ) : null;
 }

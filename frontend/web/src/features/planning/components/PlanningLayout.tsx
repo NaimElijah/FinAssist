@@ -1,7 +1,7 @@
 import { NavLink, Outlet } from 'react-router';
 
 import styles from './PlanningLayout.module.css';
-import { FLOWS_PATH, SCENARIOS_PATH } from './paths';
+import { FLOWS_PATH, PROJECTION_PATH, SCENARIOS_PATH } from './paths';
 
 /**
  * `/planning`: the area's shared frame - a heading, the secondary nav between its screens, and
@@ -26,6 +26,11 @@ export function PlanningLayout() {
                     <li>
                         <NavLink to={SCENARIOS_PATH} className={styles.tab ?? ''}>
                             Scenarios
+                        </NavLink>
+                    </li>
+                    <li>
+                        <NavLink to={PROJECTION_PATH} className={styles.tab ?? ''}>
+                            Projection
                         </NavLink>
                     </li>
                 </ul>

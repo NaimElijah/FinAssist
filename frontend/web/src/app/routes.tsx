@@ -8,6 +8,7 @@ import type { RouteHandle } from '@/shared/lib/routeHandle';
 
 import { Layout } from './Layout';
 import { NotFound } from './NotFound';
+import { PlanningAccountsBridge } from './PlanningAccountsBridge';
 import { RouteError } from './RouteError';
 
 /** Where the root path sends the owner: the books come first. */
@@ -25,6 +26,9 @@ function area(children: RouteObject[]): RouteObject {
  * The route table: every area under the shared layout, the root path redirecting to Accounts, and
  * a catch-all not-found page.
  *
+ * Planning's routes render beneath `PlanningAccountsBridge`, a pathless layout route providing the
+ * account choices planning declares, adapted from accounting's accounts.
+ *
  * Exported so tests mount the real table in a memory router. The layout route carries the same
  * boundary as the areas, so a failure in the layout or the not-found page is logged and shown
  * rather than falling through to React Router's built-in error screen.
@@ -38,7 +42,7 @@ export const routes: RouteObject[] = [
             { index: true, element: <Navigate to={LANDING_PATH} replace /> },
             area(accountingRoutes),
             area(budgetingRoutes),
-            area(planningRoutes),
+            area([{ Component: PlanningAccountsBridge, children: planningRoutes }]),
             area(portfolioRoutes),
             {
                 path: '*',

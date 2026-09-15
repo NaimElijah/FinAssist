@@ -10,6 +10,7 @@
  */
 import { ApiBodyError, LEDGER_API, requestJson, sendJson } from '@/shared/api/client';
 import type {
+    BalancePointResponse,
     DefineScenarioRequest,
     MoneyDto,
     PlanCancelRequest,
@@ -17,6 +18,7 @@ import type {
     PlannedFlowResponse,
     PlanStateResponse,
     PlanTransitionRequest,
+    ProjectionResponse,
     RecurrenceRequest,
     RecurrenceResponse,
     ScenarioResponse,
@@ -24,7 +26,13 @@ import type {
 import { log } from '@/shared/lib/logger';
 
 import { DIRECTIONS, type PlanFlowInput, type PlannedFlow, type PlanState } from '../types/flow';
-import { CURRENCIES, type Money } from '../types/money';
+import { CURRENCIES, type Currency, type Money } from '../types/money';
+import type {
+    BalancePoint,
+    Projection,
+    ProjectionParams,
+    ProjectionSettings,
+} from '../types/projection';
 import { CADENCES, type Cadence, type Recurrence } from '../types/recurrence';
 import type { DefineScenarioInput, Scenario } from '../types/scenario';
 
@@ -210,6 +218,83 @@ function toScenario(wire: ScenarioResponse, url: string): Scenario {
     };
 }
 
+/** `value`, validated against `CURRENCIES`. */
+function knownCurrency(value: Currency, url: string): Currency {
+    return CURRENCIES.includes(value) ? value : unknownCurrency(url);
+}
+
+/**
+ * A projection step the contract does not name. See `unknownStatus`.
+ *
+ * @throws ApiBodyError - always.
+ */
+function unknownStep(url: string): never {
+    log.error('ledger projection has a step the contract does not name', { url });
+    throw new ApiBodyError(url, 'A projection arrived with a step the contract does not name');
+}
+
+/** `value`, validated against `CADENCES`: a projection steps at the same cadences a flow repeats at. */
+function knownStep(value: Cadence, url: string): Cadence {
+    return CADENCES.includes(value) ? value : unknownStep(url);
+}
+
+function toBalancePoint(wire: BalancePointResponse, url: string): BalancePoint {
+    return {
+        date: wire.date,
+        cash: toMoney(wire.cash, url),
+        invested: toMoney(wire.invested, url),
+        total: toMoney(wire.total, url),
+    };
+}
+
+/**
+ * `wire` mapped point by point, refusing an empty series: the ledger always includes both ends of
+ * the horizon, so none at all means it broke its own contract, and a chart has nothing to scale.
+ *
+ * @throws ApiBodyError - when `wire` is empty.
+ */
+function toPoints(
+    wire: readonly BalancePointResponse[],
+    url: string,
+): readonly [BalancePoint, ...BalancePoint[]] {
+    const [first, ...rest] = wire;
+    if (first === undefined) {
+        log.error('ledger projection has no points', { url });
+        throw new ApiBodyError(url, 'A projection arrived without any points');
+    }
+    return [toBalancePoint(first, url), ...rest.map((point) => toBalancePoint(point, url))];
+}
+
+function toProjection(wire: ProjectionResponse, url: string): Projection {
+    return {
+        scenario: wire.scenario,
+        horizon: { from: wire.horizon.from, to: wire.horizon.to },
+        step: knownStep(wire.step, url),
+        currency: knownCurrency(wire.currency, url),
+        points: toPoints(wire.points, url),
+        ...(wire.firstShortfall === undefined ? {} : { firstShortfall: wire.firstShortfall }),
+    };
+}
+
+/**
+ * `settings` as query parameters: the horizon and the step, then one `cash` and one `invested`
+ * parameter per account, appended rather than joined, as the ledger reads a repeated parameter.
+ * Only ids, dates and the step travel in the URL - never an amount (ADR-028).
+ */
+function settingsQuery(settings: ProjectionSettings): URLSearchParams {
+    const query = new URLSearchParams();
+    query.append('from', settings.from);
+    query.append('to', settings.to);
+    query.append('step', settings.step);
+    for (const ref of settings.cash) {
+        query.append('cash', ref);
+    }
+    for (const ref of settings.invested) {
+        query.append('invested', ref);
+    }
+    return query;
+}
+
 /**
  * Every planned flow, in the order the ledger lists them (by start date) - every state, a
  * cancelled flow included.
@@ -333,4 +418,22 @@ export async function defineScenario(input: DefineScenarioInput): Promise<Scenar
     };
     const wire = await sendJson<ScenarioResponse>(SCENARIOS_URL, 'POST', body);
     return toScenario(wire, SCENARIOS_URL);
+}
+
+/**
+ * Project a scenario across a horizon, opening from the accounts named. Side-effect free: nothing
+ * is recorded, and the ledger re-reads the scenario's flows on every call (ADR-016).
+ *
+ * @param params - the scenario, the horizon, the step, and the account refs opening each line.
+ * @returns the projection, every amount the string the ledger sent.
+ * @throws ApiError - on a non-2xx response: 404 `SCENARIO_NOT_FOUND`, 422 `RULE_VIOLATED` for a
+ *   horizon that is not whole steps or does not start before it ends, or an account ref that is
+ *   unknown or in another currency.
+ * @throws ApiBodyError - when the response carries no JSON body, no points, or a step or currency
+ *   the contract does not name.
+ */
+export async function projectScenario(params: ProjectionParams): Promise<Projection> {
+    const url = `${SCENARIOS_URL}/${encodeURIComponent(params.scenarioId)}/projection?${settingsQuery(params).toString()}`;
+    const wire = await requestJson<ProjectionResponse>(url);
+    return toProjection(wire, url);
 }

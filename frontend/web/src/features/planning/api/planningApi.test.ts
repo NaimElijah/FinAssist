@@ -14,6 +14,7 @@ import {
     listPlannedFlows,
     listScenarios,
     planFlow,
+    projectScenario,
     realiseFlow,
 } from './planningApi';
 
@@ -668,6 +669,143 @@ describe('defineScenario', () => {
                 flows: [FLOW_ID],
                 growthRatePerStep: '0.005',
             }),
+        ).rejects.toMatchObject({ status: 422, problem: { code: 'RULE_VIOLATED' } });
+    });
+});
+
+describe('projectScenario', () => {
+    const SCENARIO_ID = 'c1c1c1c1-4d8c-4f3a-9a61-2f1c5e0d9b11';
+
+    /** A wire balance point on `date`, its three amounts in ILS exactly as given. */
+    function wirePoint(date: string, cash: string, invested: string, total: string) {
+        return {
+            date,
+            cash: { amount: cash, currency: 'ILS' },
+            invested: { amount: invested, currency: 'ILS' },
+            total: { amount: total, currency: 'ILS' },
+        };
+    }
+
+    const WIRE_PROJECTION = {
+        scenario: SCENARIO_ID,
+        horizon: { from: '2026-09-01', to: '2026-11-01' },
+        step: 'MONTHLY',
+        currency: 'ILS',
+        points: [
+            wirePoint('2026-09-01', '100.00', '500.00', '600.00'),
+            wirePoint('2026-10-01', '-12500.00', '502.50', '-11997.50'),
+            wirePoint('2026-11-01', '40.00', '505.01', '545.01'),
+        ],
+        firstShortfall: '2026-10-01',
+    };
+
+    const SETTINGS = { from: '2026-09-01', to: '2026-11-01', step: 'MONTHLY' } as const;
+
+    it('Given_chosen_accounts_When_projected_Then_it_requests_the_projection_with_cash_and_invested_repeated', async () => {
+        const stub = stubFetch(jsonResponse(WIRE_PROJECTION));
+
+        await projectScenario({
+            scenarioId: SCENARIO_ID,
+            ...SETTINGS,
+            cash: ['acc-checking', 'acc-wallet'],
+            invested: ['acc-brokerage'],
+        });
+
+        const { url, init } = onlyCall(stub);
+        expect(url).toBe(
+            `/ledger/api/v1/scenarios/${SCENARIO_ID}/projection` +
+                '?from=2026-09-01&to=2026-11-01&step=MONTHLY' +
+                '&cash=acc-checking&cash=acc-wallet&invested=acc-brokerage',
+        );
+        expect(init.method).toBeUndefined();
+        expect(new Headers(init.headers).get('Accept')).toBe('application/json');
+    });
+
+    it('Given_no_accounts_When_projected_Then_neither_cash_nor_invested_is_sent', async () => {
+        const stub = stubFetch(jsonResponse(WIRE_PROJECTION));
+
+        await projectScenario({ scenarioId: SCENARIO_ID, ...SETTINGS, cash: [], invested: [] });
+
+        expect(onlyCall(stub).url).toBe(
+            `/ledger/api/v1/scenarios/${SCENARIO_ID}/projection?from=2026-09-01&to=2026-11-01&step=MONTHLY`,
+        );
+    });
+
+    it('Given_a_wire_projection_When_projected_Then_every_amount_is_the_string_received_and_the_shortfall_kept', async () => {
+        stubFetch(jsonResponse(WIRE_PROJECTION));
+
+        const projection = await projectScenario({
+            scenarioId: SCENARIO_ID,
+            ...SETTINGS,
+            cash: [],
+            invested: [],
+        });
+
+        expect(projection).toEqual({
+            scenario: SCENARIO_ID,
+            horizon: { from: '2026-09-01', to: '2026-11-01' },
+            step: 'MONTHLY',
+            currency: 'ILS',
+            points: WIRE_PROJECTION.points,
+            firstShortfall: '2026-10-01',
+        });
+    });
+
+    it('Given_a_projection_without_a_shortfall_When_projected_Then_the_mapped_projection_has_no_shortfall_member', async () => {
+        // JSON.stringify drops an undefined member, so the body carries no firstShortfall at all.
+        stubFetch(jsonResponse({ ...WIRE_PROJECTION, firstShortfall: undefined }));
+
+        const projection = await projectScenario({
+            scenarioId: SCENARIO_ID,
+            ...SETTINGS,
+            cash: [],
+            invested: [],
+        });
+
+        expect(Object.keys(projection)).not.toContain('firstShortfall');
+    });
+
+    const MALFORMED = [
+        { name: 'a_step_the_contract_does_not_name', body: { ...WIRE_PROJECTION, step: 'DAILY' } },
+        {
+            name: 'a_currency_the_contract_does_not_name',
+            body: { ...WIRE_PROJECTION, currency: 'XYZ' },
+        },
+        {
+            name: 'a_point_amount_in_a_currency_the_contract_does_not_name',
+            body: {
+                ...WIRE_PROJECTION,
+                points: [
+                    {
+                        ...wirePoint('2026-09-01', '1.00', '1.00', '2.00'),
+                        cash: { amount: '1.00', currency: 'XYZ' },
+                    },
+                ],
+            },
+        },
+        { name: 'no_points', body: { ...WIRE_PROJECTION, points: [] } },
+    ] as const;
+
+    for (const { name, body } of MALFORMED) {
+        it(`Given_${name}_When_projected_Then_it_rejects_with_an_ApiBodyError`, async () => {
+            stubFetch(jsonResponse(body));
+
+            await expect(
+                projectScenario({ scenarioId: SCENARIO_ID, ...SETTINGS, cash: [], invested: [] }),
+            ).rejects.toBeInstanceOf(ApiBodyError);
+        });
+    }
+
+    it('Given_a_horizon_the_ledger_refuses_When_projected_Then_it_rejects_with_an_ApiError_coded_RULE_VIOLATED', async () => {
+        stubFetch(
+            problemResponse(
+                { status: 422, code: 'RULE_VIOLATED', detail: 'The horizon is not whole steps.' },
+                422,
+            ),
+        );
+
+        await expect(
+            projectScenario({ scenarioId: SCENARIO_ID, ...SETTINGS, cash: [], invested: [] }),
         ).rejects.toMatchObject({ status: 422, problem: { code: 'RULE_VIOLATED' } });
     });
 });

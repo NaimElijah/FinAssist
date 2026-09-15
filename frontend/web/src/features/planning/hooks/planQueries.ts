@@ -4,7 +4,7 @@
  * Every query key comes from `planKeys`, so a mutation invalidates exactly what a query reads
  * rather than a key spelled twice.
  */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
     cancelFlow,
@@ -13,20 +13,26 @@ import {
     listPlannedFlows,
     listScenarios,
     planFlow,
+    projectScenario,
     realiseFlow,
 } from '../api/planningApi';
 import type { PlanFlowInput } from '../types/flow';
+import type { ProjectionParams } from '../types/projection';
 import type { DefineScenarioInput } from '../types/scenario';
 
 /** The prefix every planning key starts with. */
 const PLANS_KEY = ['plans'] as const;
 
+/** The prefix every projection's key starts with. */
+const PROJECTIONS_KEY = [...PLANS_KEY, 'projections'] as const;
+
 /**
  * The query keys the planning feature reads and invalidates.
  *
  * Every key starts with `all`, and TanStack Query matches an invalidation by prefix - but nothing
- * here invalidates `all` itself. `flows` and `scenarios` are siblings, so invalidating one by
- * prefix can never also match the other.
+ * here invalidates `all` itself. `flows`, `scenarios` and `projections` are siblings, so
+ * invalidating one by prefix can never also match another, and `projections` is the parent of
+ * every `projection(params)`, so "every projection" is a plain prefix.
  */
 export const planKeys = {
     /** The prefix of every planning key. */
@@ -35,6 +41,19 @@ export const planKeys = {
     flows: [...PLANS_KEY, 'flows'] as const,
     /** The scenarios list. */
     scenarios: [...PLANS_KEY, 'scenarios'] as const,
+    /** The prefix of every projection, whatever its scenario, horizon or accounts. */
+    projections: PROJECTIONS_KEY,
+    /** One scenario projected over one horizon, step and set of opening accounts. */
+    projection: (params: ProjectionParams) =>
+        [
+            ...PROJECTIONS_KEY,
+            params.scenarioId,
+            params.from,
+            params.to,
+            params.step,
+            params.cash,
+            params.invested,
+        ] as const,
 };
 
 /**
@@ -56,6 +75,27 @@ export function usePlannedFlows() {
  */
 export function useScenarios() {
     return useQuery({ queryKey: planKeys.scenarios, queryFn: () => listScenarios() });
+}
+
+/**
+ * One scenario projected over a horizon, from the accounts named.
+ *
+ * A realised or cancelled flow stops counting towards a projection, so those two mutations
+ * invalidate every cached one. Accounting's mutations, which move an opening balance, deliberately
+ * do not: a feature imports no other feature (ADR-010). The query client's `staleTime` is the
+ * default, 0, so a projection is refetched whenever a screen mounts it afresh.
+ *
+ * @param params - the scenario, horizon, step and opening accounts; each distinct set is its own
+ *   cache entry.
+ * @returns the query for the projection. Its error is an `ApiError` - 404 `SCENARIO_NOT_FOUND` or
+ *   422 `RULE_VIOLATED`, neither retried - or an `ApiBodyError` from the client, or a `TypeError`
+ *   for a network failure.
+ */
+export function useProjection(params: ProjectionParams) {
+    return useQuery({
+        queryKey: planKeys.projection(params),
+        queryFn: () => projectScenario(params),
+    });
 }
 
 /**
@@ -85,7 +125,8 @@ interface TransitionVariables {
  * Commit to a planned flow, then refetch the flows list and nothing else.
  *
  * No `ScenarioResponse` field can change when a flow moves state - a scenario names flow ids and
- * a growth rate, neither of which a transition touches - so only `flows` is invalidated.
+ * a growth rate, neither of which a transition touches - and a committed flow counts towards a
+ * projection exactly as a planned one does, so only `flows` is invalidated.
  *
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
@@ -98,7 +139,27 @@ export function useCommitFlow() {
 }
 
 /**
- * Realise a committed flow, then refetch the flows list and nothing else.
+ * Refetch the flows list and every cached projection, for a transition that takes a flow out of
+ * what a projection counts.
+ *
+ * The ledger projects only `PLANNED` and `COMMITTED` flows (`PlannedFlow.countsTowardsProjection`),
+ * so realising or cancelling one changes any projection of a scenario naming it. Which scenarios
+ * name it is not known here, so every projection is invalidated by its shared prefix. The
+ * scenarios list is not: no scenario field changes.
+ *
+ * @returns the settled refetches, so a caller can return it from `onSuccess` and stay pending
+ *   until they land.
+ */
+function invalidateAfterLeavingProjection(queryClient: QueryClient): Promise<unknown> {
+    return Promise.all([
+        queryClient.invalidateQueries({ queryKey: planKeys.flows }),
+        queryClient.invalidateQueries({ queryKey: planKeys.projections }),
+    ]);
+}
+
+/**
+ * Realise a committed flow, then refetch the flows list and every cached projection - a realised
+ * flow no longer counts towards one (see `invalidateAfterLeavingProjection`).
  *
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
@@ -106,7 +167,7 @@ export function useRealiseFlow() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: ({ flowId, on }: TransitionVariables) => realiseFlow(flowId, on),
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: planKeys.flows }),
+        onSuccess: () => invalidateAfterLeavingProjection(queryClient),
     });
 }
 
@@ -116,7 +177,8 @@ interface CancelVariables extends TransitionVariables {
 }
 
 /**
- * Cancel a planned or committed flow, then refetch the flows list and nothing else.
+ * Cancel a planned or committed flow, then refetch the flows list and every cached projection - a
+ * cancelled flow no longer counts towards one (see `invalidateAfterLeavingProjection`).
  *
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
@@ -124,7 +186,7 @@ export function useCancelFlow() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: ({ flowId, on, reason }: CancelVariables) => cancelFlow(flowId, on, reason),
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: planKeys.flows }),
+        onSuccess: () => invalidateAfterLeavingProjection(queryClient),
     });
 }
 
