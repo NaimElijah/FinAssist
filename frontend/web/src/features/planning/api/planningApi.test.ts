@@ -298,7 +298,7 @@ describe('planFlow', () => {
     });
 
     it('Given_a_negative_amount_When_planned_Then_it_is_sent_exactly_as_typed_without_normalisation', async () => {
-        stubFetch(
+        const stub = stubFetch(
             problemResponse(
                 { status: 422, code: 'RULE_VIOLATED', detail: 'The amount must be positive.' },
                 422,
@@ -315,6 +315,8 @@ describe('planFlow', () => {
 
         expect(failure).toBeInstanceOf(ApiError);
         expect(failure).toMatchObject({ status: 422, problem: { code: 'RULE_VIOLATED' } });
+        const body = JSON.parse(onlyCall(stub).init.body as string) as Record<string, unknown>;
+        expect(body.amount).toEqual({ amount: '-250.00', currency: 'ILS' });
     });
 
     it('Given_an_incomplete_recurrence_400_When_planned_Then_it_rejects_with_an_ApiError_naming_the_field', async () => {
