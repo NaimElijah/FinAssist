@@ -2,7 +2,7 @@
 // Renders the planning routes through the feature's own route table, so it needs a DOM. fetch is
 // faked, so the feature's real api/ module and its mapping run under test.
 
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,6 +11,7 @@ import {
     type FetchAnswer,
     fakeFetch,
     jsonResponse,
+    pendingResponse,
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
@@ -382,5 +383,36 @@ describe('ScenariosPage define-scenario form', () => {
         const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
         expect(invalidatedKeys).toEqual(expect.arrayContaining([planKeys.scenarios]));
         expect(invalidatedKeys).not.toEqual(expect.arrayContaining([planKeys.flows]));
+    });
+
+    it('Given_a_filled_form_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
+        // Two submit events can arrive in one tick, before the pending state has rendered, so a
+        // guard that reads render-time state lets both through.
+        const requests = fakeFetch(
+            ledger([], [], (request) => {
+                if (request.url === SCENARIOS_URL && request.method === 'POST') {
+                    return pendingResponse();
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderScenarios();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Define a scenario' });
+        await user.type(screen.getByLabelText('Name'), 'Baseline');
+        const form = screen.getByLabelText('Name').closest('form');
+        if (form === null) {
+            throw new Error('the Name field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+        fireEvent.submit(form);
+
+        // By the time pending has rendered, every request either submit started has reached fetch.
+        const submit = screen.getByRole('button', { name: 'Define scenario' });
+        await waitFor(() => {
+            expect(submit).toHaveProperty('disabled', true);
+        });
+        expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
 });
