@@ -121,7 +121,9 @@ describe('CategorisationRulesPage', () => {
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('The ledger is restarting.')).toBeDefined();
         failing = false;
-        await userEvent.setup().click(within(alert).getByRole('button', { name: 'Try again' }));
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
 
         expect(await screen.findByText('"coffee" → dining')).toBeDefined();
         expect(requests.filter((request) => request.url === RULES_URL)).toHaveLength(2);
@@ -141,7 +143,7 @@ describe('CategorisationRulesPage adding a rule', () => {
         });
         renderRules();
         await screen.findByText('No rules yet — spend stays uncategorised until one matches');
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await user.type(screen.getByLabelText('Fragment'), 'coffee');
         await user.type(screen.getByLabelText('Category'), 'dining');
@@ -171,7 +173,7 @@ describe('CategorisationRulesPage adding a rule', () => {
             return unexpectedRequest(request);
         });
         renderRules();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await user.type(await screen.findByLabelText('Fragment'), 'coffee');
         await user.type(screen.getByLabelText('Category'), 'dining');
@@ -196,7 +198,7 @@ describe('CategorisationRulesPage adding a rule', () => {
             return unexpectedRequest(request);
         });
         renderRules();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await user.type(await screen.findByLabelText('Fragment'), ' ');
         await user.type(screen.getByLabelText('Category'), 'dining');
@@ -224,7 +226,7 @@ describe('CategorisationRulesPage adding a rule', () => {
             return unexpectedRequest(request);
         });
         renderRules();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await user.type(await screen.findByLabelText('Fragment'), 'coffee');
         await user.type(screen.getByLabelText('Category'), ' ');
@@ -251,7 +253,7 @@ describe('CategorisationRulesPage adding a rule', () => {
             return unexpectedRequest(request);
         });
         renderRules();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await user.type(await screen.findByLabelText('Fragment'), 'coffee');
         await user.type(screen.getByLabelText('Category'), 'dining');
@@ -278,7 +280,7 @@ describe('CategorisationRulesPage adding a rule', () => {
             return unexpectedRequest(request);
         });
         renderRules();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await user.type(await screen.findByLabelText('Fragment'), 'coffee');
         await user.type(screen.getByLabelText('Category'), 'dining');
         const form = screen.getByLabelText('Fragment').closest('form');
@@ -317,7 +319,7 @@ describe('CategorisationRulesPage adding a rule', () => {
         // spy instead records every call `invalidateQueries` ever received, so the assertion
         // below cannot be timing-dependent.
         const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await user.type(await screen.findByLabelText('Fragment'), 'coffee');
         await user.type(screen.getByLabelText('Category'), 'dining');

@@ -171,7 +171,9 @@ describe('AccountsPage', () => {
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('The ledger is restarting.')).toBeDefined();
         failing = false;
-        await userEvent.setup().click(within(alert).getByRole('button', { name: 'Try again' }));
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
 
         expect(await screen.findByText('No accounts yet — open one below')).toBeDefined();
         expect(requests.filter((request) => request.url === ACCOUNTS_URL)).toHaveLength(2);
@@ -209,7 +211,7 @@ describe('AccountsPage opening an account', () => {
         renderAccounts();
         await screen.findByRole('link', { name: 'Checking' });
 
-        await openVisa(userEvent.setup());
+        await openVisa(userEvent.setup({ delay: null }));
 
         expect(await screen.findByRole('link', { name: 'Visa' })).toBeDefined();
         const posts = requests.filter((request) => request.method === 'POST');
@@ -251,7 +253,7 @@ describe('AccountsPage opening an account', () => {
         await within(rowOf('Savings')).findByText('US$0.00');
         const beforeOpening = requests.length;
 
-        await openVisa(userEvent.setup());
+        await openVisa(userEvent.setup({ delay: null }));
         await within(await findRow('Visa')).findByText('US$0.00');
 
         expect(
@@ -284,7 +286,7 @@ describe('AccountsPage opening an account', () => {
         });
         renderAccounts();
 
-        await openVisa(userEvent.setup());
+        await openVisa(userEvent.setup({ delay: null }));
 
         const link = await screen.findByRole('link', { name: 'Visa' });
         await waitFor(() => {
@@ -318,7 +320,7 @@ describe('AccountsPage opening an account', () => {
             return unexpectedRequest(request);
         });
         const { queryClient } = renderAccounts();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await openVisa(user);
         const visa = await screen.findByRole('link', { name: 'Visa' });
         await waitFor(() => {
@@ -347,7 +349,7 @@ describe('AccountsPage opening an account', () => {
         });
         renderAccounts();
 
-        await openVisa(userEvent.setup());
+        await openVisa(userEvent.setup({ delay: null }));
 
         const error = await screen.findByText(detail);
         const name = screen.getByLabelText('Name');
@@ -374,7 +376,7 @@ describe('AccountsPage opening an account', () => {
         });
         renderAccounts();
 
-        await openVisa(userEvent.setup());
+        await openVisa(userEvent.setup({ delay: null }));
 
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('The ledger failed to handle this request.')).toBeDefined();
@@ -401,7 +403,7 @@ describe('AccountsPage opening an account', () => {
         });
         renderAccounts();
 
-        await openVisa(userEvent.setup());
+        await openVisa(userEvent.setup({ delay: null }));
 
         const typeError = await screen.findByText('must be one of the five types');
         expect(screen.getByLabelText('Type').getAttribute('aria-describedby')).toBe(typeError.id);
@@ -435,7 +437,7 @@ describe('AccountsPage opening an account', () => {
         });
         renderAccounts();
 
-        await openVisa(userEvent.setup());
+        await openVisa(userEvent.setup({ delay: null }));
 
         const error = await screen.findByText('must not be blank; must be at most 100 characters');
         expect(screen.getByLabelText('Name').getAttribute('aria-describedby')).toBe(error.id);
@@ -455,7 +457,7 @@ describe('AccountsPage opening an account', () => {
         });
         renderAccounts();
 
-        await openVisa(userEvent.setup());
+        await openVisa(userEvent.setup({ delay: null }));
 
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('The request body could not be read.')).toBeDefined();
@@ -478,7 +480,7 @@ describe('AccountsPage opening an account', () => {
         });
         renderAccounts();
 
-        await openVisa(userEvent.setup());
+        await openVisa(userEvent.setup({ delay: null }));
 
         const submit = screen.getByRole('button', { name: 'Open account' });
         await waitFor(() => {
@@ -504,7 +506,7 @@ describe('AccountsPage opening an account', () => {
             return unexpectedRequest(request);
         });
         renderAccounts();
-        await userEvent.setup().type(await screen.findByLabelText('Name'), 'Visa');
+        await userEvent.setup({ delay: null }).type(await screen.findByLabelText('Name'), 'Visa');
         const form = screen.getByLabelText('Name').closest('form');
         if (form === null) {
             throw new Error('the Name field is not inside a form');
@@ -540,7 +542,7 @@ describe('AccountsPage opening an account', () => {
         });
         renderAccounts();
 
-        await openVisa(userEvent.setup());
+        await openVisa(userEvent.setup({ delay: null }));
 
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('Invalid request content.')).toBeDefined();
@@ -587,13 +589,15 @@ describe('AccountsPage opening an account', () => {
         renderAccounts();
         await within(await findRow('Checking')).findByText('US$0.00');
 
-        await openVisa(userEvent.setup());
+        await openVisa(userEvent.setup({ delay: null }));
 
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('The ledger is restarting.')).toBeDefined();
         expect(screen.getByRole('link', { name: 'Checking' })).toBeDefined();
 
-        await userEvent.setup().click(within(alert).getByRole('button', { name: 'Try again' }));
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
 
         expect(await screen.findByRole('link', { name: 'Visa' })).toBeDefined();
         await waitFor(() => {

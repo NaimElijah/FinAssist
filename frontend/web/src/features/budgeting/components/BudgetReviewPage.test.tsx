@@ -195,7 +195,9 @@ describe('BudgetReviewPage', () => {
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('The ledger is restarting.')).toBeDefined();
         failing = false;
-        await userEvent.setup().click(within(alert).getByRole('button', { name: 'Try again' }));
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
 
         expect(await screen.findByRole('rowheader', { name: 'groceries' })).toBeDefined();
     });

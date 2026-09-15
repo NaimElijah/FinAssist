@@ -132,7 +132,9 @@ describe('BudgetsPage', () => {
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('The ledger is restarting.')).toBeDefined();
         failing = false;
-        await userEvent.setup().click(within(alert).getByRole('button', { name: 'Try again' }));
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
 
         expect(await screen.findByText('No budgets yet — define one below')).toBeDefined();
         expect(requests.filter((request) => request.url === BUDGETS_URL)).toHaveLength(2);
@@ -162,7 +164,7 @@ describe('BudgetsPage defining a budget', () => {
         });
         renderBudgets();
         await screen.findByText('No budgets yet — define one below');
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         const month = screen.getByLabelText('Month');
         fireEvent.change(month, { target: { value: '2026-09' } });
@@ -215,7 +217,7 @@ describe('BudgetsPage defining a budget', () => {
         // resets the moment its refetch settles - a state check on it would race that reset.
         // The spy instead records every call `invalidateQueries` ever received.
         const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await defineSeptemberGroceries(user);
 
@@ -239,7 +241,7 @@ describe('BudgetsPage defining a budget', () => {
             return unexpectedRequest(request);
         });
         renderBudgets();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await defineSeptemberGroceries(user);
 
@@ -264,7 +266,7 @@ describe('BudgetsPage defining a budget', () => {
             return unexpectedRequest(request);
         });
         renderBudgets();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await defineSeptemberGroceries(user);
 
@@ -289,7 +291,7 @@ describe('BudgetsPage defining a budget', () => {
             return unexpectedRequest(request);
         });
         renderBudgets();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await defineSeptemberGroceries(user);
 
@@ -317,7 +319,7 @@ describe('BudgetsPage defining a budget', () => {
             return unexpectedRequest(request);
         });
         renderBudgets();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await defineSeptemberGroceries(user);
 
@@ -346,7 +348,7 @@ describe('BudgetsPage defining a budget', () => {
             request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
         );
         renderBudgets();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await user.click(await screen.findByRole('button', { name: 'Add category' }));
         await user.type(screen.getByLabelText('Category 1'), 'groceries');
@@ -365,7 +367,7 @@ describe('BudgetsPage defining a budget', () => {
             request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
         );
         renderBudgets();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         const month = await screen.findByLabelText('Month');
         fireEvent.change(month, { target: { value: '2026-13' } });
         await user.selectOptions(screen.getByLabelText('Currency'), 'ILS');
@@ -399,7 +401,7 @@ describe('BudgetsPage defining a budget', () => {
             return unexpectedRequest(request);
         });
         renderBudgets();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         const month = await screen.findByLabelText('Month');
         fireEvent.change(month, { target: { value: '2026-09' } });
         await user.selectOptions(screen.getByLabelText('Currency'), 'ILS');

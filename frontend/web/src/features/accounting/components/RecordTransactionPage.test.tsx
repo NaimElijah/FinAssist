@@ -160,7 +160,7 @@ describe('RecordTransactionPage entry rows', () => {
     it('Given_the_form_When_Add_entry_is_clicked_Then_a_third_rows_fields_appear', async () => {
         fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await screen.findByLabelText('Account 1');
 
         await user.click(screen.getByRole('button', { name: 'Add entry' }));
@@ -187,7 +187,7 @@ describe('RecordTransactionPage entry rows', () => {
     it('Given_a_third_row_When_added_Then_every_rows_remove_button_is_enabled', async () => {
         fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await screen.findByLabelText('Account 1');
 
         await user.click(screen.getByRole('button', { name: 'Add entry' }));
@@ -244,7 +244,7 @@ describe('RecordTransactionPage submission', () => {
             }),
         );
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await fillValidTransaction(user);
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));
@@ -283,7 +283,7 @@ describe('RecordTransactionPage submission', () => {
         );
         const { queryClient } = renderForm();
         const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await fillValidTransaction(user);
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));
@@ -321,7 +321,7 @@ describe('RecordTransactionPage submission', () => {
         );
         const { queryClient } = renderForm();
         const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await fillValidTransaction(user);
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));
@@ -344,7 +344,7 @@ describe('RecordTransactionPage submission', () => {
             }),
         );
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await fillValidTransaction(user);
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));
@@ -366,7 +366,7 @@ describe('RecordTransactionPage submission', () => {
             }),
         );
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await fillValidTransaction(user);
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));
@@ -385,7 +385,7 @@ describe('RecordTransactionPage submission', () => {
             }),
         );
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await fillValidTransaction(user);
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));
@@ -401,7 +401,7 @@ describe('RecordTransactionPage submission', () => {
     it('Given_a_row_with_both_a_debit_and_a_credit_When_submitted_Then_nothing_is_sent_and_the_row_shows_a_field_error', async () => {
         const requests = fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await user.type(await screen.findByLabelText('Description'), 'Rent');
         await user.selectOptions(screen.getByLabelText('Account 1'), CHECKING.id);
         await user.selectOptions(screen.getByLabelText('Account 2'), RENT.id);
@@ -425,7 +425,7 @@ describe('RecordTransactionPage submission', () => {
         // the row's stable id rather than by array position.
         fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await user.type(await screen.findByLabelText('Description'), 'Rent');
         await user.click(screen.getByRole('button', { name: 'Add entry' }));
         await user.selectOptions(screen.getByLabelText('Account 1'), CHECKING.id);
@@ -484,7 +484,9 @@ describe('RecordTransactionPage accounts read', () => {
         expect(within(alert).getByText('The ledger is restarting.')).toBeDefined();
         expect(screen.queryByLabelText('Description')).toBeNull();
         failing = false;
-        await userEvent.setup().click(within(alert).getByRole('button', { name: 'Try again' }));
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
 
         expect(await screen.findByLabelText('Description')).toBeDefined();
     });
@@ -531,7 +533,7 @@ describe('RecordTransactionPage 400 field-error routing', () => {
             }),
         );
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await fillValidTransaction(user);
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));
@@ -561,7 +563,7 @@ describe('RecordTransactionPage 400 field-error routing', () => {
             }),
         );
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await fillValidTransaction(user);
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));
@@ -591,7 +593,7 @@ describe('RecordTransactionPage 400 field-error routing', () => {
             }),
         );
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await fillValidTransaction(user);
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));

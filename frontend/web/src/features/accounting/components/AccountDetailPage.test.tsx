@@ -259,7 +259,9 @@ describe('AccountDetailPage', () => {
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('Try later.')).toBeDefined();
         failing = false;
-        await userEvent.setup().click(within(alert).getByRole('button', { name: 'Try again' }));
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
 
         expect(await screen.findByText('No transactions touch this account yet')).toBeDefined();
         expect(requests.filter((request) => request.url === TRANSACTIONS_URL)).toHaveLength(2);
@@ -413,7 +415,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         );
         const { queryClient } = renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
         const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
 
         await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Clear' }));
@@ -461,7 +463,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         );
         const { queryClient } = renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
         const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
 
         await user.click(
@@ -485,7 +487,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         // of custom validation logic - there is none - but of the native constraint itself.
         const requests = fakeFetch(lifecycleLedger(() => [PENDING_TX], unexpectedRequest));
         renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
 
         await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Void' }));
@@ -522,7 +524,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         );
         const { queryClient } = renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
         const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
 
         await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Void' }));
@@ -570,7 +572,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
             ),
         );
         renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
 
         await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Clear' }));
@@ -591,7 +593,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
     it('Given_a_panel_open_on_a_pending_row_When_cancelled_Then_focus_returns_to_the_button_that_opened_it', async () => {
         fakeFetch(lifecycleLedger(() => [PENDING_TX], unexpectedRequest));
         renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
         const clearButton = within(rowOf('Pending purchase')).getByRole('button', {
             name: 'Clear',
@@ -631,7 +633,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
             ),
         );
         renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
 
         await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Clear' }));

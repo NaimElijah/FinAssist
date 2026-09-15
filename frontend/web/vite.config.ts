@@ -75,6 +75,11 @@ export default defineConfig({
     },
     test: {
         globals: true,
+        // Vitest's own default (5000ms) is tight for a form test: several drive real keystrokes
+        // through userEvent across a handful of fields, and a CI runner is measurably slower
+        // than a developer's machine under load. 15s leaves headroom without hiding a test that
+        // is genuinely hung.
+        testTimeout: 15000,
         // Node stays the default and jsdom is opted into per file with
         // `// @vitest-environment jsdom`. Flipping the default would put every test that reads
         // the filesystem one forgotten pragma away from failing: under jsdom `import.meta.url`
