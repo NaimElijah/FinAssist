@@ -17,8 +17,11 @@ import styles from './HoldingPage.module.css';
 import { PORTFOLIO_PATH } from './paths';
 import { SymbolLookup } from './SymbolLookup';
 
-const NO_PRICE_MESSAGE =
-    'No usable price right now — a valuation needs a quote no more than an hour old';
+/**
+ * Names no staleness window: how old a usable quote may be is the assistant's to decide, and a
+ * figure written here would go false the moment it changed there.
+ */
+const NO_PRICE_MESSAGE = 'No usable price right now';
 
 /** The calm answer for a symbol under which nothing is held. */
 function nothingHeldMessage(symbol: string): string {
