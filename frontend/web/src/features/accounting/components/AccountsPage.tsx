@@ -48,17 +48,23 @@ function AccountLink({
     );
 }
 
-/** One account's balance, read by its own request, so a failure costs that row alone. */
+/**
+ * One account's balance, read by its own request, so a failure costs that row alone.
+ *
+ * A balance already held stays when a later refetch fails - TanStack Query keeps a query's data
+ * then, and a failed background refetch never hides a figure on screen - so "Unavailable" stands
+ * only for a balance that was never read.
+ */
 function AccountBalanceCell({ accountId }: { readonly accountId: string }) {
     const balance = useAccountBalance(accountId);
 
-    if (balance.isPending) {
-        return <span className={styles.placeholder}>Loading…</span>;
+    if (balance.data !== undefined) {
+        return <MoneyText amount={balance.data.amount} currency={balance.data.currency} />;
     }
     if (balance.isError) {
         return <span className={styles.placeholder}>Unavailable</span>;
     }
-    return <MoneyText amount={balance.data.amount} currency={balance.data.currency} />;
+    return <span className={styles.placeholder}>Loading…</span>;
 }
 
 /** The table's columns. The name heads each row, and focus goes to the name just opened. */

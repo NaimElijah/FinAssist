@@ -154,6 +154,39 @@ describe('AccountsPage', () => {
         expect(screen.queryByRole('alert')).toBeNull();
     });
 
+    it('Given_a_balance_on_screen_When_its_refetch_fails_Then_the_held_balance_stays', async () => {
+        // A failed background refetch never hides a figure already on screen: "Unavailable" is
+        // for a balance never read, not one that could not be read again.
+        let balanceReads = 0;
+        fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL) return jsonResponse([CHECKING]);
+            if (balanceIdOf(request) === CHECKING.id) {
+                balanceReads += 1;
+                return balanceReads === 1
+                    ? jsonResponse({
+                          account: CHECKING.id,
+                          balance: { amount: '-12.00', currency: 'USD' },
+                      })
+                    : problemResponse({ status: 500, code: 'INTERNAL_ERROR' });
+            }
+            return unexpectedRequest(request);
+        });
+        const { queryClient } = renderAccounts();
+        await within(await findRow('Checking')).findByText('-US$12.00');
+
+        await act(() =>
+            queryClient.invalidateQueries({ queryKey: accountKeys.balance(CHECKING.id) }),
+        );
+
+        await waitFor(() => {
+            expect(queryClient.getQueryState(accountKeys.balance(CHECKING.id))?.status).toBe(
+                'error',
+            );
+        });
+        expect(within(rowOf('Checking')).getByText('-US$12.00')).toBeDefined();
+        expect(within(rowOf('Checking')).queryByText('Unavailable')).toBeNull();
+    });
+
     it('Given_the_list_fails_When_the_page_renders_Then_an_error_state_offers_a_retry_that_refetches', async () => {
         let failing = true;
         const requests = fakeFetch((request) => {
