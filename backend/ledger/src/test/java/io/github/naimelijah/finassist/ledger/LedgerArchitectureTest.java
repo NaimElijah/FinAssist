@@ -219,7 +219,7 @@ class LedgerArchitectureTest {
      * beside the port that consumes it, so a controller building that command has to name it.
      */
     @ArchTest
-    static final ArchRule web_adapters_reach_no_outbound_port = noClasses()
+    static final ArchRule inbound_adapters_reach_only_in_ports = noClasses()
             .that()
             .resideInAPackage(ROOT + "..adapter.in..")
             .should()

@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Budgets over HTTP: define one, list every one, and review how it is doing (ADR-028).
  *
- * <p>It calls in-ports only. {@code LedgerArchitectureTest.web_adapters_reach_no_outbound_port} fails
+ * <p>It calls in-ports only. {@code LedgerArchitectureTest.inbound_adapters_reach_only_in_ports} fails
  * the build if it reaches a repository, an outbound adapter or a concrete service. It is
  * component-scanned rather than built in {@code LedgerConfiguration}, the one bounded exception ADR-028
  * makes to hand-built wiring, so that a {@code @WebMvcTest} slice loads it.

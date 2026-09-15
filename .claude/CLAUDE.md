@@ -228,8 +228,8 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **`@Transactional` goes on the adapter, never on an application service** —
   `the_application_layer_depends_on_no_framework` fails the build for the latter. When a use case
   must write across two aggregates, the boundary moves to a decorator in `composition`.
-- **A controller calls in-ports only.** `web_adapters_reach_no_outbound_port` fails the build for
-  a controller reaching a repository, an outbound adapter, or a concrete `application.service`
+- **A controller calls in-ports only.** `inbound_adapters_reach_only_in_ports` fails the build
+  for a controller reaching a repository, an outbound adapter, or a concrete `application.service`
   class; `outbound_adapters_do_not_reach_inbound` forbids the reverse.
 - **Problem+json is layered.** A per-context `@RestControllerAdvice` runs at the highest
   precedence and maps that context's typed exceptions; `LedgerProblemHandler`, the composition
