@@ -242,4 +242,12 @@ describe('listAccountTransactions', () => {
             await expect(listAccountTransactions(CHECKING_ID)).rejects.toBeInstanceOf(ApiBodyError);
         });
     }
+
+    it('Given_a_state_whose_status_the_contract_does_not_name_When_listed_Then_it_rejects_with_an_ApiBodyError', async () => {
+        // The generated type promises four statuses, but the body is unvalidated JSON. A status
+        // nobody maps would otherwise leave the state undefined for a screen to crash on.
+        stubFetch(jsonResponse([wireTransaction('x', { status: 'FROZEN', on: '2026-09-04' })]));
+
+        await expect(listAccountTransactions(CHECKING_ID)).rejects.toBeInstanceOf(ApiBodyError);
+    });
 });

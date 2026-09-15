@@ -65,6 +65,23 @@ function variantMember(value: string | undefined, member: string, url: string): 
     return value;
 }
 
+/**
+ * A state whose status the contract does not name.
+ *
+ * The generated type lists four statuses, but the body is unvalidated JSON, so the `switch` below
+ * keeps a runtime default. Without one, a fifth status would leave the state `undefined` for a
+ * screen to crash on. The status itself is left out of the log line, since it arrived unvalidated.
+ *
+ * @throws ApiBodyError - always.
+ */
+function unknownStatus(url: string): never {
+    log.error('ledger transaction state has a status the contract does not name', { url });
+    throw new ApiBodyError(
+        url,
+        'A transaction state arrived with a status the contract does not name',
+    );
+}
+
 function toTransactionState(wire: TransactionStateResponse, url: string): TransactionState {
     switch (wire.status) {
         case 'PENDING':
@@ -79,6 +96,8 @@ function toTransactionState(wire: TransactionStateResponse, url: string): Transa
                 on: variantMember(wire.on, 'on', url),
                 reason: variantMember(wire.reason, 'reason', url),
             };
+        default:
+            return unknownStatus(url);
     }
 }
 
@@ -146,7 +165,7 @@ export async function getBalance(accountId: string): Promise<Money> {
  * @returns the transactions, each state mapped to its variant and every amount as received.
  * @throws ApiError - on a non-2xx response: 404 `ACCOUNT_NOT_FOUND` for an unknown account.
  * @throws ApiBodyError - when the response carries no JSON body, or a state lacks a member its
- *   status always carries.
+ *   status always carries, or has a status the contract does not name.
  */
 export async function listAccountTransactions(accountId: string): Promise<Transaction[]> {
     const url = accountUrl(accountId, 'transactions');
