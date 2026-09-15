@@ -98,10 +98,10 @@ govern it.
 - Every service must be told its allowed hosts. A name that is not on the list — a Compose service
   name, the machine's hostname — is refused, and the refusal looks like an outage rather than a
   configuration miss.
-- The `monitoring` profile's Prometheus scrapes the natively run ledger at
-  `host.docker.internal:8080`. That name must be allowed, or every scrape is refused; and on a Linux
-  host it resolves to the Docker bridge gateway rather than to loopback, which a ledger bound to
-  `127.0.0.1` does not answer.
+- The `monitoring` profile's Prometheus scrapes the Compose `ledger` by its service name, so
+  `ledger` must stay on that container's `LEDGER_ALLOWED_HOSTS`, or every scrape is refused. A
+  ledger run natively on loopback is not reachable from the Prometheus container, and is not
+  scraped.
 - Anything written by hand against a write endpoint has to send `Content-Type: application/json`.
   `curl -d` sends a form-encoded body by default, and gets 415.
 - Loopback is a property of configuration, not of code. One variable set to `0.0.0.0` publishes an
