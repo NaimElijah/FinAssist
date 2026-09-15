@@ -213,6 +213,44 @@ describe('AccountsPage opening an account', () => {
         ).toHaveLength(2);
     });
 
+    it('Given_balances_on_screen_When_an_account_is_opened_Then_only_the_list_is_refetched_and_no_shown_balance_is_requested_again', async () => {
+        // Opening an account posts no entry, so no balance on screen can have changed.
+        const VISA = {
+            id: '9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a',
+            name: 'Visa',
+            type: 'LIABILITY',
+            currency: 'USD',
+        };
+        const served: unknown[] = [CHECKING, SAVINGS];
+        const requests = fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL && request.method === 'POST') {
+                served.push(VISA);
+                return jsonResponse(VISA, 201);
+            }
+            if (request.url === ACCOUNTS_URL) return jsonResponse([...served]);
+            const id = balanceIdOf(request);
+            if (id !== undefined) {
+                return jsonResponse({ account: id, balance: { amount: '0.00', currency: 'USD' } });
+            }
+            return unexpectedRequest(request);
+        });
+        renderAccounts();
+        await within(await findRow('Checking')).findByText('US$0.00');
+        await within(rowOf('Savings')).findByText('US$0.00');
+        const beforeOpening = requests.length;
+
+        await openVisa(userEvent.setup());
+        await within(await findRow('Visa')).findByText('US$0.00');
+
+        expect(
+            requests.slice(beforeOpening).map((request) => `${request.method} ${request.url}`),
+        ).toEqual([
+            `POST ${ACCOUNTS_URL}`,
+            `GET ${ACCOUNTS_URL}`,
+            `GET ${ACCOUNTS_URL}/${VISA.id}/balance`,
+        ]);
+    });
+
     it('Given_an_account_was_opened_When_the_list_shows_it_Then_the_form_is_reset_and_focus_is_on_its_link', async () => {
         const VISA = {
             id: '9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a',
