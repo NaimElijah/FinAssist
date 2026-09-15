@@ -773,6 +773,8 @@ describe('PlannedFlowsPage plan-flow form', () => {
         if (form === null) {
             throw new Error('the Description field is not inside a form');
         }
+        // A disabled button stops a click, not a submit event from elsewhere, such as Enter.
+        fireEvent.submit(form);
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
 
