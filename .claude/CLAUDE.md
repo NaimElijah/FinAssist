@@ -277,8 +277,8 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **The assistant's wire models hide input values in validation errors**
   (`hide_input_in_errors=True`), so a logged 500 never carries an amount; a 503
   `PRICE_UNAVAILABLE` logs the event and the symbol only, never a traceback.
-- **Both Host allow-lists refuse, at start-up, an entry with a colon or a bracket**, so neither
-  lists a port or an IPv6 literal: `ASSISTANT_ALLOWED_HOSTS` refuses a `:` or a `[`, and
+- **Both Host allow-lists refuse, at start-up, an entry naming a port or an IPv6 literal**:
+  `ASSISTANT_ALLOWED_HOSTS` refuses one containing a `:` or a `[`, and
   `HostAllowListFilter` refuses a `:`, a `[` or a `]` in `LEDGER_ALLOWED_HOSTS`.
 - **Neither service serves a `/docs` or `/redoc` UI.** `/openapi.json` (and the ledger's own
   OpenAPI route) stays.

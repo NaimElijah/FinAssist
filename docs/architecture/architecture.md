@@ -542,7 +542,7 @@ fields, lazy proxies — stay in `adapter/out/persistence`.
 quotes the value it rejected. These models carry the owner's money, and the error text is exactly
 what `adapters/problems.py` might otherwise log or a chained traceback might otherwise print.
 
-**Both Host allow-lists refuse an entry with a colon or a bracket at start-up.**
+**Both Host allow-lists refuse, at start-up, an entry naming a port or an IPv6 literal.**
 `ASSISTANT_ALLOWED_HOSTS` refuses a `:` or a `[`, the same way a wildcard is refused:
 `TrustedHostMiddleware` compares only the text before a `Host` header's first colon, so a port,
 `[::1]` or a bare `::1` would match no request, and admitting one would look like a working entry
