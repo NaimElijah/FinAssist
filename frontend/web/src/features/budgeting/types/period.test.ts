@@ -118,13 +118,46 @@ describe('periodMonthLabel', () => {
 });
 
 describe('periodLabel', () => {
+    let originalZone: string | undefined;
+
+    beforeEach(() => {
+        originalZone = process.env.TZ;
+    });
+
+    afterEach(() => {
+        if (originalZone === undefined) {
+            delete process.env.TZ;
+        } else {
+            process.env.TZ = originalZone;
+        }
+        vi.resetModules();
+    });
+
+    /** `periodLabel` as evaluated after switching to `zone`. */
+    async function periodLabelEvaluatedIn(zone: string): Promise<typeof periodLabel> {
+        process.env.TZ = zone;
+        vi.resetModules();
+        const module = await import('./period');
+        return module.periodLabel;
+    }
+
     it('Given_a_single_calendar_month_period_When_labelled_Then_it_is_the_month_label', () => {
         expect(periodLabel({ start: '2026-09-01', end: '2026-10-01' })).toBe('September 2026');
     });
 
-    it('Given_a_period_that_is_not_a_single_calendar_month_When_labelled_Then_it_names_the_start_and_display_end', () => {
+    it('Given_a_period_that_is_not_a_single_calendar_month_When_labelled_Then_it_reads_like_the_pages_own_start_to_display_end_heading', () => {
+        // Matches PeriodLabel.tsx's own rendering exactly - the same two DateText-formatted
+        // dates, joined the same way - so the document title never disagrees with the h1.
         expect(periodLabel({ start: '2026-09-01', end: '2026-09-20' })).toBe(
-            '2026-09-01 to 2026-09-19',
+            '1 Sept 2026 – 19 Sept 2026',
+        );
+    });
+
+    it('Given_a_negative_offset_zone_When_a_non_month_period_is_labelled_Then_the_dates_are_still_1_and_19_September', async () => {
+        const label = await periodLabelEvaluatedIn('America/Los_Angeles');
+
+        expect(label({ start: '2026-09-01', end: '2026-09-20' })).toBe(
+            '1 Sept 2026 – 19 Sept 2026',
         );
     });
 });

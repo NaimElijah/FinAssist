@@ -167,12 +167,29 @@ export function periodMonthLabel(period: BudgetPeriod): string | undefined {
 }
 
 /**
+ * `value`, such as "1 Sept 2026", formatted the same way `DateText` renders it: `dateStyle:
+ * 'medium'`, pinned to `timeZone: 'UTC'` so the day cannot shift with the browser's own zone.
+ */
+function formatDisplayDate(value: string): string {
+    const { year, month, day } = parseIsoDate(value);
+    const instant = new Date(Date.UTC(year, month - 1, day));
+    return new Intl.DateTimeFormat(DISPLAY_LOCALE, { dateStyle: 'medium', timeZone: 'UTC' }).format(
+        instant,
+    );
+}
+
+/**
  * `period`'s label for plain text, such as a document title: `periodMonthLabel` when it applies,
- * otherwise its start and display end, ISO to ISO.
+ * otherwise its start and display end, formatted exactly as `PeriodLabel.tsx` renders them for
+ * the page's own heading, so a document title never disagrees with what is on screen.
  *
  * @param period - the period to label.
  * @returns a label that is always a string, unlike `periodMonthLabel`.
  */
 export function periodLabel(period: BudgetPeriod): string {
-    return periodMonthLabel(period) ?? `${period.start} to ${periodDisplayEnd(period)}`;
+    const monthLabel = periodMonthLabel(period);
+    if (monthLabel !== undefined) {
+        return monthLabel;
+    }
+    return `${formatDisplayDate(period.start)} – ${formatDisplayDate(periodDisplayEnd(period))}`;
 }
