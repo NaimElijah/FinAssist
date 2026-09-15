@@ -3,8 +3,8 @@
  *
  * The browser does no arithmetic on money (ADR-029), so there is no behaviour here, only shape.
  * Duplicated from `accounting/types/money.ts` on purpose: a feature imports no other feature, and
- * the slice rule leaves no legal shared home for it (mirroring the ledger's own per-context
- * `Money` mapping).
+ * ADR-029 gives the web client no TypeScript `Money` at all - one would owe ADR-018 every money
+ * vector - so even this shape stays out of `src/shared`, where it could grow into one.
  */
 
 /** The currencies a budget can be defined in, in the order the form offers them. */
