@@ -343,3 +343,25 @@ consistent rather than because a test would catch a deviation.
   pixel coordinate - `scalePoints` in `features/planning/components/chartScale.ts`. Every figure a
   person reads - labels, axis extremes, tables, title text - is the server's string through
   `MoneyText` (ADR-029).
+- **A form section scoped to one entity is keyed by that entity's id**, so navigating to another
+  entity on the same route starts it afresh instead of carrying one entity's inputs or result onto
+  the next. `HoldingPage` keys `DisposalSection` and its lookup by `symbol`; a test proves the reset
+  by returning to an entity whose data is already cached, where only the key can cause a remount.
+- **A lookup that can land on the URL already open invalidates that entity's key prefix**, since
+  navigating to the same URL changes no query key and refetch on focus is off. `SymbolLookup`
+  invalidates `portfolioKeys.holding(symbol)` through `useRefreshHolding`, pinned by a test
+  asserting the whole invalidation set and that another cached entity stays valid.
+- **Editing any field of a settled form clears its answer.** Each field's change handler calls
+  `clearSettledOutcome(mutation)` from `src/shared/lib/settledMutation.ts`, which resets a mutation
+  whose status is `error` or `success`, so its alert, its field errors or its result, such as a
+  priced disposal, never stands beside inputs it no longer answers. A pending mutation is left
+  alone: resetting it would detach the `onSettled` that releases the in-flight guard, and the form
+  would stay locked. Each form has a test that editing a field clears its failure, and, for the
+  disposal, its result.
+- **A failed read offers "Try again" only when `isRetryable(error)` holds** — a network failure,
+  or a 5xx other than a 503. The predicate lives in `src/shared/api/retry.ts`, and the query
+  client's automatic retry imports the same one, so the two never disagree; a 4xx is the server's
+  considered answer, shown with nothing to press. Every feature renders a failed read through the
+  shared `QueryErrorState` from `src/shared/ui`, which renders its `RetryButton`, never a copy of
+  its own; moves focus to what a successful retry restores with `useRetryFocus`; and checks a
+  problem's code with `hasProblemCode`, beside `ApiError`.
