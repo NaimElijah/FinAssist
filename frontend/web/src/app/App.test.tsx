@@ -28,6 +28,7 @@ const AREAS = [
 ] as const;
 
 const ACCOUNTS_URL = '/ledger/api/v1/accounts';
+const BUDGETS_URL = '/ledger/api/v1/budgets';
 
 const CHECKING = {
     id: '0b7d2a4e-4d8c-4f3a-9a61-2f1c5e0d9b11',
@@ -37,11 +38,15 @@ const CHECKING = {
 } as const;
 
 /**
- * A ledger holding no accounts. The shell is under test here, not the Accounts screen, so its one
- * request is answered locally and nothing reaches the network; any other request fails the test.
+ * A ledger holding no accounts and no budgets. The shell is under test here, not the Accounts or
+ * Budgets screen, so each area's one list request is answered locally and nothing reaches the
+ * network; any other request fails the test.
  */
-const NO_ACCOUNTS: FetchAnswer = (request) =>
-    request.url === ACCOUNTS_URL ? jsonResponse([]) : unexpectedRequest(request);
+const NO_ACCOUNTS: FetchAnswer = (request) => {
+    if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+    if (request.url === BUDGETS_URL) return jsonResponse([]);
+    return unexpectedRequest(request);
+};
 
 /** A ledger holding Checking alone, with a zero balance and no transactions. */
 const CHECKING_ONLY: FetchAnswer = (request) => {

@@ -11,6 +11,7 @@ import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 
 import { DateField } from './DateField';
+import { MonthField } from './MonthField';
 import { SelectField } from './SelectField';
 import { TextField } from './TextField';
 
@@ -26,6 +27,7 @@ const FIELDS: readonly {
 }[] = [
     { name: 'TextField', renderField: (props) => <TextField {...props} /> },
     { name: 'DateField', renderField: (props) => <DateField {...props} /> },
+    { name: 'MonthField', renderField: (props) => <MonthField {...props} /> },
     {
         name: 'SelectField',
         renderField: (props) => (
@@ -107,6 +109,14 @@ describe('labelled fields', () => {
         const input = screen.getByLabelText('Occurred on');
         expect(input.getAttribute('type')).toBe('date');
         expect(input).toHaveProperty('value', '2026-09-01');
+    });
+
+    it('Given_a_MonthField_When_rendered_Then_it_is_a_native_month_input', () => {
+        render(<MonthField label="Month" defaultValue="2026-09" />);
+
+        const input = screen.getByLabelText('Month');
+        expect(input.getAttribute('type')).toBe('month');
+        expect(input).toHaveProperty('value', '2026-09');
     });
 
     it('Given_a_SelectField_with_options_When_one_is_chosen_Then_its_value_is_selected', async () => {

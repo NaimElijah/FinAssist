@@ -35,7 +35,8 @@
     font-size: var(--font-size-body);
 }
 
-.control[type='date'] {
+.control[type='date'],
+.control[type='month'] {
     font-variant-numeric: tabular-nums;
 }
 

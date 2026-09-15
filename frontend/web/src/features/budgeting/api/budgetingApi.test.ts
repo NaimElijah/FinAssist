@@ -1,0 +1,182 @@
+// @vitest-environment node
+// No DOM: these functions only call fetch and map what it returns, and fetch, Headers and
+// Response are Node globals.
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { ApiError } from '@/shared/api/client';
+import { setLogSink } from '@/shared/lib/logger';
+
+import { defineBudget, listBudgets } from './budgetingApi';
+
+/**
+ * Install a stubbed fetch answering every call with a fresh response from `response`, since a
+ * Response body can be read only once. Returns the spy, typed as the real fetch.
+ */
+function stubFetch(response: () => Response): ReturnType<typeof vi.fn<typeof fetch>> {
+    const stub = vi.fn<typeof fetch>().mockImplementation(() => Promise.resolve(response()));
+    vi.stubGlobal('fetch', stub);
+    return stub;
+}
+
+function jsonResponse(body: unknown, status = 200): () => Response {
+    return () =>
+        new Response(JSON.stringify(body), {
+            status,
+            headers: { 'Content-Type': 'application/json' },
+        });
+}
+
+function problemResponse(body: unknown, status: number): () => Response {
+    return () =>
+        new Response(JSON.stringify(body), {
+            status,
+            headers: { 'Content-Type': 'application/problem+json' },
+        });
+}
+
+/** The URL and init of the stub's only call, failing loudly when fetch was not called once. */
+function onlyCall(stub: ReturnType<typeof stubFetch>): { url: string; init: RequestInit } {
+    expect(stub).toHaveBeenCalledTimes(1);
+    const [input, init] = stub.mock.calls[0] ?? [];
+    if (typeof input !== 'string') {
+        throw new Error('expected fetch to be called with a URL string');
+    }
+    return { url: input, init: init ?? {} };
+}
+
+let restoreSink: () => void = () => undefined;
+
+beforeEach(() => {
+    // A failing request is logged by the client; that record is not what is under test here.
+    restoreSink = setLogSink(() => undefined);
+});
+
+afterEach(() => {
+    restoreSink();
+    vi.unstubAllGlobals();
+});
+
+describe('listBudgets', () => {
+    it('Given_a_wire_list_When_listed_Then_it_requests_the_ledger_budgets_as_json_and_maps_each_budget', async () => {
+        const stub = stubFetch(
+            jsonResponse([
+                {
+                    id: 'b1',
+                    period: { start: '2026-09-01', end: '2026-10-01' },
+                    currency: 'ILS',
+                    limits: [
+                        { category: 'groceries', limit: { amount: '1000.00', currency: 'ILS' } },
+                    ],
+                    total: { amount: '1000.00', currency: 'ILS' },
+                },
+            ]),
+        );
+
+        const budgets = await listBudgets();
+
+        expect(budgets).toEqual([
+            {
+                id: 'b1',
+                period: { start: '2026-09-01', end: '2026-10-01' },
+                currency: 'ILS',
+                limits: [{ category: 'groceries', limit: { amount: '1000.00', currency: 'ILS' } }],
+                total: { amount: '1000.00', currency: 'ILS' },
+            },
+        ]);
+        const { url, init } = onlyCall(stub);
+        expect(url).toBe('/ledger/api/v1/budgets');
+        expect(new Headers(init.headers).get('Accept')).toBe('application/json');
+    });
+
+    it('Given_a_wire_budget_with_a_member_the_contract_does_not_name_When_listed_Then_it_is_not_carried_over', async () => {
+        stubFetch(
+            jsonResponse([
+                {
+                    id: 'b1',
+                    period: { start: '2026-09-01', end: '2026-10-01' },
+                    currency: 'ILS',
+                    limits: [],
+                    total: { amount: '0.00', currency: 'ILS' },
+                    extra: 1,
+                },
+            ]),
+        );
+
+        await expect(listBudgets()).resolves.toEqual([
+            {
+                id: 'b1',
+                period: { start: '2026-09-01', end: '2026-10-01' },
+                currency: 'ILS',
+                limits: [],
+                total: { amount: '0.00', currency: 'ILS' },
+            },
+        ]);
+    });
+});
+
+describe('defineBudget', () => {
+    it('Given_an_input_When_defined_Then_it_posts_the_exact_json_body_and_maps_the_created_budget', async () => {
+        const stub = stubFetch(
+            jsonResponse(
+                {
+                    id: 'b1',
+                    period: { start: '2026-09-01', end: '2026-10-01' },
+                    currency: 'ILS',
+                    limits: [
+                        { category: 'groceries', limit: { amount: '1000.00', currency: 'ILS' } },
+                        { category: 'rent', limit: { amount: '4000.00', currency: 'ILS' } },
+                    ],
+                    total: { amount: '5000.00', currency: 'ILS' },
+                },
+                201,
+            ),
+        );
+
+        const budget = await defineBudget({
+            period: { start: '2026-09-01', end: '2026-10-01' },
+            currency: 'ILS',
+            limits: [
+                { category: 'groceries', limit: { amount: '1000.00', currency: 'ILS' } },
+                { category: 'rent', limit: { amount: '4000.00', currency: 'ILS' } },
+            ],
+        });
+
+        expect(budget.id).toBe('b1');
+        expect(budget.total).toEqual({ amount: '5000.00', currency: 'ILS' });
+        const { url, init } = onlyCall(stub);
+        expect(url).toBe('/ledger/api/v1/budgets');
+        expect(init.method).toBe('POST');
+        expect(new Headers(init.headers).get('Content-Type')).toBe('application/json');
+        expect(JSON.parse(init.body as string)).toEqual({
+            period: { start: '2026-09-01', end: '2026-10-01' },
+            currency: 'ILS',
+            limits: [
+                { category: 'groceries', limit: { amount: '1000.00', currency: 'ILS' } },
+                { category: 'rent', limit: { amount: '4000.00', currency: 'ILS' } },
+            ],
+        });
+    });
+
+    it('Given_a_rule_the_domain_refuses_When_defined_Then_it_rejects_with_an_ApiError_coded_RULE_VIOLATED', async () => {
+        stubFetch(
+            problemResponse(
+                {
+                    status: 422,
+                    code: 'RULE_VIOLATED',
+                    detail: 'A budget needs at least one limit.',
+                },
+                422,
+            ),
+        );
+
+        const failure: unknown = await defineBudget({
+            period: { start: '2026-09-01', end: '2026-10-01' },
+            currency: 'ILS',
+            limits: [],
+        }).catch((caught: unknown) => caught);
+
+        expect(failure).toBeInstanceOf(ApiError);
+        expect(failure).toMatchObject({ status: 422, problem: { code: 'RULE_VIOLATED' } });
+    });
+});

@@ -14,6 +14,7 @@ export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { ErrorState, type ErrorStateProps } from './ErrorState';
 export { DISPLAY_LOCALE } from './locale';
 export { MoneyText, type MoneyTextProps } from './MoneyText';
+export { MonthField, type MonthFieldProps } from './MonthField';
 export { SelectField, type SelectFieldProps, type SelectOption } from './SelectField';
 export { StateBadge, type StateBadgeProps, type Tone } from './StateBadge';
 export { TextField, type TextFieldProps } from './TextField';
