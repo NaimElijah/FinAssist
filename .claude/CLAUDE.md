@@ -254,19 +254,6 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **The web client's contract types under `src/shared/api/contracts/` are generated, never
   hand-written.** Regenerate them after either service's contract changes (`make
   generate-web-api`), and CI fails the `web` job on a diff it did not expect (ADR-029).
-- **A web feature's `api/` is its anti-corruption layer.** It types each response with the
-  generated wire type and maps it, member by member, onto the feature's own type in `types/`;
-  nothing outside `api/` imports a generated type (ADR-029).
-- **A web feature's query keys come from one factory constant**, such as `accountKeys`, never a
-  key literal spelled at the call site. A mutation invalidates only the keys that can have
-  changed, never a wider prefix that would refetch data nothing touched.
-- **A web mutation's submit control disables itself while the mutation is pending**, and a
-  submit event arriving anyway is ignored by an in-flight `useRef` guard, not the render-time
-  `isPending` — two submit events can arrive before pending has rendered (ADR-028: no double
-  submit).
-- **A lifecycle date on the web client defaults to the browser's local today**, built through a
-  helper that takes the date as an argument, such as `todayIsoDate(new Date())` — never
-  `toISOString()`, which reads UTC and never `now()` called inside the helper itself.
 - **The assistant's development seed is off by default** (`ASSISTANT_DEV_SEED`) and lives only
   in the composition root (`adapters/seed.py`).
 - **The assistant's wire models hide input values in validation errors**
@@ -285,3 +272,22 @@ TypeScript is pinned to 6.0.3, not 7.x, because `typescript-eslint` 8 declares
 `typescript: >=4.8.4 <6.1.0` — past that, `npm ci` fails with ERESOLVE. Dependabot is
 configured to ignore `typescript >=6.1.0` so it stops proposing the bump every week. Lift
 both the pin and that ignore entry together, once typescript-eslint supports 7.
+
+## Review conventions (not build-enforced)
+
+Nothing here fails CI. These are patterns to check for in review, worth naming so they stay
+consistent rather than because a test would catch a deviation.
+
+- **A web feature's `api/` is its anti-corruption layer.** It types each response with the
+  generated wire type and maps it, member by member, onto the feature's own type in `types/`;
+  nothing outside `api/` imports a generated type (ADR-029).
+- **A web feature's query keys come from one factory constant**, such as `accountKeys`, never a
+  key literal spelled at the call site. A mutation invalidates only the keys that can have
+  changed, never a wider prefix that would refetch data nothing touched.
+- **A web mutation's submit control disables itself while the mutation is pending**, and a
+  submit event arriving anyway is ignored by an in-flight `useRef` guard, not the render-time
+  `isPending` — two submit events can arrive before pending has rendered (ADR-028: no double
+  submit).
+- **A lifecycle date on the web client defaults to the browser's local today**, built through a
+  helper that takes the date as an argument, such as `todayIsoDate(new Date())` — never
+  `toISOString()`, which reads UTC and never `now()` called inside the helper itself.
