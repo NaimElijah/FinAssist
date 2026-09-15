@@ -48,6 +48,18 @@ describe('recurrenceSummary', () => {
 
         expect(recurrenceSummary(recurrence)).toBe('Every month until 31 December 2026');
     });
+
+    it('Given_an_until_date_in_a_year_below_100_When_summarised_Then_it_names_that_year_not_one_in_the_1900s', () => {
+        // A date field accepts year 27; `Date.UTC` alone would read it as 1927.
+        const recurrence: Recurrence = {
+            kind: 'UNTIL',
+            cadence: 'MONTHLY',
+            interval: 1,
+            until: '0027-01-01',
+        };
+
+        expect(recurrenceSummary(recurrence)).toBe('Every month until 1 January 27');
+    });
 });
 
 describe('buildRecurrence', () => {

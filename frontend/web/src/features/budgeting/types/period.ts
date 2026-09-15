@@ -141,10 +141,22 @@ export function isSingleCalendarMonth(period: BudgetPeriod): boolean {
 }
 
 /**
+ * The UTC midnight that starts `parts`' day, to hand a formatter pinned to `timeZone: 'UTC'`.
+ *
+ * The year is set on its own, never through `Date.UTC`, which reads a year from 0 to 99 as 1900
+ * to 1999: a month input and the ledger both accept year 26, and it must not be labelled 1926.
+ */
+function utcInstant({ year, month, day }: DateParts): Date {
+    const instant = new Date(0);
+    instant.setUTCFullYear(year, month - 1, day);
+    return instant;
+}
+
+/**
  * `period`'s month label, such as "September 2026", formatted with `Intl.DateTimeFormat` from its
  * calendar parts.
  *
- * The instant handed to the formatter is built with `Date.UTC` from the parsed year and month -
+ * The instant handed to the formatter is built from the parsed year and month by `utcInstant` -
  * never from `new Date(period.start)`, which would parse the string itself - and the formatter is
  * pinned to `timeZone: 'UTC'`, the same pairing `DateText` uses, so the label reads the same
  * month regardless of the browser's own zone.
@@ -157,13 +169,11 @@ export function periodMonthLabel(period: BudgetPeriod): string | undefined {
     if (!isSingleCalendarMonth(period)) {
         return undefined;
     }
-    const { year, month } = parseIsoDate(period.start);
-    const instant = new Date(Date.UTC(year, month - 1, 1));
     return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
         month: 'long',
         year: 'numeric',
         timeZone: 'UTC',
-    }).format(instant);
+    }).format(utcInstant(parseIsoDate(period.start)));
 }
 
 /**
@@ -171,10 +181,8 @@ export function periodMonthLabel(period: BudgetPeriod): string | undefined {
  * 'medium'`, pinned to `timeZone: 'UTC'` so the day cannot shift with the browser's own zone.
  */
 function formatDisplayDate(value: string): string {
-    const { year, month, day } = parseIsoDate(value);
-    const instant = new Date(Date.UTC(year, month - 1, day));
     return new Intl.DateTimeFormat(DISPLAY_LOCALE, { dateStyle: 'medium', timeZone: 'UTC' }).format(
-        instant,
+        utcInstant(parseIsoDate(value)),
     );
 }
 

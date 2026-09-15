@@ -148,10 +148,11 @@ function formatUntilDate(value: string): string {
     if (match === null) {
         throw new Error('Expected an ISO date, YYYY-MM-DD');
     }
-    const year = Number(match[1]);
-    const monthIndex = Number(match[2]) - 1;
-    const day = Number(match[3]);
-    return LONG_DATE_FORMAT.format(Date.UTC(year, monthIndex, day));
+    // The year is set on its own, never through `Date.UTC`, which reads a year from 0 to 99 as 1900
+    // to 1999: a date field accepts year 27, and it must not be summarised as 1927.
+    const instant = new Date(0);
+    instant.setUTCFullYear(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    return LONG_DATE_FORMAT.format(instant);
 }
 
 /**
