@@ -211,6 +211,67 @@ describe('failure logging', () => {
         expect(String(written[0]?.traceId)).toMatch(/^[0-9a-f]{32}$/);
     });
 
+    it.each([400, 404, 409, 422])(
+        'Given_a_%i_refusal_When_requested_Then_it_is_logged_at_info_with_the_same_fields',
+        async (status) => {
+            // A 4xx is the server's considered answer: the UI shows it and nobody has to act on
+            // it, so it must not raise an application error in the console.
+            stubFetch(problemResponse({ status, code: 'REFUSED' }, status));
+
+            await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiError);
+
+            expect(written).toHaveLength(1);
+            expect(written[0]).toMatchObject({
+                level: 'info',
+                event: 'http request returned an error status',
+                url: URL,
+                status,
+                code: 'REFUSED',
+            });
+            expect(String(written[0]?.traceId)).toMatch(/^[0-9a-f]{32}$/);
+        },
+    );
+
+    it.each([500, 502, 503])(
+        'Given_a_%i_server_failure_When_requested_Then_it_is_logged_at_error',
+        async (status) => {
+            stubFetch(() => new Response('', { status }));
+
+            await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiError);
+
+            expect(written).toHaveLength(1);
+            expect(written[0]).toMatchObject({
+                level: 'error',
+                event: 'http request returned an error status',
+                status,
+            });
+        },
+    );
+
+    it('Given_a_transport_failure_When_requested_Then_it_is_logged_at_error', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn<typeof fetch>()
+                .mockImplementation(() => Promise.reject(new TypeError('offline'))),
+        );
+
+        await expect(requestJson(URL)).rejects.toBeInstanceOf(TypeError);
+
+        expect(written.map((record) => record.level)).toEqual(['error']);
+    });
+
+    it.each([204, 205])(
+        'Given_a_body_less_%i_When_requested_Then_it_is_logged_at_error',
+        async (status) => {
+            stubFetch(() => new Response(null, { status }));
+
+            await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiBodyError);
+
+            expect(written.map((record) => record.level)).toEqual(['error']);
+        },
+    );
+
     it('Given_a_transport_failure_When_requested_Then_it_is_logged_and_rethrown', async () => {
         // The one failure mode that reaches none of the status checks, so without its own
         // branch it would be the only one producing no record at all.

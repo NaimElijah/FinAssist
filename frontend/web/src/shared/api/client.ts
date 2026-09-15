@@ -7,7 +7,9 @@
  *
  * Being the single chokepoint is also why correlation lives here: every request carries a
  * `traceparent`, so the backends continue the browser's trace rather than starting their own,
- * and every failure is logged once with that id attached. See ADR-019.
+ * and every failure is logged once with that id attached. A 4xx is logged at `info`: it is the
+ * server's considered answer, the UI shows it, and nobody has to act on it. A 5xx, a transport
+ * failure and a 2xx without the JSON body it promised are logged at `error`. See ADR-019.
  *
  * It is also where a failure's RFC 9457 `application/problem+json` body is parsed onto
  * `ApiError`, so a caller can show the server's message and branch on its stable `code` rather
@@ -122,6 +124,14 @@ export class ApiBodyError extends Error {
 
 const PROBLEM_CONTENT_TYPE = 'application/problem+json';
 
+const FIRST_CLIENT_ERROR_STATUS = 400;
+const FIRST_SERVER_ERROR_STATUS = 500;
+
+/** Whether `status` is a 4xx: a refusal the server meant to send, not a failure of the server. */
+function isClientError(status: number): boolean {
+    return status >= FIRST_CLIENT_ERROR_STATUS && status < FIRST_SERVER_ERROR_STATUS;
+}
+
 /**
  * Read a non-2xx response's body as a `Problem`, or `undefined` when it does not carry one.
  *
@@ -179,7 +189,10 @@ export async function requestJson<T>(url: string, init?: RequestInit): Promise<T
         // `detail` can carry the owner's own descriptions - an account name, memo text - which
         // is financial data (ADR-019: redaction happens at the boundary, and the safest
         // redaction is not logging it at all). `code` is a stable identifier, never that.
-        log.error('http request returned an error status', {
+        // A refusal is recorded, not raised as an error: the owner's logging convention keeps
+        // `error` for what someone must act on, and an expected refusal is not that.
+        const record = isClientError(response.status) ? log.info : log.error;
+        record('http request returned an error status', {
             url,
             traceId,
             status: response.status,
