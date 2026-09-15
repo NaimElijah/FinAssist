@@ -4,7 +4,7 @@
 
 import { screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import {
@@ -322,5 +322,29 @@ describe('HoldingPage', () => {
         expect(await screen.findByText('US$6,660.20')).toBeDefined();
         expect(requests.filter((request) => isRead(request, 'position'))).toHaveLength(2);
         expect(requests.filter((request) => isRead(request, 'valuation'))).toHaveLength(2);
+    });
+
+    it('Given_another_holding_cached_When_the_symbol_shown_is_looked_up_again_Then_only_that_holdings_reads_are_invalidated', async () => {
+        // A key prefix matches element by element, so refreshing VOO must not reach VOOG's reads.
+        fakeFetch(PRICED);
+        const { queryClient } = renderHolding();
+        await screen.findByText('1234.125');
+        await screen.findByText('US$5,187.44');
+        queryClient.setQueryData(portfolioKeys.position('VOOG'), { ...POSITION, symbol: 'VOOG' });
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        const user = userEvent.setup({ delay: null });
+
+        await user.type(screen.getByLabelText('Symbol'), 'VOO');
+        await user.click(screen.getByRole('button', { name: 'Look up' }));
+
+        await waitFor(() => {
+            expect(queryClient.isFetching()).toBe(0);
+        });
+        expect(invalidateSpy.mock.calls.map(([options]) => options?.queryKey)).toEqual([
+            portfolioKeys.holding('VOO'),
+        ]);
+        expect(queryClient.getQueryState(portfolioKeys.position('VOOG'))?.isInvalidated).toBe(
+            false,
+        );
     });
 });
