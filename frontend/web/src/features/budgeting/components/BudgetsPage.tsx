@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 
-import { Button, type Column, DataTable, EmptyState, ErrorState, MoneyText } from '@/shared/ui';
+import { type Column, DataTable, EmptyState, MoneyText } from '@/shared/ui';
 
 import { useBudgets } from '../hooks/budgetQueries';
 import type { Budget } from '../types/budget';
@@ -9,6 +9,7 @@ import styles from './BudgetsPage.module.css';
 import { DefineBudgetForm } from './DefineBudgetForm';
 import { budgetReviewPath, CATEGORISATION_RULES_PATH } from './paths';
 import { PeriodLabel } from './PeriodLabel';
+import { QueryFailure } from './QueryFailure';
 
 const EMPTY_MESSAGE = 'No budgets yet — define one below';
 
@@ -95,22 +96,7 @@ function BudgetsList({
     if (budgets.isPending) {
         return <p className={styles.loading}>Loading budgets…</p>;
     }
-    const failure = budgets.isError ? (
-        <ErrorState
-            error={budgets.error}
-            action={
-                <Button
-                    variant="secondary"
-                    pending={budgets.isFetching}
-                    onClick={() => {
-                        void budgets.refetch();
-                    }}
-                >
-                    Try again
-                </Button>
-            }
-        />
-    ) : null;
+    const failure = <QueryFailure query={budgets} />;
     if (budgets.data === undefined) {
         return failure;
     }

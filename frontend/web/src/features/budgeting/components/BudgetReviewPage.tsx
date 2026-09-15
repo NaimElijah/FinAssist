@@ -1,18 +1,8 @@
-import type { UseQueryResult } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 
 import { ApiError } from '@/shared/api/client';
 import { useDocumentTitle } from '@/shared/lib/documentTitle';
-import {
-    Button,
-    type Column,
-    DataTable,
-    EmptyState,
-    ErrorState,
-    MoneyText,
-    StateBadge,
-    type Tone,
-} from '@/shared/ui';
+import { type Column, DataTable, EmptyState, MoneyText, StateBadge, type Tone } from '@/shared/ui';
 
 import { BUDGET_NOT_FOUND } from '../api/budgetingApi';
 import { useBudgetReview, useBudgets } from '../hooks/budgetQueries';
@@ -22,6 +12,7 @@ import type { BudgetReview, CategorySpend, UnbudgetedSpend } from '../types/revi
 import styles from './BudgetReviewPage.module.css';
 import { BUDGETS_PATH } from './paths';
 import { PeriodLabel } from './PeriodLabel';
+import { QueryFailure } from './QueryFailure';
 
 const NO_UNBUDGETED_MESSAGE = 'No unbudgeted spend';
 
@@ -61,37 +52,6 @@ function BudgetNotFound() {
             />
         </>
     );
-}
-
-/** A retry for a failed query, busy while the retry is in flight. */
-function RetryButton({
-    query,
-}: {
-    readonly query: Pick<UseQueryResult, 'isFetching' | 'refetch'>;
-}) {
-    return (
-        <Button
-            variant="secondary"
-            pending={query.isFetching}
-            onClick={() => {
-                void query.refetch();
-            }}
-        >
-            Try again
-        </Button>
-    );
-}
-
-/**
- * A failed read's error state with a retry, or `null` when the read has not failed.
- *
- * Shown beside data the query still holds: TanStack Query keeps a query's data when a later
- * refetch fails, so the failure never replaces what the owner was reading.
- */
-function failureOf(query: UseQueryResult) {
-    return query.isError ? (
-        <ErrorState error={query.error} action={<RetryButton query={query} />} />
-    ) : null;
 }
 
 const CATEGORY_COLUMNS: readonly Column<CategorySpend>[] = [
@@ -213,7 +173,7 @@ function BudgetDetail({ budgetId }: { readonly budgetId: string }) {
     if (notFound) {
         return <BudgetNotFound />;
     }
-    const budgetsFailure = budgets.isPending ? null : failureOf(budgets);
+    const budgetsFailure = budgets.isPending ? null : <QueryFailure query={budgets} />;
     if (budgets.data === undefined) {
         return (
             <>
@@ -249,7 +209,7 @@ function BudgetDetail({ budgetId }: { readonly budgetId: string }) {
                 <p className={styles.placeholder}>Loading review…</p>
             ) : (
                 <div className={styles.stack}>
-                    {failureOf(review)}
+                    <QueryFailure query={review} />
                     {review.data === undefined ? null : <ReviewSections review={review.data} />}
                 </div>
             )}
