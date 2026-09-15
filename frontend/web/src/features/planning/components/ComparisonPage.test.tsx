@@ -382,6 +382,29 @@ describe('ComparisonPage', () => {
         });
     });
 
+    it('Given_an_unknown_scenario_422_When_compared_Then_no_retry_is_offered', async () => {
+        // A 422 is the ledger's considered answer to these scenarios; asking again repeats it.
+        fakeFetch(
+            ledger(SCENARIOS, () =>
+                problemResponse({
+                    status: 422,
+                    code: 'UNKNOWN_SCENARIO',
+                    detail: 'No scenario has the id s-save.',
+                }),
+            ),
+        );
+        renderComparison();
+
+        await compare(userEvent.setup({ delay: null }), [
+            'Do nothing (ILS)',
+            'Aggressive saving (ILS)',
+        ]);
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('No scenario has the id s-save.')).toBeDefined();
+        expect(within(alert).queryByRole('button', { name: 'Try again' })).toBeNull();
+    });
+
     it('Given_a_comparison_shown_When_its_fields_are_submitted_again_unchanged_Then_it_is_requested_again_and_the_new_answer_is_shown', async () => {
         let answer: unknown = COMPARISON;
         const requests = fakeFetch(ledger(SCENARIOS, () => jsonResponse(answer)));

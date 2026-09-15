@@ -398,7 +398,8 @@ function transactionColumns(
 }
 
 /**
- * A failed read's error state with a retry, or `null` when the read has not failed.
+ * A failed read's error state, offering a retry when one could change the answer, or nothing when
+ * the read has not failed.
  *
  * Each section below shows it beside data it still holds: TanStack Query keeps a query's data
  * when a later refetch fails, so the failure never replaces what the owner was reading.

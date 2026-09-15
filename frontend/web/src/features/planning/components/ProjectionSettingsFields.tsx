@@ -28,7 +28,7 @@ function oneOf<Value extends string>(allowed: readonly Value[], value: string): 
     return match;
 }
 
-/** The accounts could not be read: the failure, with a retry, in place of the pickers alone. */
+/** The accounts could not be read: the failure, and any retry, in place of the pickers alone. */
 function AccountsFailure({ failure }: { readonly failure: AccountOptionsFailure }) {
     return (
         <QueryErrorState

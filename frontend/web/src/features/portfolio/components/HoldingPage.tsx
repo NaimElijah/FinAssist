@@ -127,7 +127,7 @@ function ValuationSection({
  * valuation and a calculator with nothing to price; should the valuation's own 404 land first, its
  * section shows the same calm state until then. No usable price (503 `PRICE_UNAVAILABLE`) is an
  * empty state in the valuation's section alone, and the position still shows. Any other failure is
- * an error state offering a retry.
+ * an error state, offering a retry where a second attempt could change the answer.
  *
  * The disposal calculator is offered once the position has loaded, its proceeds starting in the
  * currency the holding's lots cost, the only one the assistant prices them in. It is keyed by

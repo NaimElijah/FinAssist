@@ -1,5 +1,7 @@
 /**
- * Which failed requests a second attempt could answer differently.
+ * Which failed requests a second attempt could answer differently: the one rule behind both the
+ * query client's automatic retry and the retry a failed read's error state offers, so the two
+ * never disagree.
  */
 import { ApiError } from './client';
 

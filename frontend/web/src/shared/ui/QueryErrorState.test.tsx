@@ -6,7 +6,7 @@ import { userEvent } from '@testing-library/user-event';
 import { createRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ApiError } from '../api/client';
+import { ApiBodyError, ApiError } from '../api/client';
 import { QueryErrorState } from './QueryErrorState';
 
 const URL = '/ledger/api/v1/accounts';
@@ -52,6 +52,54 @@ describe('QueryErrorState', () => {
             .click(screen.getByRole('button', { name: 'Try again' }));
 
         expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+
+    /** Failures a second attempt would only repeat: a considered answer, or a defect. */
+    const NOT_RETRYABLE: readonly { readonly name: string; readonly error: unknown }[] = [
+        {
+            name: 'a_422_refusal',
+            error: new ApiError(422, URL, 'The horizon is not whole steps.', {
+                status: 422,
+                code: 'RULE_VIOLATED',
+                detail: 'The horizon is not whole steps.',
+            }),
+        },
+        {
+            name: 'a_404',
+            error: new ApiError(404, URL, 'No such scenario.', {
+                status: 404,
+                code: 'SCENARIO_NOT_FOUND',
+                detail: 'No such scenario.',
+            }),
+        },
+        { name: 'a_503', error: new ApiError(503, URL, 'Unavailable', undefined) },
+        { name: 'a_body_that_is_not_JSON', error: new ApiBodyError(URL, 'Not JSON') },
+        { name: 'a_plain_Error', error: new Error('mapping failed') },
+    ];
+
+    for (const { name, error } of NOT_RETRYABLE) {
+        it(`Given_${name}_When_rendered_Then_the_alert_offers_no_retry`, () => {
+            render(
+                <QueryErrorState error={error} retrying={false} onRetry={vi.fn<() => void>()} />,
+            );
+
+            expect(screen.getByRole('alert')).toBeDefined();
+            expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+        });
+    }
+
+    it('Given_a_network_failure_When_rendered_Then_the_alert_offers_a_retry', () => {
+        render(
+            <QueryErrorState
+                error={new TypeError('Failed to fetch')}
+                retrying={false}
+                onRetry={vi.fn<() => void>()}
+            />,
+        );
+
+        expect(
+            within(screen.getByRole('alert')).getByRole('button', { name: 'Try again' }),
+        ).toBeDefined();
     });
 
     it('Given_a_ref_When_rendered_Then_it_names_the_alert', () => {

@@ -16,7 +16,7 @@ export interface ScenarioChoiceProps {
 
 /**
  * The scenarios a planning form chooses from - to project one, or compare several - in whichever
- * state their request is in: loading, failed with a retry, none defined, or loaded.
+ * state their request is in: loading, failed, none defined, or loaded.
  *
  * A failed background refetch never hides a form already on screen: TanStack Query keeps the list
  * it holds, so the failure is shown above the form rather than in its place.

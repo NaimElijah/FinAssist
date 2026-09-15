@@ -22,8 +22,9 @@ export interface ReadResultProps<Data> {
  * headed section showing the request pending, its failure, and its answer.
  *
  * A failure takes focus, the rule every form in the app keeps for a submission nothing on a field
- * explains, and every new failure takes it again. A retry is offered, since a network failure or a
- * 5xx may pass.
+ * explains, and every new failure takes it again. A retry is offered only where a second attempt
+ * could change the answer - a network failure, or a 5xx other than a 503 - so a 422 for a horizon
+ * that is not whole steps is explained and offers nothing to press.
  *
  * @param props - see `ReadResultProps`.
  */

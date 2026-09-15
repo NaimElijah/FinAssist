@@ -259,6 +259,28 @@ describe('ProjectionPage', () => {
         });
     });
 
+    it('Given_a_horizon_the_ledger_refuses_When_projected_Then_no_retry_is_offered', async () => {
+        // A 422 is the ledger's considered answer to these fields; sending them again repeats it.
+        fakeFetch(
+            ledger([SAVING], () =>
+                problemResponse({
+                    status: 422,
+                    code: 'RULE_VIOLATED',
+                    detail: 'The horizon is not a whole number of steps.',
+                }),
+            ),
+        );
+        renderProjection();
+
+        await project(userEvent.setup({ delay: null }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert).getByText('The horizon is not a whole number of steps.'),
+        ).toBeDefined();
+        expect(within(alert).queryByRole('button', { name: 'Try again' })).toBeNull();
+    });
+
     it('Given_a_projection_shown_When_its_fields_are_submitted_again_unchanged_Then_it_is_requested_again_and_the_new_answer_is_shown', async () => {
         let answer: unknown = WITH_SHORTFALL;
         const requests = fakeFetch(ledger([SAVING], () => jsonResponse(answer)));
