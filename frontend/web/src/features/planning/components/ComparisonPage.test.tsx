@@ -435,6 +435,30 @@ describe('ComparisonPage', () => {
         expect(urls[1]).toBe(urls[0]);
     });
 
+    it('Given_a_comparison_shown_When_it_is_requested_again_and_fails_Then_the_failure_shows_above_the_comparison_it_kept', async () => {
+        // A result stays below a later failure: the owner keeps reading what the ledger last
+        // answered, and the failure says the new request did not land.
+        let failing = false;
+        fakeFetch(
+            ledger(SCENARIOS, () =>
+                failing
+                    ? problemResponse({ status: 503, code: 'UNAVAILABLE', detail: 'Try later.' })
+                    : jsonResponse(COMPARISON),
+            ),
+        );
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+        await compare(user, ['Do nothing (ILS)', 'Aggressive saving (ILS)']);
+        await screen.findByRole('table', { name: 'End states' });
+
+        failing = true;
+        await user.click(screen.getByRole('button', { name: 'Compare' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('Try later.')).toBeDefined();
+        expect(screen.getByRole('table', { name: 'End states' })).toBeDefined();
+    });
+
     it('Given_a_comparison_that_failed_When_its_fields_are_submitted_again_unchanged_Then_it_is_requested_again_and_the_new_failure_takes_focus', async () => {
         let detail = 'No scenario has the id s-save.';
         const requests = fakeFetch(

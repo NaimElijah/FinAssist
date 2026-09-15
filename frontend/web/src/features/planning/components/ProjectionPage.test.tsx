@@ -306,6 +306,30 @@ describe('ProjectionPage', () => {
         expect(urls[1]).toBe(urls[0]);
     });
 
+    it('Given_a_projection_shown_When_it_is_requested_again_and_fails_Then_the_failure_shows_above_the_projection_it_kept', async () => {
+        // A result stays below a later failure: the owner keeps reading what the ledger last
+        // answered, and the failure says the new request did not land.
+        let failing = false;
+        fakeFetch(
+            ledger([SAVING], () =>
+                failing
+                    ? problemResponse({ status: 503, code: 'UNAVAILABLE', detail: 'Try later.' })
+                    : jsonResponse(WITH_SHORTFALL),
+            ),
+        );
+        renderProjection();
+        const user = userEvent.setup({ delay: null });
+        await project(user);
+        await screen.findByRole('table', { name: 'Projection' });
+
+        failing = true;
+        await user.click(screen.getByRole('button', { name: 'Project' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('Try later.')).toBeDefined();
+        expect(screen.getByRole('table', { name: 'Projection' })).toBeDefined();
+    });
+
     it('Given_a_projection_that_failed_When_its_fields_are_submitted_again_unchanged_Then_it_is_requested_again_and_the_new_failure_takes_focus', async () => {
         let detail = 'The horizon is not a whole number of steps.';
         const requests = fakeFetch(
