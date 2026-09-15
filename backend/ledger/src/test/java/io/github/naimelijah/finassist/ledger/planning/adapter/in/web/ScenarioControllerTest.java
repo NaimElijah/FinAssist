@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.naimelijah.finassist.ledger.composition.StrictTextCoercion;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.DefineScenarioCommand;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.DefineScenarioUseCase;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.ListScenariosUseCase;
@@ -31,6 +32,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -47,6 +49,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * {@code AccountControllerTest} gives.
  */
 @WebMvcTest(controllers = ScenarioController.class)
+@Import(StrictTextCoercion.class)
 class ScenarioControllerTest {
 
     private static final String SCENARIOS = "/api/v1/scenarios";
@@ -198,6 +201,19 @@ class ScenarioControllerTest {
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
                 .andExpect(jsonPath("$.errors[0].field").value("growthRatePerStep"));
+
+        verifyNoInteractions(definer);
+    }
+
+    /** A growth rate is decimal text on the wire like an amount (ADR-028), so a JSON number is malformed. */
+    @Test
+    void Given_a_growth_rate_sent_as_a_json_number_When_defined_Then_it_is_a_400_problem() throws Exception {
+        mvc.perform(post(SCENARIOS).contentType(MediaType.APPLICATION_JSON).content("""
+                        {"name": "Buy the car", "currency": "ILS", "flows": [], "growthRatePerStep": 0.005}
+                        """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
 
         verifyNoInteractions(definer);
     }

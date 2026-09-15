@@ -26,6 +26,7 @@ import io.github.naimelijah.finassist.ledger.accounting.domain.entry.IllegalTran
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Transaction;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.TransactionId;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.TransactionState;
+import io.github.naimelijah.finassist.ledger.composition.StrictTextCoercion;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.LocalDate;
@@ -38,6 +39,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -54,6 +56,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * {@code AccountControllerTest} gives.
  */
 @WebMvcTest(controllers = TransactionController.class)
+@Import(StrictTextCoercion.class)
 class TransactionControllerTest {
 
     private static final String TRANSACTIONS = "/api/v1/transactions";
@@ -153,6 +156,28 @@ class TransactionControllerTest {
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
                 .andExpect(jsonPath("$.errors[*].field", hasItem("entries[0].amount.amount")));
+
+        verifyNoInteractions(recorder);
+    }
+
+    /**
+     * The contract types an amount as decimal text (ADR-028). Coerced, a JSON number would reach the pattern
+     * as the text Jackson made of it, and a client serialising a binary float would pass every test until a
+     * value such as {@code 0.30000000000000004} arrived.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"12.50", "12"})
+    void Given_an_amount_sent_as_a_json_number_When_recording_Then_it_is_a_400_problem(String number) throws Exception {
+        mvc.perform(post(TRANSACTIONS).contentType(MediaType.APPLICATION_JSON).content("""
+                        {"occurredOn": "2026-03-03", "description": "Groceries",
+                         "entries": [
+                           {"account": "%s", "amount": {"amount": %s, "currency": "ILS"}},
+                           {"account": "%s", "amount": {"amount": "-12.50", "currency": "ILS"}}]}
+                        """.formatted(
+                                GROCERIES, number, CASH)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
 
         verifyNoInteractions(recorder);
     }

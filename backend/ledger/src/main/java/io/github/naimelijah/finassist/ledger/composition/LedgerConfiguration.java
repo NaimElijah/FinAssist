@@ -77,6 +77,12 @@ public class LedgerConfiguration {
         return registration;
     }
 
+    /** Makes a JSON number where the ledger reads text, such as an amount, a malformed body (ADR-028). */
+    @Bean
+    StrictTextCoercion strictTextCoercion() {
+        return new StrictTextCoercion();
+    }
+
     // ---- accounting -------------------------------------------------------------------------
 
     @Bean

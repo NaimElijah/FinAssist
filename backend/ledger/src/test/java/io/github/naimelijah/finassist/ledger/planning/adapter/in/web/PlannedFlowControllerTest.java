@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.naimelijah.finassist.ledger.composition.StrictTextCoercion;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.ListPlannedFlowsUseCase;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanFlowCommand;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanFlowUseCase;
@@ -35,6 +36,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -53,6 +55,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * {@code AccountControllerTest} gives.
  */
 @WebMvcTest(controllers = PlannedFlowController.class)
+@Import(StrictTextCoercion.class)
 class PlannedFlowControllerTest {
 
     private static final String PLANNED_FLOWS = "/api/v1/planned-flows";
@@ -357,6 +360,20 @@ class PlannedFlowControllerTest {
                 .andExpect(status().is(422))
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("RULE_VIOLATED"));
+    }
+
+    /** An amount is decimal text on the wire (ADR-028), so a JSON number is malformed rather than coerced. */
+    @Test
+    void Given_an_amount_sent_as_a_json_number_When_planned_Then_it_is_a_400_problem() throws Exception {
+        mvc.perform(post(PLANNED_FLOWS).contentType(MediaType.APPLICATION_JSON).content("""
+                        {"description": "Car", "amount": {"amount": 60000.00, "currency": "ILS"},
+                         "direction": "OUTFLOW", "startsOn": "2026-02-15", "recurrence": {"kind": "ONCE"}}
+                        """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+
+        verifyNoInteractions(planner);
     }
 
     @Test

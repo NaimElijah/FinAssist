@@ -22,6 +22,7 @@ import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.BudgetId;
 import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.BudgetPeriod;
 import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.CategoryLimit;
 import io.github.naimelijah.finassist.ledger.budgeting.domain.category.Category;
+import io.github.naimelijah.finassist.ledger.composition.StrictTextCoercion;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.YearMonth;
@@ -31,6 +32,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -47,6 +49,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * {@code AccountControllerTest} gives.
  */
 @WebMvcTest(controllers = BudgetController.class)
+@Import(StrictTextCoercion.class)
 class BudgetControllerTest {
 
     private static final String BUDGETS = "/api/v1/budgets";
@@ -147,6 +150,20 @@ class BudgetControllerTest {
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
                 .andExpect(jsonPath("$.errors[0].field").value("period.start"));
+
+        verifyNoInteractions(definer);
+    }
+
+    /** A limit is decimal text on the wire (ADR-028), so a JSON number is malformed rather than coerced. */
+    @Test
+    void Given_a_limit_sent_as_a_json_number_When_defining_a_budget_Then_it_is_a_400_problem() throws Exception {
+        mvc.perform(post(BUDGETS).contentType(MediaType.APPLICATION_JSON).content("""
+                                {"period": {"start": "2026-09-01", "end": "2026-10-01"}, "currency": "ILS",
+                                 "limits": [{"category": "groceries", "limit": {"amount": 1000.00, "currency": "ILS"}}]}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
 
         verifyNoInteractions(definer);
     }

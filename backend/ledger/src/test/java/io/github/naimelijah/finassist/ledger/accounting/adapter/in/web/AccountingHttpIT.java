@@ -197,6 +197,27 @@ class AccountingHttpIT extends PostgresFixture {
         assertThat(json(response).path("detail").asString()).startsWith("Cannot combine ILS with USD");
     }
 
+    /**
+     * The controller tests import the Jackson customizer that refuses a number as text, because their slice
+     * loads no configuration. This is what shows the running ledger registers it: an amount sent as a JSON
+     * number is refused, and nothing is recorded (ADR-028).
+     */
+    @Test
+    void Given_an_amount_sent_as_a_json_number_When_recorded_Then_it_is_a_400_problem_and_nothing_is_recorded()
+            throws Exception {
+        String cash = open("Cash", "ASSET");
+        String groceries = open("Groceries", "EXPENSE");
+
+        HttpResponse<String> response = post(TRANSACTIONS, """
+                {"occurredOn": "2026-03-03", "description": "Groceries", "entries": [
+                  {"account": "%s", "amount": {"amount": 12.50, "currency": "ILS"}},
+                  {"account": "%s", "amount": {"amount": "-12.50", "currency": "ILS"}}]}
+                """.formatted(groceries, cash));
+
+        assertProblem(response, 400, "MALFORMED_REQUEST");
+        assertThat(ok(get(ACCOUNTS + "/" + cash + "/transactions")).size()).isZero();
+    }
+
     /** Opens an ILS account through the API and returns the id the ledger generated for it. */
     private String open(String name, String type) throws IOException, InterruptedException {
         return open(name, type, "ILS");
