@@ -9,6 +9,7 @@
  * bug). None of this touches money (ADR-029) - it is calendar arithmetic on year and month
  * integers, nothing more.
  */
+import { DISPLAY_LOCALE } from '@/shared/ui';
 
 /** A budget's period: the first day it covers, and the first day it no longer does (exclusive). */
 export interface BudgetPeriod {
@@ -138,9 +139,6 @@ export function isSingleCalendarMonth(period: BudgetPeriod): boolean {
     const expected = monthAfter(start);
     return expected.year === end.year && expected.month === end.month;
 }
-
-/** The locale every amount and date on screen is formatted in (see `@/shared/ui/locale.ts`). */
-const DISPLAY_LOCALE = 'en-IL';
 
 /**
  * `period`'s month label, such as "September 2026", formatted with `Intl.DateTimeFormat` from its
