@@ -284,15 +284,17 @@ class PlannedFlowControllerTest {
 
     /**
      * A fraction is not an integer. Jackson would otherwise truncate it into {@code interval} or {@code
-     * count}, and plan a recurrence the client never sent: 1.5 months would become one.
+     * count}, and plan a recurrence the client never sent: 1.5 months would become one. {@code 1.0} is
+     * refused too: it is the decimal-pointed whole number most likely to be coerced without anyone noticing.
      */
     @ParameterizedTest
     @ValueSource(
             strings = {
                 "{\"kind\": \"UNTIL\", \"cadence\": \"MONTHLY\", \"interval\": 1.5, \"until\": \"2027-01-01\"}",
+                "{\"kind\": \"UNTIL\", \"cadence\": \"MONTHLY\", \"interval\": 1.0, \"until\": \"2027-01-01\"}",
                 "{\"kind\": \"TIMES\", \"cadence\": \"MONTHLY\", \"interval\": 1, \"count\": 12.5}"
             })
-    void Given_a_fractional_interval_or_count_When_planned_Then_it_is_a_400_problem(String recurrence)
+    void Given_an_interval_or_count_with_a_decimal_point_When_planned_Then_it_is_a_400_problem(String recurrence)
             throws Exception {
         mvc.perform(post(PLANNED_FLOWS)
                         .contentType(MediaType.APPLICATION_JSON)
