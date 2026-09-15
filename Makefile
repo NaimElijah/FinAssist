@@ -10,7 +10,7 @@ MVNW      := ./mvnw -B
 UV        := uv
 
 .PHONY: help setup lock run run-monitoring stop stop-monitoring \
-        test test-ledger test-assistant test-web \
+        test test-ledger test-assistant test-web mutation-ledger \
         lint lint-ledger lint-assistant lint-web \
         build-web generate-web-api format audit audit-assistant audit-web clean
 
