@@ -408,3 +408,70 @@ describe('voidTransaction', () => {
         });
     });
 });
+
+describe('a response the contract does not describe', () => {
+    // The generated types promise five account types, five currencies and a decimal string, but a
+    // body is unvalidated JSON. An unknown type would render an account with no type at all, and
+    // a bad amount or currency would throw inside MoneyText at render, replacing the whole
+    // accounting area rather than failing the one read.
+
+    it('Given_an_account_whose_type_the_contract_does_not_name_When_listed_Then_it_rejects_with_an_ApiBodyError', async () => {
+        stubFetch(
+            jsonResponse([{ id: CHECKING_ID, name: 'Checking', type: 'CRYPTO', currency: 'ILS' }]),
+        );
+
+        await expect(listAccounts()).rejects.toBeInstanceOf(ApiBodyError);
+    });
+
+    it('Given_an_account_whose_currency_the_contract_does_not_name_When_listed_Then_it_rejects_with_an_ApiBodyError', async () => {
+        stubFetch(
+            jsonResponse([{ id: CHECKING_ID, name: 'Checking', type: 'ASSET', currency: 'XYZ' }]),
+        );
+
+        await expect(listAccounts()).rejects.toBeInstanceOf(ApiBodyError);
+    });
+
+    it('Given_a_balance_whose_currency_the_contract_does_not_name_When_read_Then_it_rejects_with_an_ApiBodyError', async () => {
+        stubFetch(
+            jsonResponse({ account: CHECKING_ID, balance: { amount: '1.00', currency: 'XYZ' } }),
+        );
+
+        await expect(getBalance(CHECKING_ID)).rejects.toBeInstanceOf(ApiBodyError);
+    });
+
+    it('Given_a_balance_whose_amount_is_not_a_decimal_string_When_read_Then_it_rejects_with_an_ApiBodyError', async () => {
+        stubFetch(
+            jsonResponse({
+                account: CHECKING_ID,
+                balance: { amount: '1,234.50', currency: 'ILS' },
+            }),
+        );
+
+        await expect(getBalance(CHECKING_ID)).rejects.toBeInstanceOf(ApiBodyError);
+    });
+
+    it('Given_a_balance_whose_amount_is_a_JSON_number_When_read_Then_it_rejects_with_an_ApiBodyError', async () => {
+        // A number would pass a pattern test once coerced to text; the wire carries a string.
+        stubFetch(
+            jsonResponse({ account: CHECKING_ID, balance: { amount: 12.5, currency: 'ILS' } }),
+        );
+
+        await expect(getBalance(CHECKING_ID)).rejects.toBeInstanceOf(ApiBodyError);
+    });
+
+    it('Given_a_transaction_entry_whose_amount_is_not_a_decimal_string_When_listed_Then_it_rejects_with_an_ApiBodyError', async () => {
+        stubFetch(
+            jsonResponse([
+                {
+                    id: 'x',
+                    occurredOn: '2026-09-01',
+                    description: 'Rent',
+                    entries: [{ account: CHECKING_ID, amount: { amount: 'abc', currency: 'ILS' } }],
+                    state: { status: 'PENDING' },
+                },
+            ]),
+        );
+
+        await expect(listAccountTransactions(CHECKING_ID)).rejects.toBeInstanceOf(ApiBodyError);
+    });
+});

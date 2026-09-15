@@ -4,7 +4,9 @@
  *
  * Each function types the response with the generated wire type and maps it, member by member,
  * onto the feature's own type. A generated type stops here: components and hooks see only
- * `types/`. Decimal amounts stay the strings the ledger sent (ADR-028).
+ * `types/`. Decimal amounts stay the strings the ledger sent (ADR-028). A type, currency or amount
+ * the contract does not allow is refused here with `ApiBodyError`, as planning and portfolio refuse
+ * theirs, rather than reaching a screen.
  */
 import { ApiBodyError, LEDGER_API, requestJson, sendJson } from '@/shared/api/client';
 import type {
@@ -21,8 +23,13 @@ import type {
 } from '@/shared/api/contracts/ledger/types.gen';
 import { log } from '@/shared/lib/logger';
 
-import type { Account, OpenAccountInput } from '../types/account';
-import type { Money } from '../types/money';
+import {
+    type Account,
+    ACCOUNT_TYPES,
+    type AccountType,
+    type OpenAccountInput,
+} from '../types/account';
+import { CURRENCIES, type Currency, type Money } from '../types/money';
 import type {
     Entry,
     RecordTransactionInput,
@@ -39,6 +46,9 @@ export const ACCOUNT_NOT_FOUND = 'ACCOUNT_NOT_FOUND';
 const ACCOUNTS_URL = `${LEDGER_API}/accounts`;
 const TRANSACTIONS_URL = `${LEDGER_API}/transactions`;
 
+/** The wire's decimal-string pattern, as `contracts/ledger-v1.openapi.json` declares it (ADR-028). */
+const DECIMAL_STRING = /^-?\d+(\.\d+)?$/;
+
 /** The URL of one account's sub-resource, with the id encoded as a single path segment. */
 function accountUrl(accountId: string, subResource: string): string {
     return `${ACCOUNTS_URL}/${encodeURIComponent(accountId)}/${subResource}`;
@@ -49,16 +59,55 @@ function transactionUrl(transactionId: string, action: string): string {
     return `${TRANSACTIONS_URL}/${encodeURIComponent(transactionId)}/${action}`;
 }
 
-function toAccount(wire: AccountResponse): Account {
-    return { id: wire.id, name: wire.name, type: wire.type, currency: wire.currency };
+/**
+ * A member whose value the contract does not allow.
+ *
+ * The generated types promise one of five account types and currencies, and a decimal string for
+ * every amount, but the body is unvalidated JSON. An unknown type would render an account with no
+ * type at all, and a malformed amount or currency would throw inside `MoneyText` at render,
+ * replacing the whole accounting area rather than failing the one read. The value itself is left
+ * out of the log line, since it arrived unvalidated.
+ *
+ * @throws ApiBodyError - always.
+ */
+function disallowedValue(url: string, member: string): never {
+    log.error('ledger response has a value the contract does not allow', { url, member });
+    throw new ApiBodyError(url, `A response arrived with a ${member} the contract does not allow`);
 }
 
-function toMoney(wire: MoneyDto): Money {
-    return { amount: wire.amount, currency: wire.currency };
+function knownAccountType(value: AccountType, url: string): AccountType {
+    return ACCOUNT_TYPES.includes(value) ? value : disallowedValue(url, 'type');
 }
 
-function toEntry(wire: EntryDto): Entry {
-    return { account: wire.account, amount: toMoney(wire.amount) };
+function knownCurrency(value: Currency, url: string): Currency {
+    return CURRENCIES.includes(value) ? value : disallowedValue(url, 'currency');
+}
+
+/**
+ * `value` as the decimal string the contract promises. It is typed `unknown` because a JSON number
+ * would pass the pattern once coerced to text, and the wire carries a string.
+ */
+function decimalAmount(value: unknown, url: string): string {
+    return typeof value === 'string' && DECIMAL_STRING.test(value)
+        ? value
+        : disallowedValue(url, 'amount');
+}
+
+function toAccount(wire: AccountResponse, url: string): Account {
+    return {
+        id: wire.id,
+        name: wire.name,
+        type: knownAccountType(wire.type, url),
+        currency: knownCurrency(wire.currency, url),
+    };
+}
+
+function toMoney(wire: MoneyDto, url: string): Money {
+    return { amount: decimalAmount(wire.amount, url), currency: knownCurrency(wire.currency, url) };
+}
+
+function toEntry(wire: EntryDto, url: string): Entry {
+    return { account: wire.account, amount: toMoney(wire.amount, url) };
 }
 
 /**
@@ -120,7 +169,7 @@ function toTransaction(wire: TransactionResponse, url: string): Transaction {
         id: wire.id,
         occurredOn: wire.occurredOn,
         description: wire.description,
-        entries: wire.entries.map(toEntry),
+        entries: wire.entries.map((entry) => toEntry(entry, url)),
         state: toTransactionState(wire.state, url),
     };
 }
@@ -130,11 +179,12 @@ function toTransaction(wire: TransactionResponse, url: string): Transaction {
  *
  * @returns the accounts, in the ledger's order.
  * @throws ApiError - on a non-2xx response.
- * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws ApiBodyError - when the response carries no JSON body, or an account has a type or
+ *   currency the contract does not allow.
  */
 export async function listAccounts(): Promise<Account[]> {
     const wire = await requestJson<AccountResponse[]>(ACCOUNTS_URL);
-    return wire.map(toAccount);
+    return wire.map((account) => toAccount(account, ACCOUNTS_URL));
 }
 
 /**
@@ -144,7 +194,8 @@ export async function listAccounts(): Promise<Account[]> {
  * @returns the account as opened.
  * @throws ApiError - on a non-2xx response: 409 `DUPLICATE_ACCOUNT_NAME` for a name already open,
  *   400 `MALFORMED_REQUEST`, possibly listing field `errors`, for a request the ledger cannot read.
- * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws ApiBodyError - when the response carries no JSON body, or the account has a type or
+ *   currency the contract does not allow.
  */
 export async function openAccount(input: OpenAccountInput): Promise<Account> {
     const body: OpenAccountRequest = {
@@ -153,7 +204,7 @@ export async function openAccount(input: OpenAccountInput): Promise<Account> {
         currency: input.currency,
     };
     const wire = await sendJson<AccountResponse>(ACCOUNTS_URL, 'POST', body);
-    return toAccount(wire);
+    return toAccount(wire, ACCOUNTS_URL);
 }
 
 /**
@@ -162,11 +213,13 @@ export async function openAccount(input: OpenAccountInput): Promise<Account> {
  * @param accountId - the account's id.
  * @returns the balance, in the account's currency, exactly as the ledger computed it.
  * @throws ApiError - on a non-2xx response: 404 `ACCOUNT_NOT_FOUND` for an unknown account.
- * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws ApiBodyError - when the response carries no JSON body, or the balance has an amount or
+ *   currency the contract does not allow.
  */
 export async function getBalance(accountId: string): Promise<Money> {
-    const wire = await requestJson<BalanceResponse>(accountUrl(accountId, 'balance'));
-    return toMoney(wire.balance);
+    const url = accountUrl(accountId, 'balance');
+    const wire = await requestJson<BalanceResponse>(url);
+    return toMoney(wire.balance, url);
 }
 
 /**
@@ -178,8 +231,9 @@ export async function getBalance(accountId: string): Promise<Money> {
  * @param accountId - the account's id.
  * @returns the transactions, each state mapped to its variant and every amount as received.
  * @throws ApiError - on a non-2xx response: 404 `ACCOUNT_NOT_FOUND` for an unknown account.
- * @throws ApiBodyError - when the response carries no JSON body, or a state lacks a member its
- *   status always carries, or has a status the contract does not name.
+ * @throws ApiBodyError - when the response carries no JSON body, a state lacks a member its status
+ *   always carries or has a status the contract does not name, or an entry has an amount or
+ *   currency the contract does not allow.
  */
 export async function listAccountTransactions(accountId: string): Promise<Transaction[]> {
     const url = accountUrl(accountId, 'transactions');
@@ -199,7 +253,8 @@ export async function listAccountTransactions(accountId: string): Promise<Transa
  * @throws ApiError - on a non-2xx response: 422 `RULE_VIOLATED` for entries that do not sum to
  *   zero, 422 `UNKNOWN_ACCOUNT` or `CURRENCY_MISMATCH`, 400 `MALFORMED_REQUEST` possibly listing
  *   field `errors`.
- * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws ApiBodyError - when the response carries no JSON body, or anything
+ *   `listAccountTransactions` refuses.
  */
 export async function recordTransaction(input: RecordTransactionInput): Promise<Transaction> {
     const body: RecordTransactionRequest = {
