@@ -82,32 +82,35 @@ function wirePoint(date: string, cash: string, invested: string, total: string) 
     };
 }
 
-/** `SAVING` compared against `DO_NOTHING`, its divergence signed at every step. */
+/** `DO_NOTHING` as a comparison lists it: the baseline, so no divergence of its own. */
+const DO_NOTHING_COMPARED = {
+    id: DO_NOTHING.id,
+    name: DO_NOTHING.name,
+    points: [wirePoint('2026-11-01', '100.00', '0.00', '100.00')],
+    endState: wirePoint('2026-11-01', '100.00', '0.00', '100.00'),
+    divergence: [],
+};
+
+/** `SAVING` as a comparison against `DO_NOTHING` lists it, its divergence signed at every step. */
+const SAVING_COMPARED = {
+    id: SAVING.id,
+    name: SAVING.name,
+    points: [wirePoint('2026-11-01', '-50.00', '300.00', '250.00')],
+    endState: wirePoint('2026-11-01', '-50.00', '300.00', '250.00'),
+    divergence: [
+        wirePoint('2026-09-01', '0.00', '0.00', '0.00'),
+        wirePoint('2026-10-01', '-75.50', '100.00', '24.50'),
+        wirePoint('2026-11-01', '-150.00', '300.00', '150.00'),
+    ],
+};
+
+/** `SAVING` compared against `DO_NOTHING`. */
 const COMPARISON = {
     baseline: DO_NOTHING.id,
     currency: 'ILS',
     horizon: { from: '2026-09-01', to: '2026-11-01' },
     step: 'MONTHLY',
-    scenarios: [
-        {
-            id: DO_NOTHING.id,
-            name: DO_NOTHING.name,
-            points: [wirePoint('2026-11-01', '100.00', '0.00', '100.00')],
-            endState: wirePoint('2026-11-01', '100.00', '0.00', '100.00'),
-            divergence: [],
-        },
-        {
-            id: SAVING.id,
-            name: SAVING.name,
-            points: [wirePoint('2026-11-01', '-50.00', '300.00', '250.00')],
-            endState: wirePoint('2026-11-01', '-50.00', '300.00', '250.00'),
-            divergence: [
-                wirePoint('2026-09-01', '0.00', '0.00', '0.00'),
-                wirePoint('2026-10-01', '-75.50', '100.00', '24.50'),
-                wirePoint('2026-11-01', '-150.00', '300.00', '150.00'),
-            ],
-        },
-    ],
+    scenarios: [DO_NOTHING_COMPARED, SAVING_COMPARED],
 };
 
 function isComparison(request: RecordedRequest): boolean {
@@ -377,6 +380,57 @@ describe('ComparisonPage', () => {
         await waitFor(() => {
             expect(document.activeElement).toBe(alert);
         });
+    });
+
+    it('Given_a_comparison_shown_When_its_fields_are_submitted_again_unchanged_Then_it_is_requested_again_and_the_new_answer_is_shown', async () => {
+        let answer: unknown = COMPARISON;
+        const requests = fakeFetch(ledger(SCENARIOS, () => jsonResponse(answer)));
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+        await compare(user, ['Do nothing (ILS)', 'Aggressive saving (ILS)']);
+        const endStates = await screen.findByRole('table', { name: 'End states' });
+        expect(within(endStates).getByText('-₪50.00')).toBeDefined();
+
+        // The same fields can meet a different answer - a transaction recorded in accounting since
+        // moves an opening balance - so submitting them again must ask the ledger again.
+        answer = {
+            ...COMPARISON,
+            scenarios: [
+                DO_NOTHING_COMPARED,
+                {
+                    ...SAVING_COMPARED,
+                    endState: wirePoint('2026-11-01', '-60.00', '300.00', '240.00'),
+                },
+            ],
+        };
+        await user.click(screen.getByRole('button', { name: 'Compare' }));
+
+        expect(await screen.findByText('-₪60.00')).toBeDefined();
+        const urls = requests.filter(isComparison).map((request) => request.url);
+        expect(urls).toHaveLength(2);
+        expect(urls[1]).toBe(urls[0]);
+    });
+
+    it('Given_a_comparison_that_failed_When_its_fields_are_submitted_again_unchanged_Then_it_is_requested_again_and_the_new_failure_takes_focus', async () => {
+        let detail = 'No scenario has the id s-save.';
+        const requests = fakeFetch(
+            ledger(SCENARIOS, () =>
+                problemResponse({ status: 422, code: 'UNKNOWN_SCENARIO', detail }),
+            ),
+        );
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+        await compare(user, ['Do nothing (ILS)', 'Aggressive saving (ILS)']);
+        await screen.findByText(detail);
+
+        detail = 'No scenario has the id s-base.';
+        await user.click(screen.getByRole('button', { name: 'Compare' }));
+
+        const alert = (await screen.findByText(detail)).closest('[role="alert"]');
+        await waitFor(() => {
+            expect(document.activeElement).toBe(alert);
+        });
+        expect(requests.filter(isComparison)).toHaveLength(2);
     });
 
     it('Given_a_comparison_that_failed_When_Try_again_is_clicked_Then_it_is_requested_again_and_shown', async () => {

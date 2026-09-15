@@ -259,6 +259,49 @@ describe('ProjectionPage', () => {
         });
     });
 
+    it('Given_a_projection_shown_When_its_fields_are_submitted_again_unchanged_Then_it_is_requested_again_and_the_new_answer_is_shown', async () => {
+        let answer: unknown = WITH_SHORTFALL;
+        const requests = fakeFetch(ledger([SAVING], () => jsonResponse(answer)));
+        renderProjection();
+        const user = userEvent.setup({ delay: null });
+        await project(user);
+        await screen.findByText(
+            paragraph('Cash first falls below zero at the step ending 1 Oct 2026.'),
+        );
+
+        // The same fields can meet a different answer - a transaction recorded in accounting since
+        // moves an opening balance - so submitting them again must ask the ledger again.
+        answer = { ...WITH_SHORTFALL, firstShortfall: undefined };
+        await user.click(screen.getByRole('button', { name: 'Project' }));
+
+        expect(
+            await screen.findByText(paragraph('Cash never falls below zero at a monthly cadence.')),
+        ).toBeDefined();
+        const urls = requests.filter(isProjection).map((request) => request.url);
+        expect(urls).toHaveLength(2);
+        expect(urls[1]).toBe(urls[0]);
+    });
+
+    it('Given_a_projection_that_failed_When_its_fields_are_submitted_again_unchanged_Then_it_is_requested_again_and_the_new_failure_takes_focus', async () => {
+        let detail = 'The horizon is not a whole number of steps.';
+        const requests = fakeFetch(
+            ledger([SAVING], () => problemResponse({ status: 422, code: 'RULE_VIOLATED', detail })),
+        );
+        renderProjection();
+        const user = userEvent.setup({ delay: null });
+        await project(user);
+        await screen.findByText(detail);
+
+        detail = 'The horizon does not start before it ends.';
+        await user.click(screen.getByRole('button', { name: 'Project' }));
+
+        const alert = (await screen.findByText(detail)).closest('[role="alert"]');
+        await waitFor(() => {
+            expect(document.activeElement).toBe(alert);
+        });
+        expect(requests.filter(isProjection)).toHaveLength(2);
+    });
+
     it('Given_a_projection_that_failed_When_Try_again_is_clicked_Then_it_is_requested_again_and_shown', async () => {
         let failing = true;
         const requests = fakeFetch(

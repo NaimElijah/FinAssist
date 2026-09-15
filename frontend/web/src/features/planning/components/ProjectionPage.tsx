@@ -11,7 +11,7 @@ import {
 } from '@/shared/ui';
 
 import { useAccountOptions } from '../hooks/accountOptions';
-import { useProjection, useScenarios } from '../hooks/planQueries';
+import { useInvalidateProjection, useProjection, useScenarios } from '../hooks/planQueries';
 import { offeredAccounts } from '../types/accountOption';
 import type { Projection, ProjectionParams } from '../types/projection';
 import {
@@ -197,13 +197,21 @@ function ScenarioChoice({ onProject }: { readonly onProject: (params: Projection
  * a table of every step.
  *
  * Submitting sets the parameters a projection query is keyed by; the result reads them until the
- * form is submitted again, so editing a field never refetches on its own. A projection is a
- * side-effect-free read, so there is nothing to guard against a double submit: the same
- * parameters are the same cached query.
+ * form is submitted again, so editing a field never refetches on its own. Every submit reaches the
+ * ledger, unchanged fields included: planning does not follow accounting's changes, so submitting
+ * again is how the owner sees what a transaction recorded since has done. A projection is a
+ * side-effect-free read, so there is nothing to guard against a double submit.
  */
 export function ProjectionPage() {
     const headingId = useId();
     const [submitted, setSubmitted] = useState<ProjectionParams | undefined>(undefined);
+    const invalidateProjection = useInvalidateProjection();
+
+    function project(params: ProjectionParams) {
+        // Unchanged fields keep the same key, which the cache alone would answer.
+        invalidateProjection(params);
+        setSubmitted(params);
+    }
 
     return (
         <>
@@ -211,7 +219,7 @@ export function ProjectionPage() {
                 <h2 id={headingId} className={styles.heading}>
                     Project a scenario
                 </h2>
-                <ScenarioChoice onProject={setSubmitted} />
+                <ScenarioChoice onProject={project} />
             </section>
             {submitted === undefined ? null : <ProjectionResult params={submitted} />}
         </>

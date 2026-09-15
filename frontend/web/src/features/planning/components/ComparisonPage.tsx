@@ -12,7 +12,7 @@ import {
 } from '@/shared/ui';
 
 import { useAccountOptions } from '../hooks/accountOptions';
-import { useComparison, useScenarios } from '../hooks/planQueries';
+import { useComparison, useInvalidateComparison, useScenarios } from '../hooks/planQueries';
 import { offeredAccounts } from '../types/accountOption';
 import type { ComparedScenario, Comparison, ComparisonParams } from '../types/comparison';
 import {
@@ -314,12 +314,19 @@ function ScenarioChoice({ onCompare }: { readonly onCompare: (params: Comparison
  *
  * The result is tables alone. `ProjectionChart` draws one scenario's two lines; drawing several
  * scenarios would need a chart generalised over series, and the tables already carry every
- * figure. Like a projection, a comparison is a side-effect-free read, so there is no double submit
- * to guard against.
+ * figure. Like a projection, every submit reaches the ledger, unchanged fields included, and a
+ * comparison is a side-effect-free read, so there is no double submit to guard against.
  */
 export function ComparisonPage() {
     const headingId = useId();
     const [submitted, setSubmitted] = useState<ComparisonParams | undefined>(undefined);
+    const invalidateComparison = useInvalidateComparison();
+
+    function compare(params: ComparisonParams) {
+        // Unchanged fields keep the same key, which the cache alone would answer.
+        invalidateComparison(params);
+        setSubmitted(params);
+    }
 
     return (
         <>
@@ -327,7 +334,7 @@ export function ComparisonPage() {
                 <h2 id={headingId} className={styles.heading}>
                     Compare scenarios
                 </h2>
-                <ScenarioChoice onCompare={setSubmitted} />
+                <ScenarioChoice onCompare={compare} />
             </section>
             {submitted === undefined ? null : <ComparisonResult params={submitted} />}
         </>

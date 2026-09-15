@@ -103,7 +103,8 @@ export function useScenarios() {
  * A realised or cancelled flow stops counting towards a projection, so those two mutations
  * invalidate every cached one. Accounting's mutations, which move an opening balance, deliberately
  * do not: a feature imports no other feature (ADR-010). The query client's `staleTime` is the
- * default, 0, so a projection is refetched whenever a screen mounts it afresh.
+ * default, 0, so a projection is refetched whenever a screen mounts it afresh, and a form marks it
+ * stale on every submit (`useInvalidateProjection`), so submitting unchanged fields reads it again.
  *
  * @param params - the scenario, horizon, step and opening accounts; each distinct set is its own
  *   cache entry.
@@ -123,7 +124,8 @@ export function useProjection(params: ProjectionParams) {
  *
  * Invalidated exactly when a projection is, for the same reasons (see `useProjection`): a realised
  * or cancelled flow stops counting, and accounting's mutations are deliberately not followed
- * across features. A screen mounting it afresh refetches it.
+ * across features. A screen mounting it afresh refetches it, and so does every submit of its form
+ * (`useInvalidateComparison`).
  *
  * @param params - the scenarios, the baseline, the horizon, the step and the opening accounts;
  *   each distinct set is its own cache entry.
@@ -136,6 +138,41 @@ export function useComparison(params: ComparisonParams) {
         queryKey: planKeys.comparison(params),
         queryFn: () => compareScenarios(params),
     });
+}
+
+/**
+ * A way to mark one projection stale by its exact key, for a form to call as it submits.
+ *
+ * Submitting the parameters already on screen yields the same key, which TanStack Query would
+ * answer from its cache without a request, and refetching on window focus is off
+ * (`src/app/queryClient.ts`). Accounting's mutations are deliberately not followed here (ADR-010),
+ * so submitting again is how the owner sees what a transaction recorded since has done: a stale
+ * projection on screen refetches at once, and one cached from an earlier submit as soon as it is
+ * shown again. `exact` leaves every other cached projection alone.
+ *
+ * @returns a function marking the projection `params` names stale.
+ */
+export function useInvalidateProjection(): (params: ProjectionParams) => void {
+    const queryClient = useQueryClient();
+    return (params) => {
+        // The promise settles once the refetch does and never rejects: a failure is shown through
+        // the query's own error, so there is nothing here to await.
+        void queryClient.invalidateQueries({ queryKey: planKeys.projection(params), exact: true });
+    };
+}
+
+/**
+ * A way to mark one comparison stale by its exact key, for a form to call as it submits - for the
+ * reasons `useInvalidateProjection` gives.
+ *
+ * @returns a function marking the comparison `params` names stale.
+ */
+export function useInvalidateComparison(): (params: ComparisonParams) => void {
+    const queryClient = useQueryClient();
+    return (params) => {
+        // See `useInvalidateProjection`: nothing to await, and a failure shows through the query.
+        void queryClient.invalidateQueries({ queryKey: planKeys.comparison(params), exact: true });
+    };
 }
 
 /**
