@@ -8,9 +8,11 @@
  */
 import { LEDGER_API, requestJson, sendJson } from '@/shared/api/client';
 import type {
+    AddCategorisationRuleRequest,
     BudgetPeriodDto,
     BudgetResponse,
     BudgetReviewResponse,
+    CategorisationRuleResponse,
     CategoryLimitDto,
     CategorySpendResponse,
     DefineBudgetRequest,
@@ -22,11 +24,13 @@ import type { Budget, CategoryLimit, DefineBudgetInput } from '../types/budget';
 import type { Money } from '../types/money';
 import type { BudgetPeriod } from '../types/period';
 import type { BudgetReview, CategorySpend, UnbudgetedSpend } from '../types/review';
+import type { CategorisationRule } from '../types/rule';
 
 /** The ledger's code for a budget id in the path that names no budget (ADR-028: 404). */
 export const BUDGET_NOT_FOUND = 'BUDGET_NOT_FOUND';
 
 const BUDGETS_URL = `${LEDGER_API}/budgets`;
+const CATEGORISATION_RULES_URL = `${LEDGER_API}/categorisation-rules`;
 
 /** The URL of one budget's sub-resource, with the id encoded as a single path segment. */
 function budgetUrl(budgetId: string, subResource: string): string {
@@ -67,6 +71,10 @@ function toCategorySpend(wire: CategorySpendResponse): CategorySpend {
 
 function toUnbudgetedSpend(wire: UnbudgetedSpendResponse): UnbudgetedSpend {
     return { category: wire.category, spent: toMoney(wire.spent) };
+}
+
+function toCategorisationRule(wire: CategorisationRuleResponse): CategorisationRule {
+    return { fragment: wire.fragment, category: wire.category };
 }
 
 function toBudgetReview(wire: BudgetReviewResponse): BudgetReview {
@@ -129,4 +137,38 @@ export async function defineBudget(input: DefineBudgetInput): Promise<Budget> {
 export async function reviewBudget(budgetId: string): Promise<BudgetReview> {
     const wire = await requestJson<BudgetReviewResponse>(budgetUrl(budgetId, 'review'));
     return toBudgetReview(wire);
+}
+
+/**
+ * Every categorisation rule, in the order it was added - the order a review folds over
+ * (requirements § Tracking).
+ *
+ * @returns the rules, in the ledger's order.
+ * @throws ApiError - on a non-2xx response.
+ * @throws ApiBodyError - when the response carries no JSON body.
+ */
+export async function listCategorisationRules(): Promise<CategorisationRule[]> {
+    const wire = await requestJson<CategorisationRuleResponse[]>(CATEGORISATION_RULES_URL);
+    return wire.map(toCategorisationRule);
+}
+
+/**
+ * Add a categorisation rule, after every rule already added. A rule has no id: a review matches
+ * by fragment rather than by looking one up.
+ *
+ * @param input - the fragment to match and the category it assigns.
+ * @returns the rule as added, both members normalised to lower case.
+ * @throws ApiError - on a non-2xx response: 400 `MALFORMED_REQUEST` for a blank fragment or
+ *   category, listing field `errors`.
+ * @throws ApiBodyError - when the response carries no JSON body.
+ */
+export async function addCategorisationRule(
+    input: CategorisationRule,
+): Promise<CategorisationRule> {
+    const body: AddCategorisationRuleRequest = {
+        fragment: input.fragment,
+        category: input.category,
+    };
+    const wire = await sendJson<CategorisationRuleResponse>(CATEGORISATION_RULES_URL, 'POST', body);
+    return toCategorisationRule(wire);
 }

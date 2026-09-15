@@ -7,7 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/shared/api/client';
 import { setLogSink } from '@/shared/lib/logger';
 
-import { defineBudget, listBudgets, reviewBudget } from './budgetingApi';
+import {
+    addCategorisationRule,
+    defineBudget,
+    listBudgets,
+    listCategorisationRules,
+    reviewBudget,
+} from './budgetingApi';
 
 /**
  * Install a stubbed fetch answering every call with a fresh response from `response`, since a
@@ -255,5 +261,66 @@ describe('reviewBudget', () => {
             status: 404,
             problem: { code: 'BUDGET_NOT_FOUND' },
         });
+    });
+});
+
+describe('listCategorisationRules', () => {
+    it('Given_a_wire_list_When_listed_Then_it_requests_the_ledger_rules_as_json_and_maps_each_one_in_order', async () => {
+        const stub = stubFetch(
+            jsonResponse([
+                { fragment: 'coffee', category: 'dining' },
+                { fragment: 'rent', category: 'housing' },
+            ]),
+        );
+
+        const rules = await listCategorisationRules();
+
+        expect(rules).toEqual([
+            { fragment: 'coffee', category: 'dining' },
+            { fragment: 'rent', category: 'housing' },
+        ]);
+        const { url, init } = onlyCall(stub);
+        expect(url).toBe('/ledger/api/v1/categorisation-rules');
+        expect(new Headers(init.headers).get('Accept')).toBe('application/json');
+    });
+});
+
+describe('addCategorisationRule', () => {
+    it('Given_an_input_When_added_Then_it_posts_the_exact_json_body_and_maps_the_created_rule', async () => {
+        const stub = stubFetch(jsonResponse({ fragment: 'coffee', category: 'dining' }, 201));
+
+        const rule = await addCategorisationRule({ fragment: 'coffee', category: 'dining' });
+
+        expect(rule).toEqual({ fragment: 'coffee', category: 'dining' });
+        const { url, init } = onlyCall(stub);
+        expect(url).toBe('/ledger/api/v1/categorisation-rules');
+        expect(init.method).toBe('POST');
+        expect(new Headers(init.headers).get('Content-Type')).toBe('application/json');
+        expect(JSON.parse(init.body as string)).toEqual({
+            fragment: 'coffee',
+            category: 'dining',
+        });
+    });
+
+    it('Given_a_blank_fragment_When_added_Then_it_rejects_with_an_ApiError_coded_MALFORMED_REQUEST', async () => {
+        stubFetch(
+            problemResponse(
+                {
+                    status: 400,
+                    code: 'MALFORMED_REQUEST',
+                    detail: 'Invalid request content.',
+                    errors: [{ field: 'fragment', message: 'must not be blank' }],
+                },
+                400,
+            ),
+        );
+
+        const failure: unknown = await addCategorisationRule({
+            fragment: '',
+            category: 'dining',
+        }).catch((caught: unknown) => caught);
+
+        expect(failure).toBeInstanceOf(ApiError);
+        expect(failure).toMatchObject({ status: 400, problem: { code: 'MALFORMED_REQUEST' } });
     });
 });
