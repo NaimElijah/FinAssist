@@ -179,7 +179,7 @@ the records; the assistant reads them through the ledger's API, never its databa
 
 ```mermaid
 flowchart LR
-    Owner[Owner] -->|HTTPS| Web[frontend/web - React SPA]
+    Owner[Owner] -->|"HTTP, 127.0.0.1:5173"| Web[frontend/web - React SPA]
     Web -->|HTTP| Assistant[backend/assistant - Python, FastAPI]
     Assistant -->|HTTP, Published Language| Ledger[backend/ledger - Java, Spring Boot]
     Web -->|HTTP| Ledger

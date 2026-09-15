@@ -52,7 +52,7 @@ service is [ADR-007](../ADRs/ADR-007-asymmetric-hexagonal-architecture.md) as ex
 
 ```mermaid
 flowchart LR
-    Owner[Owner] -->|HTTPS| Web[frontend/web - React SPA]
+    Owner[Owner] -->|"HTTP, 127.0.0.1:5173"| Web[frontend/web - React SPA]
     Web -->|HTTP| Assistant[backend/assistant - Python, FastAPI]
     Assistant -->|HTTP, Published Language| Ledger[backend/ledger - Java, Spring Boot]
     Web -->|HTTP| Ledger
@@ -171,7 +171,9 @@ that the `monitoring` Compose profile mounts.
 
 ## Communication
 
-- **Owner to web** — HTTPS.
+- **Owner to web** — HTTP, from the owner's browser to the Vite dev server on
+  `http://127.0.0.1:5173`. Nothing terminates TLS: the server binds loopback only (ADR-027), so
+  the connection never leaves the machine.
 - **Web to ledger** — HTTP, for the accounting, budgeting and planning screens. **Implemented on
   both sides for all three.** The ledger serves `/api/v1/accounts`, `/api/v1/transactions`,
   `/api/v1/budgets`, `/api/v1/categorisation-rules`, `/api/v1/planned-flows`, `/api/v1/scenarios`
