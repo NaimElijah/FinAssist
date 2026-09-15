@@ -162,18 +162,34 @@ function transactionColumns(accountId: string): readonly Column<Transaction>[] {
     ];
 }
 
+/**
+ * A failed read's error state with a retry, or `null` when the read has not failed.
+ *
+ * Each section below shows it beside data it still holds: TanStack Query keeps a query's data
+ * when a later refetch fails, so the failure never replaces what the owner was reading.
+ */
+function failureOf(query: UseQueryResult) {
+    return query.isError ? (
+        <ErrorState error={query.error} action={<RetryButton query={query} />} />
+    ) : null;
+}
+
 function Balance({ balance }: { readonly balance: UseQueryResult<Money> }) {
     if (balance.isPending) {
         return <p className={styles.placeholder}>Loading balance…</p>;
     }
-    if (balance.isError) {
-        return <ErrorState error={balance.error} action={<RetryButton query={balance} />} />;
+    const failure = failureOf(balance);
+    if (balance.data === undefined) {
+        return failure;
     }
     return (
-        <p className={styles.balance}>
-            <span className={styles.balanceLabel}>Balance</span>
-            <MoneyText amount={balance.data.amount} currency={balance.data.currency} />
-        </p>
+        <>
+            {failure}
+            <p className={styles.balance}>
+                <span className={styles.balanceLabel}>Balance</span>
+                <MoneyText amount={balance.data.amount} currency={balance.data.currency} />
+            </p>
+        </>
     );
 }
 
@@ -187,21 +203,24 @@ function Transactions({
     if (transactions.isPending) {
         return <p className={styles.placeholder}>Loading transactions…</p>;
     }
-    if (transactions.isError) {
-        return (
-            <ErrorState error={transactions.error} action={<RetryButton query={transactions} />} />
-        );
-    }
-    if (transactions.data.length === 0) {
-        return <EmptyState message={NO_TRANSACTIONS_MESSAGE} />;
+    const failure = failureOf(transactions);
+    if (transactions.data === undefined) {
+        return failure;
     }
     return (
-        <DataTable
-            caption="Transactions"
-            columns={transactionColumns(accountId)}
-            rows={transactions.data}
-            rowKey={(transaction) => transaction.id}
-        />
+        <div className={styles.stack}>
+            {failure}
+            {transactions.data.length === 0 ? (
+                <EmptyState message={NO_TRANSACTIONS_MESSAGE} />
+            ) : (
+                <DataTable
+                    caption="Transactions"
+                    columns={transactionColumns(accountId)}
+                    rows={transactions.data}
+                    rowKey={(transaction) => transaction.id}
+                />
+            )}
+        </div>
     );
 }
 
@@ -220,7 +239,8 @@ function AccountDetail({ accountId }: { readonly accountId: string }) {
     if (isAccountNotFound(balance.error) || isAccountNotFound(transactions.error)) {
         return <AccountNotFound />;
     }
-    if (accounts.isPending || accounts.isError) {
+    const accountsFailure = accounts.isPending ? null : failureOf(accounts);
+    if (accounts.data === undefined) {
         return (
             <>
                 <p className={styles.back}>
@@ -230,7 +250,7 @@ function AccountDetail({ accountId }: { readonly accountId: string }) {
                 {accounts.isPending ? (
                     <p className={styles.placeholder}>Loading account…</p>
                 ) : (
-                    <ErrorState error={accounts.error} action={<RetryButton query={accounts} />} />
+                    accountsFailure
                 )}
             </>
         );
@@ -245,6 +265,7 @@ function AccountDetail({ accountId }: { readonly accountId: string }) {
             <p className={styles.back}>
                 <BackToAccounts />
             </p>
+            {accountsFailure}
             <header className={styles.header}>
                 <h1 className={styles.name}>{account.name}</h1>
                 <p className={styles.meta}>

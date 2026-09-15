@@ -445,4 +445,53 @@ describe('AccountsPage opening an account', () => {
         ).toEqual(['name: must not be blank', 'openAccountRequest: is not readable']);
         expect(screen.getByLabelText('Name').getAttribute('aria-invalid')).toBeNull();
     });
+
+    it('Given_a_list_on_screen_When_its_refetch_after_an_open_fails_Then_the_rows_stay_and_a_retry_is_offered', async () => {
+        // A failed background refetch keeps the data already held, so the screen keeps showing it
+        // instead of replacing what the owner was reading with an error.
+        const VISA = {
+            id: '9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a',
+            name: 'Visa',
+            type: 'LIABILITY',
+            currency: 'USD',
+        };
+        let listReads = 0;
+        fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL && request.method === 'POST') {
+                return jsonResponse(VISA, 201);
+            }
+            if (request.url === ACCOUNTS_URL) {
+                listReads += 1;
+                if (listReads === 1) return jsonResponse([CHECKING]);
+                if (listReads === 2) {
+                    return problemResponse({
+                        status: 503,
+                        code: 'UNAVAILABLE',
+                        detail: 'The ledger is restarting.',
+                    });
+                }
+                return jsonResponse([CHECKING, VISA]);
+            }
+            const id = balanceIdOf(request);
+            if (id !== undefined) {
+                return jsonResponse({ account: id, balance: { amount: '0.00', currency: 'USD' } });
+            }
+            return unexpectedRequest(request);
+        });
+        renderAccounts();
+        await within(await findRow('Checking')).findByText('US$0.00');
+
+        await openVisa(userEvent.setup());
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('The ledger is restarting.')).toBeDefined();
+        expect(screen.getByRole('link', { name: 'Checking' })).toBeDefined();
+
+        await userEvent.setup().click(within(alert).getByRole('button', { name: 'Try again' }));
+
+        expect(await screen.findByRole('link', { name: 'Visa' })).toBeDefined();
+        await waitFor(() => {
+            expect(screen.queryByRole('alert')).toBeNull();
+        });
+    });
 });

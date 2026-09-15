@@ -71,42 +71,52 @@ function accountColumns(focusedAccountId: string | undefined): readonly Column<A
     ];
 }
 
-/** The accounts list in whichever state its request is in. */
+/**
+ * The accounts list in whichever state its request is in.
+ *
+ * Accounts already on screen stay there when a later refetch fails: TanStack Query keeps the data
+ * it holds, so the failure and its retry are shown above the rows rather than in their place.
+ */
 function AccountsList({ focusedAccountId }: { readonly focusedAccountId: string | undefined }) {
     const accounts = useAccounts();
 
     if (accounts.isPending) {
         return <p className={styles.loading}>Loading accounts…</p>;
     }
-    if (accounts.isError) {
-        return (
-            <ErrorState
-                error={accounts.error}
-                action={
-                    <Button
-                        variant="secondary"
-                        pending={accounts.isFetching}
-                        onClick={() => {
-                            void accounts.refetch();
-                        }}
-                    >
-                        Try again
-                    </Button>
-                }
-            />
-        );
-    }
-    if (accounts.data.length === 0) {
-        return <EmptyState message={EMPTY_MESSAGE} />;
+    const failure = accounts.isError ? (
+        <ErrorState
+            error={accounts.error}
+            action={
+                <Button
+                    variant="secondary"
+                    pending={accounts.isFetching}
+                    onClick={() => {
+                        void accounts.refetch();
+                    }}
+                >
+                    Try again
+                </Button>
+            }
+        />
+    ) : null;
+    if (accounts.data === undefined) {
+        return failure;
     }
     return (
-        <DataTable
-            caption="Accounts"
-            captionHidden
-            columns={accountColumns(focusedAccountId)}
-            rows={accounts.data}
-            rowKey={(account) => account.id}
-        />
+        <div className={styles.stack}>
+            {failure}
+            {accounts.data.length === 0 ? (
+                <EmptyState message={EMPTY_MESSAGE} />
+            ) : (
+                <DataTable
+                    caption="Accounts"
+                    captionHidden
+                    columns={accountColumns(focusedAccountId)}
+                    rows={accounts.data}
+                    rowKey={(account) => account.id}
+                />
+            )}
+        </div>
     );
 }
 
