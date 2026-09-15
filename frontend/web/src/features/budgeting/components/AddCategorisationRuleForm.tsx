@@ -1,6 +1,7 @@
 import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { Button, ErrorState, TextField } from '@/shared/ui';
 
 import { useAddCategorisationRule } from '../hooks/budgetQueries';
@@ -99,6 +100,7 @@ export interface AddCategorisationRuleFormProps {
  * (ADR-028: no double submit). On success the form resets and `onAdded` is called. A failure is
  * shown where it can be acted on: a 400's field errors on their fields, and anything else in an
  * `ErrorState` above the form, exactly as `OpenAccountForm` does. Focus follows the failure there.
+ * Editing either field clears a failure that has settled, since it answered the rule as it was sent.
  *
  * `focusRequested` moves focus to the Fragment field on demand - the fallback `CategorisationRulesPage`
  * reaches for when a rule was added but its list's own refetch failed, so no row can be identified
@@ -181,6 +183,7 @@ export function AddCategorisationRuleForm({
                         value={fragment}
                         error={errors.fields.fragment}
                         onChange={(event) => {
+                            clearSettledOutcome(addRule);
                             setFragment(event.target.value);
                         }}
                     />
@@ -191,6 +194,7 @@ export function AddCategorisationRuleForm({
                         value={category}
                         error={errors.fields.category}
                         onChange={(event) => {
+                            clearSettledOutcome(addRule);
                             setCategory(event.target.value);
                         }}
                     />

@@ -1,6 +1,7 @@
 import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import {
     Button,
     ErrorState,
@@ -208,7 +209,8 @@ export interface DefineBudgetFormProps {
  * shown where it can be acted on: a 400's top-level field errors on their fields, and anything
  * else - including a 422 `RULE_VIOLATED` for a rule the domain refuses - in an `ErrorState` above
  * the form, exactly as `OpenAccountForm` and `RecordTransactionForm` do. Focus follows the
- * failure there.
+ * failure there. Editing any field, or adding or removing a limit, clears a failure that has
+ * settled, since it answered the budget as it was sent.
  *
  * @param props - see `DefineBudgetFormProps`.
  */
@@ -239,16 +241,19 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
     }, [failure]);
 
     function updateCategory(key: number, category: string) {
+        clearSettledOutcome(defineBudget);
         setRows((previous) =>
             previous.map((row) => (row.key === key ? { ...row, category } : row)),
         );
     }
 
     function updateAmount(key: number, amount: string) {
+        clearSettledOutcome(defineBudget);
         setRows((previous) => previous.map((row) => (row.key === key ? { ...row, amount } : row)));
     }
 
     function addRow() {
+        clearSettledOutcome(defineBudget);
         // The key is read and advanced here, in the event handler, rather than inside the
         // updater below: React may invoke an updater more than once for one state transition
         // (Strict Mode's double-invoke among them), and an updater that mutates a ref each time
@@ -259,6 +264,7 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
     }
 
     function removeRow(key: number) {
+        clearSettledOutcome(defineBudget);
         setRows((previous) =>
             previous.length <= 1 ? previous : previous.filter((row) => row.key !== key),
         );
@@ -317,6 +323,7 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                         pattern={MONTH_INPUT_PATTERN}
                         value={month}
                         onChange={(event) => {
+                            clearSettledOutcome(defineBudget);
                             setMonth(event.target.value);
                         }}
                     />
@@ -326,6 +333,7 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                         value={currency}
                         error={errors.fields.currency}
                         onChange={(event) => {
+                            clearSettledOutcome(defineBudget);
                             setCurrency(oneOf(CURRENCIES, event.target.value));
                         }}
                     />

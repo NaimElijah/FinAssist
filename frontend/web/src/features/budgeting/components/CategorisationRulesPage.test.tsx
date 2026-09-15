@@ -278,6 +278,34 @@ describe('CategorisationRulesPage adding a rule', () => {
         });
     });
 
+    it('Given_a_field_error_on_Fragment_When_the_fragment_is_edited_Then_the_error_clears', async () => {
+        // The message answered the fragment that was sent; once the owner changes it, it no longer
+        // describes the field it sits under.
+        fakeFetch((request) => {
+            if (request.url === RULES_URL && request.method === 'POST') {
+                return problemResponse({
+                    status: 400,
+                    code: 'MALFORMED_REQUEST',
+                    detail: 'Invalid request content.',
+                    errors: [{ field: 'fragment', message: 'must not be blank' }],
+                });
+            }
+            if (request.url === RULES_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderRules();
+        const user = userEvent.setup({ delay: null });
+        await user.type(await screen.findByLabelText('Fragment'), ' ');
+        await user.type(screen.getByLabelText('Category'), 'dining');
+        await user.click(screen.getByRole('button', { name: 'Add rule' }));
+        await screen.findByText('must not be blank');
+
+        await user.type(screen.getByLabelText('Fragment'), 'coffee');
+
+        expect(screen.queryByText('must not be blank')).toBeNull();
+        expect(screen.getByLabelText('Fragment').getAttribute('aria-invalid')).toBeNull();
+    });
+
     it('Given_a_400_naming_the_category_field_When_added_Then_its_message_is_the_Category_fields_error', async () => {
         fakeFetch((request) => {
             if (request.url === RULES_URL && request.method === 'POST') {
