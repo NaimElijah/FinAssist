@@ -19,7 +19,10 @@ export interface BudgetPeriod {
 }
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const MONTH_INPUT = /^(\d{4})-(\d{2})$/;
+/** `YYYY-MM`, month `01`-`12` only - a native month input can carry `00` or `13`+ once its
+ * `pattern` is bypassed (a scripted value, or a browser with no month-picker UI), so this is
+ * checked here too rather than trusted from the control alone. */
+const MONTH_INPUT = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
 /** A calendar date's parts, never a moment in time. */
 interface DateParts {

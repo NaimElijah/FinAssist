@@ -25,6 +25,14 @@ describe('monthInputToPeriod', () => {
     it('Given_a_value_that_is_not_YYYY_MM_When_mapped_Then_it_throws', () => {
         expect(() => monthInputToPeriod('2026/09')).toThrow(/YYYY-MM/);
     });
+
+    it('Given_month_00_When_mapped_Then_it_throws', () => {
+        expect(() => monthInputToPeriod('2026-00')).toThrow(/YYYY-MM/);
+    });
+
+    it('Given_month_13_When_mapped_Then_it_throws', () => {
+        expect(() => monthInputToPeriod('2026-13')).toThrow(/YYYY-MM/);
+    });
 });
 
 describe('isSingleCalendarMonth', () => {

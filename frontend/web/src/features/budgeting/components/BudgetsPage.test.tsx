@@ -323,6 +323,34 @@ describe('BudgetsPage defining a budget', () => {
         expect(screen.getByLabelText('Category 1')).toHaveProperty('value', 'rent');
     });
 
+    it('Given_an_invalid_month_bypassing_native_validation_When_submitted_Then_the_form_is_not_locked_and_nothing_is_posted', async () => {
+        // A real month picker, and the field's own `pattern`, keep this unreachable through the
+        // UI; this proves the fallback is still safe when either is bypassed (a scripted value,
+        // or a text-fallback browser with no month-picker UI and no pattern support).
+        const requests = fakeFetch((request) =>
+            request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
+        renderBudgets();
+        const user = userEvent.setup();
+        const month = await screen.findByLabelText('Month');
+        fireEvent.change(month, { target: { value: '2026-13' } });
+        await user.selectOptions(screen.getByLabelText('Currency'), 'ILS');
+        await user.type(screen.getByLabelText('Category 1'), 'groceries');
+        await user.type(screen.getByLabelText('Limit amount 1'), '1000.00');
+        const form = month.closest('form');
+        if (form === null) {
+            throw new Error('the Month field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+
+        expect(requests.filter((request) => request.method === 'POST')).toHaveLength(0);
+        expect(screen.getByRole('button', { name: 'Define budget' })).toHaveProperty(
+            'disabled',
+            false,
+        );
+    });
+
     it('Given_a_define_request_in_flight_When_submitted_again_Then_submit_is_disabled_and_nothing_is_sent_twice', async () => {
         const requests = fakeFetch((request) => {
             if (request.url === BUDGETS_URL && request.method === 'POST') {

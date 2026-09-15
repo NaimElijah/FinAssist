@@ -24,6 +24,13 @@ const CURRENCY_OPTIONS: readonly SelectOption[] = CURRENCIES.map((currency) => (
 /** A new budget starts in shekels, the currency the owner keeps books in (see `OpenAccountForm`). */
 const DEFAULT_CURRENCY: Currency = 'ILS';
 
+/**
+ * `YYYY-MM`, month `01`-`12` - mirrors `period.ts`'s own `MONTH_INPUT`, so a browser with no
+ * month-picker UI (which renders the control as plain text) still refuses `00` or `13`+ through
+ * native constraint validation, the same way a real month picker never offers them.
+ */
+const MONTH_INPUT_PATTERN = '\\d{4}-(0[1-9]|1[0-2])';
+
 /** ADR-028 lists field `errors` only on a 400. */
 const MALFORMED_REQUEST_STATUS = 400;
 
@@ -263,9 +270,20 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
         if (submitting.current) {
             return;
         }
+        let period;
+        try {
+            period = monthInputToPeriod(month);
+        } catch {
+            // The month field's native picker, and its `pattern` fallback, keep this
+            // unreachable through the UI; a scripted or malformed value is refused rather than
+            // setting `submitting` and locking the form on a period the ledger could never have
+            // accepted anyway. Computed before the ref is set, so a bad parse never leaves
+            // submit stuck disabled.
+            return;
+        }
         submitting.current = true;
         defineBudget.mutate(
-            { period: monthInputToPeriod(month), currency, limits: buildLimits(rows, currency) },
+            { period, currency, limits: buildLimits(rows, currency) },
             {
                 onSuccess: (budget) => {
                     setMonth('');
@@ -294,6 +312,7 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                     <MonthField
                         label="Month"
                         required
+                        pattern={MONTH_INPUT_PATTERN}
                         value={month}
                         onChange={(event) => {
                             setMonth(event.target.value);
