@@ -199,6 +199,24 @@ describe('AccountDetailPage', () => {
         expect(screen.queryByRole('heading', { level: 1, name: 'Checking' })).toBeNull();
     });
 
+    it('Given_an_account_whose_transactions_endpoint_answers_404_When_rendered_Then_not_found_is_shown', async () => {
+        // The balance never answers, so the transactions' 404 alone decides.
+        fakeFetch(
+            ledger(TRANSACTIONS, (request) =>
+                request.url === TRANSACTIONS_URL
+                    ? problemResponse({ status: 404, code: 'ACCOUNT_NOT_FOUND' })
+                    : pendingResponse(),
+            ),
+        );
+
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+
+        expect(
+            await screen.findByRole('heading', { level: 1, name: 'Account not found' }),
+        ).toBeDefined();
+        expect(screen.queryByRole('heading', { level: 1, name: 'Checking' })).toBeNull();
+    });
+
     it('Given_no_transactions_touch_the_account_When_rendered_Then_the_empty_state_is_shown', async () => {
         fakeFetch(ledger([]));
 
