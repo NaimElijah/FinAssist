@@ -142,6 +142,8 @@ export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
     const headingId = useId();
     const formRef = useRef<HTMLFormElement>(null);
     const errorStateRef = useRef<HTMLDivElement>(null);
+    /** Set from the moment a submit starts a request until that request settles. */
+    const submitting = useRef(false);
     const [name, setName] = useState('');
     const [type, setType] = useState<AccountType>(DEFAULT_TYPE);
     const [currency, setCurrency] = useState<Currency>(DEFAULT_CURRENCY);
@@ -163,10 +165,12 @@ export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
     function submit(event: SubmitEvent<HTMLFormElement>) {
         event.preventDefault();
         // The disabled button stops a click, not Enter in a field or a scripted submit, and a
-        // second create is a second account.
-        if (openAccount.isPending) {
+        // second create is a second account. The flag is a ref rather than `isPending`, because
+        // two submit events can arrive before the pending state has rendered.
+        if (submitting.current) {
             return;
         }
+        submitting.current = true;
         openAccount.mutate(
             { name, type, currency },
             {
@@ -175,6 +179,9 @@ export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
                     setType(DEFAULT_TYPE);
                     setCurrency(DEFAULT_CURRENCY);
                     onOpened(account);
+                },
+                onSettled: () => {
+                    submitting.current = false;
                 },
             },
         );

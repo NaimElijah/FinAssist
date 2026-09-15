@@ -457,6 +457,34 @@ describe('AccountsPage opening an account', () => {
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
 
+    it('Given_a_filled_form_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
+        // Two submit events can arrive in one tick, before the pending state has rendered, so a
+        // guard that reads render-time state lets both through.
+        const requests = fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL && request.method === 'POST') {
+                return pendingResponse();
+            }
+            if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderAccounts();
+        await userEvent.setup().type(await screen.findByLabelText('Name'), 'Visa');
+        const form = screen.getByLabelText('Name').closest('form');
+        if (form === null) {
+            throw new Error('the Name field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+        fireEvent.submit(form);
+
+        // By the time pending has rendered, every request either submit started has reached fetch.
+        const submit = screen.getByRole('button', { name: 'Open account' });
+        await waitFor(() => {
+            expect(submit).toHaveProperty('disabled', true);
+        });
+        expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
+    });
+
     it('Given_a_400_whose_field_errors_name_a_field_the_form_lacks_When_opened_Then_the_whole_problem_is_an_error_state', async () => {
         // Placing only the errors the form recognises would silently drop the rest.
         fakeFetch((request) => {
