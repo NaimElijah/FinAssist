@@ -1,4 +1,4 @@
-import { type SubmitEvent, useId, useState } from 'react';
+import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
 import { Button, ErrorState, SelectField, type SelectOption, TextField } from '@/shared/ui';
@@ -33,6 +33,12 @@ const DUPLICATE_NAME_MESSAGE = 'An account with this name is already open.';
 
 /** ADR-028 lists field `errors` only on a 400. */
 const MALFORMED_REQUEST_STATUS = 400;
+
+/**
+ * Matches a control showing an error: the shared field frame marks it `aria-invalid` exactly while
+ * it has one, and describes it by that error.
+ */
+const INVALID_CONTROL_SELECTOR = '[aria-invalid="true"]';
 
 /** The form's fields, named as the ledger names them in a problem's `errors`. */
 const FIELD_NAMES = ['name', 'type', 'currency'] as const;
@@ -125,15 +131,34 @@ export interface OpenAccountFormProps {
  * shown where it can be acted on: a duplicate name on the Name field, a 400's field errors on
  * their fields, and anything else in an `ErrorState` above the form.
  *
+ * Focus follows the failure there, which is the rule every form in the app keeps: to the first
+ * field showing an error, which that error describes, so a screen reader reads the two together;
+ * or, when no field explains the failure, to the `ErrorState`. Otherwise focus would stay on the
+ * submit button, disabled while the request ran, and the failure would go unheard.
+ *
  * @param props - see `OpenAccountFormProps`.
  */
 export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
     const headingId = useId();
+    const formRef = useRef<HTMLFormElement>(null);
+    const errorStateRef = useRef<HTMLDivElement>(null);
     const [name, setName] = useState('');
     const [type, setType] = useState<AccountType>(DEFAULT_TYPE);
     const [currency, setCurrency] = useState<Currency>(DEFAULT_CURRENCY);
     const openAccount = useOpenAccount();
-    const errors = submissionErrors(openAccount.error);
+    const failure = openAccount.error;
+    const errors = submissionErrors(failure);
+
+    // Runs after the render that shows the failure, so the invalid controls and the error state
+    // are already on the page; each failure is a new error object, so each one moves focus.
+    useEffect(() => {
+        if (failure === null) {
+            return;
+        }
+        const invalidControl =
+            formRef.current?.querySelector<HTMLElement>(INVALID_CONTROL_SELECTOR);
+        (invalidControl ?? errorStateRef.current)?.focus();
+    }, [failure]);
 
     function submit(event: SubmitEvent<HTMLFormElement>) {
         event.preventDefault();
@@ -160,8 +185,10 @@ export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
             <h2 id={headingId} className={styles.heading}>
                 Open an account
             </h2>
-            {errors.unplaced === null ? null : <ErrorState error={errors.unplaced} />}
-            <form className={styles.form} onSubmit={submit}>
+            {errors.unplaced === null ? null : (
+                <ErrorState ref={errorStateRef} error={errors.unplaced} />
+            )}
+            <form ref={formRef} className={styles.form} onSubmit={submit}>
                 <div className={styles.fields}>
                     <TextField
                         label="Name"

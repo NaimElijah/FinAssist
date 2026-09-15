@@ -300,6 +300,33 @@ describe('AccountsPage opening an account', () => {
         expect(name.getAttribute('aria-invalid')).toBe('true');
         expect(name.getAttribute('aria-describedby')?.split(' ')).toContain(error.id);
         expect(screen.queryByRole('alert')).toBeNull();
+        // Focus on the invalid field is what makes its error heard: the field is described by it.
+        await waitFor(() => {
+            expect(document.activeElement).toBe(name);
+        });
+    });
+
+    it('Given_a_failure_with_nothing_to_place_on_a_field_When_opened_Then_focus_moves_to_the_error_state', async () => {
+        fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL && request.method === 'POST') {
+                return problemResponse({
+                    status: 500,
+                    code: 'INTERNAL_ERROR',
+                    detail: 'The ledger failed to handle this request.',
+                });
+            }
+            if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderAccounts();
+
+        await openVisa(userEvent.setup());
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('The ledger failed to handle this request.')).toBeDefined();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(alert);
+        });
     });
 
     it('Given_a_400_listing_field_errors_When_opened_Then_each_message_is_on_its_field', async () => {
@@ -330,6 +357,10 @@ describe('AccountsPage opening an account', () => {
         );
         expect(screen.getByLabelText('Name').getAttribute('aria-invalid')).toBeNull();
         expect(screen.queryByRole('alert')).toBeNull();
+        // The first invalid field in the form's order takes focus, not the first field.
+        await waitFor(() => {
+            expect(document.activeElement).toBe(screen.getByLabelText('Type'));
+        });
     });
 
     it('Given_a_400_without_field_errors_When_opened_Then_its_detail_is_an_error_state_above_the_form', async () => {
