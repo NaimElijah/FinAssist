@@ -2,7 +2,7 @@
 // Renders the review screen through the feature's own routes, so it needs a DOM. fetch is
 // stubbed, so the feature's real api/ module and its mapping run under test.
 
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -16,6 +16,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
+import { budgetKeys } from '../hooks/budgetQueries';
 import { budgetingRoutes } from '../index';
 
 const BUDGETS_URL = '/ledger/api/v1/budgets';
@@ -145,6 +146,27 @@ describe('BudgetReviewPage', () => {
         expect(within(hobbies).getByText('₪30.00')).toBeDefined();
     });
 
+    it('Given_unbudgeted_spend_When_the_page_renders_Then_the_rows_keep_the_servers_order', async () => {
+        fakeFetch((request) => {
+            if (request.url === BUDGETS_URL) return jsonResponse([SEPTEMBER_BUDGET]);
+            if (request.url === reviewUrl(SEPTEMBER_BUDGET.id)) return jsonResponse(REVIEW);
+            return unexpectedRequest(request);
+        });
+
+        renderReview(SEPTEMBER_BUDGET.id);
+
+        const heading = await screen.findByRole('heading', { level: 2, name: 'Unbudgeted spend' });
+        const section = heading.closest('section');
+        if (section === null) {
+            throw new Error('Unbudgeted spend heading is not inside a section');
+        }
+        expect(
+            within(section)
+                .getAllByRole('rowheader')
+                .map((cell) => cell.textContent),
+        ).toEqual(['gifts', 'hobbies']);
+    });
+
     it('Given_no_unbudgeted_spend_When_the_page_renders_Then_the_unbudgeted_section_shows_its_empty_state', async () => {
         const noUnbudgeted = { ...REVIEW, unbudgeted: [] };
         fakeFetch((request) => {
@@ -159,6 +181,28 @@ describe('BudgetReviewPage', () => {
             await screen.findByRole('heading', { level: 1, name: 'September 2026' }),
         ).toBeDefined();
         expect(await screen.findByText(/no unbudgeted spend/i)).toBeDefined();
+    });
+
+    it('Given_a_non_zero_uncategorised_amount_When_the_page_renders_Then_its_section_shows_the_amount_and_explanation', async () => {
+        fakeFetch((request) => {
+            if (request.url === BUDGETS_URL) return jsonResponse([SEPTEMBER_BUDGET]);
+            if (request.url === reviewUrl(SEPTEMBER_BUDGET.id)) return jsonResponse(REVIEW);
+            return unexpectedRequest(request);
+        });
+
+        renderReview(SEPTEMBER_BUDGET.id);
+
+        const heading = await screen.findByRole('heading', { level: 2, name: 'Uncategorised' });
+        const section = heading.closest('section');
+        if (section === null) {
+            throw new Error('Uncategorised heading is not inside a section');
+        }
+        expect(within(section).getByText('₪15.00')).toBeDefined();
+        expect(
+            within(section).getByText(
+                'Spend that matched no rule, which means the rules need work rather than the spending.',
+            ),
+        ).toBeDefined();
     });
 
     it('Given_uncategorised_spend_When_the_page_renders_Then_the_amount_is_shown_even_when_it_is_zero', async () => {
@@ -200,6 +244,34 @@ describe('BudgetReviewPage', () => {
             .click(within(alert).getByRole('button', { name: 'Try again' }));
 
         expect(await screen.findByRole('rowheader', { name: 'groceries' })).toBeDefined();
+    });
+
+    it('Given_the_review_is_already_on_screen_When_a_background_refetch_of_it_fails_Then_the_data_stays_and_a_non_blocking_retry_is_offered', async () => {
+        let requestCount = 0;
+        fakeFetch((request) => {
+            if (request.url === BUDGETS_URL) return jsonResponse([SEPTEMBER_BUDGET]);
+            if (request.url !== reviewUrl(SEPTEMBER_BUDGET.id)) return unexpectedRequest(request);
+            requestCount += 1;
+            return requestCount === 1
+                ? jsonResponse(REVIEW)
+                : problemResponse({
+                      status: 503,
+                      code: 'UNAVAILABLE',
+                      detail: 'The ledger is restarting.',
+                  });
+        });
+        const { queryClient } = renderReview(SEPTEMBER_BUDGET.id);
+        await screen.findByRole('rowheader', { name: 'groceries' });
+
+        await act(() =>
+            queryClient.invalidateQueries({ queryKey: budgetKeys.review(SEPTEMBER_BUDGET.id) }),
+        );
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('The ledger is restarting.')).toBeDefined();
+        // Non-blocking: the categories table already on screen is untouched by the failure.
+        expect(screen.getByRole('rowheader', { name: 'groceries' })).toBeDefined();
+        expect(within(alert).getByRole('button', { name: 'Try again' })).toBeDefined();
     });
 
     it('Given_the_budget_is_missing_from_the_list_While_its_review_has_not_yet_settled_Then_it_is_still_treated_as_not_found', async () => {
