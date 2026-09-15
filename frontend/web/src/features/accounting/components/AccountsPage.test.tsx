@@ -2,7 +2,7 @@
 // Renders the accounts screen through the feature's own routes and drives its form, so it needs a
 // DOM. fetch is stubbed, so the feature's real api/ module and its mapping run under test.
 
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -17,6 +17,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
+import { accountKeys } from '../hooks/accountQueries';
 import { accountingRoutes } from '../index';
 
 const ACCOUNTS_URL = '/ledger/api/v1/accounts';
@@ -280,6 +281,47 @@ describe('AccountsPage opening an account', () => {
         expect(screen.getByLabelText('Name')).toHaveProperty('value', '');
         expect(screen.getByLabelText('Type')).toHaveProperty('value', 'ASSET');
         expect(screen.getByLabelText('Currency')).toHaveProperty('value', 'ILS');
+    });
+
+    it('Given_focus_moved_on_after_an_open_When_the_new_row_remounts_Then_focus_stays_where_the_owner_put_it', async () => {
+        // A later refresh of every accounting query, such as recording a transaction will cause,
+        // can unmount and remount the new row. It must not take focus a second time.
+        const VISA = {
+            id: '9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a',
+            name: 'Visa',
+            type: 'LIABILITY',
+            currency: 'USD',
+        };
+        let served: unknown[] = [];
+        fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL && request.method === 'POST') {
+                served = [VISA];
+                return jsonResponse(VISA, 201);
+            }
+            if (request.url === ACCOUNTS_URL) return jsonResponse(served);
+            const id = balanceIdOf(request);
+            if (id !== undefined) {
+                return jsonResponse({ account: id, balance: { amount: '0.00', currency: 'USD' } });
+            }
+            return unexpectedRequest(request);
+        });
+        const { queryClient } = renderAccounts();
+        const user = userEvent.setup();
+        await openVisa(user);
+        const visa = await screen.findByRole('link', { name: 'Visa' });
+        await waitFor(() => {
+            expect(document.activeElement).toBe(visa);
+        });
+
+        await user.click(screen.getByLabelText('Name'));
+        served = [];
+        await act(() => queryClient.invalidateQueries({ queryKey: accountKeys.all }));
+        await screen.findByText('No accounts yet — open one below');
+        served = [VISA];
+        await act(() => queryClient.invalidateQueries({ queryKey: accountKeys.all }));
+        await screen.findByRole('link', { name: 'Visa' });
+
+        expect(document.activeElement).toBe(screen.getByLabelText('Name'));
     });
 
     it('Given_a_duplicate_name_When_opened_Then_the_server_detail_is_the_Name_field_error', async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 
 import { Button, type Column, DataTable, EmptyState, ErrorState, MoneyText } from '@/shared/ui';
@@ -11,23 +11,28 @@ import { accountPath } from './paths';
 
 const EMPTY_MESSAGE = 'No accounts yet — open one below';
 
-/** One account's name, linking to its detail, and taking focus when it is the account just opened. */
+/** One account's name, linking to its detail, and taking focus once when it was just opened. */
 function AccountLink({
     account,
     focused,
+    onFocused,
 }: {
     readonly account: Account;
     readonly focused: boolean;
+    /** Called once focus has been applied, so the request to focus can be cleared. */
+    readonly onFocused: () => void;
 }) {
     const ref = useRef<HTMLAnchorElement>(null);
 
     // Keyed on `focused` rather than run on mount: the new row may render before or after the
-    // form reports the account opened, and either order must end with focus here.
+    // form reports the account opened, and either order must end with focus here. Reporting back
+    // clears the request, so a later remount of this row cannot take focus a second time.
     useEffect(() => {
         if (focused) {
             ref.current?.focus();
+            onFocused();
         }
-    }, [focused]);
+    }, [focused, onFocused]);
 
     return (
         <Link ref={ref} to={accountPath(account.id)}>
@@ -50,14 +55,21 @@ function AccountBalanceCell({ accountId }: { readonly accountId: string }) {
 }
 
 /** The table's columns. The name heads each row, and focus goes to the name just opened. */
-function accountColumns(focusedAccountId: string | undefined): readonly Column<Account>[] {
+function accountColumns(
+    focusedAccountId: string | undefined,
+    onFocused: () => void,
+): readonly Column<Account>[] {
     return [
         {
             key: 'name',
             header: 'Name',
             rowHeader: true,
             render: (account) => (
-                <AccountLink account={account} focused={account.id === focusedAccountId} />
+                <AccountLink
+                    account={account}
+                    focused={account.id === focusedAccountId}
+                    onFocused={onFocused}
+                />
             ),
         },
         { key: 'type', header: 'Type', render: (account) => ACCOUNT_TYPE_LABELS[account.type] },
@@ -77,7 +89,13 @@ function accountColumns(focusedAccountId: string | undefined): readonly Column<A
  * Accounts already on screen stay there when a later refetch fails: TanStack Query keeps the data
  * it holds, so the failure and its retry are shown above the rows rather than in their place.
  */
-function AccountsList({ focusedAccountId }: { readonly focusedAccountId: string | undefined }) {
+function AccountsList({
+    focusedAccountId,
+    onFocused,
+}: {
+    readonly focusedAccountId: string | undefined;
+    readonly onFocused: () => void;
+}) {
     const accounts = useAccounts();
 
     if (accounts.isPending) {
@@ -111,7 +129,7 @@ function AccountsList({ focusedAccountId }: { readonly focusedAccountId: string 
                 <DataTable
                     caption="Accounts"
                     captionHidden
-                    columns={accountColumns(focusedAccountId)}
+                    columns={accountColumns(focusedAccountId, onFocused)}
                     rows={accounts.data}
                     rowKey={(account) => account.id}
                 />
@@ -124,17 +142,21 @@ function AccountsList({ focusedAccountId }: { readonly focusedAccountId: string 
  * `/accounts`: every account with its type, currency and derived balance, in the ledger's order,
  * and the form that opens another.
  *
- * Opening an account resets the form and moves focus to the new account's link in the list. That
- * is the one success signal: the link names the account, and focus there also rescues keyboard
- * focus from the submit button, which is disabled while the request is pending.
+ * Opening an account resets the form and moves focus to the new account's link in the list, once.
+ * That is the one success signal: the link names the account, and focus there also rescues
+ * keyboard focus from the submit button, which is disabled while the request is pending.
  */
 export function AccountsPage() {
     const [openedAccountId, setOpenedAccountId] = useState<string | undefined>(undefined);
+    // Stable, so the link's focus effect does not run again on every render of the page.
+    const clearOpenedAccount = useCallback(() => {
+        setOpenedAccountId(undefined);
+    }, []);
 
     return (
         <>
             <h1>Accounts</h1>
-            <AccountsList focusedAccountId={openedAccountId} />
+            <AccountsList focusedAccountId={openedAccountId} onFocused={clearOpenedAccount} />
             <OpenAccountForm
                 onOpened={(account) => {
                     setOpenedAccountId(account.id);
