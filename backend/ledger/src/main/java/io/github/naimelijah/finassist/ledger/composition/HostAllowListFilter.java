@@ -12,6 +12,8 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -35,10 +37,16 @@ import tools.jackson.databind.json.JsonMapper;
  * filter writes that body itself, because it runs before the dispatcher and so before any controller
  * advice could. The body never echoes the header back.
  *
+ * <p>Each refusal is logged once at WARN, with a fixed message and without the header, which the sender
+ * chose. The filter answers before anything that traces or logs a request, so without that line a name
+ * missing from the list would look like an outage rather than the configuration miss it is.
+ *
  * <p>{@link LedgerConfiguration} registers it at the highest filter precedence, for every path,
  * Actuator included.
  */
 public class HostAllowListFilter extends OncePerRequestFilter {
+
+    private static final Logger LOG = LoggerFactory.getLogger(HostAllowListFilter.class);
 
     /**
      * The part of the {@code Host} grammar the comparison needs (RFC 9110 §7.2, RFC 3986 §3.2.2): a name
@@ -96,6 +104,7 @@ public class HostAllowListFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
+        LOG.warn("Refused a request whose Host header names no host on the allow-list");
         response.setStatus(HttpStatus.FORBIDDEN.value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         response.setContentLength(REFUSAL.length);

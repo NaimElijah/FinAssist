@@ -5,8 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -25,6 +28,7 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>The wire values are spelled out here rather than read from the filter's constants. They are the
  * contract, and a test that borrowed them would keep passing through a change to the contract itself.
  */
+@ExtendWith(OutputCaptureExtension.class)
 class HostAllowListFilterTest {
 
     private static final String PROBLEM_JSON = "application/problem+json";
@@ -108,6 +112,30 @@ class HostAllowListFilterTest {
         assertThat(response.getContentType()).isEqualTo(PROBLEM_JSON);
         assertThat(JSON.readTree(response.getContentAsByteArray()).path("code").asString())
                 .isEqualTo(HOST_NOT_ALLOWED);
+    }
+
+    /**
+     * A refusal is answered before any filter that traces or logs, so this line is the only sign of it, and
+     * without it a mistyped name looks like an outage (ADR-027). The header is chosen by the sender, so the
+     * line never quotes it.
+     */
+    @Test
+    void Given_a_foreign_host_When_refused_Then_one_warning_is_logged_without_the_header(CapturedOutput output)
+            throws Exception {
+        filter.doFilter(requestWithHost(FOREIGN_HOST), response, chain);
+
+        assertThat(output.getOut().lines().filter(line -> line.contains("WARN")))
+                .singleElement()
+                .asString()
+                .doesNotContain(FOREIGN_HOST);
+    }
+
+    /** One line per refusal, never one per request: an allowed request writes nothing. */
+    @Test
+    void Given_an_allowed_host_When_filtered_Then_nothing_is_logged(CapturedOutput output) throws Exception {
+        filter.doFilter(requestWithHost("localhost:8080"), response, chain);
+
+        assertThat(output.getOut()).doesNotContain("WARN");
     }
 
     /** A refusal that still called the chain would answer 403 after the handler had already run. */
