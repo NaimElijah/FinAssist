@@ -11,6 +11,7 @@ import {
     ApiBodyError,
     ApiError,
     ASSISTANT_API,
+    hasProblemCode,
     LEDGER_API,
     type Problem,
     requestJson,
@@ -462,6 +463,37 @@ describe('sendJson', () => {
         await expect(sendJson(URL, 'POST', { amount: '12.50' })).resolves.toEqual({
             id: 'txn-1',
         });
+    });
+});
+
+describe('hasProblemCode', () => {
+    const NOT_FOUND = 'ACCOUNT_NOT_FOUND';
+
+    it('Given_an_ApiError_whose_problem_carries_the_code_When_checked_Then_it_matches', () => {
+        const error = new ApiError(404, URL, 'missing', { status: 404, code: NOT_FOUND });
+
+        expect(hasProblemCode(error, NOT_FOUND)).toBe(true);
+    });
+
+    it('Given_an_ApiError_whose_problem_carries_another_code_When_checked_Then_it_does_not_match', () => {
+        const error = new ApiError(404, URL, 'missing', { status: 404, code: 'BUDGET_NOT_FOUND' });
+
+        expect(hasProblemCode(error, NOT_FOUND)).toBe(false);
+    });
+
+    it('Given_an_ApiError_without_a_problem_When_checked_Then_it_does_not_match', () => {
+        // A status alone is never enough: the same 404 is a missing account or a missing route.
+        const error = new ApiError(404, URL, 'Request failed with 404', undefined);
+
+        expect(hasProblemCode(error, NOT_FOUND)).toBe(false);
+    });
+
+    it('Given_an_error_that_is_not_an_ApiError_When_checked_Then_it_does_not_match', () => {
+        expect(hasProblemCode(new Error(NOT_FOUND), NOT_FOUND)).toBe(false);
+    });
+
+    it('Given_no_error_When_checked_Then_it_does_not_match', () => {
+        expect(hasProblemCode(null, NOT_FOUND)).toBe(false);
     });
 });
 

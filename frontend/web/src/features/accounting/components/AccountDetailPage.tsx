@@ -2,7 +2,7 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 
-import { ApiError } from '@/shared/api/client';
+import { hasProblemCode } from '@/shared/api/client';
 import { useDocumentTitle } from '@/shared/lib/documentTitle';
 import { todayIsoDate } from '@/shared/lib/today';
 import {
@@ -274,11 +274,6 @@ function TransactionActionsCell({
     );
 }
 
-/** Whether a read failed because the ledger holds no account with the id in its path. */
-function isAccountNotFound(error: Error | null): boolean {
-    return error instanceof ApiError && error.problem?.code === ACCOUNT_NOT_FOUND;
-}
-
 function BackToAccounts() {
     return <Link to={ACCOUNTS_PATH}>Back to Accounts</Link>;
 }
@@ -542,7 +537,9 @@ function AccountDetail({ accountId }: { readonly accountId: string }) {
     const accounts = useAccounts();
     const balance = useAccountBalance(accountId);
     const transactions = useAccountTransactions(accountId);
-    const notFound = isAccountNotFound(balance.error) || isAccountNotFound(transactions.error);
+    const notFound =
+        hasProblemCode(balance.error, ACCOUNT_NOT_FOUND) ||
+        hasProblemCode(transactions.error, ACCOUNT_NOT_FOUND);
     const account = accounts.data?.find((candidate) => candidate.id === accountId);
     // Called before any early return, as every hook must be.
     useDocumentTitle(notFound || account === undefined ? undefined : `${account.name} account`);

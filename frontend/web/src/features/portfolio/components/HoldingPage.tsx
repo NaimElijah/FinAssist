@@ -2,7 +2,7 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import { useId } from 'react';
 import { Link, useParams } from 'react-router';
 
-import { ApiError } from '@/shared/api/client';
+import { hasProblemCode } from '@/shared/api/client';
 import { useDocumentTitle } from '@/shared/lib/documentTitle';
 import { EmptyState, MoneyText } from '@/shared/ui';
 
@@ -24,11 +24,6 @@ const NO_PRICE_MESSAGE =
 /** The calm answer for a symbol under which nothing is held. */
 function nothingHeldMessage(symbol: string): string {
     return `Nothing is held under ${symbol}`;
-}
-
-/** Whether a read failed with the problem `code`, rather than for any other reason. */
-function failedWith(error: Error | null, code: string): boolean {
-    return error instanceof ApiError && error.problem?.code === code;
 }
 
 function PositionSection({ query }: { readonly query: UseQueryResult<Position> }) {
@@ -66,11 +61,11 @@ function ValuationSection({
     readonly query: UseQueryResult<Valuation>;
 }) {
     const headingId = useId();
-    const noPrice = failedWith(query.error, PRICE_UNAVAILABLE);
+    const noPrice = hasProblemCode(query.error, PRICE_UNAVAILABLE);
     // Both reads answer 404 when nothing is held, and either can land first. The position's 404
     // replaces the page once it lands; until then the valuation's is the same considered answer,
     // not a failure to offer a retry for.
-    const nothingHeld = failedWith(query.error, HOLDING_NOT_FOUND);
+    const nothingHeld = hasProblemCode(query.error, HOLDING_NOT_FOUND);
     const considered = noPrice || nothingHeld;
     // A valuation kept from an earlier read is exactly what either answer says cannot be given now,
     // so it is not shown beside them.
@@ -131,7 +126,7 @@ function Holding({ symbol }: { readonly symbol: string }) {
     const position = usePosition(symbol);
     const valuation = useValuation(symbol);
     useDocumentTitle(`${symbol} holding`);
-    const nothingHeld = failedWith(position.error, HOLDING_NOT_FOUND);
+    const nothingHeld = hasProblemCode(position.error, HOLDING_NOT_FOUND);
 
     return (
         <>

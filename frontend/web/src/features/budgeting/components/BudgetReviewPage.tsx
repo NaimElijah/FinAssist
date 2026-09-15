@@ -1,6 +1,6 @@
 import { Link, useParams } from 'react-router';
 
-import { ApiError } from '@/shared/api/client';
+import { hasProblemCode } from '@/shared/api/client';
 import { useDocumentTitle } from '@/shared/lib/documentTitle';
 import { type Column, DataTable, EmptyState, MoneyText, StateBadge, type Tone } from '@/shared/ui';
 
@@ -31,11 +31,6 @@ const SPEND_STATUS_LABELS: Readonly<Record<SpendStatus, string>> = {
 
 function spendStatus(overspent: boolean): SpendStatus {
     return overspent ? 'OVERSPENT' : 'WITHIN_LIMIT';
-}
-
-/** Whether a read failed because the ledger holds no budget with the id in its path. */
-function isBudgetNotFound(error: Error | null): boolean {
-    return error instanceof ApiError && error.problem?.code === BUDGET_NOT_FOUND;
 }
 
 function BackToBudgets() {
@@ -163,7 +158,7 @@ function ReviewSections({ review }: { readonly review: BudgetReview }) {
 function BudgetDetail({ budgetId }: { readonly budgetId: string }) {
     const budgets = useBudgets();
     const review = useBudgetReview(budgetId);
-    const notFound = isBudgetNotFound(review.error);
+    const notFound = hasProblemCode(review.error, BUDGET_NOT_FOUND);
     const budget = budgets.data?.find((candidate: Budget) => candidate.id === budgetId);
     // Called before any early return, as every hook must be.
     useDocumentTitle(

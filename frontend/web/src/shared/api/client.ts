@@ -110,6 +110,18 @@ export class ApiError extends Error {
     }
 }
 
+/**
+ * Whether `error` is an `ApiError` whose problem carries `code`: how a screen tells one of a
+ * service's considered answers, such as a missing account, from any other failure (ADR-028).
+ *
+ * @param error - whatever a request threw, or `null` when it has not failed.
+ * @param code - the problem `code` to look for.
+ * @returns `true` only for an `ApiError` with a parsed problem whose `code` is `code`.
+ */
+export function hasProblemCode(error: unknown, code: string): boolean {
+    return error instanceof ApiError && error.problem?.code === code;
+}
+
 /** Thrown when a 2xx response does not carry the JSON body the caller was promised. */
 export class ApiBodyError extends Error {
     constructor(
