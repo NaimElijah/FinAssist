@@ -154,6 +154,7 @@ is financial advice.
 | Ledger framework | Spring Boot | 4.1.1 | Actuator gives health, readiness and metrics without bespoke code; the domain stays framework-free |
 | Ledger build | Maven (wrapper) | 3.9.6 | Committed wrapper, so a clone needs only a JDK |
 | Ledger format | Spotless + palantir-java-format | 3.10.1 / 2.97.0 | One authoritative formatter; `spotless:check` gates CI |
+| Ledger OpenAPI | springdoc-openapi, API starter | 3.1.1 | Generates the ledger's contract from its controllers, with no Swagger UI; `LedgerContractIT` pins it to `contracts/` ([ADR-028](docs/ADRs/ADR-028-http-wire-conventions.md)) |
 | Assistant language | Python | 3.13 | Native home for the Anthropic SDK and the pandas numerical stack |
 | Assistant framework | FastAPI | 0.141.1 | Typed request and response validation from the same Pydantic models the domain uses |
 | Assistant packaging | uv | 0.12.7 | Resolves, locks and fetches the interpreter in one pinned tool |
@@ -166,11 +167,16 @@ is financial advice.
 | Monitoring | OTel Collector + Prometheus + Grafana | 0.139.0 / v3.7.3 / 12.3.1 | Local only, behind a Compose profile; dashboards provisioned from files, never clicked in |
 | Web framework | React + Vite | 19.2 / 8.2 | A static bundle; no Node server to operate for a single-owner tool |
 | Web language | TypeScript | 6.0.3 | Pinned below 7 because `typescript-eslint` caps at `<6.1.0`; type-aware linting is worth more than the newer compiler |
+| Web runtime | Node | 24 | The major CI runs, pinned in `.nvmrc` and `engines`, because tests pin dates and amounts as that major's ICU data formats them |
+| Web routing | React Router | 8.3.1 | URLs, history and deep links across every screen, in data mode ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
+| Web server state | TanStack Query | 5.102.8 | Caching, request races and invalidating what a mutation changed, instead of fetch hooks written per feature ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
+| Web contract types | @hey-api/openapi-ts | 0.99.0 | Types generated from both committed contracts, and no client; CI fails when they drift ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
 | Web test, lint, format | Vitest + Testing Library + ESLint + Prettier | 4.1 / 16.3 / 10.9 / 3.9 | Type-aware rules; they caught a `HeadersInit` bug before any code used it, and there is now a test for it |
 | Store | PostgreSQL | 18.6 | `NUMERIC` for exact money, and real constraints behind the domain's own |
 
 Every version above is pinned in `backend/ledger/pom.xml`, `backend/assistant/pyproject.toml`,
-`backend/assistant/uv.lock` or `docker-compose.yml` — not in this table.
+`backend/assistant/uv.lock`, `frontend/web/package.json`, `frontend/web/.nvmrc` or
+`docker-compose.yml` — not in this table.
 
 ## Architecture
 
@@ -299,9 +305,11 @@ behaviour they describe.
 | Ledger audit trail | The database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states, and a lifecycle change appends rather than overwrites ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)) | `make test-ledger` |
 | Ledger schema boundaries | No foreign key crosses a schema, so context isolation holds in the database as well as in the bytecode | `make test-ledger` |
 | Ledger smoke | The context loads and the Actuator health, liveness and readiness probes answer `UP` | `make test-ledger` |
+| Ledger HTTP | Each controller in a `@WebMvcTest` slice — `AccountControllerTest`, `TransactionControllerTest`, `BudgetControllerTest`, `CategorisationRuleControllerTest`, `PlannedFlowControllerTest`, `ScenarioControllerTest`, `ProjectionControllerTest` and `ComparisonControllerTest` — for its request validation, including a JSON number refused where the contract requires a decimal string, and each refusal's status and problem `code`; `HostAllowListFilterTest` and `LedgerProblemHandlerTest` for the Host allow-list and the problem+json fallback; `AccountingHttpIT`, `BudgetingHttpIT` and `PlanningHttpIT`, which boot the ledger and drive it over HTTP against a real PostgreSQL; and `LedgerContractIT`, which pins the generated OpenAPI document to `contracts/ledger-v1.openapi.json` | `make test-ledger` |
 | Assistant architecture | Every source file is parsed: no inward module imports a framework or the adapters, no module imports another context, no domain module names `float` or reads the wall clock. The scanner itself is unit-tested | `make test-assistant` |
 | Assistant domain | FIFO cost basis, the grounding rule, quote staleness, Money and Currency | `make test-assistant` |
 | Assistant properties | The same Money laws, plus FIFO conservation, via Hypothesis run derandomised | `make test-assistant` |
+| Assistant HTTP | `test_portfolio_api.py` calls the portfolio endpoints over HTTP against a seeded assembly: decimals as strings, camelCase members, 415 for a non-JSON disposal, and no amount in a URL or the access log; `test_problems.py` holds every failure to the ledger's problem shape and codes, a foreign `Host` to the ledger's 403, no exception text on a 5xx, and no rejected input in a 5xx's log line; `test_contract.py` pins the generated OpenAPI document to `contracts/assistant-v1.openapi.json` and holds its `Problem` schema identical to the ledger's | `make test-assistant` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
 | Web architecture | No feature imports another; `shared` imports no feature and nothing from `src/app`; `src/app` imports a feature only through its `index.ts`, and no feature imports `src/app` | `make test-web` |
 | Web unit | The HTTP client's failure contracts and `Accept` header; the shared retry rule, `isRetryable` — a read retried once after a network failure or a 5xx other than a 503, a write never, and "Try again" offered on a failed read by the same rule — with focus moved to what a successful retry restores; a settled mutation cleared when its form is edited, and a pending one left alone; a jsdom render of the app shell; and the shared UI primitives: labelled fields, a pending button, a table region that is a Tab stop only while it overflows, money formatted from its exact decimal string, and dates that never shift with the timezone | `make test-web` |
@@ -331,9 +339,10 @@ Tests are named `Given<scenario>_When<action>_Then<result>` — the reason Ruff'
 disabled for `tests/**`, with the justification recorded in `backend/assistant/pyproject.toml`.
 
 **What CI gates on:** every push and pull request to `main` and `dev` must pass four jobs —
-the ledger's format check and build; the assistant's lint, format check, `mypy --strict`,
-tests and `pip-audit`; the web client's lint, format check, typecheck, tests and production
-build; and a `docker compose config` validation.
+the ledger's format check, build and tests; the assistant's lint, format check, `mypy --strict`,
+tests and `pip-audit`; the web client's contract types, regenerated from `contracts/` with no
+changed or new file, then lint, format check, typecheck, tests, production build and
+`npm audit`; and a `docker compose config` validation, `monitoring` profile included.
 
 **Coverage is measured everywhere and gates nothing.** JaCoCo, `pytest-cov` and
 `@vitest/coverage-v8` run as part of the test targets, and each CI job publishes its report as
@@ -362,7 +371,7 @@ in the repository, the logs or an error message.
 | `POSTGRES_DB` | Database name | `finassist` | No |
 | `POSTGRES_USER` | Database user | `finassist` | No |
 | `LEDGER_DB_PASSWORD` | Ledger database password. The ledger connects as the role Compose creates, so this must match `POSTGRES_PASSWORD` until it gets its own role | none | **Yes** — the ledger refuses to start without it |
-| `ANTHROPIC_API_KEY` | The LLM behind the assistant | none | Once the assistant exists |
+| `ANTHROPIC_API_KEY` | The LLM behind the assistant | none | No — the assistant only registers it for redaction, and nothing uses it until an LLM adapter is wired, which waits on the privacy question |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana admin password | none | **Yes** when using the `monitoring` profile |
 
 <details>
@@ -382,7 +391,7 @@ in the repository, the logs or an error message.
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; each service appends its own signal path | `http://localhost:4318` |
 | `OTEL_EXPORT_ENABLED` | Whether to export telemetry at all — traces and metrics both. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` |
 | `ASSISTANT_LOG_LEVEL` | Threshold for the assistant's structured logger; one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
-| `ASSISTANT_HOST` | Interface the assistant binds. Loopback by default — nothing runs it in a container yet | `127.0.0.1` |
+| `ASSISTANT_HOST` | Interface the assistant binds. Loopback by default, because the assistant has no authentication; `0.0.0.0` only inside a container, where Compose sets it ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `127.0.0.1` |
 | `ASSISTANT_ALLOWED_HOSTS` | Comma-separated host names the assistant answers to. An entry containing a `:` or a `[`, which covers a port and every IPv6 literal, or a wildcard, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `localhost,127.0.0.1` |
 | `ASSISTANT_DEV_SEED` | Loads a small set of fictional holdings and quotes at start-up, so the portfolio screens have something to show by hand. Invented data, never meant for real use | `false` |
 | `OTLP_HTTP_PORT`, `OTLP_GRPC_PORT` | Host ports for the collector | `4318`, `4317` |
@@ -393,8 +402,10 @@ in the repository, the logs or an error message.
 ## Deployment and operations
 
 Not deployed anywhere, and there is no target environment or migration strategy yet —
-stating one here would be fiction. `./mvnw package` produces an executable jar, which is the
-only build artefact that exists.
+stating one here would be fiction. Every build artefact stays on the machine that built it:
+`./mvnw package` produces the ledger's executable jar, `npm run build` the web client's static
+bundle, and `docker compose up --build` an image for each backend service from its own
+Dockerfile.
 
 | Concern | Endpoint or format | State |
 |---|---|---|
@@ -557,8 +568,8 @@ Known limitations:
 - **TypeScript is one minor behind.** Pinned to 6.0.3 because `typescript-eslint` 8 caps at
   `<6.1.0`; lifts when it supports 7.
 - **The Postgres image tag, and the monitoring services' tags, are bumped by hand.** Dependabot's
-  `docker` ecosystem covers the ledger's own Dockerfile; there is still no `docker-compose`
-  ecosystem for the image tags named directly in `docker-compose.yml`.
+  `docker` ecosystem covers the ledger's and the assistant's own Dockerfiles; there is still no
+  `docker-compose` ecosystem for the image tags named directly in `docker-compose.yml`.
 
 ## Licence
 
