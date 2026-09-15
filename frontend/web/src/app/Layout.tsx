@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     NavigationType,
     NavLink,
@@ -8,6 +8,7 @@ import {
     useNavigationType,
 } from 'react-router';
 
+import { DocumentTitleContext } from '@/shared/lib/documentTitle';
 import { titleOf } from '@/shared/lib/routeHandle';
 
 import styles from './Layout.module.css';
@@ -30,14 +31,27 @@ const PRIMARY_AREAS = [
 ] as const;
 
 /**
- * The document title for a set of route matches: the deepest declared title, then the product
- * name, or the product name alone when no matched route declares a title.
+ * One page's claim on the document title. Claims are told apart by identity, not by title, so a
+ * page releasing its claim can never clear a newer claim that happens to say the same thing.
  */
-function documentTitle(matches: readonly { readonly handle: unknown }[]): string {
-    const title = matches
-        .map((match) => titleOf(match.handle))
-        .filter((candidate) => candidate !== undefined)
-        .at(-1);
+interface TitleClaim {
+    readonly title: string;
+}
+
+/**
+ * The document title: a page's override when one is held, otherwise the deepest route title
+ * declared in `handle`, followed by the product name; the product name alone when neither exists.
+ */
+function documentTitle(
+    override: string | undefined,
+    matches: readonly { readonly handle: unknown }[],
+): string {
+    const title =
+        override ??
+        matches
+            .map((match) => titleOf(match.handle))
+            .filter((candidate) => candidate !== undefined)
+            .at(-1);
     return title === undefined ? PRODUCT_NAME : `${title} · ${PRODUCT_NAME}`;
 }
 
@@ -49,7 +63,9 @@ function documentTitle(matches: readonly { readonly handle: unknown }[]): string
  * stylesheet keys the open tab on, so the visual state and the announced state cannot disagree.
  *
  * It keeps two things in step with the route, since a single-page app does neither by itself:
- * - the document title, from the deepest matched route's `handle` title (see `RouteHandle`);
+ * - the document title. A page may claim its own through `useDocumentTitle`, which wins while the
+ *   page is mounted; otherwise the deepest matched route's `handle` title is used (see
+ *   `RouteHandle`). The layout provides `DocumentTitleContext` to every page it renders;
  * - focus. When a person navigates - a link, or back and forward - focus moves to `<main>`, so a
  *   screen reader announces the new page and the next Tab starts inside it rather than on the
  *   link that was left behind. A replace is the app's own redirect, such as `/` to `/accounts`,
@@ -62,8 +78,19 @@ export function Layout() {
     const navigationType = useNavigationType();
     const mainRef = useRef<HTMLElement>(null);
     const previousPathname = useRef(pathname);
+    const [titleClaim, setTitleClaim] = useState<TitleClaim | undefined>(undefined);
 
-    const title = documentTitle(matches);
+    // Stable, so a page's title effect runs again only when its own title changes. The newest
+    // claim wins, and releasing a claim clears the override only while that claim is still held.
+    const claimTitle = useCallback((title: string) => {
+        const claim: TitleClaim = { title };
+        setTitleClaim(claim);
+        return () => {
+            setTitleClaim((held) => (held === claim ? undefined : held));
+        };
+    }, []);
+
+    const title = documentTitle(titleClaim?.title, matches);
     useEffect(() => {
         document.title = title;
     }, [title]);
@@ -105,7 +132,9 @@ export function Layout() {
             </header>
             {/* tabIndex -1 lets the skip link and route changes move focus here in every browser. */}
             <main ref={mainRef} id={MAIN_ID} tabIndex={-1} className={styles.main}>
-                <Outlet />
+                <DocumentTitleContext value={claimTitle}>
+                    <Outlet />
+                </DocumentTitleContext>
             </main>
         </>
     );

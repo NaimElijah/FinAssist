@@ -2,7 +2,7 @@
 // Renders the routed shell and clicks through it, so it needs a DOM. The router is an in-memory
 // one over the real route table, so no test depends on the jsdom URL.
 
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
 import { describe, expect, it } from 'vitest';
@@ -11,6 +11,7 @@ import {
     type FetchAnswer,
     fakeFetch,
     jsonResponse,
+    pendingResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
 
@@ -28,12 +29,29 @@ const AREAS = [
 
 const ACCOUNTS_URL = '/ledger/api/v1/accounts';
 
+const CHECKING = {
+    id: '0b7d2a4e-4d8c-4f3a-9a61-2f1c5e0d9b11',
+    name: 'Checking',
+    type: 'ASSET',
+    currency: 'ILS',
+} as const;
+
 /**
  * A ledger holding no accounts. The shell is under test here, not the Accounts screen, so its one
  * request is answered locally and nothing reaches the network; any other request fails the test.
  */
 const NO_ACCOUNTS: FetchAnswer = (request) =>
     request.url === ACCOUNTS_URL ? jsonResponse([]) : unexpectedRequest(request);
+
+/** A ledger holding Checking alone, with a zero balance and no transactions. */
+const CHECKING_ONLY: FetchAnswer = (request) => {
+    if (request.url === ACCOUNTS_URL) return jsonResponse([CHECKING]);
+    if (request.url === `${ACCOUNTS_URL}/${CHECKING.id}/balance`) {
+        return jsonResponse({ account: CHECKING.id, balance: { amount: '0.00', currency: 'ILS' } });
+    }
+    if (request.url === `${ACCOUNTS_URL}/${CHECKING.id}/transactions`) return jsonResponse([]);
+    return unexpectedRequest(request);
+};
 
 /**
  * Render the provider composition main.tsx uses, over an in-memory router starting at `path`,
@@ -135,6 +153,34 @@ describe('App', () => {
 
         await screen.findByRole('heading', { level: 1, name: 'Page not found' });
         expect(document.title).toBe('Page not found · FinAssist');
+    });
+
+    it('Given_an_account_page_When_its_account_has_loaded_Then_the_document_title_names_the_account', async () => {
+        renderAt(`/accounts/${CHECKING.id}`, CHECKING_ONLY);
+
+        await screen.findByRole('heading', { level: 1, name: 'Checking' });
+        await waitFor(() => {
+            expect(document.title).toBe('Checking account · FinAssist');
+        });
+    });
+
+    it('Given_an_account_page_When_its_account_has_not_loaded_Then_the_document_title_is_the_routes_own', async () => {
+        // A page with nothing more specific to say sets no override, so the route's title stands.
+        renderAt(`/accounts/${CHECKING.id}`, () => pendingResponse());
+
+        await screen.findByText('Loading account…');
+        expect(document.title).toBe('Account · FinAssist');
+    });
+
+    it('Given_an_account_page_When_Back_to_Accounts_is_clicked_Then_the_document_title_returns_to_the_area', async () => {
+        // The override lasts only while the page that set it is mounted.
+        renderAt(`/accounts/${CHECKING.id}`, CHECKING_ONLY);
+        await screen.findByRole('heading', { level: 1, name: 'Checking' });
+
+        await userEvent.setup().click(screen.getByRole('link', { name: 'Back to Accounts' }));
+
+        await screen.findByRole('heading', { level: 1, name: 'Accounts' });
+        expect(document.title).toBe('Accounts · FinAssist');
     });
 
     it('Given_the_root_path_When_the_shell_first_renders_Then_focus_stays_where_the_browser_put_it', async () => {

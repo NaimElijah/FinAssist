@@ -2,6 +2,7 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 
 import { ApiError } from '@/shared/api/client';
+import { useDocumentTitle } from '@/shared/lib/documentTitle';
 import {
     Button,
     type Column,
@@ -230,13 +231,20 @@ function Transactions({
  * The account itself comes from the cached accounts list, because the ledger has no single-item
  * read (ADR-028). The account is not found when the loaded list does not hold it, or when its
  * balance or transactions answer 404 `ACCOUNT_NOT_FOUND`.
+ *
+ * The document is titled after the account, such as "Checking account", only while the page shows
+ * it. While the account loads, or when it is not found, the route's own title stands.
  */
 function AccountDetail({ accountId }: { readonly accountId: string }) {
     const accounts = useAccounts();
     const balance = useAccountBalance(accountId);
     const transactions = useAccountTransactions(accountId);
+    const notFound = isAccountNotFound(balance.error) || isAccountNotFound(transactions.error);
+    const account = accounts.data?.find((candidate) => candidate.id === accountId);
+    // Called before any early return, as every hook must be.
+    useDocumentTitle(notFound || account === undefined ? undefined : `${account.name} account`);
 
-    if (isAccountNotFound(balance.error) || isAccountNotFound(transactions.error)) {
+    if (notFound) {
         return <AccountNotFound />;
     }
     const accountsFailure = accounts.isPending ? null : failureOf(accounts);
@@ -255,7 +263,6 @@ function AccountDetail({ accountId }: { readonly accountId: string }) {
             </>
         );
     }
-    const account = accounts.data.find((candidate) => candidate.id === accountId);
     if (account === undefined) {
         return <AccountNotFound />;
     }
