@@ -17,6 +17,11 @@ finassist:
     allowed-hosts: ${LEDGER_ALLOWED_HOSTS:localhost,127.0.0.1}
 
 springdoc:
+  api-docs:
+    # The ledger serves its contract on purpose (ADR-028), so the switch is set rather than left to
+    # springdoc's default. Left unset, springdoc 3.1.1 serves the document anyway and warns at every
+    # start-up that the endpoint "is enabled by default"; set, that warning is gone.
+    enabled: true
   # LedgerContractIT compares the generated document with contracts/ledger-v1.openapi.json, so it
   # must be deterministic and hold only the contract (ADR-028). Sorted keys keep a regenerated
   # file's diff down to what actually changed.
