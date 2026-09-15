@@ -29,7 +29,7 @@ const ACCOUNTS_KEY = ['accounts'] as const;
  * here invalidates `all` itself. `list` carries an account's id, name, type and currency, none of
  * which a transaction can ever change, so it is invalidated only when an account is opened; a
  * transaction recorded or moved through its lifecycle invalidates `balance(id)` and
- * `transactions(id)` for exactly the accounts it touches, and nothing wider (Ruling 37).
+ * `transactions(id)` for exactly the accounts it touches, and nothing wider.
  */
 export const accountKeys = {
     /** The prefix of every accounting key. */
@@ -134,9 +134,8 @@ function accountIdsOf(transaction: Transaction): string[] {
  * Record a transaction by hand, then refetch the balance and transactions of every account named
  * in its entries, each exactly once even when the same account is posted to twice.
  *
- * Nothing else is invalidated (Ruling 37): an account's id, name, type and currency are never
- * touched by recording a transaction, so refetching the list would add a request with nothing to
- * show for it.
+ * Nothing else is invalidated: an account's id, name, type and currency are never touched by
+ * recording a transaction, so refetching the list would add a request with nothing to show for it.
  *
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */

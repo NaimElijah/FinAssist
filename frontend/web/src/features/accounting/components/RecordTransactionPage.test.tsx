@@ -270,9 +270,9 @@ describe('RecordTransactionPage submission', () => {
     });
 
     it('Given_two_accounts_named_in_the_entries_When_recorded_Then_only_their_balance_and_transactions_keys_are_invalidated', async () => {
-        // Ruling 37: the accounts list carries id, name, type and currency, none of which a
-        // transaction can change, so it must not be invalidated - only balance(id) and
-        // transactions(id) for the accounts the entries actually name.
+        // The accounts list carries id, name, type and currency, none of which a transaction can
+        // change, so it must not be invalidated - only balance(id) and transactions(id) for the
+        // accounts the entries actually name.
         fakeFetch(
             ledgerWithChecking((request) => {
                 if (request.url === RECORD_URL && request.method === 'POST') {

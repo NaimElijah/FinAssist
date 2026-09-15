@@ -29,7 +29,7 @@ const REVIEWS_SEGMENT = 'reviews';
  * here invalidates `all` itself. `list` and `reviews` are siblings under `all` (`['budgets',
  * 'list']` and `['budgets', 'reviews']`), so invalidating one by prefix can never also match the
  * other: defining a budget adds a row to the list; it cannot change any budget's review, so
- * `useDefineBudget` invalidates `list` alone (Ruling 37). Adding a categorisation rule is the
+ * `useDefineBudget` invalidates `list` alone. Adding a categorisation rule is the
  * opposite: it cannot change the list (a budget's period, currency and limits are unaffected),
  * but can change how any budget's spend categorises, so `useAddCategorisationRule` invalidates
  * the whole `reviews` prefix instead - a plain prefix match, not a predicate, since the hierarchy

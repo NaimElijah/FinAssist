@@ -1,7 +1,7 @@
 // @vitest-environment node
 // Pure calendar arithmetic; no DOM needed. The label case is zone-dependent - it formats through
 // Intl.DateTimeFormat - so it sets process.env.TZ and reloads the module fresh, mirroring
-// DateText.test.tsx's pattern (Ruling 38).
+// DateText.test.tsx's pattern for pinning the timezone in a date helper's own tests.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
