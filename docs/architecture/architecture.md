@@ -187,8 +187,10 @@ that the `monitoring` Compose profile mounts.
   `/api/v1/portfolio/holdings/{symbol}/valuation` (`GET`) and
   `/api/v1/portfolio/holdings/{symbol}/disposal` (`POST`, a JSON body, never query parameters,
   because its proceeds are an amount of money — ADR-028), each behind `HostAllowList` and each
-  refusal a problem. That proxy, and every caller of it, is still unbuilt
-  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)).
+  refusal a problem. The dev proxy already forwards `/assistant/…` to it
+  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md),
+  `tests/devServer.test.ts`); the portfolio screens that would call it through that proxy are not
+  built yet.
 - **Assistant to ledger** — HTTP, described by the ledger's OpenAPI document under `contracts/`
   and versioned in the URL path ([ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md),
   Accepted). **The ledger side exists and is published as a contract; the assistant's client
