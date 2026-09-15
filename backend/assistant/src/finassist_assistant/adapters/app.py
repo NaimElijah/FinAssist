@@ -22,7 +22,6 @@ See ADR-019, ADR-021, ADR-026, ADR-027 and ADR-028.
 
 from __future__ import annotations
 
-import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -43,6 +42,7 @@ from finassist_assistant.adapters.observability import (
     configure_tracing,
     log_request,
     set_correlation_id,
+    trace_id_of,
 )
 from finassist_assistant.adapters.openapi import document_problems
 from finassist_assistant.adapters.problems import answer_unexpected, install_problem_handlers
@@ -60,34 +60,7 @@ CONTRACT_TITLE: Final = "FinAssist assistant"
 CONTRACT_VERSION: Final = "v1"
 """The contract's version, which is the one in the path, not the package's own version."""
 
-# A W3C trace id is 32 lowercase hex characters, and all-zero is explicitly invalid.
-_TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
-_INVALID_TRACE_ID: Final = "0" * 32
-_TRACEPARENT_FIELDS: Final = 4
-
 _log = structlog.get_logger(__name__)
-
-
-def trace_id_of(traceparent: str | None) -> str | None:
-    """Extract the trace id from a ``traceparent``, or ``None`` if it is not one.
-
-    Validates the shape rather than trusting it: the header is caller-supplied, it ends up in
-    every log line for the request and in a response header, and the web client's own
-    ``traceIdOf`` applies exactly this rule. Two implementations of one header format that
-    disagree is how malformed data gets in through the more permissive side.
-
-    :param traceparent: a header value, possibly absent or malformed.
-    :returns: the 32-character trace id, or ``None`` when it cannot be parsed.
-    """
-    if not traceparent:
-        return None
-    fields = traceparent.split("-")
-    if len(fields) < _TRACEPARENT_FIELDS:
-        return None
-    trace_id = fields[1]
-    if not _TRACE_ID.match(trace_id) or trace_id == _INVALID_TRACE_ID:
-        return None
-    return trace_id
 
 
 def _correlation_id_for(request: Request) -> str:
@@ -185,7 +158,8 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
         return response
 
     # Added after the correlation middleware, so it runs before it: a refused request reaches no
-    # handler and is given no correlation id (ADR-027). It writes the refusal's request line itself.
+    # handler and no correlation header is echoed on it (ADR-027). It writes the refusal's request
+    # line itself, with the trace id of the caller's traceparent.
     app.add_middleware(HostAllowList, allowed_hosts=resolved.allowed_hosts)
 
     @app.get("/health", include_in_schema=False)

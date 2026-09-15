@@ -15,6 +15,7 @@ See ADR-019.
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import time
 from collections.abc import Iterable, MutableMapping
@@ -65,6 +66,11 @@ _correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=N
 
 TRACEPARENT_HEADER: Final = "traceparent"
 CORRELATION_ID_FIELD: Final = "correlation_id"
+
+# A W3C trace id is 32 lowercase hex characters, and all-zero is explicitly invalid.
+_TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
+_INVALID_TRACE_ID: Final = "0" * 32
+_TRACEPARENT_FIELDS: Final = 4
 
 REQUEST_EVENT: Final = "request answered"
 """The event of the one line the assistant writes for every request it answers."""
@@ -121,6 +127,31 @@ def set_correlation_id(value: str | None) -> None:
 def current_correlation_id() -> str | None:
     """The correlation id bound to the current context, if any."""
     return _correlation_id.get()
+
+
+def trace_id_of(traceparent: str | None) -> str | None:
+    """Extract the trace id from a ``traceparent``, or ``None`` if it is not one.
+
+    Validates the shape rather than trusting it: the header is caller-supplied, it ends up in
+    every log line for the request and in a response header, and the web client's own
+    ``traceIdOf`` applies exactly this rule. Two implementations of one header format that
+    disagree is how malformed data gets in through the more permissive side.
+
+    It lives at the logging boundary rather than in the app because both the correlation
+    middleware and the Host allow-list, which runs before it, bind the id it yields.
+
+    :param traceparent: a header value, possibly absent or malformed.
+    :returns: the 32-character trace id, or ``None`` when it cannot be parsed.
+    """
+    if not traceparent:
+        return None
+    fields = traceparent.split("-")
+    if len(fields) < _TRACEPARENT_FIELDS:
+        return None
+    trace_id = fields[1]
+    if not _TRACE_ID.match(trace_id) or trace_id == _INVALID_TRACE_ID:
+        return None
+    return trace_id
 
 
 def _is_secret_key(key: str) -> bool:

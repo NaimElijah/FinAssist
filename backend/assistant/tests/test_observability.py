@@ -27,7 +27,6 @@ from finassist_assistant.adapters.app import (
     CORRELATION_ID_HEADER,
     _correlation_id_for,
     create_app,
-    trace_id_of,
 )
 from finassist_assistant.adapters.observability import (
     REDACTED,
@@ -37,12 +36,14 @@ from finassist_assistant.adapters.observability import (
     redact_secrets,
     register_secret,
     reset_logging,
+    trace_id_of,
 )
 from finassist_assistant.adapters.settings import Settings
 from finassist_assistant.adapters.wiring import assemble
 
 SECRET = "sk-ant-000000000000000000000000"
 VALID_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+TRACEPARENT = f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"
 REQUEST_LINE = "request answered"
 # A recognisable amount, sent in a query string that must never reach a log line.
 AMOUNT = "98765.43"
@@ -254,10 +255,14 @@ def Given_a_refused_unknown_or_failing_request_When_answered_Then_one_info_reque
     headers: dict[str, str],
     status: int,
 ) -> None:
-    """Every request leaves exactly one line, at INFO whatever its status.
+    """Every request leaves exactly one line, at INFO whatever its status, with the caller's trace.
 
     A refusal is the assistant's considered answer, not an incident; an unexpected failure has its
     own ERROR line from the problem handlers, so the request line need not repeat the alarm.
+
+    A refused Host carries the id as well. When the UI is loaded under a name the list does not
+    admit, the refusal looks like an outage, and the web client's log of the 403 can be joined to
+    the assistant's side only by the trace id both lines hold (ADR-019, ADR-027).
     """
     failing = APIRouter()
 
@@ -269,13 +274,13 @@ def Given_a_refused_unknown_or_failing_request_When_answered_Then_one_info_reque
     app.include_router(failing)
     with TestClient(app) as running:
         capsys.readouterr()
-        response = running.get(path, headers=headers)
+        response = running.get(path, headers={"traceparent": TRACEPARENT, **headers})
 
     lines = _request_lines(capsys.readouterr().out)
     assert response.status_code == status
-    assert [(line["path"], line["status"], line["level"]) for line in lines] == [
-        (path, status, "info")
-    ]
+    assert [
+        (line["path"], line["status"], line["level"], line.get("correlation_id")) for line in lines
+    ] == [(path, status, "info", VALID_TRACE_ID)]
 
 
 def Given_a_foreign_host_When_a_websocket_upgrade_arrives_Then_it_is_refused_without_an_error(

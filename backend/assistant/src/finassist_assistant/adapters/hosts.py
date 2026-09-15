@@ -13,10 +13,16 @@ from collections.abc import Sequence
 from http import HTTPStatus
 from typing import Final
 
+from starlette.datastructures import Headers
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from finassist_assistant.adapters.observability import log_request
+from finassist_assistant.adapters.observability import (
+    TRACEPARENT_HEADER,
+    log_request,
+    set_correlation_id,
+    trace_id_of,
+)
 from finassist_assistant.adapters.problems import HOST_NOT_ALLOWED, problem_response
 
 __all__ = ["HostAllowList"]
@@ -52,7 +58,10 @@ class HostAllowList:
     never echoes the header back.
 
     A refused request never reaches the correlation middleware, so its request line is written
-    here, without a correlation id, exactly as every admitted request has one written there. A
+    here, as every admitted request has one written there. It carries the trace id of the caller's
+    ``traceparent`` when that is valid (ADR-019): a UI loaded under a name the list does not admit
+    sees an outage, and that id is what joins the web client's log of the 403 to this line. No
+    fresh id is minted, because the refusal echoes no correlation header a caller could quote. A
     refused WebSocket upgrade writes none. Its scope carries no method, and the request line records
     an HTTP request: no WebSocket route is served, so an admitted upgrade writes none either, and
     uvicorn reports a handshake it refused on its own logger.
@@ -81,5 +90,10 @@ class HostAllowList:
             return
         refusal = problem_response(HTTPStatus.FORBIDDEN, HOST_NOT_ALLOWED, _REFUSAL_DETAIL)
         await refusal(scope, receive, send)
-        if scope["type"] == _HTTP_SCOPE:
+        if scope["type"] != _HTTP_SCOPE:
+            return
+        set_correlation_id(trace_id_of(Headers(scope=scope).get(TRACEPARENT_HEADER)))
+        try:
             log_request(scope, refusal.status_code, started)
+        finally:
+            set_correlation_id(None)
