@@ -249,11 +249,13 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
     }
 
     function addRow() {
-        setRows((previous) => {
-            const key = nextKey.current;
-            nextKey.current += 1;
-            return [...previous, { key, ...NEW_ROW }];
-        });
+        // The key is read and advanced here, in the event handler, rather than inside the
+        // updater below: React may invoke an updater more than once for one state transition
+        // (Strict Mode's double-invoke among them), and an updater that mutates a ref each time
+        // it runs would skip a key on every extra invocation.
+        const key = nextKey.current;
+        nextKey.current += 1;
+        setRows((previous) => [...previous, { key, ...NEW_ROW }]);
     }
 
     function removeRow(key: number) {
