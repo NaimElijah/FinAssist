@@ -2,7 +2,7 @@
 // Renders the planning routes through the feature's own route table, so it needs a DOM. fetch is
 // faked, so the feature's real api/ module and its mapping run under test.
 
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -698,7 +698,7 @@ describe('PlannedFlowsPage plan-flow form', () => {
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
 
-    it('Given_a_filled_form_When_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
+    it('Given_a_filled_form_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
         // Two submit events can arrive in one tick, before the pending state has rendered, so a
         // guard that reads render-time state lets both through.
         const requests = fakeFetch(
@@ -713,12 +713,16 @@ describe('PlannedFlowsPage plan-flow form', () => {
         await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
         await user.type(screen.getByLabelText('Description'), 'Salary');
         await user.type(screen.getByLabelText('Amount'), '1000.00');
-        const submit = screen.getByRole('button', { name: 'Plan flow' });
+        const form = screen.getByLabelText('Description').closest('form');
+        if (form === null) {
+            throw new Error('the Description field is not inside a form');
+        }
 
-        await user.click(submit);
-        await user.click(submit);
+        fireEvent.submit(form);
+        fireEvent.submit(form);
 
         // By the time pending has rendered, every request either submit started has reached fetch.
+        const submit = screen.getByRole('button', { name: 'Plan flow' });
         await waitFor(() => {
             expect(submit).toHaveProperty('disabled', true);
         });
