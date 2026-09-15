@@ -32,10 +32,8 @@ from finassist_assistant.adapters.observability import (
     REDACTED,
     configure_logging,
     configure_tracing,
-    forget_secrets,
     redact_secrets,
     register_secret,
-    reset_logging,
     trace_id_of,
 )
 from finassist_assistant.adapters.settings import Settings
@@ -47,16 +45,6 @@ TRACEPARENT = f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"
 REQUEST_LINE = "request answered"
 # A recognisable amount, sent in a query string that must never reach a log line.
 AMOUNT = "98765.43"
-
-
-@pytest.fixture(autouse=True)
-def _reset_observability() -> Iterator[None]:
-    """Registered secrets, structlog and the root logger are global; no test may leak any."""
-    forget_secrets()
-    yield
-    forget_secrets()
-    structlog.reset_defaults()
-    reset_logging()
 
 
 @pytest.fixture

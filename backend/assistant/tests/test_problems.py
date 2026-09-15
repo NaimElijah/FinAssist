@@ -19,7 +19,6 @@ from decimal import Decimal
 from typing import Annotated, Any, Protocol
 
 import pytest
-import structlog
 from fastapi import APIRouter, FastAPI, Query
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ValidationError
@@ -27,7 +26,6 @@ from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from finassist_assistant.adapters.app import CORRELATION_ID_HEADER, create_app
-from finassist_assistant.adapters.observability import forget_secrets, reset_logging
 from finassist_assistant.adapters.settings import Settings
 from finassist_assistant.portfolio.adapters.inbound.api.models import MoneyModel
 from finassist_assistant.portfolio.application.port import (
@@ -145,16 +143,6 @@ class _FailingOutsideCorrelation:
         if scope["type"] == "http":
             raise RuntimeError(LEAK)
         await self.app(scope, receive, send)
-
-
-@pytest.fixture(autouse=True)
-def _reset_observability() -> Iterator[None]:
-    """Registered secrets, structlog and the root logger are global; no test may leak any."""
-    forget_secrets()
-    yield
-    forget_secrets()
-    structlog.reset_defaults()
-    reset_logging()
 
 
 @pytest.fixture

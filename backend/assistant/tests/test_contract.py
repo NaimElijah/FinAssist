@@ -16,15 +16,12 @@ operation names it can call, and amounts that never travel in a URL.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
-import structlog
 
 from finassist_assistant.adapters.app import create_app
-from finassist_assistant.adapters.observability import forget_secrets, reset_logging
 from finassist_assistant.adapters.settings import Settings
 
 CONTRACT_FILE = "assistant-v1.openapi.json"
@@ -52,16 +49,6 @@ HTTP_METHODS = frozenset({"get", "put", "post", "delete", "options", "head", "pa
 NOT_ALWAYS_PRESENT_MEMBERS = {
     "Problem": "RFC 9457 leaves every member but code optional, as the ledger's schema does",
 }
-
-
-@pytest.fixture(autouse=True)
-def _reset_observability() -> Iterator[None]:
-    """Registered secrets, structlog and the root logger are global; no test may leak any."""
-    forget_secrets()
-    yield
-    forget_secrets()
-    structlog.reset_defaults()
-    reset_logging()
 
 
 @pytest.fixture

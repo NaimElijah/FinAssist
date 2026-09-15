@@ -17,7 +17,6 @@ from decimal import Decimal
 from typing import Any, get_args
 
 import pytest
-import structlog
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -25,7 +24,6 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from uvicorn.protocols.utils import get_client_addr, get_path_with_query_string
 
 from finassist_assistant.adapters.app import create_app
-from finassist_assistant.adapters.observability import forget_secrets, reset_logging
 from finassist_assistant.adapters.settings import Settings
 from finassist_assistant.adapters.wiring import Assembly, assemble
 from finassist_assistant.marketdata.adapters.outbound.feed import InMemoryQuoteFeed
@@ -81,16 +79,6 @@ class _ScopeRecorder:
         if scope["type"] == "http":
             self.scopes.append(scope)
         await self.app(scope, receive, send)
-
-
-@pytest.fixture(autouse=True)
-def _reset_observability() -> Iterator[None]:
-    """Registered secrets, structlog and the root logger are global; no test may leak any."""
-    forget_secrets()
-    yield
-    forget_secrets()
-    structlog.reset_defaults()
-    reset_logging()
 
 
 @pytest.fixture

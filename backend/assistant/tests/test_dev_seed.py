@@ -8,15 +8,12 @@ point of the exercise: it must not go stale merely because the process has been 
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
-import structlog
 from fastapi.testclient import TestClient
 
 from finassist_assistant.adapters.app import create_app
-from finassist_assistant.adapters.observability import forget_secrets, reset_logging
 from finassist_assistant.adapters.seed import seeded_assembly
 from finassist_assistant.adapters.settings import Settings
 
@@ -38,16 +35,6 @@ class _MovableClock:
 
     def advance(self, delta: timedelta) -> None:
         self._now += delta
-
-
-@pytest.fixture(autouse=True)
-def _reset_observability() -> Iterator[None]:
-    """Registered secrets, structlog and the root logger are global; no test may leak any."""
-    forget_secrets()
-    yield
-    forget_secrets()
-    structlog.reset_defaults()
-    reset_logging()
 
 
 def _settings(*, dev_seed: bool) -> Settings:
