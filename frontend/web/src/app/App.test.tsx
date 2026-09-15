@@ -29,6 +29,7 @@ const AREAS = [
 
 const ACCOUNTS_URL = '/ledger/api/v1/accounts';
 const BUDGETS_URL = '/ledger/api/v1/budgets';
+const PLANNED_FLOWS_URL = '/ledger/api/v1/planned-flows';
 
 const CHECKING = {
     id: '0b7d2a4e-4d8c-4f3a-9a61-2f1c5e0d9b11',
@@ -38,13 +39,14 @@ const CHECKING = {
 } as const;
 
 /**
- * A ledger holding no accounts and no budgets. The shell is under test here, not the Accounts or
- * Budgets screen, so each area's one list request is answered locally and nothing reaches the
- * network; any other request fails the test.
+ * A ledger holding no accounts, no budgets and no planned flows. The shell is under test here,
+ * not the Accounts, Budgets or Planning screen, so each area's one list request is answered
+ * locally and nothing reaches the network; any other request fails the test.
  */
 const NO_ACCOUNTS: FetchAnswer = (request) => {
     if (request.url === ACCOUNTS_URL) return jsonResponse([]);
     if (request.url === BUDGETS_URL) return jsonResponse([]);
+    if (request.url === PLANNED_FLOWS_URL) return jsonResponse([]);
     return unexpectedRequest(request);
 };
 
