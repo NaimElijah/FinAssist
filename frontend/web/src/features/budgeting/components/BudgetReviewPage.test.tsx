@@ -309,7 +309,7 @@ describe('BudgetReviewPage', () => {
         expect(within(alert).getByRole('button', { name: 'Try again' })).toBeDefined();
     });
 
-    it('Given_the_budget_is_missing_from_the_list_While_its_review_has_not_yet_settled_Then_it_is_still_treated_as_not_found', async () => {
+    it('Given_the_budget_is_missing_from_a_loaded_list_When_its_review_has_not_settled_Then_it_is_treated_as_not_found', async () => {
         // A defensive path distinct from the 404 case above: the list has already loaded and
         // does not hold the id, even though the review request itself has not answered yet.
         const otherId = 'ffffffff-4d8c-4f3a-9a61-2f1c5e0d9b11';
