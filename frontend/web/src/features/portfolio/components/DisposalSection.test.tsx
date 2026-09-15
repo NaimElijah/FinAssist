@@ -298,6 +298,34 @@ describe('DisposalSection', () => {
         expect(screen.queryByRole('table', { name: LOTS_CAPTION })).toBeNull();
     });
 
+    it('Given_a_disposal_priced_When_a_later_calculation_is_refused_Then_the_error_shows_and_the_earlier_result_is_gone', async () => {
+        // A result answers the calculation that produced it. Kept beside a later refusal, its
+        // figures would read as the answer to the quantity that was refused.
+        const detail = 'Cannot dispose of 40 units of VOO: 10.5 are held.';
+        let refused = false;
+        fakeFetch(
+            assistant(() =>
+                refused
+                    ? problemResponse({ status: 422, code: 'INSUFFICIENT_HOLDING', detail })
+                    : jsonResponse(DISPOSITION),
+            ),
+        );
+        await renderSettledHolding();
+        const user = userEvent.setup({ delay: null });
+        await price(user);
+        await screen.findByRole('table', { name: LOTS_CAPTION });
+
+        refused = true;
+        await price(user, { quantity: '40' });
+
+        const section = screen.getByRole('region', { name: SECTION });
+        const alert = await within(section).findByRole('alert');
+        expect(within(alert).getByText(detail)).toBeDefined();
+        expect(screen.queryByRole('table', { name: LOTS_CAPTION })).toBeNull();
+        expect(screen.queryByText('Cost of sale')).toBeNull();
+        expect(screen.queryByText('Realised gain')).toBeNull();
+    });
+
     it('Given_a_quantity_the_assistant_refuses_as_non_positive_When_priced_Then_the_RULE_VIOLATED_detail_shows_in_an_error_state', async () => {
         const detail = 'A disposal must be of a positive quantity.';
         fakeFetch(assistant(() => problemResponse({ status: 422, code: 'RULE_VIOLATED', detail })));
