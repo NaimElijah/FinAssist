@@ -568,6 +568,111 @@ describe('PlannedFlowsPage plan-flow form', () => {
         });
     });
 
+    it('Given_an_until_date_entered_When_submitted_Then_it_posts_the_mapped_body', async () => {
+        const requests = fakeFetch(
+            ledger([], (request) => {
+                if (request.url === FLOWS_URL && request.method === 'POST') {
+                    return jsonResponse(
+                        {
+                            id: 'e2e2e2e2-4d8c-4f3a-9a61-2f1c5e0d9b11',
+                            description: 'Subscription',
+                            amount: { amount: '10.00', currency: 'ILS' },
+                            direction: 'OUTFLOW',
+                            startsOn: TODAY,
+                            recurrence: {
+                                kind: 'UNTIL',
+                                cadence: 'WEEKLY',
+                                interval: 2,
+                                until: '2027-01-01',
+                            },
+                            state: { status: 'PLANNED' },
+                        },
+                        201,
+                    );
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+
+        await user.type(screen.getByLabelText('Description'), 'Subscription');
+        await user.type(screen.getByLabelText('Amount'), '10.00');
+        await user.selectOptions(screen.getByLabelText('Repeats'), 'UNTIL');
+        await user.selectOptions(screen.getByLabelText('Cadence'), 'WEEKLY');
+        await user.clear(screen.getByLabelText('Every'));
+        await user.type(screen.getByLabelText('Every'), '2');
+        fireEvent.change(screen.getByLabelText('Until'), { target: { value: '2027-01-01' } });
+        await user.click(screen.getByRole('button', { name: 'Plan flow' }));
+
+        await waitFor(() => {
+            expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
+        });
+        expect(requests.find((request) => request.method === 'POST')?.body).toEqual({
+            description: 'Subscription',
+            amount: { amount: '10.00', currency: 'ILS' },
+            direction: 'OUTFLOW',
+            startsOn: TODAY,
+            recurrence: { kind: 'UNTIL', cadence: 'WEEKLY', interval: 2, until: '2027-01-01' },
+        });
+    });
+
+    it('Given_times_fields_filled_When_Repeats_switches_to_Until_a_date_Then_the_posted_body_drops_count', async () => {
+        const requests = fakeFetch(
+            ledger([], (request) => {
+                if (request.url === FLOWS_URL && request.method === 'POST') {
+                    return jsonResponse(
+                        {
+                            id: 'e3e3e3e3-4d8c-4f3a-9a61-2f1c5e0d9b11',
+                            description: 'Subscription',
+                            amount: { amount: '10.00', currency: 'ILS' },
+                            direction: 'OUTFLOW',
+                            startsOn: TODAY,
+                            recurrence: {
+                                kind: 'UNTIL',
+                                cadence: 'MONTHLY',
+                                interval: 1,
+                                until: '2027-01-01',
+                            },
+                            state: { status: 'PLANNED' },
+                        },
+                        201,
+                    );
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+
+        await user.type(screen.getByLabelText('Description'), 'Subscription');
+        await user.type(screen.getByLabelText('Amount'), '10.00');
+        await user.selectOptions(screen.getByLabelText('Repeats'), 'TIMES');
+        await user.clear(screen.getByLabelText('Times'));
+        await user.type(screen.getByLabelText('Times'), '12');
+
+        await user.selectOptions(screen.getByLabelText('Repeats'), 'UNTIL');
+        expect(screen.queryByLabelText('Times')).toBeNull();
+        fireEvent.change(screen.getByLabelText('Until'), { target: { value: '2027-01-01' } });
+        await user.click(screen.getByRole('button', { name: 'Plan flow' }));
+
+        await waitFor(() => {
+            expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
+        });
+        const body = requests.find((request) => request.method === 'POST')?.body as {
+            recurrence?: object;
+        };
+        expect(body.recurrence).not.toHaveProperty('count');
+        expect(body.recurrence).toEqual({
+            kind: 'UNTIL',
+            cadence: 'MONTHLY',
+            interval: 1,
+            until: '2027-01-01',
+        });
+    });
+
     it('Given_an_incomplete_recurrence_400_When_planned_Then_it_falls_to_the_alert_as_an_unmapped_field', async () => {
         fakeFetch(
             ledger([], (request) => {

@@ -297,6 +297,50 @@ describe('planFlow', () => {
         ]);
     });
 
+    it('Given_an_until_input_When_planned_Then_the_posted_recurrence_holds_only_its_own_members', async () => {
+        const stub = stubFetch(
+            jsonResponse(
+                {
+                    id: FLOW_ID,
+                    description: 'Subscription',
+                    amount: { amount: '10.00', currency: 'ILS' },
+                    direction: 'OUTFLOW',
+                    startsOn: '2026-09-01',
+                    recurrence: {
+                        kind: 'UNTIL',
+                        cadence: 'WEEKLY',
+                        interval: 2,
+                        until: '2027-01-01',
+                    },
+                    state: { status: 'PLANNED' },
+                },
+                201,
+            ),
+        );
+
+        await planFlow({
+            description: 'Subscription',
+            amount: { amount: '10.00', currency: 'ILS' },
+            direction: 'OUTFLOW',
+            startsOn: '2026-09-01',
+            recurrence: { kind: 'UNTIL', cadence: 'WEEKLY', interval: 2, until: '2027-01-01' },
+        });
+
+        const body = JSON.parse(onlyCall(stub).init.body as string) as Record<string, unknown>;
+        expect(body.recurrence).toEqual({
+            kind: 'UNTIL',
+            cadence: 'WEEKLY',
+            interval: 2,
+            until: '2027-01-01',
+        });
+        expect(Object.keys(body.recurrence as object)).toEqual([
+            'kind',
+            'cadence',
+            'interval',
+            'until',
+        ]);
+    });
+
     it('Given_a_negative_amount_When_planned_Then_it_is_sent_exactly_as_typed_without_normalisation', async () => {
         const stub = stubFetch(
             problemResponse(
