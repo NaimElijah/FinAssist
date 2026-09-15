@@ -177,12 +177,16 @@ describe('HoldingPage', () => {
 
         const { queryClient } = renderHolding();
 
-        expect(await screen.findByText('Nothing is held under VOO')).toBeDefined();
-        // The valuation answers 404 too; wait for it, so a card for it would have rendered by now.
+        // Both reads answer 404, and either can land first: the valuation's own calm state shows
+        // until the position's replaces the page. Wait for both, so that replacement has happened.
         await waitFor(() => {
+            expect(queryClient.getQueryState(portfolioKeys.position('VOO'))?.status).toBe('error');
             expect(queryClient.getQueryState(portfolioKeys.valuation('VOO'))?.status).toBe('error');
         });
-        expect(screen.queryByRole('heading', { name: 'Valuation' })).toBeNull();
+        expect(await screen.findByText('Nothing is held under VOO')).toBeDefined();
+        await waitFor(() => {
+            expect(screen.queryByRole('heading', { name: 'Valuation' })).toBeNull();
+        });
         // With nothing held, there is nothing to price a disposal of.
         expect(screen.queryByRole('heading', { name: 'Price a disposal' })).toBeNull();
         expect(screen.queryByRole('alert')).toBeNull();
