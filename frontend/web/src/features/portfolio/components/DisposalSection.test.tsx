@@ -57,13 +57,13 @@ const DISPOSITION = {
 } as const;
 
 /**
- * An assistant holding every symbol at a usable price, pricing a disposal through `disposal`, or
- * refusing one as unplanned when none is given.
+ * An assistant holding every symbol at a usable price in `currency`, pricing a disposal through
+ * `disposal`, or refusing one as unplanned when none is given.
  */
-function assistant(disposal?: FetchAnswer): FetchAnswer {
+function assistant(disposal?: FetchAnswer, currency = 'USD'): FetchAnswer {
     return (request) => {
         const [, symbol, resource] = HOLDING_REQUEST.exec(request.url) ?? [];
-        const cost = { amount: '4200.00', currency: 'USD' };
+        const cost = { amount: '4200.00', currency };
         if (request.method === 'GET' && resource === 'position') {
             return jsonResponse({ symbol, quantity: '10.5', cost });
         }
@@ -72,9 +72,9 @@ function assistant(disposal?: FetchAnswer): FetchAnswer {
                 symbol,
                 quantity: '10.5',
                 cost,
-                unitPrice: { amount: '500.00', currency: 'USD' },
-                marketValue: { amount: '5250.00', currency: 'USD' },
-                unrealisedGain: { amount: '1050.00', currency: 'USD' },
+                unitPrice: { amount: '500.00', currency },
+                marketValue: { amount: '5250.00', currency },
+                unrealisedGain: { amount: '1050.00', currency },
             });
         }
         if (request.method === 'POST' && resource === 'disposal' && disposal !== undefined) {
@@ -99,18 +99,16 @@ async function renderSettledHolding(path = '/portfolio/VOO') {
     return rendered;
 }
 
-/** Fill the calculator and submit it. Typing itself is not under test, so the fields are set. */
+/**
+ * Fill the calculator and submit it, leaving Currency as the calculator offers it. Typing itself is
+ * not under test, so the fields are set.
+ */
 async function price(
     user: ReturnType<typeof userEvent.setup>,
-    {
-        quantity = '4',
-        amount = '2100.00',
-        currency = 'USD',
-    }: { quantity?: string; amount?: string; currency?: string } = {},
+    { quantity = '4', amount = '2100.00' }: { quantity?: string; amount?: string } = {},
 ) {
     fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: quantity } });
     fireEvent.change(screen.getByLabelText('Proceeds amount'), { target: { value: amount } });
-    await user.selectOptions(screen.getByLabelText('Currency'), currency);
     await user.click(screen.getByRole('button', { name: 'Price disposal' }));
 }
 
@@ -188,6 +186,39 @@ describe('DisposalSection', () => {
                 .getAllByRole('rowheader')
                 .map((cell) => cell.textContent),
         ).toEqual(['1 Mar 2024', '15 Jan 2025']);
+    });
+
+    for (const currency of ['USD', 'GBP'] as const) {
+        it(`Given_a_holding_whose_lots_are_in_${currency}_When_priced_without_choosing_a_currency_Then_the_proceeds_are_posted_in_${currency}`, async () => {
+            // The assistant prices proceeds only in the lots' own currency and answers any other
+            // with 422 CURRENCY_MISMATCH, so the calculator starts in the currency the holding cost.
+            const requests = fakeFetch(assistant(() => jsonResponse(DISPOSITION), currency));
+            renderRoutes(portfolioRoutes, '/portfolio/VOO');
+            await screen.findByLabelText('Quantity');
+            await screen.findByText('Market value');
+
+            await price(userEvent.setup({ delay: null }));
+
+            await screen.findByRole('table', { name: LOTS_CAPTION });
+            expect(screen.getByLabelText('Currency')).toHaveProperty('value', currency);
+            expect(requests.filter(isDisposal).map((request) => request.body)).toEqual([
+                { quantity: '4', proceeds: { amount: '2100.00', currency } },
+            ]);
+        });
+    }
+
+    it('Given_the_position_still_loading_When_the_page_renders_Then_no_disposal_can_be_priced_yet', async () => {
+        // Until the position loads there is no currency to start the proceeds in, and perhaps
+        // nothing held to price at all.
+        fakeFetch((request) =>
+            request.url.endsWith('/position') ? pendingResponse() : assistant()(request),
+        );
+        renderRoutes(portfolioRoutes, '/portfolio/VOO');
+
+        await screen.findByText('US$5,250.00');
+
+        expect(screen.getByText('Loading position…')).toBeDefined();
+        expect(screen.queryByRole('region', { name: SECTION })).toBeNull();
     });
 
     it('Given_proceeds_below_the_cost_of_sale_When_priced_Then_the_realised_figure_reads_as_a_loss_with_its_sign_kept', async () => {
@@ -384,9 +415,16 @@ describe('DisposalSection', () => {
         expect(requests.filter(isDisposal)).toHaveLength(1);
     });
 
-    it('Given_a_disposal_priced_for_VOO_When_the_page_moves_to_BND_Then_neither_its_result_nor_its_inputs_carry_over', async () => {
+    it('Given_a_disposal_priced_for_VOO_When_the_page_moves_back_to_BND_already_read_Then_neither_its_result_nor_its_inputs_carry_over', async () => {
+        // BND was read first, so its position is cached and the calculator shows at once on the
+        // way back: nothing but its key starts it afresh.
         fakeFetch(assistant(() => jsonResponse(DISPOSITION)));
-        const { router } = await renderSettledHolding();
+        const { router, queryClient } = await renderSettledHolding('/portfolio/BND');
+        await act(() => router.navigate('/portfolio/VOO'));
+        await screen.findByRole('heading', { level: 1, name: 'VOO' });
+        await waitFor(() => {
+            expect(queryClient.isFetching()).toBe(0);
+        });
         await price(userEvent.setup({ delay: null }));
         await screen.findByRole('table', { name: LOTS_CAPTION });
 
@@ -397,8 +435,9 @@ describe('DisposalSection', () => {
         expect(screen.queryByRole('table', { name: LOTS_CAPTION })).toBeNull();
         expect(screen.getByLabelText('Quantity')).toHaveProperty('value', '');
         expect(screen.getByLabelText('Proceeds amount')).toHaveProperty('value', '');
-        // BND's own reads settle before the test ends.
-        await screen.findByText('US$4,200.00');
-        await screen.findByText('US$5,250.00');
+        // BND's background refetch settles before the test ends.
+        await waitFor(() => {
+            expect(queryClient.isFetching()).toBe(0);
+        });
     });
 });

@@ -14,9 +14,6 @@ const CURRENCY_OPTIONS: readonly SelectOption[] = CURRENCIES.map((currency) => (
     label: currency,
 }));
 
-/** Proceeds start in shekels, the currency the owner keeps books in, as every form's amount does. */
-const DEFAULT_CURRENCY: Currency = 'ILS';
-
 /** ADR-028 lists field `errors` only on a 400. */
 const MALFORMED_REQUEST_STATUS = 400;
 
@@ -115,10 +112,15 @@ function oneOf<Value extends string>(allowed: readonly Value[], value: string): 
     return match;
 }
 
-/** Which holding a disposal is priced for. */
+/** Which holding a disposal is priced for, and the currency its proceeds start in. */
 export interface DisposalSectionProps {
     /** The symbol as it appears in the URL. */
     readonly symbol: string;
+    /**
+     * The currency the holding's lots cost. The proceeds start in it because the assistant prices
+     * them in the lots' own currency alone, answering any other with 422 `CURRENCY_MISMATCH`.
+     */
+    readonly initialCurrency: Currency;
 }
 
 /**
@@ -135,11 +137,12 @@ export interface DisposalSectionProps {
  * every form in the app keeps.
  *
  * Its state belongs to one symbol, so its page keys it by symbol: moving to another holding starts
- * it afresh, rather than showing one holding's calculation under another's name.
+ * it afresh, rather than showing one holding's calculation under another's name. The page mounts it
+ * only once the position has loaded, which is where `initialCurrency` comes from.
  *
  * @param props - see `DisposalSectionProps`.
  */
-export function DisposalSection({ symbol }: DisposalSectionProps) {
+export function DisposalSection({ symbol, initialCurrency }: DisposalSectionProps) {
     const headingId = useId();
     const noteId = useId();
     const formRef = useRef<HTMLFormElement>(null);
@@ -148,7 +151,7 @@ export function DisposalSection({ symbol }: DisposalSectionProps) {
     const submitting = useRef(false);
     const [quantity, setQuantity] = useState('');
     const [amount, setAmount] = useState('');
-    const [currency, setCurrency] = useState<Currency>(DEFAULT_CURRENCY);
+    const [currency, setCurrency] = useState<Currency>(initialCurrency);
     const pricing = usePriceDisposal(symbol);
     const failure = pricing.error;
     const errors = submissionErrors(failure);

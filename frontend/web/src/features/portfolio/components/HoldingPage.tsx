@@ -121,8 +121,10 @@ function ValuationSection({
  * empty state in the valuation's section alone, and the position still shows. Any other failure is
  * an error state offering a retry.
  *
- * The disposal calculator is keyed by symbol, so moving to another holding starts it afresh rather
- * than showing one holding's calculation under another's name.
+ * The disposal calculator is offered once the position has loaded, its proceeds starting in the
+ * currency the holding's lots cost, the only one the assistant prices them in. It is keyed by
+ * symbol, so moving to another holding starts it afresh rather than showing one holding's
+ * calculation under another's name.
  */
 function Holding({ symbol }: { readonly symbol: string }) {
     const position = usePosition(symbol);
@@ -143,7 +145,13 @@ function Holding({ symbol }: { readonly symbol: string }) {
                 <>
                     <PositionSection query={position} />
                     <ValuationSection symbol={symbol} query={valuation} />
-                    <DisposalSection key={symbol} symbol={symbol} />
+                    {position.data === undefined ? null : (
+                        <DisposalSection
+                            key={symbol}
+                            symbol={symbol}
+                            initialCurrency={position.data.cost.currency}
+                        />
+                    )}
                 </>
             )}
             <SymbolLookup heading="Look up another holding" />
