@@ -213,7 +213,9 @@ and the code would follow. Rejected: it adds a generator to both toolchains, and
 interfaces would fight the hand-built composition root that ADR-021 and ADR-022 established.
 
 **A hand-written document with no generator.** No new dependency at all. Rejected: it drifts
-silently, because nothing ties it to the handlers.
+silently, because nothing ties it to the handlers. It was kept as the fallback had springdoc 3.1.1
+turned out not to support Spring Boot 4.1.1, and would then have carried a test asserting that
+every handler mapping appeared in it. springdoc runs here, so the fallback was never needed.
 
 **JSON numbers for money.** The natural encoding, and what most APIs do. Rejected: most parsers read a
 JSON number into a float, so `12.50` arrives as `12.5` with its scale gone, and a value with no exact
