@@ -1,6 +1,7 @@
 import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { Button, ErrorState, SelectField, type SelectOption, TextField } from '@/shared/ui';
 
 import { usePriceDisposal } from '../hooks/portfolioQueries';
@@ -134,7 +135,8 @@ export interface DisposalSectionProps {
  * Submit is disabled while the calculation runs, and a submit event arriving anyway is ignored. A
  * failure is shown where it can be acted on: a 400's field errors on Quantity or Proceeds amount,
  * and anything else in an `ErrorState` above the form. Focus follows the failure there, the rule
- * every form in the app keeps.
+ * every form in the app keeps. Editing any field clears the last answer - a failure or a result -
+ * once it has settled, since it answered the inputs as they were priced.
  *
  * Its state belongs to one symbol, so its page keys it by symbol: moving to another holding starts
  * it afresh, rather than showing one holding's calculation under another's name. The page mounts it
@@ -207,6 +209,7 @@ export function DisposalSection({ symbol, initialCurrency }: DisposalSectionProp
                         value={quantity}
                         error={errors.fields.quantity}
                         onChange={(event) => {
+                            clearSettledOutcome(pricing);
                             setQuantity(event.target.value);
                         }}
                     />
@@ -219,6 +222,7 @@ export function DisposalSection({ symbol, initialCurrency }: DisposalSectionProp
                         value={amount}
                         error={errors.fields.amount}
                         onChange={(event) => {
+                            clearSettledOutcome(pricing);
                             setAmount(event.target.value);
                         }}
                     />
@@ -228,6 +232,7 @@ export function DisposalSection({ symbol, initialCurrency }: DisposalSectionProp
                         options={CURRENCY_OPTIONS}
                         value={currency}
                         onChange={(event) => {
+                            clearSettledOutcome(pricing);
                             setCurrency(oneOf(CURRENCIES, event.target.value));
                         }}
                     />

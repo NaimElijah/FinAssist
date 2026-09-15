@@ -326,6 +326,37 @@ describe('DisposalSection', () => {
         expect(screen.queryByText('Realised gain')).toBeNull();
     });
 
+    it('Given_a_disposal_priced_When_the_quantity_is_edited_Then_the_result_is_gone', async () => {
+        // A result answers the quantity and proceeds it priced; beside a quantity it never priced,
+        // its cost of sale and realised gain would read as the answer for that quantity.
+        fakeFetch(assistant(() => jsonResponse(DISPOSITION)));
+        await renderSettledHolding();
+        const user = userEvent.setup({ delay: null });
+        await price(user);
+        await screen.findByRole('table', { name: LOTS_CAPTION });
+
+        await user.type(screen.getByLabelText('Quantity'), '5');
+
+        expect(screen.queryByRole('heading', { level: 3, name: RESULT_HEADING })).toBeNull();
+        expect(screen.queryByRole('table', { name: LOTS_CAPTION })).toBeNull();
+    });
+
+    it('Given_a_refusal_shown_When_the_currency_is_changed_Then_the_refusal_clears', async () => {
+        const detail = 'Cannot dispose of 40 units of VOO: 10.5 are held.';
+        fakeFetch(
+            assistant(() => problemResponse({ status: 422, code: 'INSUFFICIENT_HOLDING', detail })),
+        );
+        await renderSettledHolding();
+        const user = userEvent.setup({ delay: null });
+        await price(user, { quantity: '40' });
+        const section = screen.getByRole('region', { name: SECTION });
+        await within(section).findByRole('alert');
+
+        await user.selectOptions(screen.getByLabelText('Currency'), 'ILS');
+
+        expect(within(section).queryByRole('alert')).toBeNull();
+    });
+
     it('Given_a_quantity_the_assistant_refuses_as_non_positive_When_priced_Then_the_RULE_VIOLATED_detail_shows_in_an_error_state', async () => {
         const detail = 'A disposal must be of a positive quantity.';
         fakeFetch(assistant(() => problemResponse({ status: 422, code: 'RULE_VIOLATED', detail })));
