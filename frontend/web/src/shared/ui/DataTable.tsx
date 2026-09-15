@@ -1,4 +1,4 @@
-import { type ReactNode, useId } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 
 import { joinClassNames } from './classNames';
 import styles from './DataTable.module.css';
@@ -50,8 +50,10 @@ export interface DataTableProps<Row> {
  * nothing to tabulate.
  *
  * A table wider than the screen scrolls inside a `role="region"` wrapper rather than making the
- * whole page scroll sideways. The wrapper is focusable, so a keyboard user can scroll it with the
- * arrow keys, and it is named by the caption, so what it holds is announced.
+ * whole page scroll sideways. The wrapper is named by the caption, so what it holds is announced.
+ * It is a Tab stop only while the table overflows it, so a keyboard user can scroll it with the
+ * arrow keys: a region with nothing to scroll would only be one more key press before the table's
+ * own links and buttons.
  *
  * @param props - see `DataTableProps`.
  */
@@ -63,9 +65,34 @@ export function DataTable<Row>({
     rowKey,
 }: DataTableProps<Row>) {
     const captionId = useId();
+    const regionRef = useRef<HTMLDivElement>(null);
+    const [overflowing, setOverflowing] = useState(false);
+
+    // Measured after layout, and again whenever the window's size changes: whether the table
+    // overflows depends on both what it holds and how much room the page gives it.
+    useEffect(() => {
+        const region = regionRef.current;
+        if (region === null) {
+            return;
+        }
+        const measure = () => {
+            setOverflowing(region.scrollWidth > region.clientWidth);
+        };
+        measure();
+        window.addEventListener('resize', measure);
+        return () => {
+            window.removeEventListener('resize', measure);
+        };
+    }, [rows, columns]);
 
     return (
-        <div role="region" aria-labelledby={captionId} tabIndex={0} className={styles.region}>
+        <div
+            ref={regionRef}
+            role="region"
+            aria-labelledby={captionId}
+            tabIndex={overflowing ? 0 : undefined}
+            className={styles.region}
+        >
             <table className={styles.table}>
                 <caption
                     id={captionId}

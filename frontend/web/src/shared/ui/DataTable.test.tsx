@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // Queries the rendered table by role, so it needs a DOM.
 
-import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { type Column, DataTable } from './DataTable';
 
@@ -34,6 +34,19 @@ function renderAccounts(captionHidden = false) {
     );
 }
 
+/**
+ * Make every element report the given widths, as a laid-out browser would. jsdom lays nothing out,
+ * so both read 0 and nothing ever overflows.
+ */
+function layOut({ scrollWidth, clientWidth }: { scrollWidth: number; clientWidth: number }) {
+    vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(scrollWidth);
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(clientWidth);
+}
+
+afterEach(() => {
+    vi.restoreAllMocks();
+});
+
 describe('DataTable', () => {
     it('Given_a_caption_When_rendered_Then_it_names_the_table', () => {
         renderAccounts();
@@ -47,12 +60,37 @@ describe('DataTable', () => {
         expect(screen.getByRole('table', { name: 'Accounts' })).toBeDefined();
     });
 
-    it('Given_a_table_When_rendered_Then_it_sits_in_a_focusable_scroll_region_named_by_its_caption', () => {
+    it('Given_a_table_that_fits_its_region_When_rendered_Then_the_region_is_named_by_its_caption_and_is_not_a_Tab_stop', () => {
+        // With nothing to scroll, a Tab stop would be one more key press before the table's own
+        // links and buttons, for a scroll affordance nobody can use.
+        layOut({ scrollWidth: 300, clientWidth: 300 });
+
         renderAccounts();
 
         const region = screen.getByRole('region', { name: 'Accounts' });
         expect(within(region).getByRole('table', { name: 'Accounts' })).toBeDefined();
+        expect(region.hasAttribute('tabindex')).toBe(false);
+    });
+
+    it('Given_a_table_wider_than_its_region_When_rendered_Then_the_region_is_a_Tab_stop', () => {
         // Focusable, so a keyboard user can scroll a table wider than the screen with arrow keys.
+        layOut({ scrollWidth: 900, clientWidth: 300 });
+
+        renderAccounts();
+
+        expect(screen.getByRole('region', { name: 'Accounts' }).tabIndex).toBe(0);
+    });
+
+    it('Given_a_table_that_fits_When_the_window_narrows_until_it_overflows_Then_the_region_becomes_a_Tab_stop', () => {
+        layOut({ scrollWidth: 300, clientWidth: 300 });
+        renderAccounts();
+        const region = screen.getByRole('region', { name: 'Accounts' });
+
+        layOut({ scrollWidth: 900, clientWidth: 300 });
+        act(() => {
+            window.dispatchEvent(new Event('resize'));
+        });
+
         expect(region.tabIndex).toBe(0);
     });
 
