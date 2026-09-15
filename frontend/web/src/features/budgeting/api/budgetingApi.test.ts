@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/shared/api/client';
 import { setLogSink } from '@/shared/lib/logger';
 
-import { defineBudget, listBudgets } from './budgetingApi';
+import { defineBudget, listBudgets, reviewBudget } from './budgetingApi';
 
 /**
  * Install a stubbed fetch answering every call with a fresh response from `response`, since a
@@ -178,5 +178,82 @@ describe('defineBudget', () => {
 
         expect(failure).toBeInstanceOf(ApiError);
         expect(failure).toMatchObject({ status: 422, problem: { code: 'RULE_VIOLATED' } });
+    });
+});
+
+describe('reviewBudget', () => {
+    it('Given_a_wire_review_When_read_Then_it_requests_the_review_and_maps_every_member_with_unbudgeted_as_an_array', async () => {
+        const stub = stubFetch(
+            jsonResponse({
+                budget: 'b1',
+                period: { start: '2026-09-01', end: '2026-10-01' },
+                currency: 'ILS',
+                categories: [
+                    {
+                        category: 'groceries',
+                        limit: { amount: '1000.00', currency: 'ILS' },
+                        spent: { amount: '1200.00', currency: 'ILS' },
+                        remaining: { amount: '-200.00', currency: 'ILS' },
+                        overspent: true,
+                    },
+                ],
+                unbudgeted: [
+                    { category: 'gifts', spent: { amount: '50.00', currency: 'ILS' } },
+                    { category: 'hobbies', spent: { amount: '30.00', currency: 'ILS' } },
+                ],
+                uncategorised: { amount: '15.00', currency: 'ILS' },
+            }),
+        );
+
+        const review = await reviewBudget('b1');
+
+        expect(review).toEqual({
+            budget: 'b1',
+            period: { start: '2026-09-01', end: '2026-10-01' },
+            currency: 'ILS',
+            categories: [
+                {
+                    category: 'groceries',
+                    limit: { amount: '1000.00', currency: 'ILS' },
+                    spent: { amount: '1200.00', currency: 'ILS' },
+                    remaining: { amount: '-200.00', currency: 'ILS' },
+                    overspent: true,
+                },
+            ],
+            unbudgeted: [
+                { category: 'gifts', spent: { amount: '50.00', currency: 'ILS' } },
+                { category: 'hobbies', spent: { amount: '30.00', currency: 'ILS' } },
+            ],
+            uncategorised: { amount: '15.00', currency: 'ILS' },
+        });
+        expect(Array.isArray(review.unbudgeted)).toBe(true);
+        const { url } = onlyCall(stub);
+        expect(url).toBe('/ledger/api/v1/budgets/b1/review');
+    });
+
+    it('Given_an_id_carrying_path_characters_When_reviewed_Then_the_id_is_encoded_as_one_segment', async () => {
+        const stub = stubFetch(
+            jsonResponse({
+                budget: 'a/b',
+                period: { start: '2026-09-01', end: '2026-10-01' },
+                currency: 'ILS',
+                categories: [],
+                unbudgeted: [],
+                uncategorised: { amount: '0.00', currency: 'ILS' },
+            }),
+        );
+
+        await reviewBudget('a/b');
+
+        expect(onlyCall(stub).url).toBe('/ledger/api/v1/budgets/a%2Fb/review');
+    });
+
+    it('Given_an_unknown_budget_When_reviewed_Then_it_rejects_with_an_ApiError_coded_BUDGET_NOT_FOUND', async () => {
+        stubFetch(problemResponse({ status: 404, code: 'BUDGET_NOT_FOUND' }, 404));
+
+        await expect(reviewBudget('b1')).rejects.toMatchObject({
+            status: 404,
+            problem: { code: 'BUDGET_NOT_FOUND' },
+        });
     });
 });

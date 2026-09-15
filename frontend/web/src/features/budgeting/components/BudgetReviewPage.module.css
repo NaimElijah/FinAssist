@@ -1,0 +1,59 @@
+.back {
+    margin: 0 0 var(--space-4);
+    font-size: var(--font-size-sm);
+}
+
+.header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-block-end: var(--space-6);
+}
+
+/* The page's h1 margin suits a heading that stands alone; here the currency follows it. */
+.name {
+    margin: 0;
+}
+
+.meta {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.placeholder {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+/* A refetch failure sits above the rows it failed to refresh, which stay on screen. */
+.stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.section {
+    margin-block-start: var(--space-6);
+}
+
+.heading {
+    margin: 0 0 var(--space-2);
+}
+
+.hint {
+    margin: 0 0 var(--space-3);
+    color: var(--color-muted);
+}
+
+.uncategorised {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin: 0;
+}
+
+.amount {
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-strong);
+    line-height: var(--line-height-tight);
+}

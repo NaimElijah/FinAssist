@@ -10,16 +10,28 @@ import { LEDGER_API, requestJson, sendJson } from '@/shared/api/client';
 import type {
     BudgetPeriodDto,
     BudgetResponse,
+    BudgetReviewResponse,
     CategoryLimitDto,
+    CategorySpendResponse,
     DefineBudgetRequest,
     MoneyDto,
+    UnbudgetedSpendResponse,
 } from '@/shared/api/contracts/ledger/types.gen';
 
 import type { Budget, CategoryLimit, DefineBudgetInput } from '../types/budget';
 import type { Money } from '../types/money';
 import type { BudgetPeriod } from '../types/period';
+import type { BudgetReview, CategorySpend, UnbudgetedSpend } from '../types/review';
+
+/** The ledger's code for a budget id in the path that names no budget (ADR-028: 404). */
+export const BUDGET_NOT_FOUND = 'BUDGET_NOT_FOUND';
 
 const BUDGETS_URL = `${LEDGER_API}/budgets`;
+
+/** The URL of one budget's sub-resource, with the id encoded as a single path segment. */
+function budgetUrl(budgetId: string, subResource: string): string {
+    return `${BUDGETS_URL}/${encodeURIComponent(budgetId)}/${subResource}`;
+}
 
 function toMoney(wire: MoneyDto): Money {
     return { amount: wire.amount, currency: wire.currency };
@@ -40,6 +52,31 @@ function toBudget(wire: BudgetResponse): Budget {
         currency: wire.currency,
         limits: wire.limits.map(toCategoryLimit),
         total: toMoney(wire.total),
+    };
+}
+
+function toCategorySpend(wire: CategorySpendResponse): CategorySpend {
+    return {
+        category: wire.category,
+        limit: toMoney(wire.limit),
+        spent: toMoney(wire.spent),
+        remaining: toMoney(wire.remaining),
+        overspent: wire.overspent,
+    };
+}
+
+function toUnbudgetedSpend(wire: UnbudgetedSpendResponse): UnbudgetedSpend {
+    return { category: wire.category, spent: toMoney(wire.spent) };
+}
+
+function toBudgetReview(wire: BudgetReviewResponse): BudgetReview {
+    return {
+        budget: wire.budget,
+        period: toPeriod(wire.period),
+        currency: wire.currency,
+        categories: wire.categories.map(toCategorySpend),
+        unbudgeted: wire.unbudgeted.map(toUnbudgetedSpend),
+        uncategorised: toMoney(wire.uncategorised),
     };
 }
 
@@ -78,4 +115,18 @@ export async function defineBudget(input: DefineBudgetInput): Promise<Budget> {
     };
     const wire = await sendJson<BudgetResponse>(BUDGETS_URL, 'POST', body);
     return toBudget(wire);
+}
+
+/**
+ * How a budget is doing, derived fresh by the ledger on every call.
+ *
+ * @param budgetId - the budget's id.
+ * @returns the review: every budgeted category's limit, spend and remaining, spend unbudgeted
+ *   for a category with no limit, and spend that matched no rule at all.
+ * @throws ApiError - on a non-2xx response: 404 `BUDGET_NOT_FOUND` for an unknown budget.
+ * @throws ApiBodyError - when the response carries no JSON body.
+ */
+export async function reviewBudget(budgetId: string): Promise<BudgetReview> {
+    const wire = await requestJson<BudgetReviewResponse>(budgetUrl(budgetId, 'review'));
+    return toBudgetReview(wire);
 }

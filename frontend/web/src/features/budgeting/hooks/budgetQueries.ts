@@ -6,7 +6,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { defineBudget, listBudgets } from '../api/budgetingApi';
+import { defineBudget, listBudgets, reviewBudget } from '../api/budgetingApi';
 import type { DefineBudgetInput } from '../types/budget';
 
 /** The prefix every budgeting key starts with. */
@@ -17,13 +17,18 @@ const BUDGETS_KEY = ['budgets'] as const;
  *
  * Every key starts with `all`, and TanStack Query matches an invalidation by prefix - but nothing
  * here invalidates `all` itself. Defining a budget adds a row to the list; it cannot change any
- * other budget's review, so `useDefineBudget` invalidates `list` alone (Ruling 37).
+ * budget's review, so `useDefineBudget` invalidates `list` alone (Ruling 37). Adding a
+ * categorisation rule is the opposite: it cannot change the list (a budget's period, currency and
+ * limits are unaffected), but can change how any budget's spend categorises, so
+ * `useAddCategorisationRule` invalidates every `review` key instead.
  */
 export const budgetKeys = {
     /** The prefix of every budgeting key. */
     all: BUDGETS_KEY,
     /** The budgets list. */
     list: [...BUDGETS_KEY, 'list'] as const,
+    /** One budget's review. */
+    review: (budgetId: string) => [...BUDGETS_KEY, budgetId, 'review'] as const,
 };
 
 /**
@@ -34,6 +39,19 @@ export const budgetKeys = {
  */
 export function useBudgets() {
     return useQuery({ queryKey: budgetKeys.list, queryFn: () => listBudgets() });
+}
+
+/**
+ * One budget's review, derived fresh by the ledger on every call.
+ *
+ * @param budgetId - the budget's id.
+ * @returns the query for that review. A 404 `BUDGET_NOT_FOUND` is not retried.
+ */
+export function useBudgetReview(budgetId: string) {
+    return useQuery({
+        queryKey: budgetKeys.review(budgetId),
+        queryFn: () => reviewBudget(budgetId),
+    });
 }
 
 /**

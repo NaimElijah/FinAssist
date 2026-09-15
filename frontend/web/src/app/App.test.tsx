@@ -58,6 +58,30 @@ const CHECKING_ONLY: FetchAnswer = (request) => {
     return unexpectedRequest(request);
 };
 
+const SEPTEMBER_BUDGET = {
+    id: '5c0e8f7a-1b2d-4e3f-8a9b-0c1d2e3f4a5b',
+    period: { start: '2026-09-01', end: '2026-10-01' },
+    currency: 'ILS',
+    limits: [],
+    total: { amount: '0.00', currency: 'ILS' },
+};
+
+/** A ledger holding one budget for September 2026, with an empty review. */
+const SEPTEMBER_BUDGET_ONLY: FetchAnswer = (request) => {
+    if (request.url === BUDGETS_URL) return jsonResponse([SEPTEMBER_BUDGET]);
+    if (request.url === `${BUDGETS_URL}/${SEPTEMBER_BUDGET.id}/review`) {
+        return jsonResponse({
+            budget: SEPTEMBER_BUDGET.id,
+            period: SEPTEMBER_BUDGET.period,
+            currency: 'ILS',
+            categories: [],
+            unbudgeted: [],
+            uncategorised: { amount: '0.00', currency: 'ILS' },
+        });
+    }
+    return unexpectedRequest(request);
+};
+
 /**
  * Render the provider composition main.tsx uses, over an in-memory router starting at `path`,
  * with the ledger faked by `answer`.
@@ -186,6 +210,15 @@ describe('App', () => {
 
         await screen.findByRole('heading', { level: 1, name: 'Accounts' });
         expect(document.title).toBe('Accounts · FinAssist');
+    });
+
+    it('Given_a_budget_review_page_When_its_period_has_loaded_Then_the_document_title_names_the_review', async () => {
+        renderAt(`/budgets/${SEPTEMBER_BUDGET.id}`, SEPTEMBER_BUDGET_ONLY);
+
+        await screen.findByRole('heading', { level: 1, name: 'September 2026' });
+        await waitFor(() => {
+            expect(document.title).toBe('September 2026 review · FinAssist');
+        });
     });
 
     it('Given_the_root_path_When_the_shell_first_renders_Then_focus_stays_where_the_browser_put_it', async () => {
