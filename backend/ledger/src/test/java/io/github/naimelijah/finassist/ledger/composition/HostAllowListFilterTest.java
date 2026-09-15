@@ -32,7 +32,7 @@ class HostAllowListFilterTest {
     private static final String FOREIGN_HOST = "evil.example";
     private static final JsonMapper JSON = JsonMapper.shared();
 
-    private final HostAllowListFilter filter = new HostAllowListFilter(List.of("localhost", "127.0.0.1", "::1"));
+    private final HostAllowListFilter filter = new HostAllowListFilter(List.of("localhost", "127.0.0.1"));
     private final MockFilterChain chain = new MockFilterChain();
     private final MockHttpServletResponse response = new MockHttpServletResponse();
 
@@ -65,15 +65,16 @@ class HostAllowListFilterTest {
         assertThat(chain.getRequest()).isSameAs(request);
     }
 
-    /** The port separator is a colon, and so is every group of an IPv6 literal; brackets tell them apart. */
+    /**
+     * No entry can name an IPv6 literal, as on the assistant, so a bracketed header is refused like any
+     * other host that is not on the list.
+     */
     @Test
-    void Given_a_bracketed_ipv6_literal_with_a_port_When_its_address_is_allowed_Then_the_request_passes_through()
-            throws Exception {
-        MockHttpServletRequest request = requestWithHost("[::1]:8080");
+    void Given_a_bracketed_ipv6_literal_with_a_port_When_filtered_Then_it_is_refused() throws Exception {
+        filter.doFilter(requestWithHost("[::1]:8080"), response, chain);
 
-        filter.doFilter(request, response, chain);
-
-        assertThat(chain.getRequest()).isSameAs(request);
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(chain.getRequest()).isNull();
     }
 
     @Test
@@ -151,6 +152,20 @@ class HostAllowListFilterTest {
         padded.doFilter(request, response, chain);
 
         assertThat(chain.getRequest()).isSameAs(request);
+    }
+
+    /**
+     * A request's host is compared with its port dropped, so an entry holding a port, a colon or a bracket
+     * could never match, and a ledger started with one would refuse every request under that name. Refused
+     * at start-up instead, with the entry named, as the assistant refuses one (ADR-027).
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"localhost:8080", "::1", "[::1]", "[::1]:8080", "local]host"})
+    void Given_an_allow_list_entry_with_a_colon_or_a_bracket_When_the_filter_is_built_Then_it_is_rejected(
+            String entry) {
+        assertThatThrownBy(() -> new HostAllowListFilter(List.of("localhost", entry)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(entry);
     }
 
     /** An empty list refuses every request, which would look like an outage rather than a configuration miss. */

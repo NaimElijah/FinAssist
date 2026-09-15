@@ -7,7 +7,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -29,8 +28,9 @@ import tools.jackson.databind.json.JsonMapper;
  * ledger as same-origin with the page and lets it read every response. What the page cannot change
  * is the name it was loaded from, which every request it makes still carries in {@code Host}.
  *
- * <p>Hosts are compared by name. The port is dropped, a bracketed IPv6 literal such as {@code
- * [::1]:8080} is unwrapped, and case is ignored. A missing, malformed or foreign header is answered
+ * <p>Hosts are compared by name: the port is dropped and case is ignored. No entry can name an IPv6
+ * literal, as on the assistant, so a bracketed header such as {@code [::1]:8080} parses as no name at all.
+ * A missing, malformed or foreign header is answered
  * {@code 403} with an RFC 9457 problem whose {@code code} is {@code HOST_NOT_ALLOWED} (ADR-028). The
  * filter writes that body itself, because it runs before the dispatcher and so before any controller
  * advice could. The body never echoes the header back.
@@ -41,14 +41,19 @@ import tools.jackson.databind.json.JsonMapper;
 public class HostAllowListFilter extends OncePerRequestFilter {
 
     /**
-     * The part of the {@code Host} grammar the comparison needs (RFC 9110 §7.2, RFC 3986 §3.2.2): a
-     * bracketed IPv6 literal, or a name containing no colon, followed by an optional all-digit port.
-     * A header that does not match names nothing that could be on the list.
+     * The part of the {@code Host} grammar the comparison needs (RFC 9110 §7.2, RFC 3986 §3.2.2): a name
+     * containing no colon or bracket, followed by an optional all-digit port. A header that does not
+     * match, a bracketed IPv6 literal included, names nothing that could be on the list.
      */
-    private static final Pattern HOST_HEADER = Pattern.compile("(?:\\[([^\\[\\]]+)]|([^:\\[\\]]+))(?::[0-9]*)?");
+    private static final Pattern HOST_HEADER = Pattern.compile("([^:\\[\\]]+)(?::[0-9]*)?");
 
-    private static final int IPV6_LITERAL_GROUP = 1;
-    private static final int NAME_GROUP = 2;
+    private static final int NAME_GROUP = 1;
+
+    /**
+     * What a port or an IPv6 literal needs and a name parsed by {@link #HOST_HEADER} never holds, so an
+     * entry with any of them could never match a request.
+     */
+    private static final String UNMATCHABLE_CHARACTERS = ":[]";
 
     private static final String REFUSAL_DETAIL = "The request's Host header does not name a host this ledger serves.";
 
@@ -65,14 +70,16 @@ public class HostAllowListFilter extends OncePerRequestFilter {
      * Builds a filter that lets through only the named hosts.
      *
      * @param allowedHosts the host names this ledger serves, trimmed and compared case-insensitively.
-     *     Blank entries are ignored. An IPv6 literal is listed without brackets, as {@code ::1}.
-     * @throws IllegalArgumentException if no entry is left, because a filter that refuses every request
-     *     looks like an outage rather than the configuration mistake it is
+     *     Blank entries are ignored.
+     * @throws IllegalArgumentException if an entry holds a colon or a bracket, or if no entry is left.
+     *     Either way requests under a name the owner meant to allow would all be refused, which looks like
+     *     an outage rather than the configuration mistake it is
      */
     public HostAllowListFilter(Collection<String> allowedHosts) {
         this.allowedHosts = allowedHosts.stream()
                 .map(String::strip)
                 .filter(host -> !host.isEmpty())
+                .map(HostAllowListFilter::requireMatchable)
                 .map(HostAllowListFilter::normalised)
                 .collect(Collectors.toUnmodifiableSet());
         if (this.allowedHosts.isEmpty()) {
@@ -99,10 +106,17 @@ public class HostAllowListFilter extends OncePerRequestFilter {
         return Optional.ofNullable(header)
                 .map(HOST_HEADER::matcher)
                 .filter(Matcher::matches)
-                // Exactly one alternative matched, so exactly one group is non-null.
-                .map(matcher ->
-                        Objects.requireNonNullElse(matcher.group(IPV6_LITERAL_GROUP), matcher.group(NAME_GROUP)))
+                .map(matcher -> matcher.group(NAME_GROUP))
                 .map(HostAllowListFilter::normalised);
+    }
+
+    private static String requireMatchable(String host) {
+        if (host.chars().anyMatch(character -> UNMATCHABLE_CHARACTERS.indexOf(character) >= 0)) {
+            throw new IllegalArgumentException("the Host allow-list entry '" + host
+                    + "' holds a colon or a bracket, so no request could match it; list host names only,"
+                    + " with no port and no IPv6 literal");
+        }
+        return host;
     }
 
     private static String normalised(String host) {

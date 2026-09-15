@@ -540,10 +540,13 @@ fields, lazy proxies — stay in `adapter/out/persistence`.
 quotes the value it rejected. These models carry the owner's money, and the error text is exactly
 what `adapters/problems.py` might otherwise log or a chained traceback might otherwise print.
 
-**`ASSISTANT_ALLOWED_HOSTS` refuses an entry with a `:` or a `[` at start-up**, the same way a
-wildcard is refused: `TrustedHostMiddleware` compares only the text before a `Host` header's
-first colon, so a port, `[::1]` or a bare `::1` would match no request, and admitting one would
-look like a working entry that defends nothing.
+**Both Host allow-lists refuse an entry with a colon or a bracket at start-up.**
+`ASSISTANT_ALLOWED_HOSTS` refuses a `:` or a `[`, the same way a wildcard is refused:
+`TrustedHostMiddleware` compares only the text before a `Host` header's first colon, so a port,
+`[::1]` or a bare `::1` would match no request, and admitting one would look like a working entry
+that defends nothing. `HostAllowListFilter` refuses a `:`, a `[` or a `]` in
+`LEDGER_ALLOWED_HOSTS` for the same reason: it compares a header's host name with the port
+removed, and reads a bracketed header as malformed, so no such entry could match either.
 
 **Neither service serves a Swagger UI.** `docs_url` and `redoc_url` are both `None` on the
 assistant's `FastAPI` app, matching the ledger, which configures no springdoc UI either; both
