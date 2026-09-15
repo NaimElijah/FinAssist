@@ -1,17 +1,9 @@
-import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
+import { type SubmitEvent, useId, useState } from 'react';
 
-import {
-    Button,
-    DataTable,
-    DateText,
-    EmptyState,
-    ErrorState,
-    SelectField,
-    type SelectOption,
-} from '@/shared/ui';
+import { Button, DataTable, DateText, SelectField, type SelectOption } from '@/shared/ui';
 
 import { useAccountOptions } from '../hooks/accountOptions';
-import { useInvalidateProjection, useProjection, useScenarios } from '../hooks/planQueries';
+import { useInvalidateProjection, useProjection } from '../hooks/planQueries';
 import { offeredAccounts } from '../types/accountOption';
 import type { Projection, ProjectionParams } from '../types/projection';
 import {
@@ -25,7 +17,8 @@ import { BALANCE_POINT_COLUMNS } from './balancePointColumns';
 import { ProjectionChart } from './ProjectionChart';
 import styles from './ProjectionPage.module.css';
 import { ProjectionSettingsFields } from './ProjectionSettingsFields';
-import { QueryFailure, RetryButton } from './QueryFailure';
+import { ReadResult } from './ReadResult';
+import { ScenarioChoice } from './ScenarioChoice';
 
 const NO_SCENARIOS_MESSAGE = 'No scenarios to project yet — define one under Scenarios.';
 
@@ -66,58 +59,26 @@ function ShortfallCallout({ projection }: { readonly projection: Projection }) {
 }
 
 /**
- * One projection's result: its request's pending state or failure, then the callout, the chart,
- * and the table every figure on the chart can be read from.
- *
- * A failure takes focus, the rule every form in the app keeps for a submission nothing on a field
- * explains; a retry is offered, since a network failure or a 5xx may pass.
+ * One projection's result, in `ReadResult`'s section: the callout, the chart, and the table every
+ * figure on the chart can be read from.
  */
 function ProjectionResult({ params }: { readonly params: ProjectionParams }) {
-    const headingId = useId();
-    const failureRef = useRef<HTMLDivElement>(null);
-    const projection = useProjection(params);
-    const failure = projection.error;
-
-    // Runs after the render that shows the failure, so the error state is already on the page.
-    useEffect(() => {
-        if (failure !== null) {
-            failureRef.current?.focus();
-        }
-    }, [failure]);
-
+    const query = useProjection(params);
     return (
-        <section aria-labelledby={headingId} className={styles.section}>
-            <h2 id={headingId} className={styles.heading}>
-                Projected balances
-            </h2>
-            {projection.isPending ? <p className={styles.muted}>Projecting…</p> : null}
-            {failure === null ? null : (
-                <ErrorState
-                    ref={failureRef}
-                    error={failure}
-                    action={
-                        <RetryButton
-                            retrying={projection.isFetching}
-                            onRetry={() => {
-                                void projection.refetch();
-                            }}
-                        />
-                    }
-                />
-            )}
-            {projection.data === undefined ? null : (
+        <ReadResult heading="Projected balances" pendingMessage="Projecting…" query={query}>
+            {(projection) => (
                 <>
-                    <ShortfallCallout projection={projection.data} />
-                    <ProjectionChart projection={projection.data} />
+                    <ShortfallCallout projection={projection} />
+                    <ProjectionChart projection={projection} />
                     <DataTable
                         caption="Projection"
                         columns={BALANCE_POINT_COLUMNS}
-                        rows={projection.data.points}
+                        rows={projection.points}
                         rowKey={(point) => point.date}
                     />
                 </>
             )}
-        </section>
+        </ReadResult>
     );
 }
 
@@ -170,28 +131,6 @@ function ProjectionForm({
     );
 }
 
-/** The scenarios the form chooses from, in whichever state their request is in. */
-function ScenarioChoice({ onProject }: { readonly onProject: (params: ProjectionParams) => void }) {
-    const scenarios = useScenarios();
-
-    if (scenarios.isPending) {
-        return <p className={styles.muted}>Loading scenarios…</p>;
-    }
-    const failure = <QueryFailure query={scenarios} />;
-    if (scenarios.data === undefined) {
-        return failure;
-    }
-    if (scenarios.data.length === 0) {
-        return <EmptyState message={NO_SCENARIOS_MESSAGE} />;
-    }
-    return (
-        <>
-            {failure}
-            <ProjectionForm scenarios={scenarios.data} onProject={onProject} />
-        </>
-    );
-}
-
 /**
  * `/planning/projection`: choose a scenario, a horizon, a step and the accounts opening its cash
  * and invested lines, and read its projection - whether cash ever falls below zero, a chart, and
@@ -220,7 +159,9 @@ export function ProjectionPage() {
                 <h2 id={headingId} className={styles.heading}>
                     Project a scenario
                 </h2>
-                <ScenarioChoice onProject={project} />
+                <ScenarioChoice emptyMessage={NO_SCENARIOS_MESSAGE}>
+                    {(scenarios) => <ProjectionForm scenarios={scenarios} onProject={project} />}
+                </ScenarioChoice>
             </section>
             {submitted === undefined ? null : <ProjectionResult params={submitted} />}
         </>

@@ -4,10 +4,6 @@
     gap: var(--space-3);
 }
 
-.section + .section {
-    margin-block-start: var(--space-6);
-}
-
 .heading {
     margin: 0;
     font-size: var(--font-size-md);
@@ -27,11 +23,6 @@
     flex-wrap: wrap;
     align-items: flex-start;
     gap: var(--space-3) var(--space-4);
-}
-
-.muted {
-    margin: 0;
-    color: var(--color-muted);
 }
 
 /* The answer the owner came for, set apart from the chart; a shortfall also borders it in the

@@ -1,18 +1,16 @@
-import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
+import { type SubmitEvent, useId, useRef, useState } from 'react';
 
 import {
     Button,
     type Column,
     DataTable,
-    EmptyState,
-    ErrorState,
     MoneyText,
     SelectField,
     type SelectOption,
 } from '@/shared/ui';
 
 import { useAccountOptions } from '../hooks/accountOptions';
-import { useComparison, useInvalidateComparison, useScenarios } from '../hooks/planQueries';
+import { useComparison, useInvalidateComparison } from '../hooks/planQueries';
 import { offeredAccounts } from '../types/accountOption';
 import type { ComparedScenario, Comparison, ComparisonParams } from '../types/comparison';
 import {
@@ -25,7 +23,8 @@ import { BALANCE_POINT_COLUMNS } from './balancePointColumns';
 import groupStyles from './checkboxGroup.module.css';
 import styles from './ComparisonPage.module.css';
 import { ProjectionSettingsFields } from './ProjectionSettingsFields';
-import { QueryFailure, RetryButton } from './QueryFailure';
+import { ReadResult } from './ReadResult';
+import { ScenarioChoice } from './ScenarioChoice';
 import { toggled } from './toggled';
 
 /** A comparison needs something to compare against; the ledger refuses fewer with 400. */
@@ -120,49 +119,13 @@ function ComparisonTables({ comparison }: { readonly comparison: Comparison }) {
     );
 }
 
-/**
- * One comparison's result: its request's pending state or failure, then its tables.
- *
- * A failure takes focus, as a projection's does; a retry is offered, since a network failure or a
- * 5xx may pass.
- */
+/** One comparison's result, in `ReadResult`'s section: its end-state and divergence tables. */
 function ComparisonResult({ params }: { readonly params: ComparisonParams }) {
-    const headingId = useId();
-    const failureRef = useRef<HTMLDivElement>(null);
-    const comparison = useComparison(params);
-    const failure = comparison.error;
-
-    // Runs after the render that shows the failure, so the error state is already on the page.
-    useEffect(() => {
-        if (failure !== null) {
-            failureRef.current?.focus();
-        }
-    }, [failure]);
-
+    const query = useComparison(params);
     return (
-        <section aria-labelledby={headingId} className={styles.section}>
-            <h2 id={headingId} className={styles.heading}>
-                Comparison
-            </h2>
-            {comparison.isPending ? <p className={styles.muted}>Comparing…</p> : null}
-            {failure === null ? null : (
-                <ErrorState
-                    ref={failureRef}
-                    error={failure}
-                    action={
-                        <RetryButton
-                            retrying={comparison.isFetching}
-                            onRetry={() => {
-                                void comparison.refetch();
-                            }}
-                        />
-                    }
-                />
-            )}
-            {comparison.data === undefined ? null : (
-                <ComparisonTables comparison={comparison.data} />
-            )}
-        </section>
+        <ReadResult heading="Comparison" pendingMessage="Comparing…" query={query}>
+            {(comparison) => <ComparisonTables comparison={comparison} />}
+        </ReadResult>
     );
 }
 
@@ -273,28 +236,6 @@ function ComparisonForm({
     );
 }
 
-/** The scenarios the form chooses from, in whichever state their request is in. */
-function ScenarioChoice({ onCompare }: { readonly onCompare: (params: ComparisonParams) => void }) {
-    const scenarios = useScenarios();
-
-    if (scenarios.isPending) {
-        return <p className={styles.muted}>Loading scenarios…</p>;
-    }
-    const failure = <QueryFailure query={scenarios} />;
-    if (scenarios.data === undefined) {
-        return failure;
-    }
-    if (scenarios.data.length === 0) {
-        return <EmptyState message={NO_SCENARIOS_MESSAGE} />;
-    }
-    return (
-        <>
-            {failure}
-            <ComparisonForm scenarios={scenarios.data} onCompare={onCompare} />
-        </>
-    );
-}
-
 /**
  * `/planning/compare`: choose two or more scenarios, a baseline among them, one horizon, step and
  * set of opening accounts, and read each scenario's end state and how far it diverges from the
@@ -326,7 +267,9 @@ export function ComparisonPage() {
                 <h2 id={headingId} className={styles.heading}>
                     Compare scenarios
                 </h2>
-                <ScenarioChoice onCompare={compare} />
+                <ScenarioChoice emptyMessage={NO_SCENARIOS_MESSAGE}>
+                    {(scenarios) => <ComparisonForm scenarios={scenarios} onCompare={compare} />}
+                </ScenarioChoice>
             </section>
             {submitted === undefined ? null : <ComparisonResult params={submitted} />}
         </>
