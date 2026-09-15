@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 import structlog
@@ -281,6 +281,47 @@ def Given_a_refused_unknown_or_failing_request_When_answered_Then_one_info_reque
     assert [
         (line["path"], line["status"], line["level"], line.get("correlation_id")) for line in lines
     ] == [(path, status, "info", VALID_TRACE_ID)]
+
+
+@pytest.mark.parametrize(
+    "broken",
+    ["_correlation_id_for", "answer_unexpected"],
+    ids=["choosing-the-id-fails", "answering-the-failure-fails"],
+)
+def Given_the_middleware_itself_fails_When_a_request_is_served_Then_one_request_line_records_a_500(
+    settings: Settings,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    broken: str,
+) -> None:
+    """The request line is written however the correlation middleware is left, not only on success.
+
+    Choosing the id and answering an unexpected failure both run inside that middleware. When
+    either raises, it produces no response, and Starlette's last resort answers instead; the request
+    must still leave its one line, recorded as the 500 it becomes.
+    """
+
+    def fail(*_arguments: Any) -> NoReturn:
+        raise RuntimeError("the correlation middleware itself failed")
+
+    monkeypatch.setattr(f"finassist_assistant.adapters.app.{broken}", fail)
+    failing = APIRouter()
+
+    @failing.get("/fails")
+    def fails() -> None:
+        raise RuntimeError("an unexpected failure")
+
+    app = create_app(settings)
+    app.include_router(failing)
+    with TestClient(app, raise_server_exceptions=False) as running:
+        capsys.readouterr()
+        response = running.get("/fails")
+
+    lines = _request_lines(capsys.readouterr().out)
+    assert response.status_code == 500
+    assert [(line["path"], line["status"], line["level"]) for line in lines] == [
+        ("/fails", 500, "info")
+    ]
 
 
 def Given_a_foreign_host_When_a_websocket_upgrade_arrives_Then_it_is_refused_without_an_error(

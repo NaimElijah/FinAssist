@@ -26,6 +26,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import fields
+from http import HTTPStatus
 from typing import Final
 
 import structlog
@@ -141,18 +142,21 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
         outermost handler. That one runs outside this middleware, after the id is unbound, so its
         log line could not be joined to the response, and the response would carry no id to join
         it with. The request line is written here for the same reason, before the id is unbound
-        (ADR-019).
+        (ADR-019), and from a ``finally``: if choosing the id or answering a failure raises, no
+        response is produced here and Starlette's last resort answers 500, which the line records.
         """
         started = time.perf_counter()
-        correlation_id = _correlation_id_for(request)
-        set_correlation_id(correlation_id)
+        status = int(HTTPStatus.INTERNAL_SERVER_ERROR)
         try:
+            correlation_id = _correlation_id_for(request)
+            set_correlation_id(correlation_id)
             try:
                 response = await call_next(request)
             except Exception as unexpected:
                 response = answer_unexpected(request, unexpected)
-            log_request(request.scope, response.status_code, started)
+            status = response.status_code
         finally:
+            log_request(request.scope, status, started)
             set_correlation_id(None)
         response.headers[CORRELATION_ID_HEADER] = correlation_id
         return response

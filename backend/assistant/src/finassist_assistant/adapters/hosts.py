@@ -89,11 +89,13 @@ class HostAllowList:
             await self._app(scope, receive, send)
             return
         refusal = problem_response(HTTPStatus.FORBIDDEN, HOST_NOT_ALLOWED, _REFUSAL_DETAIL)
-        await refusal(scope, receive, send)
         if scope["type"] != _HTTP_SCOPE:
+            await refusal(scope, receive, send)
             return
         set_correlation_id(trace_id_of(Headers(scope=scope).get(TRACEPARENT_HEADER)))
         try:
-            log_request(scope, refusal.status_code, started)
+            await refusal(scope, receive, send)
         finally:
+            # Written even if sending the refusal fails, such as to a caller already gone.
+            log_request(scope, refusal.status_code, started)
             set_correlation_id(None)
