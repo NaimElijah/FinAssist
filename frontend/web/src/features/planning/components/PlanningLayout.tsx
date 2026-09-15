@@ -8,7 +8,7 @@ import { FLOWS_PATH, SCENARIOS_PATH } from './paths';
  * the screen itself.
  *
  * `NavLink` marks the open screen's link with `aria-current="page"`, the same convention the
- * app's own primary nav uses. A later task adds Projection and Compare links here.
+ * app's own primary nav uses.
  */
 export function PlanningLayout() {
     return (

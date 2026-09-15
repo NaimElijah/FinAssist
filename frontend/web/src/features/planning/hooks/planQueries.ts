@@ -4,7 +4,7 @@
  * Every query key comes from `planKeys`, so a mutation invalidates exactly what a query reads
  * rather than a key spelled twice.
  */
-import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
     cancelFlow,
@@ -26,8 +26,7 @@ const PLANS_KEY = ['plans'] as const;
  *
  * Every key starts with `all`, and TanStack Query matches an invalidation by prefix - but nothing
  * here invalidates `all` itself. `flows` and `scenarios` are siblings, so invalidating one by
- * prefix can never also match the other. A later task adds `projections`, nested the same way, so
- * "every projection" stays a prefix too.
+ * prefix can never also match the other.
  */
 export const planKeys = {
     /** The prefix of every planning key. */
@@ -76,23 +75,6 @@ export function usePlanFlow() {
     });
 }
 
-/**
- * Refetch the flows list and the scenarios list.
- *
- * A lifecycle transition changes a flow's state, so the flows list is invalidated; a projection
- * reads flows too, so the scenarios list is invalidated alongside it, ahead of the projection
- * queries a later task adds.
- *
- * @returns the settled refetches, so a caller can return it from `onSuccess` and stay pending
- *   until they land.
- */
-function invalidateFlowsAndScenarios(queryClient: QueryClient): Promise<unknown> {
-    return Promise.all([
-        queryClient.invalidateQueries({ queryKey: planKeys.flows }),
-        queryClient.invalidateQueries({ queryKey: planKeys.scenarios }),
-    ]);
-}
-
 /** One lifecycle mutation's variables: which flow, and the date the action took effect. */
 interface TransitionVariables {
     readonly flowId: string;
@@ -100,7 +82,10 @@ interface TransitionVariables {
 }
 
 /**
- * Commit to a planned flow, then refetch the flows and scenarios lists.
+ * Commit to a planned flow, then refetch the flows list and nothing else.
+ *
+ * No `ScenarioResponse` field can change when a flow moves state - a scenario names flow ids and
+ * a growth rate, neither of which a transition touches - so only `flows` is invalidated.
  *
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
@@ -108,12 +93,12 @@ export function useCommitFlow() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: ({ flowId, on }: TransitionVariables) => commitFlow(flowId, on),
-        onSuccess: () => invalidateFlowsAndScenarios(queryClient),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: planKeys.flows }),
     });
 }
 
 /**
- * Realise a committed flow, then refetch the flows and scenarios lists.
+ * Realise a committed flow, then refetch the flows list and nothing else.
  *
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
@@ -121,7 +106,7 @@ export function useRealiseFlow() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: ({ flowId, on }: TransitionVariables) => realiseFlow(flowId, on),
-        onSuccess: () => invalidateFlowsAndScenarios(queryClient),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: planKeys.flows }),
     });
 }
 
@@ -131,7 +116,7 @@ interface CancelVariables extends TransitionVariables {
 }
 
 /**
- * Cancel a planned or committed flow, then refetch the flows and scenarios lists.
+ * Cancel a planned or committed flow, then refetch the flows list and nothing else.
  *
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
@@ -139,7 +124,7 @@ export function useCancelFlow() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: ({ flowId, on, reason }: CancelVariables) => cancelFlow(flowId, on, reason),
-        onSuccess: () => invalidateFlowsAndScenarios(queryClient),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: planKeys.flows }),
     });
 }
 

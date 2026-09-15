@@ -232,7 +232,7 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         expect(within(rowOf('Salary')).queryByRole('button')).toBeNull();
     });
 
-    it('Given_a_planned_flow_When_committed_Then_it_posts_on_and_the_row_shows_the_Committed_badge_and_invalidates_flows_and_scenarios', async () => {
+    it('Given_a_planned_flow_When_committed_Then_it_posts_on_and_the_row_shows_the_Committed_badge_and_invalidates_only_flows', async () => {
         const today = TODAY;
         let flows: readonly unknown[] = [RENT];
         const requests = fakeFetch(
@@ -265,14 +265,13 @@ describe('PlannedFlowsPage lifecycle actions', () => {
                 .filter((request) => request.method === 'POST')
                 .map(({ method, url, body }) => ({ method, url, body })),
         ).toEqual([{ method: 'POST', url: `${FLOWS_URL}/${RENT_ID}/commit`, body: { on: today } }]);
-        // Flows changed, and a projection reads flows, so scenarios is invalidated alongside it.
+        // No ScenarioResponse field can change when a flow moves state, so only flows is
+        // invalidated - not a wider prefix, and not scenarios.
         const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
-        expect(invalidatedKeys).toEqual(
-            expect.arrayContaining([planKeys.flows, planKeys.scenarios]),
-        );
+        expect(invalidatedKeys).toEqual([planKeys.flows]);
     });
 
-    it('Given_a_committed_flow_When_realised_Then_it_posts_on_and_the_row_shows_the_Realised_badge', async () => {
+    it('Given_a_committed_flow_When_realised_Then_it_posts_on_and_the_row_shows_the_Realised_badge_and_invalidates_only_flows', async () => {
         const today = TODAY;
         let flows: readonly unknown[] = [SALARY];
         fakeFetch(
@@ -291,7 +290,8 @@ describe('PlannedFlowsPage lifecycle actions', () => {
                 },
             ),
         );
-        renderFlows();
+        const { queryClient } = renderFlows();
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Planned flows' });
 
@@ -299,6 +299,8 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         await user.click(screen.getByRole('button', { name: 'Realise' }));
 
         expect(await within(rowOf('Salary')).findByText('Realised')).toBeDefined();
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toEqual([planKeys.flows]);
     });
 
     it('Given_a_planned_flow_When_cancelled_without_a_reason_Then_the_required_field_refuses_submission_and_nothing_is_sent', async () => {
@@ -317,7 +319,7 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         expect(screen.getByRole('button', { name: 'Cancel' })).toBeDefined();
     });
 
-    it('Given_a_planned_flow_When_cancelled_with_a_reason_Then_it_posts_on_and_reason_and_shows_the_Cancelled_badge', async () => {
+    it('Given_a_planned_flow_When_cancelled_with_a_reason_Then_it_posts_on_and_reason_and_shows_the_Cancelled_badge_and_invalidates_only_flows', async () => {
         const today = TODAY;
         let flows: readonly unknown[] = [RENT];
         const requests = fakeFetch(
@@ -339,7 +341,8 @@ describe('PlannedFlowsPage lifecycle actions', () => {
                 },
             ),
         );
-        renderFlows();
+        const { queryClient } = renderFlows();
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Planned flows' });
 
@@ -359,6 +362,8 @@ describe('PlannedFlowsPage lifecycle actions', () => {
                 body: { on: today, reason: 'No longer needed' },
             },
         ]);
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toEqual([planKeys.flows]);
     });
 
     it('Given_a_409_response_When_an_action_is_submitted_Then_the_server_detail_is_shown_in_the_panel_and_it_stays_open', async () => {
@@ -664,7 +669,7 @@ describe('PlannedFlowsPage plan-flow form', () => {
         );
     });
 
-    it('Given_a_flow_planned_successfully_When_the_list_shows_it_Then_the_form_is_reset_and_focus_is_on_its_description', async () => {
+    it('Given_a_flow_planned_successfully_When_the_list_shows_it_Then_the_form_is_reset_focus_is_on_its_description_and_only_flows_is_invalidated', async () => {
         const NEW_ID = 'f1f1f1f1-4d8c-4f3a-9a61-2f1c5e0d9b11';
         let served: readonly unknown[] = [];
         fakeFetch(
@@ -688,7 +693,8 @@ describe('PlannedFlowsPage plan-flow form', () => {
                 },
             ),
         );
-        renderFlows();
+        const { queryClient } = renderFlows();
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
 
@@ -705,6 +711,10 @@ describe('PlannedFlowsPage plan-flow form', () => {
         });
         expect(screen.getByLabelText('Description')).toHaveProperty('value', '');
         expect(screen.getByLabelText('Amount')).toHaveProperty('value', '');
+        // Planning a flow cannot change any existing scenario - a new flow's id names no
+        // scenario yet - so only flows is invalidated.
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toEqual([planKeys.flows]);
     });
 
     it('Given_an_open_request_in_flight_When_submitted_again_Then_submit_is_disabled_and_nothing_is_sent_twice', async () => {

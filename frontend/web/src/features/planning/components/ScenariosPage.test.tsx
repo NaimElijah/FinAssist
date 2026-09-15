@@ -386,8 +386,7 @@ describe('ScenariosPage define-scenario form', () => {
         expect(screen.getByLabelText('Name')).toHaveProperty('value', '');
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
         const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
-        expect(invalidatedKeys).toEqual(expect.arrayContaining([planKeys.scenarios]));
-        expect(invalidatedKeys).not.toEqual(expect.arrayContaining([planKeys.flows]));
+        expect(invalidatedKeys).toEqual([planKeys.scenarios]);
     });
 
     it('Given_a_filled_form_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
