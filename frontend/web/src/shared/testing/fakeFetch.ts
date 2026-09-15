@@ -3,14 +3,19 @@
  *
  * Stubbing `fetch` rather than a feature's `api/` module keeps that module, and its wire-to-feature
  * mapping, under test (ADR-029). Generic on purpose: it knows no URL and imports no feature.
+ *
+ * A mistake in a test must not pass quietly. Inside the app, whatever the fake throws is caught by
+ * the HTTP client and becomes an error state, which a test asserting on something else never
+ * notices. So the fake records it - a request its answer does not plan for, or a body that is not
+ * JSON - and fails the test when the test finishes.
  */
-import { vi } from 'vitest';
+import { onTestFinished, vi } from 'vitest';
 
 /** One request the code under test made, as the fake saw it. */
 export interface RecordedRequest {
     readonly method: string;
     readonly url: string;
-    /** The parsed JSON body, or `undefined` for a request without a string body. */
+    /** The parsed JSON body, or `undefined` for a request without one. */
     readonly body: unknown;
 }
 
@@ -25,9 +30,15 @@ function urlOf(input: RequestInfo | URL): string {
 }
 
 /**
- * Replace the global `fetch` with one answering every request through `answer`.
+ * Replace the global `fetch` with one answering every request through `answer`, for the rest of
+ * the current test.
  *
- * The caller restores the real one with `vi.unstubAllGlobals()` in an `afterEach`.
+ * When the test finishes, the real `fetch` is restored, so a caller needs no
+ * `vi.unstubAllGlobals()` of its own. The test then fails if `answer` threw for any request, or
+ * any request carried a body that is not a JSON string. The request still fails inside the app
+ * as it would have, so the error the app shows is unchanged; only the test learns of it too.
+ *
+ * Call it from the body of a test: it registers an `onTestFinished` hook.
  *
  * @param answer - builds the response for each request, a fresh one per call, since a Response
  *   body can be read only once.
@@ -35,18 +46,49 @@ function urlOf(input: RequestInfo | URL): string {
  */
 export function fakeFetch(answer: FetchAnswer): readonly RecordedRequest[] {
     const requests: RecordedRequest[] = [];
+    const failures: string[] = [];
+
+    onTestFinished(() => {
+        vi.unstubAllGlobals();
+        if (failures.length > 0) {
+            throw new Error(
+                `fakeFetch received requests the test did not plan for:\n${failures.join('\n')}`,
+            );
+        }
+    });
+
+    function parsedBody(body: BodyInit | null | undefined, label: string): unknown {
+        if (body === undefined || body === null) {
+            return undefined;
+        }
+        if (typeof body !== 'string') {
+            failures.push(`${label} sent a body that is not a string`);
+            return undefined;
+        }
+        try {
+            return JSON.parse(body) as unknown;
+        } catch {
+            failures.push(`${label} sent a body that is not JSON`);
+            return undefined;
+        }
+    }
+
     vi.stubGlobal(
         'fetch',
-        vi.fn<typeof fetch>().mockImplementation((input, init) => {
-            const body: unknown =
-                typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
-            const request: RecordedRequest = {
-                method: init?.method ?? 'GET',
-                url: urlOf(input),
-                body,
-            };
+        vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+            const method = init?.method ?? 'GET';
+            const url = urlOf(input);
+            const label = `${method} ${url}`;
+            const request: RecordedRequest = { method, url, body: parsedBody(init?.body, label) };
             requests.push(request);
-            return Promise.resolve(answer(request));
+            try {
+                return await answer(request);
+            } catch (error) {
+                failures.push(
+                    `${label}: ${error instanceof Error ? error.message : 'a non-Error was thrown'}`,
+                );
+                throw error;
+            }
         }),
     );
     return requests;
@@ -87,8 +129,8 @@ export function pendingResponse(): Promise<Response> {
 }
 
 /**
- * Refuse a request the test did not plan for, so a test never passes on a request it did not
- * mean to allow.
+ * Refuse a request the test did not plan for. `fakeFetch` records the refusal and fails the test
+ * when it finishes.
  *
  * @throws Error - always, naming the method and URL.
  */

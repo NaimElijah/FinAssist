@@ -5,7 +5,14 @@
 import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+
+import {
+    type FetchAnswer,
+    fakeFetch,
+    jsonResponse,
+    unexpectedRequest,
+} from '@/shared/testing/fakeFetch';
 
 import { App } from './App';
 import { createQueryClient } from './queryClient';
@@ -19,33 +26,21 @@ const AREAS = [
     { heading: 'Portfolio', path: '/portfolio' },
 ] as const;
 
-/** The one request the shell's pages make: the Accounts area listing accounts. */
 const ACCOUNTS_URL = '/ledger/api/v1/accounts';
 
-beforeEach(() => {
-    // The shell is under test here, not the Accounts screen, so its request is answered locally
-    // with no accounts and nothing reaches the network. Anything else is refused loudly.
-    vi.stubGlobal(
-        'fetch',
-        vi.fn<typeof fetch>().mockImplementation((input) =>
-            input === ACCOUNTS_URL
-                ? Promise.resolve(
-                      new Response('[]', {
-                          status: 200,
-                          headers: { 'Content-Type': 'application/json' },
-                      }),
-                  )
-                : Promise.reject(new Error('the shell test made a request it does not answer')),
-        ),
-    );
-});
+/**
+ * A ledger holding no accounts. The shell is under test here, not the Accounts screen, so its one
+ * request is answered locally and nothing reaches the network; any other request fails the test.
+ */
+const NO_ACCOUNTS: FetchAnswer = (request) =>
+    request.url === ACCOUNTS_URL ? jsonResponse([]) : unexpectedRequest(request);
 
-afterEach(() => {
-    vi.unstubAllGlobals();
-});
-
-/** Render the provider composition main.tsx uses, over an in-memory router starting at `path`. */
-function renderAt(path: string) {
+/**
+ * Render the provider composition main.tsx uses, over an in-memory router starting at `path`,
+ * with the ledger faked by `answer`.
+ */
+function renderAt(path: string, answer: FetchAnswer = NO_ACCOUNTS) {
+    fakeFetch(answer);
     const router = createMemoryRouter(routes, { initialEntries: [path] });
     render(<App router={router} queryClient={createQueryClient()} />);
     return router;
