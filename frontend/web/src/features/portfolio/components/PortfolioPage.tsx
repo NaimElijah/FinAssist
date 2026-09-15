@@ -1,11 +1,17 @@
-import { EmptyState } from '@/shared/ui';
+import { AdviceNote } from './AdviceNote';
+import { SymbolLookup } from './SymbolLookup';
 
-/** The portfolio area's landing page: it names the area and says the area is not built yet. */
+/**
+ * `/portfolio`: the portfolio area's landing page, where a holding is looked up by its symbol.
+ *
+ * It lists no holdings: the assistant reads a holding one symbol at a time.
+ */
 export function PortfolioPage() {
     return (
         <>
             <h1>Portfolio</h1>
-            <EmptyState message="Portfolio is not built yet." />
+            <AdviceNote />
+            <SymbolLookup heading="Look up a holding" />
         </>
     );
 }

@@ -30,6 +30,7 @@ const AREAS = [
 const ACCOUNTS_URL = '/ledger/api/v1/accounts';
 const BUDGETS_URL = '/ledger/api/v1/budgets';
 const PLANNED_FLOWS_URL = '/ledger/api/v1/planned-flows';
+const HOLDINGS_URL = '/assistant/api/v1/portfolio/holdings';
 
 const CHECKING = {
     id: '0b7d2a4e-4d8c-4f3a-9a61-2f1c5e0d9b11',
@@ -220,6 +221,20 @@ describe('App', () => {
         await screen.findByRole('heading', { level: 1, name: 'September 2026' });
         await waitFor(() => {
             expect(document.title).toBe('September 2026 review · FinAssist');
+        });
+    });
+
+    it('Given_a_holding_page_When_rendered_Then_the_document_title_names_the_holding', async () => {
+        // The symbol comes from the URL, so the title needs no figure to have loaded.
+        renderAt('/portfolio/VOO', (request) =>
+            request.url.startsWith(`${HOLDINGS_URL}/VOO/`)
+                ? pendingResponse()
+                : unexpectedRequest(request),
+        );
+
+        await screen.findByRole('heading', { level: 1, name: 'VOO' });
+        await waitFor(() => {
+            expect(document.title).toBe('VOO holding · FinAssist');
         });
     });
 

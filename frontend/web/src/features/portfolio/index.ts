@@ -1,23 +1,9 @@
 /**
- * Portfolio feature - holdings, positions and performance.
+ * Portfolio feature - one holding at a time: its position and its valuation.
  *
- * Mirrors the `portfolio` bounded context in the Python assistant.
+ * Mirrors the `portfolio` bounded context in the Python assistant, the one area the assistant
+ * serves rather than the ledger (ADR-026). Everything this feature exposes to the rest of the app
+ * is re-exported here; nothing outside reaches past this file, and this feature imports no other
+ * feature.
  */
-import type { RouteObject } from 'react-router';
-
-import type { RouteHandle } from '@/shared/lib/routeHandle';
-
-import { PortfolioPage } from './components/PortfolioPage';
-
-/**
- * The portfolio area's routes, under the base path `portfolio`. src/app mounts them inside the
- * shared layout, which titles the document from each route's `handle`. This is the route
- * contract; the page behind it is replaced as screens are built.
- */
-export const portfolioRoutes: RouteObject[] = [
-    {
-        path: 'portfolio',
-        Component: PortfolioPage,
-        handle: { title: 'Portfolio' } satisfies RouteHandle,
-    },
-];
+export { portfolioRoutes } from './routes';

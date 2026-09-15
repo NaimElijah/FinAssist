@@ -1,0 +1,25 @@
+/* Figures sit side by side and wrap as the screen narrows, each one's term above its value. */
+.figures {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-6);
+    margin: 0;
+}
+
+.figure {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.term {
+    font-size: var(--font-size-sm);
+    color: var(--color-muted);
+}
+
+.value {
+    margin: 0;
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-strong);
+    line-height: var(--line-height-tight);
+}
