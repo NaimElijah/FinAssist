@@ -20,8 +20,10 @@ language, and analyse the portfolio behind it.**
 > an opt-in development seed, off by default — no ledger client and no price feed exist. The web
 > client's accounting area lists and opens accounts, records a transaction by hand, and clears,
 > reconciles or voids one; its budgeting area lists and defines budgets, reviews spend against
-> one, and adds categorisation rules — both over the ledger's API. Planning and portfolio are
-> still placeholders, and the web client does not call the assistant. See
+> one, and adds categorisation rules; its planning area plans flows, defines scenarios, charts a
+> scenario's projection with its first shortfall, and compares scenarios against a baseline — all
+> over the ledger's API. Portfolio is still a placeholder, and the web client does not call the
+> assistant. See
 > [Known limitations](#status-and-limitations) for what does not exist yet.
 
 ## Contents
@@ -104,9 +106,10 @@ cd backend/assistant && uv run python -m finassist_assistant.adapters
 ```
 
 The web client runs too. Its accounting screens — opening an account, recording a transaction by
-hand, and clearing, reconciling or voiding one — and its budgeting screens — listing and defining
-budgets, reviewing spend, and adding categorisation rules — need the ledger running; planning and
-portfolio are still placeholders:
+hand, and clearing, reconciling or voiding one — its budgeting screens — listing and defining
+budgets, reviewing spend, and adding categorisation rules — and its planning screens — planning
+flows, defining scenarios, and projecting and comparing them — need the ledger running; portfolio
+is still a placeholder:
 
 ```bash
 cd frontend/web && npm ci && npm run dev   # http://localhost:5173
@@ -162,7 +165,8 @@ flowchart LR
 `DB`, the ledger and the assistant all run under Compose now, and `Ledger --> DB` is real: the
 ledger serves `/api/v1`, with an OpenAPI document to prove it
 ([contracts/ledger-v1.openapi.json](contracts/ledger-v1.openapi.json)). The web client's
-accounting and budgeting screens call it; the assistant does not yet, having no ledger client.
+accounting, budgeting and planning screens call it; the assistant does not yet, having no ledger
+client.
 The assistant serves its own `portfolio` endpoints under `/api/v1` too, published as
 [contracts/assistant-v1.openapi.json](contracts/assistant-v1.openapi.json), and nothing calls them
 yet.
@@ -178,7 +182,7 @@ yet.
 | `portfolio` — holdings, positions, valuation | assistant | yes |
 | `assistance` — questions and grounded answers | assistant | yes |
 | `marketdata` — instruments and quotes, feed not chosen | assistant | no |
-| `planning` — planned flows, projections, strategy comparison | ledger | not yet built |
+| `planning` — planned flows, projections, strategy comparison | ledger | yes |
 
 Both services are hexagonal, but **only the ledger uses tactical DDD** — aggregates,
 value objects and domain events protect invariants, and the analysis side has none to
@@ -375,7 +379,7 @@ only build artefact that exists.
 | Logs | JSON on stdout, carrying a W3C trace id | Live — ECS in the ledger, structlog in the assistant. Redaction is enforced in the assistant and the web client, where the secrets are; the ledger holds none and does not expose `/actuator/env` |
 | Dashboards | Grafana, provisioned from `ops/grafana/` | Live under the `monitoring` profile |
 | Audit trail | The append-only journal | Live — the database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states; a lifecycle change appends rather than overwrites ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md), [ADR-024](docs/ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
-| Ledger API | `GET/POST /api/v1/...`; OpenAPI document at `GET /v3/api-docs`, pinned as [`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json) | Live for accounting, budgeting and planning; nothing calls it yet |
+| Ledger API | `GET/POST /api/v1/...`; OpenAPI document at `GET /v3/api-docs`, pinned as [`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json) | Live for accounting, budgeting and planning; the web client's screens for all three call it |
 
 Run the telemetry backend with `docker compose --profile monitoring up`: Grafana on
 [localhost:3000](http://localhost:3000), Prometheus on
@@ -454,22 +458,24 @@ was confirmed to fail against a planted violation — including dropping the app
 planting a foreign key across a schema boundary. CI gates build, lint, format and dependency audit
 across four jobs, and publishes a coverage report from each.
 
-**Two tracking slices now run end to end**: the web client's accounting area opens an account,
-records a transaction by hand, and moves one through `Clear`, `Reconcile` and `Void`; its
-budgeting area lists and defines budgets, reviews spend against one — overspent, unbudgeted and
-uncategorised — and adds categorisation rules in order. Both run against the ledger's live HTTP
-API. Planned next, in order: resolve the
+**Three slices now run end to end**: the web client's accounting area opens an account, records a
+transaction by hand, and moves one through `Clear`, `Reconcile` and `Void`; its budgeting area
+lists and defines budgets, reviews spend against one — overspent, unbudgeted and uncategorised —
+and adds categorisation rules in order; its planning area plans flows and moves them through their
+lifecycle, defines scenarios, charts a scenario's projection against chosen accounts with its
+first shortfall, and compares scenarios against a baseline. All three run against the ledger's
+live HTTP API. Planned next, in order: resolve the
 [open questions](docs/requirements/requirements.md#open-questions), give the assistant a ledger
-client behind its own `LedgerPort`, then build the planning and portfolio screens against each
-service's published contract.
+client behind its own `LedgerPort`, then build the portfolio screens against the assistant's
+published contract.
 
 Known limitations:
 
 - **The backend HTTP APIs have one caller so far.** The ledger serves accounting, budgeting and
   planning under `/api/v1`, with an OpenAPI document pinned by `LedgerContractIT`; the assistant
   serves `portfolio` under `/api/v1`, pinned by `tests/test_contract.py`. Only the web client's
-  accounting and budgeting screens call either, and only the ledger's; planning has no screen
-  yet. The assistant has no ledger client of its own — `LedgerPort` is still an in-memory
+  accounting, budgeting and planning screens call either, and only the ledger's. The assistant
+  has no ledger client of its own — `LedgerPort` is still an in-memory
   stand-in — and nothing calls the assistant's API.
 - **The assistant's portfolio data comes only from an opt-in development seed.**
   `ASSISTANT_DEV_SEED`, off by default, loads a small set of fictional lots and quotes from the

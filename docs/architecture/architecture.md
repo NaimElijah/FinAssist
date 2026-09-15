@@ -6,7 +6,7 @@ The system as it actually is. *What it must do* is
 
 > **All six contexts have a domain and an application layer, and the ledger's store is
 > PostgreSQL. Both backend services now have a transport, and the web client calls the ledger's
-> from its accounting and budgeting screens.** The
+> from its accounting, budgeting and planning screens.** The
 > ledger's repository ports are backed by hand-written SQL
 > ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md),
 > [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)). It serves accounting,
@@ -30,8 +30,8 @@ The system as it actually is. *What it must do* is
 > holdings and quotes from the composition root alone (`adapters/seed.py`), so the portfolio
 > screens have something to show by hand — a development aid, never a data source. The assistant
 > still has no store and no ledger client — its assembled use cases run over in-memory stand-ins
-> regardless of the seed — and the web client calls only the ledger, from its accounting and
-> budgeting screens. Both services now run under Compose, alongside natively
+> regardless of the seed — and the web client calls only the ledger, from its accounting,
+> budgeting and planning screens. Both services now run under Compose, alongside natively
 > (`./mvnw spring-boot:run`, `uv run python -m finassist_assistant.adapters`) for the faster
 > inner loop. Both emit structured logs and OTLP traces — see
 > [Cross-cutting concerns](#cross-cutting-concerns). Where a structure
@@ -65,7 +65,8 @@ flowchart LR
 `DB`, `Ledger` and `Assistant` all run under Compose now (`docker compose up`); `Ledger` reaches
 `DB` over JDBC, and `./mvnw spring-boot:run` / `uv run python -m finassist_assistant.adapters`
 against the Compose `DB` still work for the native inner loop. `Web -> Ledger` is the one edge
-leaving `Web` or `Assistant` with a caller: the web client's accounting and budgeting screens.
+leaving `Web` or `Assistant` with a caller: the web client's accounting, budgeting and planning
+screens.
 The ledger also serves its side of `Assistant -> Ledger`, and the assistant its side of
 `Web -> Assistant` (the portfolio endpoints), but neither has a caller yet; the web client's two
 edges are
@@ -84,7 +85,7 @@ Six contexts, each owned by exactly one service
 | `portfolio` | `backend/assistant` | `Holding`, `Position`, `Valuation` | yes |
 | `assistance` | `backend/assistant` | `Question`, `Evidence`, `GroundedAnswer` | yes |
 | `marketdata` | `backend/assistant` | `Instrument`, `Quote` — feed not chosen | no |
-| `planning` | `backend/ledger` | `PlannedFlow`, `Scenario`, `Projection`, `Comparison` — what is intended, not what happened | yes, not yet built |
+| `planning` | `backend/ledger` | `PlannedFlow`, `Scenario`, `Projection`, `Comparison` — what is intended, not what happened | yes |
 
 ### The context map
 
@@ -122,7 +123,7 @@ had been: `times_rounded` raised on a large product in Python where Java returne
 |---|---|---|
 | `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain and application layers complete, with unit, seeded-property and shared-vector tests, **live architecture rules** (layering, context isolation, both framework-free layers, the two web-adapter direction rules, and DTO name uniqueness), and Spring tests covering the Actuator probes, the observability wiring, the Host allow-list, the problem+json fallback and the assembled composition root; structured logs, OTLP traces and Prometheus metrics. Every repository port is backed by PostgreSQL; the in-memory ones are gone. The only remaining in-memory adapters are the two event publishers, which nothing subscribes to yet. **It now has an inbound adapter**: a component-scanned `@RestController` per context under `/api/v1`, calling in-ports only, with its generated OpenAPI document pinned by `LedgerContractIT`. Runs under Compose (`build: ./backend/ledger`) as well as natively |
 | `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain and application layers complete, with unit, Hypothesis-property and shared-vector tests, and 7 architecture rules parametrised over every source file (those that do not apply to a given file skip; one now forbids an inbound adapter reaching an outbound one). **It now has an inbound adapter**: `portfolio_router` under `/api/v1`, a `HostAllowList` middleware, and problem+json handling from the composition root, with its generated OpenAPI document pinned by `tests/test_contract.py`. Also serves `/health` and `/ready`. A development seed (`ASSISTANT_DEV_SEED`, off by default) loads fictional holdings and quotes from `adapters/seed.py` alone. `AnswerQuestion` is written and deliberately unwired — an LLM adapter would settle the privacy question by implication. Runs under Compose (`build: ./backend/assistant`) as well as natively |
-| `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and routes between four areas — accounting, budgets, planning and portfolio — inside a shared layout, under an error boundary and a TanStack Query client. **The accounting area is implemented**: `AccountsPage` lists accounts, reading each balance by its own request, and opens one through `OpenAccountForm`; `RecordTransactionPage`, at the static route `/accounts/transactions/new`, records a transaction by hand, mirroring a two-entry transaction's amount by string (ADR-029) and mapping each row to a signed `Entry` with no arithmetic; `AccountDetailPage` shows one account's balance and the transactions touching it, taking the account itself from the cached list because the ledger has no single-item read, and offers `Clear`, `Reconcile` and `Void` on each transaction's row, only for the states its `TransactionState` legally admits. **The budgeting area is implemented too**: `BudgetsPage` lists every budget with its period, currency and total, and defines one for a calendar month through `DefineBudgetForm`, whose month-to-period mapping (`monthInputToPeriod`) and period label (`periodMonthLabel`, `periodDisplayEnd`) are pure calendar-part arithmetic on year, month and day integers, never a `Date` parsed from a string; `BudgetReviewPage`, at `/budgets/:budgetId`, takes the budget's period and currency from the cached list and shows its review's spend by category (with an `Overspent`/`Within limit` status badge, text carrying the meaning rather than colour), its unbudgeted spend and its uncategorised amount, shown even when zero; `CategorisationRulesPage`, at the static route `/budgets/rules` — ranked above the dynamic `:budgetId` route at the same depth by React Router's own matching, not by array order — lists every rule in the order it was added and adds another through `AddCategorisationRuleForm`. Every screen calls the ledger through the dev proxy with wire types generated from `contracts/` and mapped, member by member, onto each feature's own types in `api/accountingApi.ts` and `api/budgetingApi.ts` — the anti-corruption layer ADR-029 requires; query keys come from the `accountKeys` and `budgetKeys`/`categorisationRuleKeys` factories, so a mutation invalidates exactly what it can have changed: recording a transaction or moving one through its lifecycle invalidates the balance and transaction-list queries of the accounts it touches and never the accounts list; defining a budget invalidates the budgets list alone; adding a categorisation rule invalidates the rules list and every cached budget-review query, since a new rule can change how any budget's spend categorises, and never the budgets list, which a rule cannot change. Planning and portfolio are still placeholders. Design tokens and the shared UI primitives every screen is built from, in `src/shared/ui`; test helpers in `src/shared/testing` that render routes with their providers and fake `fetch`; architecture rules, HTTP-client tests, jsdom tests of the shell, of each primitive and of every accounting and budgeting screen, and a structured logger that generates the `traceparent` every request carries |
+| `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and routes between four areas — accounting, budgets, planning and portfolio — inside a shared layout, under an error boundary and a TanStack Query client. **The accounting area is implemented**: `AccountsPage` lists accounts, reading each balance by its own request, and opens one through `OpenAccountForm`; `RecordTransactionPage`, at the static route `/accounts/transactions/new`, records a transaction by hand, mirroring a two-entry transaction's amount by string (ADR-029) and mapping each row to a signed `Entry` with no arithmetic; `AccountDetailPage` shows one account's balance and the transactions touching it, taking the account itself from the cached list because the ledger has no single-item read, and offers `Clear`, `Reconcile` and `Void` on each transaction's row, only for the states its `TransactionState` legally admits. **The budgeting area is implemented too**: `BudgetsPage` lists every budget with its period, currency and total, and defines one for a calendar month through `DefineBudgetForm`, whose month-to-period mapping (`monthInputToPeriod`) and period label (`periodMonthLabel`, `periodDisplayEnd`) are pure calendar-part arithmetic on year, month and day integers, never a `Date` parsed from a string; `BudgetReviewPage`, at `/budgets/:budgetId`, takes the budget's period and currency from the cached list and shows its review's spend by category (with an `Overspent`/`Within limit` status badge, text carrying the meaning rather than colour), its unbudgeted spend and its uncategorised amount, shown even when zero; `CategorisationRulesPage`, at the static route `/budgets/rules` — ranked above the dynamic `:budgetId` route at the same depth by React Router's own matching, not by array order — lists every rule in the order it was added and adds another through `AddCategorisationRuleForm`. Every screen calls the ledger through the dev proxy with wire types generated from `contracts/` and mapped, member by member, onto each feature's own types in `api/accountingApi.ts`, `api/budgetingApi.ts` and `api/planningApi.ts` — the anti-corruption layer ADR-029 requires; query keys come from the `accountKeys`, `budgetKeys`/`categorisationRuleKeys` and `planKeys` factories, so a mutation invalidates exactly what it can have changed: recording a transaction or moving one through its lifecycle invalidates the balance and transaction-list queries of the accounts it touches and never the accounts list; defining a budget invalidates the budgets list alone; adding a categorisation rule invalidates the rules list and every cached budget-review query, since a new rule can change how any budget's spend categorises, and never the budgets list, which a rule cannot change. **The planning area is implemented too**: `PlannedFlowsPage` plans a flow through `PlanFlowForm` and moves each through `Commit`, `Realise` or `Cancel`, offering only what its `PlanState` legally admits; `ScenariosPage` lists scenarios and defines one through `DefineScenarioForm`, offering only flows in the scenario's currency; `ProjectionPage`, at `/planning/projection`, projects a scenario against the cash and invested accounts the owner chooses and shows whether cash ever falls below zero, with the within-step caveat, a hand-rolled SVG `ProjectionChart`, and a table of every step; `ComparisonPage`, at `/planning/compare`, compares two or more scenarios against a baseline in tables of end states and of each scenario's divergence, and draws no chart. Both offer accounts only in the currency being projected, and take them from accounting through `PlanningAccountsBridge` in `src/app` (see [Cross-cutting concerns](#cross-cutting-concerns)). Realising or cancelling a flow invalidates the flows list and every cached projection and comparison, by the `planKeys.projections` and `planKeys.comparisons` prefixes, since the ledger projects only planned and committed flows; planning a flow, committing one and defining a scenario each invalidate their own list alone. Portfolio is still a placeholder. Design tokens and the shared UI primitives every screen is built from, in `src/shared/ui`; test helpers in `src/shared/testing` that render routes with their providers and fake `fetch`; architecture rules, HTTP-client tests, jsdom tests of the shell, of each primitive and of every accounting, budgeting and planning screen, and a structured logger that generates the `traceparent` every request carries |
 | `contracts/` | The versioned wire contract, and the cross-language `Money` conformance vectors | `money-vectors.v1.json`, the README, `ledger-v1.openapi.json` — generated by springdoc, pinned by `LedgerContractIT` — and `assistant-v1.openapi.json` — generated by FastAPI, pinned by `tests/test_contract.py` |
 | PostgreSQL 18 | The ledger's store | Runs via Compose. Three schemas — `accounting`, `budgeting`, `planning` — with no foreign key crossing one; migrated by Flyway from a directory per context. The journal is append-only in the database, enforced by triggers |
 
@@ -153,7 +154,8 @@ frontend/web/src/
   features/{accounting,budgeting,planning,portfolio,assistance}/{api,components,hooks,types}/
                 each index.ts exports its area's routes; assistance has no route
   shared/{ui,api,lib,testing}/
-  app/          the only place that knows every feature at once: routes.tsx composes their routes
+  app/          the only place that knows every feature at once: routes.tsx composes their routes,
+                and PlanningAccountsBridge.tsx adapts accounting's accounts into planning's terms
 ```
 
 `LedgerApplication` sits in the root package so component scanning covers every context. The
@@ -173,7 +175,7 @@ that the `monitoring` Compose profile mounts.
 
 - **Owner to web** — HTTPS.
 - **Web to ledger** — HTTP, for the accounting, budgeting and planning screens. **Implemented on
-  both sides for accounting and budgeting, on the ledger side alone for planning.** The ledger
+  both sides for all three.** The ledger
   serves `/api/v1/accounts`, `/api/v1/transactions`, `/api/v1/budgets`,
   `/api/v1/categorisation-rules`, `/api/v1/planned-flows`, `/api/v1/scenarios` and
   `/api/v1/scenario-comparisons`. The web client's accounting screens call `GET` and
@@ -183,7 +185,12 @@ that the `monitoring` Compose profile mounts.
   it through its lifecycle. The budgeting screens call `GET` and `POST /api/v1/budgets`,
   `GET /api/v1/budgets/{id}/review` — no single-item read for a budget itself, so the review page
   takes its period and currency from the already-loaded list (ADR-028) — and `GET` and
-  `POST /api/v1/categorisation-rules`. In development the browser calls `/ledger/…` on the Vite
+  `POST /api/v1/categorisation-rules`. The planning screens call `GET` and
+  `POST /api/v1/planned-flows`, `POST /api/v1/planned-flows/{id}/commit`, `.../realise` or
+  `.../cancel`, `GET` and `POST /api/v1/scenarios`, `GET /api/v1/scenarios/{id}/projection` and
+  `GET /api/v1/scenario-comparisons` — the last two carrying only ids, dates and the step in their
+  query, one repeated `scenario`, `cash` or `invested` parameter per value, never an amount
+  (ADR-028). In development the browser calls `/ledger/…` on the Vite
   origin, and the dev proxy forwards to the ledger on loopback so no call crosses an origin
   ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)).
 - **Web to assistant** — HTTP, for the portfolio screens, through the same proxy under
@@ -296,6 +303,24 @@ composition root, calls accounting's `ViewJournalUseCase`, keeps the `EXPENSE` l
 each to a `SpendRecord` → each record is categorised by the first matching `CategorisationRule`
 → `Budget.remaining` per category. Budgeting names no accounting type anywhere on that path.
 
+**Projecting a strategy, from the browser.** `ProjectionPage`'s form holds the chosen scenario,
+horizon, step and checked accounts, the accounts offered arriving through `AccountOptionsContext`,
+which `PlanningAccountsBridge` fills from accounting's `useAccounts` →
+`toProjectionSettings` keeps only the checked accounts in the scenario's currency, in the order
+offered (ADR-012) → submitting sets the parameters `useProjection` is keyed by,
+`planKeys.projection(params)` → `planningApi.projectScenario` builds the query with
+`URLSearchParams.append` — `from`, `to`, `step`, then one `cash` and one `invested` per account,
+never an amount (ADR-028) — and calls `requestJson` → the Vite dev proxy forwards
+`GET /ledger/api/v1/scenarios/{id}/projection` to the ledger on loopback
+([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)) → the ledger's
+own path, below, answers 200 with the projection, or a problem → the response maps onto the
+feature's `Projection`, refusing one with no points or with a step or currency the contract does
+not name → the callout states the first shortfall, or that there is none at that cadence, with the
+within-step caveat; `ProjectionChart` places each point through `scalePoints`, the one place an
+amount becomes a number, and labels its extremes and horizon with the ledger's own strings through
+`MoneyText` and `DateText` (ADR-029); a `DataTable` lists every step. A 404 `SCENARIO_NOT_FOUND` or
+a 422 `RULE_VIOLATED` shows its detail in an `ErrorState` that takes focus and offers a retry.
+
 **Projecting a strategy, ledger.** `ProjectScenarioCommand`, carrying the `AccountRef`s the
 caller considers cash and invested → `ForecastService` loads the `Scenario` and **re-reads its
 flows**, so a plan cancelled since it was named stops counting → `OpeningPositionProvider` →
@@ -373,6 +398,20 @@ in-process equivalent of the Published Language, so extracting a context later i
 transport rather than of design. Upstream exceptions stop at the boundary too: a bad
 `AccountRef` reaches planning as an `IllegalArgumentException` naming the reference it gave, not
 as an `AccountNotFoundException` carrying an id it never saw.
+
+**The web client has its own cross-context translation, in `src/app`.** A web feature imports no
+other feature (`tests/architecture.test.ts`), so planning declares what it needs from accounting
+in its own words — `AccountOptionsContext`, whose value is a list of `AccountOption`s, each a ref,
+a label and a currency, or says the list is still loading or failed — and
+`PlanningAccountsBridge`, a pathless layout route around the planning routes, fills it from
+accounting's `useAccounts`, mapping each `Account` onto an `AccountOption`. It is the web client's
+counterpart of `AccountingOpeningPositions` in the ledger's `composition`: the consumer owns the
+port, and the translation sits in the one place that sees both contexts
+([ADR-010](../ADRs/ADR-010-bounded-context-map.md),
+[ADR-022](../ADRs/ADR-022-ledger-composition-root.md)). Planning names no accounting type, and
+`useAccountOptions` throws when no provider is above it rather than offering no accounts silently.
+Because the bridge wraps every planning route, the flows and scenarios screens read the accounts
+list too — one cached request, shared with the accounting screens.
 
 **Domain events are raised by the application service, not by the aggregate.** `Transaction` and
 `PlannedFlow` are records whose value semantics the suites rely on, so a mutable pending-events
@@ -488,6 +527,17 @@ still serves the contract itself.
 and the parity test in `tests/test_portfolio_api.py` compares against — so a member whose name
 happened to differ from its code cannot pass the parity test and still fail every request as an
 uncaught `KeyError` at 500.
+
+**On the web client, an amount becomes a number only to place a pixel.** The browser does no
+arithmetic on money ([ADR-029](../ADRs/ADR-029-web-client-stack.md)), yet a chart needs
+coordinates. `scalePoints`, the projection chart's scale function in
+`features/planning/components/chartScale.ts`, is the one place an amount is converted with
+`Number`, and only to compute a position. Every figure a person reads — the chart's highest and
+lowest labels, its horizon dates, and the table beneath it — is the ledger's own string through
+`MoneyText` or `DateText`: each extreme carries the `Money` that holds it, never the number it was
+placed by, and the chart's SVG title and description carry no figure at all. No build rule
+enforces this; it is held in review, and `ProjectionChart.test.tsx` pins the extreme labels to an
+amount beyond a double's precision, which a re-formatted float would fail.
 
 **The Makefile is an interface, not a mechanism.** Every target wraps `docker compose`,
 `./mvnw`, `uv` or `npm`, and CI calls the same targets, so the pipeline and the local commands

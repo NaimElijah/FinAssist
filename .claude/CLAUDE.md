@@ -29,9 +29,15 @@ by category — overspent, unbudgeted and uncategorised — taking the budget's 
 currency from the cached list rather than a single-item read, and `CategorisationRulesPage`, at
 the static route `/budgets/rules`, lists rules in the order they are tried and adds another;
 `/budgets/rules` outranks the dynamic `/budgets/:budgetId` at the same depth by React Router's
-own static-over-dynamic ranking. Both areas call the ledger through the dev proxy, mapping
-generated wire types onto each feature's own in `api/`; planning and portfolio still render
-placeholders behind an error boundary. Observability is live (ADR-019): the ledger answers
+own static-over-dynamic ranking. **It also has its planning area**: `PlannedFlowsPage` plans flows
+and moves each through its lifecycle, `ScenariosPage` defines scenarios, `ProjectionPage`
+(`/planning/projection`) charts a scenario's projection, with its first shortfall, against the
+cash and invested accounts the owner chooses, and `ComparisonPage` (`/planning/compare`) compares
+two or more scenarios against a baseline in tables. Planning's account choices come from
+accounting through `PlanningAccountsBridge` in `src/app`, the web client's one cross-feature
+translation. All three areas call the ledger through the dev proxy, mapping generated wire types
+onto each feature's own in `api/`; portfolio still renders a placeholder behind an error boundary.
+Observability is live (ADR-019): the ledger answers
 Actuator probes and now traces its business endpoints too, and the assistant serves `/health`
 and `/ready` and assembles its use cases at start-up. Both services emit structured JSON logs and
 OTLP traces. Both services run under Compose (`docker compose up`) as well as natively.
@@ -313,3 +319,13 @@ consistent rather than because a test would catch a deviation.
   integers with a leap-year-aware days-in-month table; a `Date` is built only to hand an already
   computed instant to `Intl.DateTimeFormat`, pinned to `timeZone: 'UTC'` exactly as `DateText`
   does, so formatting cannot shift the result with the browser's own zone.
+- **Cross-feature data enters a web feature only through a context the feature declares and
+  `src/app` provides.** Planning declares `AccountOptionsContext`, in its own terms, and
+  `PlanningAccountsBridge` in `src/app` fills it from accounting's `useAccounts` (ADR-010,
+  ADR-022). `tests/architecture.test.ts` enforces that no feature imports another; that the data
+  arrives through a declared context rather than, say, a prop threaded from `src/app`, and that
+  the hook reading it throws without a provider, is held in review.
+- **A chart's scale function is the only place an amount becomes a number**, and only to compute a
+  pixel coordinate - `scalePoints` in `features/planning/components/chartScale.ts`. Every figure a
+  person reads - labels, axis extremes, tables, title text - is the server's string through
+  `MoneyText` (ADR-029).
