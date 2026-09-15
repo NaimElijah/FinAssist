@@ -221,6 +221,20 @@ describe('DisposalSection', () => {
         expect(screen.queryByRole('region', { name: SECTION })).toBeNull();
     });
 
+    it('Given_a_disposal_priced_When_its_result_shows_Then_it_states_the_quantity_and_proceeds_it_priced', async () => {
+        // Without them, the cost of sale and realised gain stand alone, and nothing on screen says
+        // which inputs they answer.
+        fakeFetch(assistant(() => jsonResponse(DISPOSITION)));
+        await renderSettledHolding();
+
+        await price(userEvent.setup({ delay: null }));
+
+        await screen.findByRole('table', { name: LOTS_CAPTION });
+        // A number of units, shown exactly as received; the proceeds formatted as money.
+        expect(figure('Quantity')).toBe('4');
+        expect(figure('Proceeds')).toBe('US$2,100.00');
+    });
+
     it('Given_proceeds_below_the_cost_of_sale_When_priced_Then_the_realised_figure_reads_as_a_loss_with_its_sign_kept', async () => {
         fakeFetch(
             assistant(() =>

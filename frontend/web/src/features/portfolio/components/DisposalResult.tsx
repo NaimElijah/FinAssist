@@ -49,8 +49,9 @@ export interface DisposalResultProps {
 }
 
 /**
- * What a calculation found: the cost of sale, the realised gain or loss, and the lots that would
- * remain, oldest first.
+ * What a calculation found: the quantity and proceeds it priced, the cost of sale, the realised gain
+ * or loss, and the lots that would remain, oldest first. The quantity and proceeds come from the
+ * disposition itself, so a result always says which inputs it answers.
  *
  * Its heading takes focus when it appears. Submit was disabled while the calculation ran, which
  * leaves focus nowhere, and the owner should hear the answer. A new calculation unmounts the
@@ -73,6 +74,14 @@ export function DisposalResult({ disposition }: DisposalResultProps) {
                 What this sale would realise
             </h3>
             <Figures>
+                {/* A number of units, not money: shown exactly as received, never formatted. */}
+                <Figure term="Quantity">{disposition.quantity}</Figure>
+                <Figure term="Proceeds">
+                    <MoneyText
+                        amount={disposition.proceeds.amount}
+                        currency={disposition.proceeds.currency}
+                    />
+                </Figure>
                 <Figure term="Cost of sale">
                     <MoneyText
                         amount={disposition.costOfSale.amount}
