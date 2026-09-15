@@ -184,6 +184,67 @@ describe('CategorisationRulesPage adding a rule', () => {
         expect(screen.getByLabelText('Category')).toHaveProperty('value', '');
     });
 
+    it('Given_a_rule_is_added_When_the_list_shows_it_Then_focus_moves_to_its_list_item', async () => {
+        const served: unknown[] = [];
+        fakeFetch((request) => {
+            if (request.url === RULES_URL && request.method === 'POST') {
+                served.push({ fragment: 'coffee', category: 'dining' });
+                return jsonResponse({ fragment: 'coffee', category: 'dining' }, 201);
+            }
+            if (request.url === RULES_URL) return jsonResponse([...served]);
+            return unexpectedRequest(request);
+        });
+        renderRules();
+        const user = userEvent.setup({ delay: null });
+
+        await user.type(await screen.findByLabelText('Fragment'), 'coffee');
+        await user.type(screen.getByLabelText('Category'), 'dining');
+        await user.click(screen.getByRole('button', { name: 'Add rule' }));
+
+        const item = await screen.findByText('"coffee" → dining');
+        await waitFor(() => {
+            expect(document.activeElement).toBe(item);
+        });
+    });
+
+    it('Given_the_refetch_after_adding_a_rule_fails_When_it_settles_Then_focus_moves_to_the_Fragment_field_instead_of_a_stale_rule', async () => {
+        // The list still shows its pre-add data (TanStack Query keeps it on a failed background
+        // refetch), so the "last" row is the stale one - landing focus there would be silently
+        // wrong. A visible failure above the list, plus focus on the add form's own first field,
+        // is the fallback CategorisationRulesPage reaches for instead.
+        let refetchesServed = 0;
+        fakeFetch((request) => {
+            if (request.url === RULES_URL && request.method === 'POST') {
+                return jsonResponse({ fragment: 'tea', category: 'dining' }, 201);
+            }
+            if (request.url === RULES_URL) {
+                refetchesServed += 1;
+                if (refetchesServed === 1)
+                    return jsonResponse([{ fragment: 'coffee', category: 'dining' }]);
+                return problemResponse({
+                    status: 503,
+                    code: 'UNAVAILABLE',
+                    detail: 'The ledger is restarting.',
+                });
+            }
+            return unexpectedRequest(request);
+        });
+        renderRules();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByText('"coffee" → dining');
+
+        await user.type(screen.getByLabelText('Fragment'), 'tea');
+        await user.type(screen.getByLabelText('Category'), 'dining');
+        await user.click(screen.getByRole('button', { name: 'Add rule' }));
+
+        await screen.findByRole('alert');
+        expect(screen.queryByText('"tea" → dining')).toBeNull();
+        expect(screen.getByText('"coffee" → dining')).toBeDefined();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(screen.getByLabelText('Fragment'));
+        });
+    });
+
     it('Given_a_400_naming_the_fragment_field_When_added_Then_its_message_is_the_Fragment_fields_error', async () => {
         fakeFetch((request) => {
             if (request.url === RULES_URL && request.method === 'POST') {

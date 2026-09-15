@@ -16,6 +16,9 @@ const MALFORMED_REQUEST_STATUS = 400;
  */
 const INVALID_CONTROL_SELECTOR = '[aria-invalid="true"]';
 
+/** Matches the form's first field: the Fragment input, first in source order. */
+const FIRST_FIELD_SELECTOR = 'input';
+
 /** The form's fields, named as the ledger names them in a problem's `errors`. */
 const FIELD_NAMES = ['fragment', 'category'] as const;
 
@@ -80,6 +83,13 @@ function submissionErrors(error: Error | null): SubmissionErrors {
 export interface AddCategorisationRuleFormProps {
     /** Called with the added rule, once the rules list has been refetched to include it. */
     readonly onAdded: (rule: CategorisationRule) => void;
+    /**
+     * A caller-driven request to move focus to this form's first field, for when the rules list
+     * could not identify the new rule to focus instead (its own refetch failed).
+     */
+    readonly focusRequested: boolean;
+    /** Called once the requested focus has been applied, so the request can be cleared. */
+    readonly onFocusRequestHandled: () => void;
 }
 
 /**
@@ -90,9 +100,17 @@ export interface AddCategorisationRuleFormProps {
  * shown where it can be acted on: a 400's field errors on their fields, and anything else in an
  * `ErrorState` above the form, exactly as `OpenAccountForm` does. Focus follows the failure there.
  *
+ * `focusRequested` moves focus to the Fragment field on demand - the fallback `CategorisationRulesPage`
+ * reaches for when a rule was added but its list's own refetch failed, so no row can be identified
+ * as the new one to focus instead.
+ *
  * @param props - see `AddCategorisationRuleFormProps`.
  */
-export function AddCategorisationRuleForm({ onAdded }: AddCategorisationRuleFormProps) {
+export function AddCategorisationRuleForm({
+    onAdded,
+    focusRequested,
+    onFocusRequestHandled,
+}: AddCategorisationRuleFormProps) {
     const headingId = useId();
     const formRef = useRef<HTMLFormElement>(null);
     const errorStateRef = useRef<HTMLDivElement>(null);
@@ -114,6 +132,14 @@ export function AddCategorisationRuleForm({ onAdded }: AddCategorisationRuleForm
             formRef.current?.querySelector<HTMLElement>(INVALID_CONTROL_SELECTOR);
         (invalidControl ?? errorStateRef.current)?.focus();
     }, [failure]);
+
+    useEffect(() => {
+        if (!focusRequested) {
+            return;
+        }
+        formRef.current?.querySelector<HTMLElement>(FIRST_FIELD_SELECTOR)?.focus();
+        onFocusRequestHandled();
+    }, [focusRequested, onFocusRequestHandled]);
 
     function submit(event: SubmitEvent<HTMLFormElement>) {
         event.preventDefault();
