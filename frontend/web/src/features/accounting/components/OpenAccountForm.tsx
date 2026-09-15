@@ -72,8 +72,16 @@ function oneOf<Value extends string>(allowed: readonly Value[], value: string): 
 }
 
 /**
+ * Between two messages for the same field. A field shows one error string, and messages such as
+ * "must not be blank" carry no end punctuation of their own, so a bare space would run them into
+ * one sentence.
+ */
+const FIELD_MESSAGE_SEPARATOR = '; ';
+
+/**
  * A 400's field errors keyed by form field, or `undefined` when any names a field this form does
- * not have, so the whole problem is shown instead of part of it being dropped.
+ * not have, so the whole problem is shown instead of part of it being dropped. Several messages
+ * for one field are kept, in order, joined by `FIELD_MESSAGE_SEPARATOR`.
  */
 function placeFieldErrors(errors: readonly ProblemFieldError[]): FieldErrors | undefined {
     const fields: FieldErrors = {};
@@ -82,7 +90,8 @@ function placeFieldErrors(errors: readonly ProblemFieldError[]): FieldErrors | u
             return undefined;
         }
         const earlier = fields[field];
-        fields[field] = earlier === undefined ? message : `${earlier} ${message}`;
+        fields[field] =
+            earlier === undefined ? message : `${earlier}${FIELD_MESSAGE_SEPARATOR}${message}`;
     }
     return fields;
 }

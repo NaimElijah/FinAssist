@@ -405,6 +405,30 @@ describe('AccountsPage opening an account', () => {
         });
     });
 
+    it('Given_a_400_with_two_errors_for_one_field_When_opened_Then_that_field_shows_both_messages_apart', async () => {
+        fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL && request.method === 'POST') {
+                return problemResponse({
+                    status: 400,
+                    code: 'MALFORMED_REQUEST',
+                    detail: 'Invalid request content.',
+                    errors: [
+                        { field: 'name', message: 'must not be blank' },
+                        { field: 'name', message: 'must be at most 100 characters' },
+                    ],
+                });
+            }
+            if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderAccounts();
+
+        await openVisa(userEvent.setup());
+
+        const error = await screen.findByText('must not be blank; must be at most 100 characters');
+        expect(screen.getByLabelText('Name').getAttribute('aria-describedby')).toBe(error.id);
+    });
+
     it('Given_a_400_without_field_errors_When_opened_Then_its_detail_is_an_error_state_above_the_form', async () => {
         fakeFetch((request) => {
             if (request.url === ACCOUNTS_URL && request.method === 'POST') {
