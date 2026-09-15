@@ -75,12 +75,11 @@ const MALFORMED_REQUEST_STATUS = 400;
 const INVALID_CONTROL_SELECTOR = '[aria-invalid="true"]';
 
 /**
- * The form's top-level fields, named as the ledger names them in a problem's `errors`. Neither the
- * amount nor the recurrence's own members (`recurrence.kind`, `recurrence.completeForKind`) are
- * among them - the same exclusion `RecordTransactionForm` makes for an entry row's fields - so a
- * 400 naming one falls to `ErrorState` instead of being silently dropped.
+ * The form's own field names. `amount` covers `MoneyDto`'s nested `amount.amount` - see
+ * `formFieldFor` - so it is not itself a literal problem field name; every other member here is
+ * both.
  */
-const FIELD_NAMES = ['description', 'direction', 'startsOn'] as const;
+const FIELD_NAMES = ['description', 'amount', 'direction', 'startsOn'] as const;
 
 type FieldName = (typeof FIELD_NAMES)[number];
 
@@ -93,8 +92,20 @@ interface SubmissionErrors {
     readonly unplaced: Error | null;
 }
 
-function isFieldName(field: string): field is FieldName {
-    return FIELD_NAMES.some((name) => name === field);
+/**
+ * The form field a problem's field path names, or `undefined` when it names none.
+ *
+ * `amount.amount` is `MoneyDto`'s own nested member and the only way the Amount field can fail
+ * validation on the wire, so it maps onto `amount` here; every other member is already flat.
+ * Neither the recurrence's own members (`recurrence.kind`, `recurrence.completeForKind`) map to
+ * anything - the same exclusion `RecordTransactionForm` makes for an entry row's fields - so a
+ * 400 naming one falls to `ErrorState` instead of being silently dropped.
+ */
+function formFieldFor(problemField: string): FieldName | undefined {
+    if (problemField === 'amount.amount') {
+        return 'amount';
+    }
+    return FIELD_NAMES.find((name) => name === problemField);
 }
 
 /**
@@ -114,18 +125,19 @@ function oneOf<Value extends string>(allowed: readonly Value[], value: string): 
 const FIELD_MESSAGE_SEPARATOR = '; ';
 
 /**
- * A 400's field errors keyed by this form's top-level fields, or `undefined` when any names a
- * field this form does not have at top level, so the whole problem is shown instead of part of it
+ * A 400's field errors keyed by this form's own fields (see `formFieldFor`), or `undefined` when
+ * any names a field this form cannot place, so the whole problem is shown instead of part of it
  * being dropped silently.
  */
 function placeFieldErrors(errors: readonly ProblemFieldError[]): FieldErrors | undefined {
     const fields: FieldErrors = {};
     for (const { field, message } of errors) {
-        if (!isFieldName(field)) {
+        const formField = formFieldFor(field);
+        if (formField === undefined) {
             return undefined;
         }
-        const earlier = fields[field];
-        fields[field] =
+        const earlier = fields[formField];
+        fields[formField] =
             earlier === undefined ? message : `${earlier}${FIELD_MESSAGE_SEPARATOR}${message}`;
     }
     return fields;
@@ -133,9 +145,9 @@ function placeFieldErrors(errors: readonly ProblemFieldError[]): FieldErrors | u
 
 /**
  * Where a failed submission's explanation belongs. Mirrors `OpenAccountForm` and
- * `RecordTransactionForm`'s rule: a 400 whose `errors` all name a field this form has at top
- * level goes on those fields; anything else - a 422 `RULE_VIOLATED`, or an `errors` entry naming
- * the amount or the recurrence's own members - is left for `ErrorState`, which shows the
+ * `RecordTransactionForm`'s rule: a 400 whose `errors` all name a field this form can place goes
+ * on those fields, `amount.amount` included; anything else - a 422 `RULE_VIOLATED`, or an
+ * `errors` entry naming the recurrence's own members - is left for `ErrorState`, which shows the
  * problem's detail and every listed field error.
  */
 function submissionErrors(error: Error | null): SubmissionErrors {
@@ -290,6 +302,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         required
                         autoComplete="off"
                         value={amount}
+                        error={errors.fields.amount}
                         onChange={(event) => {
                             setAmount(event.target.value);
                         }}

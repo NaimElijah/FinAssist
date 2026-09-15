@@ -568,7 +568,7 @@ describe('PlannedFlowsPage plan-flow form', () => {
         });
     });
 
-    it('Given_an_incomplete_recurrence_400_When_planned_Then_the_field_error_is_shown', async () => {
+    it('Given_an_incomplete_recurrence_400_When_planned_Then_it_falls_to_the_alert_as_an_unmapped_field', async () => {
         fakeFetch(
             ledger([], (request) => {
                 if (request.url === FLOWS_URL && request.method === 'POST') {
@@ -598,6 +598,38 @@ describe('PlannedFlowsPage plan-flow form', () => {
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('Invalid request content.')).toBeDefined();
         expect(within(alert).getByText(/recurrence\.completeForKind/)).toBeDefined();
+    });
+
+    it('Given_a_400_naming_amount_amount_When_planned_Then_the_message_is_on_the_Amount_field', async () => {
+        // Reachable through the UI: MoneyDto's own @Pattern refuses anything but plain decimal
+        // text, such as a thousands separator, and the free-text Amount field does not either.
+        fakeFetch(
+            ledger([], (request) => {
+                if (request.url === FLOWS_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: [{ field: 'amount.amount', message: 'must be a decimal number' }],
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+
+        await user.type(screen.getByLabelText('Description'), 'Salary');
+        await user.type(screen.getByLabelText('Amount'), '1,000.00');
+        await user.click(screen.getByRole('button', { name: 'Plan flow' }));
+
+        const error = await screen.findByText('must be a decimal number');
+        expect(screen.getByLabelText('Amount').getAttribute('aria-describedby')).toBe(error.id);
+        expect(screen.queryByRole('alert')).toBeNull();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(screen.getByLabelText('Amount'));
+        });
     });
 
     it('Given_a_400_listing_description_and_direction_errors_When_planned_Then_each_message_is_on_its_field', async () => {
