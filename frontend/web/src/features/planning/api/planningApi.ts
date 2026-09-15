@@ -23,9 +23,9 @@ import type {
 } from '@/shared/api/contracts/ledger/types.gen';
 import { log } from '@/shared/lib/logger';
 
-import type { PlanFlowInput, PlannedFlow, PlanState } from '../types/flow';
-import type { Money } from '../types/money';
-import type { Recurrence } from '../types/recurrence';
+import { DIRECTIONS, type PlanFlowInput, type PlannedFlow, type PlanState } from '../types/flow';
+import { CURRENCIES, type Money } from '../types/money';
+import { CADENCES, type Cadence, type Recurrence } from '../types/recurrence';
 import type { DefineScenarioInput, Scenario } from '../types/scenario';
 
 const PLANNED_FLOWS_URL = `${LEDGER_API}/planned-flows`;
@@ -36,7 +36,23 @@ function flowActionUrl(flowId: string, action: string): string {
     return `${PLANNED_FLOWS_URL}/${encodeURIComponent(flowId)}/${action}`;
 }
 
-function toMoney(wire: MoneyDto): Money {
+/**
+ * A currency the contract does not name.
+ *
+ * The generated type promises one of five codes, but the body is unvalidated JSON, so this keeps
+ * a runtime default rather than trusting it blindly, the same as an unnamed status or kind.
+ *
+ * @throws ApiBodyError - always.
+ */
+function unknownCurrency(url: string): never {
+    log.error('ledger response has a currency the contract does not name', { url });
+    throw new ApiBodyError(url, 'A response arrived with a currency the contract does not name');
+}
+
+function toMoney(wire: MoneyDto, url: string): Money {
+    if (!CURRENCIES.includes(wire.currency)) {
+        return unknownCurrency(url);
+    }
     return { amount: wire.amount, currency: wire.currency };
 }
 
@@ -98,6 +114,22 @@ function unknownRecurrenceKind(url: string): never {
     throw new ApiBodyError(url, 'A recurrence arrived with a kind the contract does not name');
 }
 
+/**
+ * A cadence the contract does not name. See `unknownStatus`.
+ *
+ * @throws ApiBodyError - always.
+ */
+function unknownCadence(url: string): never {
+    log.error('ledger recurrence has a cadence the contract does not name', { url });
+    throw new ApiBodyError(url, 'A recurrence arrived with a cadence the contract does not name');
+}
+
+/** `value`, required and validated against `CADENCES`. */
+function requiredCadence(value: RecurrenceResponse['cadence'], url: string): Cadence {
+    const cadence = requiredMember(value, 'cadence', url);
+    return CADENCES.includes(cadence) ? cadence : unknownCadence(url);
+}
+
 function toRecurrence(wire: RecurrenceResponse, url: string): Recurrence {
     switch (wire.kind) {
         case 'ONCE':
@@ -105,14 +137,14 @@ function toRecurrence(wire: RecurrenceResponse, url: string): Recurrence {
         case 'UNTIL':
             return {
                 kind: 'UNTIL',
-                cadence: requiredMember(wire.cadence, 'cadence', url),
+                cadence: requiredCadence(wire.cadence, url),
                 interval: requiredMember(wire.interval, 'interval', url),
                 until: requiredMember(wire.until, 'until', url),
             };
         case 'TIMES':
             return {
                 kind: 'TIMES',
-                cadence: requiredMember(wire.cadence, 'cadence', url),
+                cadence: requiredCadence(wire.cadence, url),
                 interval: requiredMember(wire.interval, 'interval', url),
                 count: requiredMember(wire.count, 'count', url),
             };
@@ -143,23 +175,36 @@ function toRecurrenceRequest(recurrence: Recurrence): RecurrenceRequest {
     }
 }
 
+/**
+ * A direction the contract does not name.
+ *
+ * @throws ApiBodyError - always.
+ */
+function unknownDirection(url: string): never {
+    log.error('ledger planned flow has a direction the contract does not name', { url });
+    throw new ApiBodyError(
+        url,
+        'A planned flow arrived with a direction the contract does not name',
+    );
+}
+
 function toPlannedFlow(wire: PlannedFlowResponse, url: string): PlannedFlow {
     return {
         id: wire.id,
         description: wire.description,
-        amount: toMoney(wire.amount),
-        direction: wire.direction,
+        amount: toMoney(wire.amount, url),
+        direction: DIRECTIONS.includes(wire.direction) ? wire.direction : unknownDirection(url),
         startsOn: wire.startsOn,
         recurrence: toRecurrence(wire.recurrence, url),
         state: toPlanState(wire.state, url),
     };
 }
 
-function toScenario(wire: ScenarioResponse): Scenario {
+function toScenario(wire: ScenarioResponse, url: string): Scenario {
     return {
         id: wire.id,
         name: wire.name,
-        currency: wire.currency,
+        currency: CURRENCIES.includes(wire.currency) ? wire.currency : unknownCurrency(url),
         flows: wire.flows,
         growthRatePerStep: wire.growthRatePerStep,
     };
@@ -264,7 +309,7 @@ export async function cancelFlow(flowId: string, on: string, reason: string): Pr
  */
 export async function listScenarios(): Promise<Scenario[]> {
     const wire = await requestJson<ScenarioResponse[]>(SCENARIOS_URL);
-    return wire.map(toScenario);
+    return wire.map((scenario) => toScenario(scenario, SCENARIOS_URL));
 }
 
 /**
@@ -287,5 +332,5 @@ export async function defineScenario(input: DefineScenarioInput): Promise<Scenar
         growthRatePerStep: input.growthRatePerStep,
     };
     const wire = await sendJson<ScenarioResponse>(SCENARIOS_URL, 'POST', body);
-    return toScenario(wire);
+    return toScenario(wire, SCENARIOS_URL);
 }

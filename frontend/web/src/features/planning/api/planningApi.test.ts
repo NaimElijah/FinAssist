@@ -218,6 +218,56 @@ describe('listPlannedFlows', () => {
 
         await expect(listPlannedFlows()).rejects.toBeInstanceOf(ApiBodyError);
     });
+
+    it('Given_a_direction_the_contract_does_not_name_When_listed_Then_it_rejects_with_an_ApiBodyError', async () => {
+        stubFetch(
+            jsonResponse([
+                {
+                    id: 'x',
+                    description: 'Rent',
+                    amount: AMOUNT,
+                    direction: 'SIDEWAYS',
+                    startsOn: '2026-09-01',
+                    recurrence: { kind: 'ONCE' },
+                    state: { status: 'PLANNED' },
+                },
+            ]),
+        );
+
+        await expect(listPlannedFlows()).rejects.toBeInstanceOf(ApiBodyError);
+    });
+
+    it('Given_an_amount_currency_the_contract_does_not_name_When_listed_Then_it_rejects_with_an_ApiBodyError', async () => {
+        stubFetch(
+            jsonResponse([
+                {
+                    id: 'x',
+                    description: 'Rent',
+                    amount: { amount: '250.00', currency: 'XYZ' },
+                    direction: 'OUTFLOW',
+                    startsOn: '2026-09-01',
+                    recurrence: { kind: 'ONCE' },
+                    state: { status: 'PLANNED' },
+                },
+            ]),
+        );
+
+        await expect(listPlannedFlows()).rejects.toBeInstanceOf(ApiBodyError);
+    });
+
+    it('Given_a_cadence_the_contract_does_not_name_When_listed_Then_it_rejects_with_an_ApiBodyError', async () => {
+        stubFetch(
+            jsonResponse([
+                wireFlow(
+                    'x',
+                    { kind: 'UNTIL', cadence: 'FORTNIGHTLY', interval: 2, until: '2027-01-01' },
+                    { status: 'PLANNED' },
+                ),
+            ]),
+        );
+
+        await expect(listPlannedFlows()).rejects.toBeInstanceOf(ApiBodyError);
+    });
 });
 
 describe('planFlow', () => {
@@ -519,6 +569,16 @@ describe('listScenarios', () => {
         const { url, init } = onlyCall(stub);
         expect(url).toBe('/ledger/api/v1/scenarios');
         expect(new Headers(init.headers).get('Accept')).toBe('application/json');
+    });
+
+    it('Given_a_currency_the_contract_does_not_name_When_listed_Then_it_rejects_with_an_ApiBodyError', async () => {
+        stubFetch(
+            jsonResponse([
+                { id: 's1', name: 'Baseline', currency: 'XYZ', flows: [], growthRatePerStep: '0' },
+            ]),
+        );
+
+        await expect(listScenarios()).rejects.toBeInstanceOf(ApiBodyError);
     });
 });
 
