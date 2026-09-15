@@ -5,7 +5,7 @@
 
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import {
@@ -17,7 +17,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
-import { budgetKeys } from '../hooks/budgetQueries';
+import { budgetKeys, categorisationRuleKeys } from '../hooks/budgetQueries';
 import { budgetingRoutes } from '../index';
 
 const RULES_URL = '/ledger/api/v1/categorisation-rules';
@@ -158,12 +158,16 @@ describe('CategorisationRulesPage adding a rule', () => {
     });
 
     it('Given_a_rule_added_When_it_appears_Then_the_form_is_reset', async () => {
+        // The list starts empty and only gains the rule once the POST has actually landed, so
+        // `findByText` below can only resolve once the add has really happened - not trivially
+        // from an initial load that already included it.
+        const served: unknown[] = [];
         fakeFetch((request) => {
             if (request.url === RULES_URL && request.method === 'POST') {
+                served.push({ fragment: 'coffee', category: 'dining' });
                 return jsonResponse({ fragment: 'coffee', category: 'dining' }, 201);
             }
-            if (request.url === RULES_URL)
-                return jsonResponse([{ fragment: 'coffee', category: 'dining' }]);
+            if (request.url === RULES_URL) return jsonResponse([...served]);
             return unexpectedRequest(request);
         });
         renderRules();
@@ -232,7 +236,12 @@ describe('CategorisationRulesPage adding a rule', () => {
         });
     });
 
-    it('Given_an_add_request_in_flight_When_submitted_again_Then_submit_is_disabled_and_nothing_is_sent_twice', async () => {
+    it('Given_a_filled_form_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
+        // Two submit events can arrive in one tick, before the pending state has rendered, so a
+        // guard that reads render-time state lets both through. Counting requests right after
+        // firing them would not prove anything either way - mutate() only reaches fetch after
+        // TanStack's own internal awaits - so this waits for the pending state to actually
+        // render first, by which time every request either submit started has reached fetch.
         const requests = fakeFetch((request) => {
             if (request.url === RULES_URL && request.method === 'POST') {
                 return pendingResponse();
@@ -242,39 +251,44 @@ describe('CategorisationRulesPage adding a rule', () => {
         });
         renderRules();
         const user = userEvent.setup();
-
         await user.type(await screen.findByLabelText('Fragment'), 'coffee');
         await user.type(screen.getByLabelText('Category'), 'dining');
-        await user.click(screen.getByRole('button', { name: 'Add rule' }));
+        const form = screen.getByLabelText('Fragment').closest('form');
+        if (form === null) {
+            throw new Error('the Fragment field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+        fireEvent.submit(form);
 
         const submit = screen.getByRole('button', { name: 'Add rule' });
         await waitFor(() => {
             expect(submit).toHaveProperty('disabled', true);
         });
-        const form = screen.getByLabelText('Fragment').closest('form');
-        if (form === null) {
-            throw new Error('the Fragment field is not inside a form');
-        }
-        fireEvent.submit(form);
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
 
     it('Given_the_cache_holds_the_rules_list_and_two_budget_reviews_When_a_rule_is_added_Then_only_those_three_queries_are_invalidated', async () => {
-        // Ruling 36-37: a new rule can change any budget's review, so every review key is
-        // invalidated, however many budgets exist; the budgets list cannot change from a rule, so
-        // it must not be.
+        // A new rule can change any budget's review, so every review key is invalidated, however
+        // many budgets exist; the budgets list cannot change from a rule, so it must not be.
+        const served: unknown[] = [];
         fakeFetch((request) => {
             if (request.url === RULES_URL && request.method === 'POST') {
+                served.push({ fragment: 'coffee', category: 'dining' });
                 return jsonResponse({ fragment: 'coffee', category: 'dining' }, 201);
             }
-            if (request.url === RULES_URL)
-                return jsonResponse([{ fragment: 'coffee', category: 'dining' }]);
+            if (request.url === RULES_URL) return jsonResponse([...served]);
             return unexpectedRequest(request);
         });
         const { queryClient } = renderRules();
         queryClient.setQueryData(budgetKeys.list, []);
         queryClient.setQueryData(budgetKeys.review('b1'), {});
         queryClient.setQueryData(budgetKeys.review('b2'), {});
+        // The rules list is actively observed by this very page, so once its own refetch
+        // settles its `isInvalidated` flag resets - a state check would race that reset. The
+        // spy instead records every call `invalidateQueries` ever received, so the assertion
+        // below cannot be timing-dependent.
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
         const user = userEvent.setup();
 
         await user.type(await screen.findByLabelText('Fragment'), 'coffee');
@@ -282,9 +296,15 @@ describe('CategorisationRulesPage adding a rule', () => {
         await user.click(screen.getByRole('button', { name: 'Add rule' }));
 
         await screen.findByText('"coffee" → dining');
-        await waitFor(() => {
-            expect(queryClient.getQueryState(budgetKeys.review('b1'))?.isInvalidated).toBe(true);
-        });
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toEqual(
+            expect.arrayContaining([categorisationRuleKeys.list, budgetKeys.reviews]),
+        );
+        expect(invalidatedKeys).not.toContainEqual(budgetKeys.list);
+        expect(invalidatedKeys).toHaveLength(2);
+        // The two review keys were never actively observed on this page, so nothing refetches
+        // them and their invalidated flag stays put - safe to assert directly.
+        expect(queryClient.getQueryState(budgetKeys.review('b1'))?.isInvalidated).toBe(true);
         expect(queryClient.getQueryState(budgetKeys.review('b2'))?.isInvalidated).toBe(true);
         expect(queryClient.getQueryState(budgetKeys.list)?.isInvalidated).toBe(false);
     });

@@ -351,7 +351,12 @@ describe('BudgetsPage defining a budget', () => {
         );
     });
 
-    it('Given_a_define_request_in_flight_When_submitted_again_Then_submit_is_disabled_and_nothing_is_sent_twice', async () => {
+    it('Given_a_filled_form_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
+        // Two submit events can arrive in one tick, before the pending state has rendered, so a
+        // guard that reads render-time state lets both through. Counting requests right after
+        // firing them would not prove anything either way - mutate() only reaches fetch after
+        // TanStack's own internal awaits - so this waits for the pending state to actually
+        // render first, by which time every request either submit started has reached fetch.
         const requests = fakeFetch((request) => {
             if (request.url === BUDGETS_URL && request.method === 'POST') {
                 return pendingResponse();
@@ -361,18 +366,23 @@ describe('BudgetsPage defining a budget', () => {
         });
         renderBudgets();
         const user = userEvent.setup();
+        const month = await screen.findByLabelText('Month');
+        fireEvent.change(month, { target: { value: '2026-09' } });
+        await user.selectOptions(screen.getByLabelText('Currency'), 'ILS');
+        await user.type(screen.getByLabelText('Category 1'), 'groceries');
+        await user.type(screen.getByLabelText('Limit amount 1'), '1000.00');
+        const form = month.closest('form');
+        if (form === null) {
+            throw new Error('the Month field is not inside a form');
+        }
 
-        await defineSeptemberGroceries(user);
+        fireEvent.submit(form);
+        fireEvent.submit(form);
 
         const submit = screen.getByRole('button', { name: 'Define budget' });
         await waitFor(() => {
             expect(submit).toHaveProperty('disabled', true);
         });
-        const form = screen.getByLabelText('Month').closest('form');
-        if (form === null) {
-            throw new Error('the Month field is not inside a form');
-        }
-        fireEvent.submit(form);
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
 });
