@@ -296,11 +296,12 @@ function RecordTransactionForm({
         // unambiguously means, so guessing which row to write into would be as likely to
         // surprise as to help.
         setMirrorActive(false);
-        setRows((previous) => {
-            const key = nextKey.current;
-            nextKey.current += 1;
-            return [...previous, { key, ...NEW_ROW }];
-        });
+        // The key is read and advanced here, in the event handler, not inside the updater below:
+        // React may call an updater more than once for one update - Strict Mode does - and an
+        // updater advancing a ref would skip a key on every extra call.
+        const key = nextKey.current;
+        nextKey.current += 1;
+        setRows((previous) => [...previous, { key, ...NEW_ROW }]);
     }
 
     function removeRow(key: number) {
