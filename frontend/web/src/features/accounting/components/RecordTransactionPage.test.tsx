@@ -540,7 +540,7 @@ describe('RecordTransactionPage accounts read', () => {
         const { queryClient } = renderForm();
         await screen.findByLabelText('Description');
 
-        // Ruling 33: a failed background refetch never hides data already on screen.
+        // A failed background refetch never hides data already on screen.
         await act(() => queryClient.invalidateQueries({ queryKey: accountKeys.list }));
 
         const alert = await screen.findByRole('alert');

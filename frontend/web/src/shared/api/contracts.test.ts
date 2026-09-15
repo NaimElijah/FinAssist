@@ -34,7 +34,7 @@ describe('generated contract types', () => {
     });
 
     it('Given_the_ledgers_always_present_response_members_When_generated_Then_they_are_not_optional', () => {
-        // Ruling 23: the ledger document marks an always-present response member `required`,
+        // The ledger document marks an always-present response member `required`,
         // so the generated type must drop the member from its optional side, not just keep it
         // present in practice.
         expectTypeOf<AccountResponse['id']>().toEqualTypeOf<string>();

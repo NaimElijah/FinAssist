@@ -23,8 +23,8 @@ describe('entryRowAmount', () => {
     });
 
     it('Given_a_debit_typed_with_a_leading_minus_When_mapped_Then_the_sign_is_stripped_and_it_posts_positive', () => {
-        // Ruling 35: both columns take an unsigned magnitude. The column alone carries the sign -
-        // debit positive, credit negative - so a stray '-' under Debit must not flip it to a credit.
+        // Both columns take an unsigned magnitude. The column alone carries the sign - debit
+        // positive, credit negative - so a stray '-' under Debit must not flip it to a credit.
         expect(entryRowAmount('-250.00', '')).toBe('250.00');
     });
 
