@@ -96,11 +96,18 @@ management:
       # of for gaps in the only traces that exist.
       probability: 1.0
     export:
-      # Both signals are gated by one flag. Metrics need it as much as traces:
-      # spring-boot-starter-opentelemetry drags in micrometer-registry-otlp, which otherwise
-      # POSTs to localhost:4318/v1/metrics every minute forever on a machine with no
-      # collector — exactly the noise ADR-019's no-op promise exists to avoid.
-      enabled: ${OTEL_EXPORT_ENABLED:false}
+      otlp:
+        # The OTLP exporter's own switch, deliberately not management.tracing.export.enabled.
+        # Spring Boot documents that global one as "export and propagate": off, it removes both
+        # W3C propagators (OpenTelemetryPropagationConfigurations) and leaves a no-op one, so every
+        # request would start a new trace instead of continuing the caller's traceparent.
+        # Correlation holds with export off (ADR-019); only export is opt-in.
+        #
+        # Both signals are gated by one flag. Metrics need it as much as traces:
+        # spring-boot-starter-opentelemetry drags in micrometer-registry-otlp, which otherwise
+        # POSTs to localhost:4318/v1/metrics every minute forever on a machine with no
+        # collector — exactly the noise ADR-019's no-op promise exists to avoid.
+        enabled: ${OTEL_EXPORT_ENABLED:false}
   otlp:
     metrics:
       export:
