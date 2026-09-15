@@ -1,0 +1,36 @@
+.loading {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+/* A refetch failure sits above the rows it failed to refresh, which stay on screen. */
+.stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.state {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+}
+
+.reason {
+    font-size: var(--font-size-xs);
+    color: var(--color-muted);
+}
+
+.panelFields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 16rem;
+}

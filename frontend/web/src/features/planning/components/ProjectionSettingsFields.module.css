@@ -1,0 +1,30 @@
+/* Fields top-aligned, so one showing an error beneath it does not push its neighbours down. */
+.fields {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--space-3) var(--space-4);
+}
+
+.accounts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.hint {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--color-muted);
+}
+
+.groups {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4) var(--space-6);
+}
+
+.muted {
+    margin: 0;
+    color: var(--color-muted);
+}

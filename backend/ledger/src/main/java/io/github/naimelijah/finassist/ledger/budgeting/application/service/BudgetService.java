@@ -3,10 +3,13 @@ package io.github.naimelijah.finassist.ledger.budgeting.application.service;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.AddCategorisationRuleUseCase;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.DefineBudgetCommand;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.DefineBudgetUseCase;
+import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.ListBudgetsUseCase;
+import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.ListCategorisationRulesUseCase;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.BudgetRepository;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.CategorisationRuleRepository;
 import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.Budget;
 import io.github.naimelijah.finassist.ledger.budgeting.domain.category.CategorisationRule;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -20,7 +23,11 @@ import java.util.Objects;
  * where a transaction and a planned flow both move through sealed states. Giving it events for
  * symmetry would be inventing a lifecycle to justify a package (ADR-023).
  */
-public class BudgetService implements DefineBudgetUseCase, AddCategorisationRuleUseCase {
+public class BudgetService
+        implements DefineBudgetUseCase,
+                AddCategorisationRuleUseCase,
+                ListBudgetsUseCase,
+                ListCategorisationRulesUseCase {
 
     private final BudgetRepository budgets;
     private final CategorisationRuleRepository rules;
@@ -42,5 +49,15 @@ public class BudgetService implements DefineBudgetUseCase, AddCategorisationRule
     public void add(CategorisationRule rule) {
         Objects.requireNonNull(rule, "rule");
         rules.add(rule);
+    }
+
+    @Override
+    public List<Budget> all() {
+        return budgets.all();
+    }
+
+    @Override
+    public List<CategorisationRule> rules() {
+        return rules.all();
     }
 }

@@ -1,9 +1,10 @@
 """The anti-corruption layer over the ledger's published language.
 
 Ledger DTOs become portfolio's own model here and nowhere else (ADR-007). The HTTP client that
-will do the fetching does not exist: ADR-004 is still Proposed, and the ledger has no endpoint
-to call. What is here instead is an in-memory stand-in, so the use cases can be assembled and
-run while that decision is open.
+will do the fetching does not exist yet. ADR-004 is Accepted and the ledger already serves
+accounting, budgeting and planning under `/api/v1` — but none of them is a lot: nothing in the
+ledger's published contract has a holding to fetch. What is here instead is an in-memory
+stand-in, so the use cases can be assembled and run while that gap is open.
 """
 
 from collections.abc import Iterable
@@ -23,9 +24,9 @@ class InMemoryLedger:
     Structural typing has no stub to inherit, and mypy checks the fit where the use cases are
     constructed in ``adapters/wiring.py``.
 
-    It is replaced by the real anti-corruption layer once there is an endpoint and ADR-004 is
-    ratified — not grown into one. Nothing here translates anything, because nothing foreign has
-    arrived yet.
+    It is replaced by the real anti-corruption layer once the ledger publishes a holding and the
+    assistant gains a client for it — not grown into one. Nothing here translates anything,
+    because nothing foreign has arrived yet.
     """
 
     def __init__(self, lots: Iterable[Lot] = ()) -> None:

@@ -4,7 +4,7 @@
 import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { type LogRecord, setLogSink } from '../shared/lib/logger';
+import { type LogRecord, setLogSink } from '@/shared/lib/logger';
 import { ErrorBoundary } from './ErrorBoundary';
 
 function Exploding(): never {

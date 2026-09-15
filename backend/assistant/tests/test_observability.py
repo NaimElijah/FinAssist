@@ -10,44 +10,43 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, NoReturn
 
+import httpx
 import pytest
 import structlog
+import uvicorn
+from fastapi import APIRouter
 from fastapi.testclient import TestClient
 from opentelemetry.sdk.trace import TracerProvider
 from pydantic import ValidationError
 from starlette.requests import Request
+from starlette.testclient import WebSocketDenialResponse
 
+from finassist_assistant.adapters.__main__ import main
 from finassist_assistant.adapters.app import (
     CORRELATION_ID_HEADER,
     _correlation_id_for,
     create_app,
-    trace_id_of,
 )
 from finassist_assistant.adapters.observability import (
     REDACTED,
     configure_logging,
     configure_tracing,
-    forget_secrets,
     redact_secrets,
     register_secret,
     reset_logging,
+    trace_id_of,
 )
 from finassist_assistant.adapters.settings import Settings
+from finassist_assistant.adapters.wiring import assemble
 
 SECRET = "sk-ant-000000000000000000000000"
 VALID_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
-
-
-@pytest.fixture(autouse=True)
-def _reset_observability() -> Iterator[None]:
-    """Registered secrets, structlog and the root logger are global; no test may leak any."""
-    forget_secrets()
-    yield
-    forget_secrets()
-    structlog.reset_defaults()
-    reset_logging()
+TRACEPARENT = f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"
+REQUEST_LINE = "request answered"
+# A recognisable amount, sent in a query string that must never reach a log line.
+AMOUNT = "98765.43"
 
 
 @pytest.fixture
@@ -57,6 +56,8 @@ def settings() -> Settings:
         OTEL_EXPORTER_OTLP_ENDPOINT=None,
         OTEL_EXPORT_ENABLED=False,
         ASSISTANT_LOG_LEVEL="INFO",
+        # TestClient sends `Host: testserver`, which the allow-list must admit (ADR-027).
+        ASSISTANT_ALLOWED_HOSTS=["testserver"],
         # A plain string is what the environment supplies; pydantic coerces it.
         ANTHROPIC_API_KEY=SECRET,  # type: ignore[arg-type]
     )
@@ -78,6 +79,14 @@ def _request_with(headers: dict[str, str]) -> Request:
     return Request({"type": "http", "method": "GET", "path": "/health", "headers": raw})
 
 
+def _records(captured: str) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in captured.strip().splitlines() if line.startswith("{")]
+
+
+def _request_lines(captured: str) -> list[dict[str, Any]]:
+    return [record for record in _records(captured) if record.get("event") == REQUEST_LINE]
+
+
 # --- the endpoints -------------------------------------------------------------------------
 
 
@@ -93,6 +102,17 @@ def Given_the_app_When_readiness_is_requested_Then_it_reports_up(client: TestCli
 
     assert response.status_code == 200
     assert response.json() == {"status": "UP"}
+
+
+def Given_an_assembly_When_the_app_is_built_with_it_Then_the_app_holds_that_assembly(
+    settings: Settings,
+) -> None:
+    """A test seeds an assembly's in-memory adapters, so the app must serve those instances."""
+    assembly = assemble()
+
+    app = create_app(settings, assembly=assembly)
+
+    assert app.state.assembly is assembly
 
 
 # --- correlation ---------------------------------------------------------------------------
@@ -179,6 +199,168 @@ def Given_a_request_When_it_is_logged_Then_the_header_and_the_log_line_agree(
     assert response.headers[CORRELATION_ID_HEADER] == VALID_TRACE_ID
 
 
+# --- the request line ----------------------------------------------------------------------
+
+
+def Given_a_traceparent_When_a_request_is_served_Then_one_request_line_carries_its_trace_id(
+    client: TestClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ADR-019's promise at the assistant's edge: the caller's trace id is in a line it wrote.
+
+    The query string carries an amount on purpose. The line names the path alone, because a URL is
+    not a safe place to assume nothing sensitive travels (ADR-028).
+    """
+    capsys.readouterr()
+
+    client.get(
+        "/health",
+        params={"amount": AMOUNT},
+        headers={"traceparent": f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"},
+    )
+
+    [line] = _request_lines(capsys.readouterr().out)
+    assert line["correlation_id"] == VALID_TRACE_ID
+    assert line["method"] == "GET"
+    assert line["path"] == "/health"
+    assert line["status"] == 200
+    assert line["level"] == "info"
+    assert isinstance(line["duration_ms"], float)
+    assert line["duration_ms"] >= 0
+    assert AMOUNT not in json.dumps(line)
+
+
+@pytest.mark.parametrize(
+    ("path", "headers", "status"),
+    [
+        ("/health", {"host": "attacker.example"}, 403),
+        ("/no-such-route", {}, 404),
+        ("/fails", {}, 500),
+    ],
+    ids=["refused-host", "unknown-route", "server-error"],
+)
+def Given_a_refused_unknown_or_failing_request_When_answered_Then_one_info_request_line_is_written(
+    settings: Settings,
+    capsys: pytest.CaptureFixture[str],
+    path: str,
+    headers: dict[str, str],
+    status: int,
+) -> None:
+    """Every request leaves exactly one line, at INFO whatever its status, with the caller's trace.
+
+    A refusal is the assistant's considered answer, not an incident; an unexpected failure has its
+    own ERROR line from the problem handlers, so the request line need not repeat the alarm.
+
+    A refused Host carries the id as well. When the UI is loaded under a name the list does not
+    admit, the refusal looks like an outage, and the web client's log of the 403 can be joined to
+    the assistant's side only by the trace id both lines hold (ADR-019, ADR-027).
+    """
+    failing = APIRouter()
+
+    @failing.get("/fails")
+    def fails() -> None:
+        raise RuntimeError("an unexpected failure")
+
+    app = create_app(settings)
+    app.include_router(failing)
+    with TestClient(app) as running:
+        capsys.readouterr()
+        response = running.get(path, headers={"traceparent": TRACEPARENT, **headers})
+
+    lines = _request_lines(capsys.readouterr().out)
+    assert response.status_code == status
+    assert [
+        (line["path"], line["status"], line["level"], line.get("correlation_id")) for line in lines
+    ] == [(path, status, "info", VALID_TRACE_ID)]
+
+
+@pytest.mark.parametrize(
+    "broken",
+    ["_correlation_id_for", "answer_unexpected"],
+    ids=["choosing-the-id-fails", "answering-the-failure-fails"],
+)
+def Given_the_middleware_itself_fails_When_a_request_is_served_Then_one_request_line_records_a_500(
+    settings: Settings,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    broken: str,
+) -> None:
+    """The request line is written however the correlation middleware is left, not only on success.
+
+    Choosing the id and answering an unexpected failure both run inside that middleware. When
+    either raises, it produces no response, and Starlette's last resort answers instead; the request
+    must still leave its one line, recorded as the 500 it becomes.
+    """
+
+    def fail(*_arguments: Any) -> NoReturn:
+        raise RuntimeError("the correlation middleware itself failed")
+
+    monkeypatch.setattr(f"finassist_assistant.adapters.app.{broken}", fail)
+    failing = APIRouter()
+
+    @failing.get("/fails")
+    def fails() -> None:
+        raise RuntimeError("an unexpected failure")
+
+    app = create_app(settings)
+    app.include_router(failing)
+    with TestClient(app, raise_server_exceptions=False) as running:
+        capsys.readouterr()
+        response = running.get("/fails")
+
+    lines = _request_lines(capsys.readouterr().out)
+    assert response.status_code == 500
+    assert [(line["path"], line["status"], line["level"]) for line in lines] == [
+        ("/fails", 500, "info")
+    ]
+
+
+def Given_a_foreign_host_When_a_websocket_upgrade_arrives_Then_it_is_refused_without_an_error(
+    client: TestClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The allow-list checks WebSocket upgrades too, on the DNS-rebinding path it exists for.
+
+    A WebSocket scope carries no method, and the request line records an HTTP request. The
+    assistant serves no WebSocket route, so an admitted upgrade writes no line either, and uvicorn
+    reports a handshake it refused on ``uvicorn.error``, query string included, which no route
+    reads. So the refusal writes no request line, and must not fail on the way to answering.
+    """
+    capsys.readouterr()
+
+    with (
+        pytest.raises(WebSocketDenialResponse) as refused,
+        client.websocket_connect("/health", headers={"host": "attacker.example"}),
+    ):
+        pass
+
+    captured = capsys.readouterr().out
+    assert refused.value.status_code == 403
+    assert "Traceback" not in captured
+    assert [record for record in _records(captured) if record["level"] == "error"] == []
+    assert _request_lines(captured) == []
+
+
+def Given_the_entry_point_When_it_starts_the_server_Then_uvicorn_writes_no_access_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The app writes the request line while the correlation id is bound.
+
+    Uvicorn's own access line is written afterwards, from its protocol layer, when nothing is bound,
+    so leaving it on would add a second line per request that no id can join.
+    """
+    started: dict[str, Any] = {}
+
+    def run(_app: Any, **options: Any) -> None:
+        started.update(options)
+
+    monkeypatch.setenv("OTEL_EXPORT_ENABLED", "false")
+    monkeypatch.setattr(uvicorn, "run", run)
+
+    main()
+
+    assert started["access_log"] is False
+    assert started["log_config"] is None
+
+
 # --- redaction -----------------------------------------------------------------------------
 
 
@@ -253,6 +435,39 @@ def Given_a_log_event_When_written_Then_it_is_one_json_object_per_line(
     assert record["level"] == "info"
     assert record["account"] == "chequing"
     assert "timestamp" in record
+
+
+def Given_an_httpx_client_When_it_sends_a_request_Then_its_url_is_not_logged(
+    settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """httpx writes every request it sends at INFO, with the full URL and its query string. No
+    outbound client exists yet, and the first must not put every URL it calls on a log line: a URL
+    is no place to assume nothing sensitive travels. A warning from httpx still comes through."""
+    configure_logging(settings)
+    capsys.readouterr()
+
+    answer_ok = httpx.MockTransport(lambda _request: httpx.Response(200))
+    with httpx.Client(transport=answer_ok) as outbound:
+        outbound.get(f"http://ledger.invalid/api/v1/accounts?amount={AMOUNT}")
+    logging.getLogger("httpx").warning("the ledger answered slowly")
+
+    captured = capsys.readouterr().out
+    assert "ledger.invalid" not in captured
+    assert AMOUNT not in captured
+    assert "the ledger answered slowly" in captured
+
+
+def Given_logging_was_configured_When_it_is_reset_Then_httpx_logs_at_its_own_level_again(
+    settings: Settings,
+) -> None:
+    """The level is process-wide state, so it is restored with the root logger's."""
+    before = logging.getLogger("httpx").level
+
+    configure_logging(settings)
+    quieted = logging.getLogger("httpx").level
+    reset_logging()
+
+    assert (quieted, logging.getLogger("httpx").level) == (logging.WARNING, before)
 
 
 @pytest.mark.parametrize(

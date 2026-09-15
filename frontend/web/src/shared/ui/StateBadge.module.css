@@ -1,0 +1,32 @@
+/* The border takes the text colour, so a badge keeps a visible edge in forced-colours mode, where
+   backgrounds are dropped. */
+.badge {
+    display: inline-block;
+    padding: 0 var(--space-2);
+    border: 1px solid currentColor;
+    border-radius: var(--radius-control);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-strong);
+    line-height: 1.5;
+    white-space: nowrap;
+}
+
+.badge[data-tone='neutral'] {
+    background: var(--color-surface);
+    color: var(--color-muted);
+}
+
+.badge[data-tone='positive'] {
+    background: var(--color-positive-tint);
+    color: var(--color-positive);
+}
+
+.badge[data-tone='negative'] {
+    background: var(--color-negative-tint);
+    color: var(--color-negative);
+}
+
+.badge[data-tone='warning'] {
+    background: var(--color-warning-tint);
+    color: var(--color-warning);
+}

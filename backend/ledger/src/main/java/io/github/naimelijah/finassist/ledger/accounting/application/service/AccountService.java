@@ -1,12 +1,14 @@
 package io.github.naimelijah.finassist.ledger.accounting.application.service;
 
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.DuplicateAccountNameException;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.ListAccountsUseCase;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.OpenAccountCommand;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.OpenAccountUseCase;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.out.AccountRepository;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.out.AccountingEvents;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.Account;
 import io.github.naimelijah.finassist.ledger.accounting.domain.event.AccountingEvent;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -20,7 +22,7 @@ import java.util.Objects;
  * {@code io.github.naimelijah.finassist.ledger.composition.LedgerConfiguration}, which is the only
  * package that knows Spring exists. See ADR-021 and ADR-022.
  */
-public class AccountService implements OpenAccountUseCase {
+public class AccountService implements OpenAccountUseCase, ListAccountsUseCase {
 
     private final AccountRepository accounts;
     private final AccountingEvents events;
@@ -47,5 +49,10 @@ public class AccountService implements OpenAccountUseCase {
         events.publish(
                 new AccountingEvent.AccountOpened(account.id(), account.name(), account.type(), account.currency()));
         return account;
+    }
+
+    @Override
+    public List<Account> all() {
+        return accounts.all();
     }
 }

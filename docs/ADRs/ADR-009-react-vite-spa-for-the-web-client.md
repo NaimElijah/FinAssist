@@ -1,6 +1,6 @@
 # ADR-009: A React and Vite single-page application for the web client
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by [ADR-029](ADR-029-web-client-stack.md)
 - **Date:** 2026-08-29
 
 ## Context

@@ -1,7 +1,9 @@
 package io.github.naimelijah.finassist.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
 
+import io.github.naimelijah.finassist.ledger.accounting.application.port.out.AccountRepository;
 import io.micrometer.tracing.ScopedSpan;
 import io.micrometer.tracing.Tracer;
 import java.io.IOException;
@@ -29,6 +31,9 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -36,16 +41,22 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>Before this existed the README promised structured logs with a correlation id and OTLP
  * traces, and nothing checked either. These tests assert the wiring rather than any FinAssist
- * behaviour, because there is no business endpoint to observe yet — the ledger serves Actuator and
- * nothing else.
+ * behaviour. The one that calls a business endpoint, {@code /api/v1/accounts}, does so only to make
+ * the ledger write a line; what it asserts is the trace id on that line.
  *
  * <p>That this class boots at all is itself the proof of ADR-019's central promise: no collector
  * runs during a test, and the service starts anyway. Spring Boot 4 disables both metrics and
  * tracing export in tests by default, so {@link AutoConfigureMetrics} and {@link
- * AutoConfigureTracing} are what turn them back on here. Without the first there is no Prometheus
- * registry to scrape; without the second there is no span to correlate a log line against.
+ * AutoConfigureTracing} are what undo that here. Without the first there is no Prometheus registry to
+ * scrape. Without the second, Boot's test support sets {@code management.tracing.export.enabled} to
+ * false, which removes W3C propagation along with export, so a caller's {@code traceparent} would not
+ * be continued.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        // The shipped default, pinned so a machine that exports OTEL_EXPORT_ENABLED=true cannot make
+        // the correlation test pass without the default configuration ever being exercised.
+        properties = "OTEL_EXPORT_ENABLED=false")
 @AutoConfigureMetrics
 @AutoConfigureTracing
 @ExtendWith(OutputCaptureExtension.class)
@@ -55,11 +66,22 @@ class LedgerObservabilityIT extends PostgresFixture {
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
     private static final ObjectMapper JSON = new ObjectMapper();
 
+    private static final String CALLER_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
+    private static final String CALLER_TRACEPARENT = "00-" + CALLER_TRACE_ID + "-00f067aa0ba902b7-01";
+
     @LocalServerPort
     private int port;
 
     @Autowired
     private Tracer tracer;
+
+    /**
+     * Stands in for a database the ledger cannot reach. The failure a real outage raises is thrown
+     * from the store's own port, so the request travels the real controller, service and problem
+     * handler to the one line the ledger writes for it.
+     */
+    @MockitoBean
+    private AccountRepository accounts;
 
     private static final HttpClient CLIENT = HttpClient.newHttpClient();
 
@@ -93,7 +115,7 @@ class LedgerObservabilityIT extends PostgresFixture {
     /**
      * Widening the exposure list is the likeliest way to leak configuration, and adding
      * {@code prometheus} to it is exactly the kind of edit that invites a careless {@code "*"}.
-     * {@code LedgerApplicationTest} makes the same assertion; it is repeated here because this is
+     * {@code LedgerApplicationIT} makes the same assertion; it is repeated here because this is
      * the class whose change would break it.
      */
     @Test
@@ -131,12 +153,43 @@ class LedgerObservabilityIT extends PostgresFixture {
     }
 
     /**
+     * ADR-019's end-to-end promise, held at the ledger's edge: the browser's {@code traceparent} is
+     * continued, not replaced, so the id a caller sent is the id in the ledger's log line. The line is
+     * the one {@code LedgerProblemHandler} writes for a 5xx, the ledger's only per-request log, and
+     * the class pins the shipped default of export off, because correlation must not depend on a
+     * collector being configured.
+     */
+    @Test
+    void Given_a_callers_traceparent_and_export_off_When_the_request_fails_Then_the_log_line_carries_its_trace_id(
+            CapturedOutput output) throws Exception {
+        when(accounts.all()).thenThrow(new CannotGetJdbcConnectionException("the database is unreachable"));
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + port + "/api/v1/accounts"))
+                .header("traceparent", CALLER_TRACEPARENT)
+                .timeout(TIMEOUT)
+                .GET()
+                .build();
+
+        HttpResponse<String> response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(500);
+        JsonNode line = output.getOut()
+                .lines()
+                .filter(candidate -> candidate.contains("Answered 500 with a generic detail"))
+                .map(JSON::readTree)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no log line was captured for the failed request"));
+        assertThat(line.path("traceId").asString()).isEqualTo(CALLER_TRACE_ID);
+    }
+
+    /**
      * ADR-019's no-op contract, read from the shipped file rather than from the running
      * context.
      *
-     * <p>Two reasons it is done this way. {@link AutoConfigureTracing} on this class turns
-     * export back on, so the live {@code Environment} would answer for the test rather than for
-     * production. And Spring Boot 4.1's {@code
+     * <p>Two reasons it is done this way. {@link AutoConfigureTracing} on this class stops Boot's
+     * test support forcing {@code management.tracing.export.enabled} to false, and the class pins
+     * {@code OTEL_EXPORT_ENABLED} itself, so the live {@code Environment} would answer for the test
+     * rather than for production. And Spring Boot 4.1's {@code
      * OpenTelemetryEnvironmentVariableEnvironmentPostProcessor} maps {@code
      * OTEL_EXPORTER_OTLP_ENDPOINT} onto these properties with {@code addFirst} — so a developer
      * who exports the variable this project now documents would fail an assertion made against
@@ -144,7 +197,11 @@ class LedgerObservabilityIT extends PostgresFixture {
      * test.
      *
      * <p>Loading {@code application.yml} into an environment with no system property sources
-     * asserts what the repository ships: both exporters off unless someone opts in.
+     * asserts what the repository ships: the trace, metric and log exporters off unless someone opts in.
+     *
+     * <p>Trace export is read from the OTLP exporter's own switch. Spring Boot's global {@code
+     * management.tracing.export.enabled} also removes W3C propagation, which ADR-019 needs whether or
+     * not anything is exported, so the file must never turn that one off.
      */
     @Test
     void Given_the_shipped_configuration_When_read_without_the_environment_Then_export_is_off() throws Exception {
@@ -156,9 +213,16 @@ class LedgerObservabilityIT extends PostgresFixture {
             shipped.getPropertySources().addLast(loaded);
         }
 
-        assertThat(shipped.getProperty("management.tracing.export.enabled")).isEqualTo("false");
+        assertThat(shipped.getProperty("management.tracing.export.otlp.enabled"))
+                .isEqualTo("false");
         assertThat(shipped.getProperty("management.otlp.metrics.export.enabled"))
                 .isEqualTo("false");
+        assertThat(shipped.getProperty("management.logging.export.otlp.enabled"))
+                .as("the endpoint variable also builds an OTLP log exporter, and only this switch keeps it off")
+                .isEqualTo("false");
+        assertThat(shipped.getProperty("management.tracing.export.enabled"))
+                .as("the global switch also disables propagation, so turning it off breaks correlation")
+                .isNotEqualTo("false");
     }
 
     /**

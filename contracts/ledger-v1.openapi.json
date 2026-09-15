@@ -1,0 +1,2061 @@
+{
+  "components": {
+    "schemas": {
+      "AccountResponse": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "ASSET",
+              "LIABILITY",
+              "INCOME",
+              "EXPENSE",
+              "EQUITY"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "id",
+          "name",
+          "type"
+        ],
+        "type": "object"
+      },
+      "AddCategorisationRuleRequest": {
+        "properties": {
+          "category": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "fragment": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "fragment"
+        ],
+        "type": "object"
+      },
+      "BalancePointResponse": {
+        "properties": {
+          "cash": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "date": {
+            "format": "date",
+            "type": "string"
+          },
+          "invested": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "total": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "cash",
+          "date",
+          "invested",
+          "total"
+        ],
+        "type": "object"
+      },
+      "BalanceResponse": {
+        "properties": {
+          "account": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "balance": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "account",
+          "balance"
+        ],
+        "type": "object"
+      },
+      "BudgetPeriodDto": {
+        "properties": {
+          "end": {
+            "format": "date",
+            "type": "string"
+          },
+          "start": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "end",
+          "start"
+        ],
+        "type": "object"
+      },
+      "BudgetResponse": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "limits": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryLimitDto"
+            },
+            "type": "array"
+          },
+          "period": {
+            "$ref": "#/components/schemas/BudgetPeriodDto"
+          },
+          "total": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "currency",
+          "id",
+          "limits",
+          "period",
+          "total"
+        ],
+        "type": "object"
+      },
+      "BudgetReviewResponse": {
+        "properties": {
+          "budget": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategorySpendResponse"
+            },
+            "type": "array"
+          },
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "period": {
+            "$ref": "#/components/schemas/BudgetPeriodDto"
+          },
+          "unbudgeted": {
+            "items": {
+              "$ref": "#/components/schemas/UnbudgetedSpendResponse"
+            },
+            "type": "array"
+          },
+          "uncategorised": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "budget",
+          "categories",
+          "currency",
+          "period",
+          "unbudgeted",
+          "uncategorised"
+        ],
+        "type": "object"
+      },
+      "CategorisationRuleResponse": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "fragment": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "fragment"
+        ],
+        "type": "object"
+      },
+      "CategoryLimitDto": {
+        "properties": {
+          "category": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "limit": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "category",
+          "limit"
+        ],
+        "type": "object"
+      },
+      "CategorySpendResponse": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "limit": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "overspent": {
+            "type": "boolean"
+          },
+          "remaining": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "spent": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "category",
+          "limit",
+          "overspent",
+          "remaining",
+          "spent"
+        ],
+        "type": "object"
+      },
+      "ComparedScenarioResponse": {
+        "properties": {
+          "divergence": {
+            "items": {
+              "$ref": "#/components/schemas/DivergenceResponse"
+            },
+            "type": "array"
+          },
+          "endState": {
+            "$ref": "#/components/schemas/BalancePointResponse"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/BalancePointResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "divergence",
+          "endState",
+          "id",
+          "name",
+          "points"
+        ],
+        "type": "object"
+      },
+      "ComparisonResponse": {
+        "properties": {
+          "baseline": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "horizon": {
+            "$ref": "#/components/schemas/HorizonResponse"
+          },
+          "scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/ComparedScenarioResponse"
+            },
+            "type": "array"
+          },
+          "step": {
+            "enum": [
+              "WEEKLY",
+              "MONTHLY",
+              "YEARLY"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseline",
+          "currency",
+          "horizon",
+          "scenarios",
+          "step"
+        ],
+        "type": "object"
+      },
+      "DefineBudgetRequest": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "limits": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryLimitDto"
+            },
+            "type": "array"
+          },
+          "period": {
+            "$ref": "#/components/schemas/BudgetPeriodDto"
+          }
+        },
+        "required": [
+          "currency",
+          "limits",
+          "period"
+        ],
+        "type": "object"
+      },
+      "DefineScenarioRequest": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "flows": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "growthRatePerStep": {
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "flows",
+          "growthRatePerStep",
+          "name"
+        ],
+        "type": "object"
+      },
+      "DivergenceResponse": {
+        "properties": {
+          "cash": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "date": {
+            "format": "date",
+            "type": "string"
+          },
+          "invested": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "total": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "cash",
+          "date",
+          "invested",
+          "total"
+        ],
+        "type": "object"
+      },
+      "EntryDto": {
+        "properties": {
+          "account": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "amount": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "account",
+          "amount"
+        ],
+        "type": "object"
+      },
+      "HorizonResponse": {
+        "properties": {
+          "from": {
+            "format": "date",
+            "type": "string"
+          },
+          "to": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "type": "object"
+      },
+      "MoneyDto": {
+        "properties": {
+          "amount": {
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "type": "string"
+          },
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "type": "object"
+      },
+      "OpenAccountRequest": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "ASSET",
+              "LIABILITY",
+              "INCOME",
+              "EXPENSE",
+              "EQUITY"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "name",
+          "type"
+        ],
+        "type": "object"
+      },
+      "PlanCancelRequest": {
+        "properties": {
+          "on": {
+            "format": "date",
+            "type": "string"
+          },
+          "reason": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "on",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "PlanFlowRequest": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "description": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "INFLOW",
+              "OUTFLOW",
+              "INVESTMENT"
+            ],
+            "type": "string"
+          },
+          "recurrence": {
+            "$ref": "#/components/schemas/RecurrenceRequest"
+          },
+          "startsOn": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "description",
+          "direction",
+          "recurrence",
+          "startsOn"
+        ],
+        "type": "object"
+      },
+      "PlanStateResponse": {
+        "properties": {
+          "on": {
+            "format": "date",
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PLANNED",
+              "COMMITTED",
+              "REALISED",
+              "CANCELLED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "PlanTransitionRequest": {
+        "properties": {
+          "on": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "on"
+        ],
+        "type": "object"
+      },
+      "PlannedFlowResponse": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "description": {
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "INFLOW",
+              "OUTFLOW",
+              "INVESTMENT"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "recurrence": {
+            "$ref": "#/components/schemas/RecurrenceResponse"
+          },
+          "startsOn": {
+            "format": "date",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PlanStateResponse"
+          }
+        },
+        "required": [
+          "amount",
+          "description",
+          "direction",
+          "id",
+          "recurrence",
+          "startsOn",
+          "state"
+        ],
+        "type": "object"
+      },
+      "Problem": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "format": "uri-reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
+      "ProjectionResponse": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "firstShortfall": {
+            "format": "date",
+            "type": "string"
+          },
+          "horizon": {
+            "$ref": "#/components/schemas/HorizonResponse"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/BalancePointResponse"
+            },
+            "type": "array"
+          },
+          "scenario": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "step": {
+            "enum": [
+              "WEEKLY",
+              "MONTHLY",
+              "YEARLY"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "horizon",
+          "points",
+          "scenario",
+          "step"
+        ],
+        "type": "object"
+      },
+      "RecordTransactionRequest": {
+        "properties": {
+          "description": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryDto"
+            },
+            "maxItems": 2147483647,
+            "minItems": 2,
+            "type": "array"
+          },
+          "occurredOn": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "entries",
+          "occurredOn"
+        ],
+        "type": "object"
+      },
+      "RecurrenceRequest": {
+        "properties": {
+          "cadence": {
+            "enum": [
+              "WEEKLY",
+              "MONTHLY",
+              "YEARLY"
+            ],
+            "type": "string"
+          },
+          "count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "interval": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "ONCE",
+              "UNTIL",
+              "TIMES"
+            ],
+            "type": "string"
+          },
+          "until": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "RecurrenceResponse": {
+        "properties": {
+          "cadence": {
+            "enum": [
+              "WEEKLY",
+              "MONTHLY",
+              "YEARLY"
+            ],
+            "type": "string"
+          },
+          "count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "interval": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "ONCE",
+              "UNTIL",
+              "TIMES"
+            ],
+            "type": "string"
+          },
+          "until": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ScenarioResponse": {
+        "properties": {
+          "currency": {
+            "enum": [
+              "ILS",
+              "USD",
+              "EUR",
+              "GBP",
+              "JPY"
+            ],
+            "type": "string"
+          },
+          "flows": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "growthRatePerStep": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "flows",
+          "growthRatePerStep",
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "TransactionResponse": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryDto"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurredOn": {
+            "format": "date",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TransactionStateResponse"
+          }
+        },
+        "required": [
+          "description",
+          "entries",
+          "id",
+          "occurredOn",
+          "state"
+        ],
+        "type": "object"
+      },
+      "TransactionStateResponse": {
+        "properties": {
+          "on": {
+            "format": "date",
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "CLEARED",
+              "RECONCILED",
+              "VOIDED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "TransitionRequest": {
+        "properties": {
+          "on": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "on"
+        ],
+        "type": "object"
+      },
+      "UnbudgetedSpendResponse": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "spent": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        },
+        "required": [
+          "category",
+          "spent"
+        ],
+        "type": "object"
+      },
+      "VoidRequest": {
+        "properties": {
+          "on": {
+            "format": "date",
+            "type": "string"
+          },
+          "reason": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "on",
+          "reason"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "FinAssist ledger",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/accounts": {
+      "get": {
+        "operationId": "listAccounts",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccountResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "account-controller"
+        ]
+      },
+      "post": {
+        "operationId": "openAccount",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "account-controller"
+        ]
+      }
+    },
+    "/api/v1/accounts/{id}/balance": {
+      "get": {
+        "operationId": "viewBalance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BalanceResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "account-controller"
+        ]
+      }
+    },
+    "/api/v1/accounts/{id}/transactions": {
+      "get": {
+        "operationId": "listAccountTransactions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TransactionResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "account-controller"
+        ]
+      }
+    },
+    "/api/v1/budgets": {
+      "get": {
+        "operationId": "listBudgets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BudgetResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "budget-controller"
+        ]
+      },
+      "post": {
+        "operationId": "defineBudget",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefineBudgetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "budget-controller"
+        ]
+      }
+    },
+    "/api/v1/budgets/{id}/review": {
+      "get": {
+        "operationId": "reviewBudget",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetReviewResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "budget-controller"
+        ]
+      }
+    },
+    "/api/v1/categorisation-rules": {
+      "get": {
+        "operationId": "listCategorisationRules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CategorisationRuleResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "categorisation-rule-controller"
+        ]
+      },
+      "post": {
+        "operationId": "addCategorisationRule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddCategorisationRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategorisationRuleResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "categorisation-rule-controller"
+        ]
+      }
+    },
+    "/api/v1/planned-flows": {
+      "get": {
+        "operationId": "listPlannedFlows",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlannedFlowResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "planned-flow-controller"
+        ]
+      },
+      "post": {
+        "operationId": "planFlow",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanFlowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedFlowResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "planned-flow-controller"
+        ]
+      }
+    },
+    "/api/v1/planned-flows/{id}/cancel": {
+      "post": {
+        "operationId": "cancelPlannedFlow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanCancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedFlowResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "planned-flow-controller"
+        ]
+      }
+    },
+    "/api/v1/planned-flows/{id}/commit": {
+      "post": {
+        "operationId": "commitPlannedFlow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanTransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedFlowResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "planned-flow-controller"
+        ]
+      }
+    },
+    "/api/v1/planned-flows/{id}/realise": {
+      "post": {
+        "operationId": "realisePlannedFlow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanTransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedFlowResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "planned-flow-controller"
+        ]
+      }
+    },
+    "/api/v1/scenario-comparisons": {
+      "get": {
+        "operationId": "compareScenarios",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": true,
+            "schema": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 2147483647,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "baseline",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "step",
+            "required": true,
+            "schema": {
+              "enum": [
+                "WEEKLY",
+                "MONTHLY",
+                "YEARLY"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cash",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "invested",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ComparisonResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "comparison-controller"
+        ]
+      }
+    },
+    "/api/v1/scenarios": {
+      "get": {
+        "operationId": "listScenarios",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ScenarioResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "scenario-controller"
+        ]
+      },
+      "post": {
+        "operationId": "defineScenario",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefineScenarioRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "scenario-controller"
+        ]
+      }
+    },
+    "/api/v1/scenarios/{id}/projection": {
+      "get": {
+        "operationId": "projectScenario",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "step",
+            "required": true,
+            "schema": {
+              "enum": [
+                "WEEKLY",
+                "MONTHLY",
+                "YEARLY"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cash",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "invested",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "projection-controller"
+        ]
+      }
+    },
+    "/api/v1/transactions": {
+      "get": {
+        "operationId": "listTransactions",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TransactionResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "transaction-controller"
+        ]
+      },
+      "post": {
+        "operationId": "recordTransaction",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordTransactionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "transaction-controller"
+        ]
+      }
+    },
+    "/api/v1/transactions/{id}/clear": {
+      "post": {
+        "operationId": "clearTransaction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "transaction-controller"
+        ]
+      }
+    },
+    "/api/v1/transactions/{id}/reconcile": {
+      "post": {
+        "operationId": "reconcileTransaction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "transaction-controller"
+        ]
+      }
+    },
+    "/api/v1/transactions/{id}/void": {
+      "post": {
+        "operationId": "voidTransaction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoidRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "tags": [
+          "transaction-controller"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ]
+}

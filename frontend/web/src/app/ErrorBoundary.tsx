@@ -8,7 +8,7 @@
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
-import { log } from '../shared/lib/logger';
+import { log } from '@/shared/lib/logger';
 
 interface Props {
     readonly children: ReactNode;

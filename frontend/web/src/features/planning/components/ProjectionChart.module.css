@@ -1,0 +1,101 @@
+.figure {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0;
+    padding: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-panel);
+    background: var(--color-surface-raised);
+}
+
+/* Sized by its viewBox: full width, and a height that follows the aspect ratio. */
+.svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+}
+
+.cash,
+.invested,
+.zero,
+.shortfall {
+    fill: none;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+}
+
+.cash {
+    stroke: var(--color-accent);
+}
+
+.invested {
+    stroke: var(--color-warning);
+}
+
+.zero {
+    stroke: var(--color-border-strong);
+    stroke-width: 1;
+}
+
+.shortfall {
+    stroke: var(--color-negative);
+    stroke-width: 1;
+}
+
+.extremeMark {
+    fill: var(--color-surface-raised);
+    stroke: var(--color-text);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+}
+
+.axis {
+    display: flex;
+    justify-content: space-between;
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
+}
+
+.extremes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-5);
+    margin: 0;
+    font-size: var(--font-size-sm);
+}
+
+.extreme {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.extreme dt {
+    font-weight: var(--font-weight-strong);
+}
+
+.extreme dd {
+    margin: 0;
+}
+
+.legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--font-size-sm);
+}
+
+.legendItem {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.swatch {
+    width: 1.5rem;
+    height: 0.75rem;
+}

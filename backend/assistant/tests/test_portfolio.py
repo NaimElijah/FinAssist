@@ -83,6 +83,25 @@ def Given_a_partly_consumed_lot_When_consumed_Then_the_remainder_keeps_its_date_
     assert remainder.acquired_on == date(2026, 1, 1)
 
 
+def Given_a_sale_finer_than_28_digits_When_consumed_Then_the_remainder_is_exact() -> None:
+    """Python's default context keeps 28 significant digits and rounds past that silently, so the
+    remainder of ``10 - 1E-32`` came back as ten: a sale that consumed nothing. Java's
+    ``BigDecimal`` never rounds a subtraction."""
+    disposal = consume_fifo((lot("10", "100.00", 1),), Decimal("1E-32"))
+
+    assert disposal.remaining[0].quantity == Decimal("9.99999999999999999999999999999999")
+
+
+def Given_lots_totalling_more_than_28_digits_When_all_are_sold_Then_the_sale_is_allowed() -> None:
+    """The total held is compared exactly. Rounded to 28 digits it loses its last unit, and a sale
+    of everything held is refused as more than is held."""
+    lots = (lot("10", "100.00", 1), lot("0.00000000000000000000000000000001", "100.00", 2))
+
+    disposal = consume_fifo(lots, Decimal("10.00000000000000000000000000000001"))
+
+    assert disposal.remaining == ()
+
+
 def Given_a_sale_of_everything_When_consumed_Then_nothing_remains() -> None:
     disposal = consume_fifo((lot("10", "100.00", 1),), Decimal(10))
     assert disposal == Disposal((), usd("1000.00"))

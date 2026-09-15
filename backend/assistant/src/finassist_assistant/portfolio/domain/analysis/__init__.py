@@ -7,8 +7,9 @@ calling it, and it is why this context carries no aggregates (ADR-007).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Context, Decimal, Inexact
 
 from finassist_assistant.portfolio.domain.model import Lot, Position
 from finassist_assistant.shared import Money
@@ -52,6 +53,26 @@ def position(lots: tuple[Lot, ...]) -> Position:
     return Position(lots[0].symbol, total_quantity, total_cost)
 
 
+def _exact_arithmetic_for(quantities: Iterable[Decimal]) -> Context:
+    """A context that adds and subtracts these quantities without rounding a result.
+
+    Python's default context keeps 28 significant digits and rounds past that silently, so
+    ``10 - 1E-32`` is ten: a sale that consumes nothing, or a total held that loses its last unit.
+    Java's ``BigDecimal`` never rounds a sum, and ``Money`` sizes its own context for the same
+    reason. A sum of these values needs no digit above the highest of the largest, plus one carry
+    digit for each digit in how many were added, and none below the lowest of the finest.
+
+    Rounding is trapped rather than trusted, so were this sizing ever short, a sale would fail
+    loudly instead of quietly rounding again. An infinite quantity needs no digits and adds none.
+    """
+    finite = [quantity for quantity in quantities if quantity.is_finite()]
+    highest = max((quantity.adjusted() for quantity in finite), default=0)
+    lowest = min((int(quantity.as_tuple().exponent) for quantity in finite), default=0)
+    context = Context(prec=highest - lowest + 1 + len(str(len(finite))))
+    context.traps[Inexact] = True
+    return context
+
+
 def consume_fifo(lots: tuple[Lot, ...], quantity: Decimal) -> Disposal:
     """Sells ``quantity`` units, taking the oldest lots first (ADR-013).
 
@@ -59,12 +80,18 @@ def consume_fifo(lots: tuple[Lot, ...], quantity: Decimal) -> Disposal:
     not already the acquisition order. A lot consumed only partly is split, so the remainder
     keeps its original unit cost and acquisition date.
 
+    Quantities are totalled and subtracted exactly, however many digits they carry. Only the cost
+    of sale is rounded, to the currency's minor units, by :meth:`Money.times_rounded`.
+
     :raises InsufficientHoldingError: if fewer units are held than requested
     """
     if quantity <= 0:
         raise ValueError(f"A disposal must be of a positive quantity but was {quantity}")
 
-    held = sum((lot.quantity for lot in lots), Decimal(0))
+    exact = _exact_arithmetic_for((quantity, *(lot.quantity for lot in lots)))
+    held = Decimal(0)
+    for lot in lots:
+        held = exact.add(held, lot.quantity)
     if quantity > held:
         raise InsufficientHoldingError(held, quantity)
 
@@ -77,10 +104,10 @@ def consume_fifo(lots: tuple[Lot, ...], quantity: Decimal) -> Disposal:
             remaining.append(lot)
         elif lot.quantity <= outstanding:
             cost_of_sale = cost_of_sale.plus(lot.cost)
-            outstanding -= lot.quantity
+            outstanding = exact.subtract(outstanding, lot.quantity)
         else:
             cost_of_sale = cost_of_sale.plus(lot.unit_cost.times_rounded(outstanding))
-            remaining.append(lot.with_quantity(lot.quantity - outstanding))
+            remaining.append(lot.with_quantity(exact.subtract(lot.quantity, outstanding)))
             outstanding = Decimal(0)
 
     return Disposal(tuple(remaining), cost_of_sale)

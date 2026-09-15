@@ -15,7 +15,9 @@ See ADR-019.
 from __future__ import annotations
 
 import logging
+import re
 import sys
+import time
 from collections.abc import Iterable, MutableMapping
 from contextvars import ContextVar
 from typing import Any, Final, TextIO
@@ -26,6 +28,7 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from starlette.types import Scope
 
 from finassist_assistant.adapters.settings import Settings
 
@@ -64,6 +67,20 @@ _correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=N
 TRACEPARENT_HEADER: Final = "traceparent"
 CORRELATION_ID_FIELD: Final = "correlation_id"
 
+# A W3C trace id is 32 lowercase hex characters, and all-zero is explicitly invalid.
+_TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
+_INVALID_TRACE_ID: Final = "0" * 32
+_TRACEPARENT_FIELDS: Final = 4
+
+REQUEST_EVENT: Final = "request answered"
+"""The event of the one line the assistant writes for every request it answers."""
+
+_MILLISECONDS_PER_SECOND: Final = 1000
+# Microseconds: finer than anything a request's duration is read for, and short on the line.
+_DURATION_DECIMALS: Final = 3
+
+_log = structlog.get_logger(__name__)
+
 # Shortest value worth scrubbing. A two-character secret would match inside ordinary words and
 # turn every message into redaction markers, destroying the logs without protecting anything.
 _MIN_SECRET_LENGTH: Final = 8
@@ -72,8 +89,16 @@ _MIN_SECRET_LENGTH: Final = 8
 # log call into a RecursionError, which is strictly worse than the line it failed to write.
 _MAX_REDACTION_DEPTH: Final = 6
 
+# httpx writes every request it sends at INFO as "HTTP Request: <method> <url>", the full URL with
+# its query string. Held at WARNING whatever ASSISTANT_LOG_LEVEL says, so the first outbound client
+# cannot put every URL it calls on a log line; a URL is no place to assume nothing sensitive
+# travels. Its warnings and errors still come through.
+_URL_LOGGER: Final = "httpx"
+_URL_LOGGER_LEVEL: Final = logging.WARNING
+
 _root_handlers_before: list[logging.Handler] | None = None
 _root_level_before: int | None = None
+_url_logger_level_before: int | None = None
 
 
 class _LazyStdout:
@@ -110,6 +135,31 @@ def set_correlation_id(value: str | None) -> None:
 def current_correlation_id() -> str | None:
     """The correlation id bound to the current context, if any."""
     return _correlation_id.get()
+
+
+def trace_id_of(traceparent: str | None) -> str | None:
+    """Extract the trace id from a ``traceparent``, or ``None`` if it is not one.
+
+    Validates the shape rather than trusting it: the header is caller-supplied, it ends up in
+    every log line for the request and in a response header, and the web client's own
+    ``traceIdOf`` applies exactly this rule. Two implementations of one header format that
+    disagree is how malformed data gets in through the more permissive side.
+
+    It lives at the logging boundary rather than in the app because both the correlation
+    middleware and the Host allow-list, which runs before it, bind the id it yields.
+
+    :param traceparent: a header value, possibly absent or malformed.
+    :returns: the 32-character trace id, or ``None`` when it cannot be parsed.
+    """
+    if not traceparent:
+        return None
+    fields = traceparent.split("-")
+    if len(fields) < _TRACEPARENT_FIELDS:
+        return None
+    trace_id = fields[1]
+    if not _TRACE_ID.match(trace_id) or trace_id == _INVALID_TRACE_ID:
+        return None
+    return trace_id
 
 
 def _is_secret_key(key: str) -> bool:
@@ -180,6 +230,29 @@ def add_correlation_id(
     return event_dict
 
 
+def log_request(scope: Scope, status: int, started: float) -> None:
+    """Write the one line the assistant keeps for a request, at INFO whatever its status.
+
+    Called before the correlation id is unbound, so the line carries it. Uvicorn's own access line
+    is switched off because it is written later, from the protocol layer, with nothing bound. A
+    failure worth acting on already has its own ERROR line from the problem handlers.
+
+    :param scope: the request's ASGI scope. Its ``path`` never holds the query string, which is
+        why the line is built from it: a URL is no place to assume nothing sensitive travels, and
+        no amount is ever logged (ADR-028).
+    :param status: the status the request was answered with.
+    :param started: :func:`time.perf_counter` when the request arrived.
+    """
+    elapsed = time.perf_counter() - started
+    _log.info(
+        REQUEST_EVENT,
+        method=scope["method"],
+        path=scope["path"],
+        status=status,
+        duration_ms=round(elapsed * _MILLISECONDS_PER_SECOND, _DURATION_DECIMALS),
+    )
+
+
 def _processors() -> Iterable[structlog.typing.Processor]:
     """The shared chain, in the order the ordering matters for.
 
@@ -201,9 +274,10 @@ def configure_logging(settings: Settings) -> None:
     """Configure structlog to emit JSON on stdout, through the redaction boundary.
 
     Rebinds the stdlib root logger too, so a library that logs through ``logging`` is rendered
-    in the same format instead of bypassing the boundary with its own.
+    in the same format instead of bypassing the boundary with its own. The one exception to the
+    configured level is httpx, held at WARNING because it logs every request's full URL at INFO.
     """
-    global _root_handlers_before, _root_level_before
+    global _root_handlers_before, _root_level_before, _url_logger_level_before
 
     register_secret(settings.anthropic_api_key_value)
 
@@ -230,23 +304,26 @@ def configure_logging(settings: Settings) -> None:
         )
     )
     root = logging.getLogger()
+    url_logger = logging.getLogger(_URL_LOGGER)
     if _root_handlers_before is None:
         _root_handlers_before = list(root.handlers)
         _root_level_before = root.level
+        _url_logger_level_before = url_logger.level
     for existing in list(root.handlers):
         root.removeHandler(existing)
     root.addHandler(handler)
     root.setLevel(settings.log_level)
+    url_logger.setLevel(_URL_LOGGER_LEVEL)
 
 
 def reset_logging() -> None:
-    """Restore the root logger to what it was before ``configure_logging``.
+    """Restore the root logger, and httpx's level, to what they were before ``configure_logging``.
 
-    The root logger is process-wide state. Without this a test that configures logging leaves
-    every later test writing through its handler, which is the sort of ordering dependence the
-    test conventions rule out.
+    Both are process-wide state. Without this a test that configures logging leaves every later
+    test writing through its handler, which is the sort of ordering dependence the test
+    conventions rule out.
     """
-    global _root_handlers_before, _root_level_before
+    global _root_handlers_before, _root_level_before, _url_logger_level_before
 
     if _root_handlers_before is None:
         return
@@ -257,8 +334,11 @@ def reset_logging() -> None:
         root.addHandler(previous)
     if _root_level_before is not None:
         root.setLevel(_root_level_before)
+    if _url_logger_level_before is not None:
+        logging.getLogger(_URL_LOGGER).setLevel(_url_logger_level_before)
     _root_handlers_before = None
     _root_level_before = None
+    _url_logger_level_before = None
 
 
 def configure_tracing(settings: Settings) -> TracerProvider | None:

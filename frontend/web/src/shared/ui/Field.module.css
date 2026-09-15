@@ -1,0 +1,48 @@
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+.label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-strong);
+    color: var(--color-text);
+}
+
+.hint {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--color-muted);
+}
+
+.error {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-strong);
+    color: var(--color-negative);
+}
+
+.control {
+    min-height: var(--control-height);
+    max-width: 100%;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-control);
+    background: var(--color-surface-raised);
+    color: var(--color-text);
+    font-size: var(--font-size-body);
+}
+
+.control[type='date'],
+.control[type='month'] {
+    font-variant-numeric: tabular-nums;
+}
+
+/* The border doubles in width as well as changing colour, so an invalid control is marked by
+   more than hue; the error message beneath it says what is wrong. */
+.control[aria-invalid='true'] {
+    border-color: var(--color-negative);
+    box-shadow: inset 0 0 0 1px var(--color-negative);
+}

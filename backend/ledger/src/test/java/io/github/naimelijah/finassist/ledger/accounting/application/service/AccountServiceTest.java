@@ -17,6 +17,7 @@ import io.github.naimelijah.finassist.ledger.accounting.domain.account.Account;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountType;
 import io.github.naimelijah.finassist.ledger.accounting.domain.event.AccountingEvent;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -137,5 +138,20 @@ class AccountServiceTest {
 
         assertThat(opened.name()).isEqualTo("Groceries");
         verify(accounts).save(opened);
+    }
+
+    /**
+     * Listing derives nothing of its own — ordering is the repository's job, per {@code
+     * AccountRepository.all}'s Javadoc, and the service's only responsibility is to hand the answer
+     * back unchanged.
+     */
+    @Test
+    void Given_accounts_stored_When_listed_Then_they_come_back_in_the_repositorys_order() {
+        Account brokerage = Account.open("brokerage", AccountType.ASSET, Currency.ILS);
+        Account cash = Account.open("Cash", AccountType.ASSET, Currency.ILS);
+        Account savings = Account.open("savings", AccountType.ASSET, Currency.ILS);
+        when(accounts.all()).thenReturn(List.of(brokerage, cash, savings));
+
+        assertThat(service.all()).containsExactly(brokerage, cash, savings);
     }
 }

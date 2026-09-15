@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger.planning.adapter.out.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.PlannedFlowRepository;
@@ -11,12 +12,14 @@ import io.github.naimelijah.finassist.ledger.planning.domain.forecast.ScenarioId
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Cadence;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Direction;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanId;
+import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanState;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlannedFlow;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Recurrence;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -40,6 +43,11 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
     private static final LocalDate FEB_10 = LocalDate.of(2026, 2, 10);
     private static final LocalDate MARCH_1 = LocalDate.of(2026, 3, 1);
     private static final LocalDate NEXT_YEAR = LocalDate.of(2027, 2, 1);
+
+    /** PostgreSQL compares {@code uuid} byte by byte, so these two order the way they read. */
+    private static final UUID SMALLER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
+    private static final UUID LARGER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
     @Autowired
     private PlannedFlowRepository flows;
@@ -174,6 +182,105 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
         assertThat(scenarios.findById(modest.id())).contains(modest);
     }
 
+    /** {@code PlannedFlowRepository.all}'s contract: start date, then id. */
+    @Test
+    void Given_flows_with_different_start_dates_When_all_are_listed_Then_they_come_back_ordered_by_start_date() {
+        PlannedFlow later = PlannedFlow.plan("Later", ils("100.00"), Direction.OUTFLOW, MARCH_1, new Recurrence.Once());
+        PlannedFlow earlier =
+                PlannedFlow.plan("Earlier", ils("50.00"), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+        flows.save(later);
+        flows.save(earlier);
+
+        assertThat(flows.all()).containsExactly(earlier, later);
+    }
+
+    /**
+     * The port's tie-break: two flows starting on one date come back by id. They are saved larger id
+     * first, so a store that returned them in insertion order would fail this.
+     */
+    @Test
+    void Given_two_flows_starting_on_one_date_saved_larger_id_first_When_all_are_listed_Then_the_smaller_id_leads() {
+        PlannedFlow larger = new PlannedFlow(
+                new PlanId(LARGER_ID),
+                "Second by id",
+                ils("100.00"),
+                Direction.OUTFLOW,
+                FEB_1,
+                new Recurrence.Once(),
+                new PlanState.Planned());
+        PlannedFlow smaller = new PlannedFlow(
+                new PlanId(SMALLER_ID),
+                "First by id",
+                ils("50.00"),
+                Direction.OUTFLOW,
+                FEB_1,
+                new Recurrence.Once(),
+                new PlanState.Planned());
+        flows.save(larger);
+        flows.save(smaller);
+
+        assertThat(flows.all()).containsExactly(smaller, larger);
+    }
+
+    /** A cancelled flow is history, not something a listing hides - the port makes no state exception. */
+    @Test
+    void Given_a_cancelled_flow_When_all_are_listed_Then_it_is_still_returned() {
+        PlannedFlow planned =
+                PlannedFlow.plan("New car", ils("40000.00"), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+        flows.save(planned);
+        PlannedFlow cancelled = planned.cancel(FEB_10, "too expensive");
+        flows.save(cancelled);
+
+        assertThat(flows.all()).containsExactly(cancelled);
+    }
+
+    @Test
+    void Given_no_flows_at_all_When_they_are_listed_Then_the_answer_is_empty_rather_than_null() {
+        assertThat(flows.all()).isEmpty();
+    }
+
+    /** {@code ScenarioRepository.all}'s contract: name, then id. */
+    @Test
+    void Given_scenarios_with_different_names_When_all_are_listed_Then_they_come_back_ordered_by_name() {
+        Scenario zeta = Scenario.baseline("Zeta", Currency.ILS, GrowthAssumption.none());
+        Scenario alpha = Scenario.baseline("Alpha", Currency.ILS, GrowthAssumption.none());
+        scenarios.save(zeta);
+        scenarios.save(alpha);
+
+        assertThat(scenarios.all()).containsExactly(alpha, zeta);
+    }
+
+    /**
+     * Names are not unique, so the port breaks a tie by id. The two are saved larger id first, so a store
+     * that returned them in insertion order would fail this.
+     */
+    @Test
+    void Given_two_scenarios_sharing_a_name_saved_larger_id_first_When_all_are_listed_Then_the_smaller_id_leads() {
+        Scenario larger =
+                new Scenario(new ScenarioId(LARGER_ID), "Plan A", Currency.ILS, List.of(), GrowthAssumption.none());
+        Scenario smaller =
+                new Scenario(new ScenarioId(SMALLER_ID), "Plan A", Currency.ILS, List.of(), GrowthAssumption.none());
+        scenarios.save(larger);
+        scenarios.save(smaller);
+
+        assertThat(scenarios.all()).containsExactly(smaller, larger);
+    }
+
+    @Test
+    void Given_no_scenarios_at_all_When_they_are_listed_Then_the_answer_is_empty_rather_than_null() {
+        assertThat(scenarios.all()).isEmpty();
+    }
+
+    /** The flows of a listed scenario are loaded, the same mapping {@code findById} uses. */
+    @Test
+    void Given_a_scenario_over_flows_When_all_are_listed_Then_its_flows_are_loaded() {
+        PlannedFlow car = stored("New car", "40000.00");
+        Scenario scenario = Scenario.of("Spend it all", Currency.ILS, List.of(car), GrowthAssumption.none());
+        scenarios.save(scenario);
+
+        assertThat(scenarios.all()).containsExactly(scenario);
+    }
+
     @Test
     void Given_a_flow_When_read_over_an_independent_connection_Then_it_is_still_there() {
         PlannedFlow car = stored("New car", "40000.00");
@@ -181,6 +288,59 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
         PlannedFlowRepository elsewhere = new JdbcPlannedFlowRepository(freshConnection());
 
         assertThat(elsewhere.findById(car.id())).contains(car);
+    }
+
+    /**
+     * {@code numeric} keeps whatever scale it is given, and {@link Money} refuses more precision than a
+     * currency admits. Reading such a row is a server fault naming the column, not an {@code
+     * IllegalArgumentException} a problem handler would answer as a broken rule.
+     *
+     * <p>The fault is logged at ERROR, and ECS prints every cause's message into {@code stack_trace}, so it
+     * names the flow by its id and carries neither the amount nor {@code Money}'s refusal, which repeats it.
+     */
+    @Test
+    void Given_a_flow_stored_with_more_precision_than_its_currency_admits_When_read_Then_it_is_a_server_fault() {
+        PlanId id = PlanId.generate();
+        jdbc().sql("""
+                        INSERT INTO planning.planned_flow
+                            (id, description, amount, currency, direction, starts_on, recurrence, state)
+                        VALUES (:id, 'Too precise', 40000.005, 'ILS', 'OUTFLOW', :startsOn, 'ONCE', 'PLANNED')
+                        """).param("id", id.value()).param("startsOn", FEB_1).update();
+
+        assertThatThrownBy(() -> flows.findById(id))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("planning.planned_flow.amount")
+                .hasMessageContaining(id.value().toString())
+                .hasNoCause()
+                .message()
+                .doesNotContain("40000.005");
+    }
+
+    /**
+     * No constraint ties a flow's currency to a scenario's, because they sit in two tables. {@code
+     * Scenario} refuses the pair, and a stored pair it refuses is a server fault naming the scenario. Its
+     * refusal quotes the flow's description, the owner's own words, so it is not carried into the logged
+     * fault.
+     */
+    @Test
+    void Given_a_scenario_stored_over_a_flow_in_another_currency_When_read_Then_it_is_a_server_fault() {
+        PlannedFlow car = stored("New car", "40000.00");
+        ScenarioId id = ScenarioId.generate();
+        jdbc().sql("INSERT INTO planning.scenario VALUES (:id, 'In dollars', 'USD', 0)")
+                .param("id", id.value())
+                .update();
+        jdbc().sql("INSERT INTO planning.scenario_flow VALUES (:id, 0, :flow)")
+                .param("id", id.value())
+                .param("flow", car.id().value())
+                .update();
+
+        assertThatThrownBy(() -> scenarios.findById(id))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("planning.scenario")
+                .hasMessageContaining(id.value().toString())
+                .hasNoCause()
+                .message()
+                .doesNotContain("New car");
     }
 
     private PlannedFlow stored(String description, String amount) {

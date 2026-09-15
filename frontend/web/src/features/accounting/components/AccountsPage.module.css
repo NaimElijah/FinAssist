@@ -1,0 +1,21 @@
+.loading {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.actions {
+    margin: 0 0 var(--space-4);
+}
+
+/* A refetch failure sits above the rows it failed to refresh, which stay on screen. */
+.stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+/* A figure not yet known, or not available: muted, so it never reads as an amount. */
+.placeholder {
+    color: var(--color-muted);
+    white-space: nowrap;
+}

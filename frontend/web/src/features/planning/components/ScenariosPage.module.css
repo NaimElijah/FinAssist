@@ -1,0 +1,11 @@
+.loading {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+/* A refetch failure sits above the rows it failed to refresh, which stay on screen. */
+.stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
