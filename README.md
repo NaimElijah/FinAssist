@@ -204,7 +204,7 @@ portfolio screens call them.
 | `accounting` — accounts, entries, balances | ledger | yes |
 | `budgeting` — budgets, categories, rules | ledger | yes |
 | `portfolio` — holdings, positions, valuation | assistant | yes |
-| `assistance` — questions and grounded answers | assistant | yes |
+| `assistance` — questions and grounded answers | assistant | no — excluded until the privacy question is answered |
 | `marketdata` — instruments and quotes, feed not chosen | assistant | no |
 | `planning` — planned flows, projections, strategy comparison | ledger | yes |
 

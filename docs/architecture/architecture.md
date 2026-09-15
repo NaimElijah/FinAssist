@@ -81,7 +81,7 @@ Six contexts, each owned by exactly one service
 | `accounting` | `backend/ledger` | `Account`, `Entry`, `Balance` — the record of truth | yes |
 | `budgeting` | `backend/ledger` | `Budget`, `Category`, `CategorisationRule` | yes |
 | `portfolio` | `backend/assistant` | `Holding`, `Position`, `Valuation` | yes |
-| `assistance` | `backend/assistant` | `Question`, `Evidence`, `GroundedAnswer` | yes |
+| `assistance` | `backend/assistant` | `Question`, `Evidence`, `GroundedAnswer` | no — excluded until the privacy question is answered |
 | `marketdata` | `backend/assistant` | `Instrument`, `Quote` — feed not chosen | no |
 | `planning` | `backend/ledger` | `PlannedFlow`, `Scenario`, `Projection`, `Comparison` — what is intended, not what happened | yes |
 
