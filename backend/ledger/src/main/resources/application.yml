@@ -110,7 +110,7 @@ management:
         # added later needs its own management.tracing.export.<name>.enabled set to
         # ${OTEL_EXPORT_ENABLED:false}, because the global switch no longer gates export.
         #
-        # Both signals are gated by one flag. Metrics need it as much as traces:
+        # Every signal is gated by one flag. Metrics need it as much as traces:
         # spring-boot-starter-opentelemetry drags in micrometer-registry-otlp, which otherwise
         # POSTs to localhost:4318/v1/metrics every minute forever on a machine with no
         # collector — exactly the noise ADR-019's no-op promise exists to avoid.
@@ -118,6 +118,14 @@ management:
   otlp:
     metrics:
       export:
+        enabled: ${OTEL_EXPORT_ENABLED:false}
+  logging:
+    export:
+      otlp:
+        # Logs too. Spring Boot maps OTEL_EXPORTER_OTLP_ENDPOINT onto the log exporter's endpoint as
+        # well, and OnEnabledLoggingExportCondition treats an unset switch as on, so the endpoint alone
+        # builds an OtlpHttpLogRecordExporter with export off. Nothing feeds it until an OpenTelemetry
+        # log appender is added; this keeps log export opt-in for the day one is.
         enabled: ${OTEL_EXPORT_ENABLED:false}
 
 # The OTLP endpoint is deliberately not set here. Spring Boot 4.1 registers

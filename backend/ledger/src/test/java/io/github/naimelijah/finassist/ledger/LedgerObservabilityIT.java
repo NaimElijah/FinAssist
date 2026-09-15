@@ -197,7 +197,7 @@ class LedgerObservabilityIT extends PostgresFixture {
      * test.
      *
      * <p>Loading {@code application.yml} into an environment with no system property sources
-     * asserts what the repository ships: both exporters off unless someone opts in.
+     * asserts what the repository ships: the trace, metric and log exporters off unless someone opts in.
      *
      * <p>Trace export is read from the OTLP exporter's own switch. Spring Boot's global {@code
      * management.tracing.export.enabled} also removes W3C propagation, which ADR-019 needs whether or
@@ -216,6 +216,9 @@ class LedgerObservabilityIT extends PostgresFixture {
         assertThat(shipped.getProperty("management.tracing.export.otlp.enabled"))
                 .isEqualTo("false");
         assertThat(shipped.getProperty("management.otlp.metrics.export.enabled"))
+                .isEqualTo("false");
+        assertThat(shipped.getProperty("management.logging.export.otlp.enabled"))
+                .as("the endpoint variable also builds an OTLP log exporter, and only this switch keeps it off")
                 .isEqualTo("false");
         assertThat(shipped.getProperty("management.tracing.export.enabled"))
                 .as("the global switch also disables propagation, so turning it off breaks correlation")
