@@ -13,6 +13,7 @@ import type {
     EntryDto,
     MoneyDto,
     OpenAccountRequest,
+    RecordTransactionRequest,
     TransactionResponse,
     TransactionStateResponse,
 } from '@/shared/api/contracts/ledger/types.gen';
@@ -20,7 +21,12 @@ import { log } from '@/shared/lib/logger';
 
 import type { Account, OpenAccountInput } from '../types/account';
 import type { Money } from '../types/money';
-import type { Entry, Transaction, TransactionState } from '../types/transaction';
+import type {
+    Entry,
+    RecordTransactionInput,
+    Transaction,
+    TransactionState,
+} from '../types/transaction';
 
 /** The ledger's code for opening an account under a name already open (ADR-028: 409). */
 export const DUPLICATE_ACCOUNT_NAME = 'DUPLICATE_ACCOUNT_NAME';
@@ -29,6 +35,7 @@ export const DUPLICATE_ACCOUNT_NAME = 'DUPLICATE_ACCOUNT_NAME';
 export const ACCOUNT_NOT_FOUND = 'ACCOUNT_NOT_FOUND';
 
 const ACCOUNTS_URL = `${LEDGER_API}/accounts`;
+const TRANSACTIONS_URL = `${LEDGER_API}/transactions`;
 
 /** The URL of one account's sub-resource, with the id encoded as a single path segment. */
 function accountUrl(accountId: string, subResource: string): string {
@@ -171,4 +178,31 @@ export async function listAccountTransactions(accountId: string): Promise<Transa
     const url = accountUrl(accountId, 'transactions');
     const wire = await requestJson<TransactionResponse[]>(url);
     return wire.map((transaction) => toTransaction(transaction, url));
+}
+
+/**
+ * Record a transaction by hand. The ledger generates its id and checks its entries balance.
+ *
+ * The browser does no arithmetic and no balance check of its own (ADR-029): an unbalanced set of
+ * entries is rejected by the ledger, as 422 `RULE_VIOLATED`, not caught here.
+ *
+ * @param input - the date, description and entries, each entry's amount already signed by
+ *   `entryRowAmount` and its currency the posted-to account's own.
+ * @returns the transaction as recorded, in its initial `PENDING` state.
+ * @throws ApiError - on a non-2xx response: 422 `RULE_VIOLATED` for entries that do not sum to
+ *   zero, 422 `UNKNOWN_ACCOUNT` or `CURRENCY_MISMATCH`, 400 `MALFORMED_REQUEST` possibly listing
+ *   field `errors`.
+ * @throws ApiBodyError - when the response carries no JSON body.
+ */
+export async function recordTransaction(input: RecordTransactionInput): Promise<Transaction> {
+    const body: RecordTransactionRequest = {
+        occurredOn: input.occurredOn,
+        description: input.description,
+        entries: input.entries.map((entry) => ({
+            account: entry.account,
+            amount: { amount: entry.amount.amount, currency: entry.amount.currency },
+        })),
+    };
+    const wire = await sendJson<TransactionResponse>(TRANSACTIONS_URL, 'POST', body);
+    return toTransaction(wire, TRANSACTIONS_URL);
 }

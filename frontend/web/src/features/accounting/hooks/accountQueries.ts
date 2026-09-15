@@ -4,15 +4,17 @@
  * Every query key comes from `accountKeys`, so a mutation invalidates exactly what a query reads
  * rather than a key spelled twice.
  */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
     getBalance,
     listAccounts,
     listAccountTransactions,
     openAccount,
+    recordTransaction,
 } from '../api/accountingApi';
 import type { OpenAccountInput } from '../types/account';
+import type { RecordTransactionInput, Transaction } from '../types/transaction';
 
 /** The prefix every accounting key starts with. */
 const ACCOUNTS_KEY = ['accounts'] as const;
@@ -92,5 +94,56 @@ export function useOpenAccount() {
     return useMutation({
         mutationFn: (input: OpenAccountInput) => openAccount(input),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: accountKeys.list }),
+    });
+}
+
+/**
+ * Refetch the balance and transactions of every account named in `accountIds`, once each.
+ *
+ * Neither recording a transaction nor moving one through its lifecycle can change an account not
+ * named in its entries, so this is the whole of what either invalidates: never `accountKeys.all`,
+ * which would also refetch every other account's balance and transaction list on screen.
+ *
+ * @param accountIds - account ids, possibly repeating one across several entries.
+ * @returns the settled refetches, so a caller can return it from `onSuccess` and stay pending
+ *   until they land.
+ */
+function invalidateAccounts(
+    queryClient: QueryClient,
+    accountIds: readonly string[],
+): Promise<unknown> {
+    const uniqueIds = [...new Set(accountIds)];
+    return Promise.all(
+        uniqueIds.flatMap((accountId) => [
+            queryClient.invalidateQueries({ queryKey: accountKeys.balance(accountId) }),
+            queryClient.invalidateQueries({ queryKey: accountKeys.transactions(accountId) }),
+        ]),
+    );
+}
+
+/** The account ids an entry set names, each once. */
+function accountIdsOf(transaction: Transaction): string[] {
+    return transaction.entries.map((entry) => entry.account);
+}
+
+/**
+ * Record a transaction by hand, then refetch the accounts list and the balance and transactions
+ * of every account named in its entries.
+ *
+ * The list is refetched because a transaction can be the first to touch an account only the list
+ * already knew about (its row exists, but this is its first entry); every other account's balance
+ * and transaction list is untouched, so nothing else is invalidated.
+ *
+ * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
+ */
+export function useRecordTransaction() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (input: RecordTransactionInput) => recordTransaction(input),
+        onSuccess: (transaction) =>
+            Promise.all([
+                invalidateAccounts(queryClient, accountIdsOf(transaction)),
+                queryClient.invalidateQueries({ queryKey: accountKeys.list }),
+            ]),
     });
 }

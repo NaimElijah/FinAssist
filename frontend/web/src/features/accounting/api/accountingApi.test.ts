@@ -7,7 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiBodyError, ApiError } from '@/shared/api/client';
 import { setLogSink } from '@/shared/lib/logger';
 
-import { getBalance, listAccounts, listAccountTransactions, openAccount } from './accountingApi';
+import {
+    getBalance,
+    listAccounts,
+    listAccountTransactions,
+    openAccount,
+    recordTransaction,
+} from './accountingApi';
 
 const CHECKING_ID = '0b7d2a4e-4d8c-4f3a-9a61-2f1c5e0d9b11';
 
@@ -249,5 +255,71 @@ describe('listAccountTransactions', () => {
         stubFetch(jsonResponse([wireTransaction('x', { status: 'FROZEN', on: '2026-09-04' })]));
 
         await expect(listAccountTransactions(CHECKING_ID)).rejects.toBeInstanceOf(ApiBodyError);
+    });
+});
+
+describe('recordTransaction', () => {
+    const RENT_ID = '1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b';
+
+    it('Given_an_input_When_recorded_Then_it_posts_the_exact_json_body_and_maps_the_created_transaction', async () => {
+        const stub = stubFetch(
+            jsonResponse(
+                {
+                    id: 'a1',
+                    occurredOn: '2026-09-01',
+                    description: 'Rent',
+                    entries: [
+                        { account: CHECKING_ID, amount: { amount: '-250.00', currency: 'ILS' } },
+                        { account: RENT_ID, amount: { amount: '250.00', currency: 'ILS' } },
+                    ],
+                    state: { status: 'PENDING' },
+                },
+                201,
+            ),
+        );
+
+        const transaction = await recordTransaction({
+            occurredOn: '2026-09-01',
+            description: 'Rent',
+            entries: [
+                { account: CHECKING_ID, amount: { amount: '-250.00', currency: 'ILS' } },
+                { account: RENT_ID, amount: { amount: '250.00', currency: 'ILS' } },
+            ],
+        });
+
+        expect(transaction.id).toBe('a1');
+        expect(transaction.state).toEqual({ status: 'PENDING' });
+        const { url, init } = onlyCall(stub);
+        expect(url).toBe('/ledger/api/v1/transactions');
+        expect(init.method).toBe('POST');
+        expect(JSON.parse(init.body as string)).toEqual({
+            occurredOn: '2026-09-01',
+            description: 'Rent',
+            entries: [
+                { account: CHECKING_ID, amount: { amount: '-250.00', currency: 'ILS' } },
+                { account: RENT_ID, amount: { amount: '250.00', currency: 'ILS' } },
+            ],
+        });
+    });
+
+    it('Given_an_unbalanced_entry_set_When_recorded_Then_it_rejects_with_an_ApiError_coded_RULE_VIOLATED', async () => {
+        stubFetch(
+            problemResponse(
+                { status: 422, code: 'RULE_VIOLATED', detail: 'The entries do not sum to zero.' },
+                422,
+            ),
+        );
+
+        const failure: unknown = await recordTransaction({
+            occurredOn: '2026-09-01',
+            description: 'Rent',
+            entries: [
+                { account: CHECKING_ID, amount: { amount: '-250.00', currency: 'ILS' } },
+                { account: RENT_ID, amount: { amount: '200.00', currency: 'ILS' } },
+            ],
+        }).catch((caught: unknown) => caught);
+
+        expect(failure).toBeInstanceOf(ApiError);
+        expect(failure).toMatchObject({ status: 422, problem: { code: 'RULE_VIOLATED' } });
     });
 });

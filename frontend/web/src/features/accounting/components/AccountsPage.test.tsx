@@ -107,6 +107,18 @@ describe('AccountsPage', () => {
         );
     });
 
+    it('Given_the_page_When_rendered_Then_a_link_reaches_the_record_transaction_form', async () => {
+        fakeFetch((request) =>
+            request.url === ACCOUNTS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
+
+        renderAccounts();
+
+        expect(
+            (await screen.findByRole('link', { name: 'Record transaction' })).getAttribute('href'),
+        ).toBe('/accounts/transactions/new');
+    });
+
     it('Given_no_accounts_When_the_page_renders_Then_the_empty_state_invites_opening_one', async () => {
         fakeFetch((request) =>
             request.url === ACCOUNTS_URL ? jsonResponse([]) : unexpectedRequest(request),

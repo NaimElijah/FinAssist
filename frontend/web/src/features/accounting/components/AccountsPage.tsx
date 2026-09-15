@@ -7,7 +7,7 @@ import { useAccountBalance, useAccounts } from '../hooks/accountQueries';
 import { ACCOUNT_TYPE_LABELS, type Account } from '../types/account';
 import styles from './AccountsPage.module.css';
 import { OpenAccountForm } from './OpenAccountForm';
-import { accountPath } from './paths';
+import { accountPath, RECORD_TRANSACTION_PATH } from './paths';
 
 const EMPTY_MESSAGE = 'No accounts yet — open one below';
 
@@ -156,6 +156,9 @@ export function AccountsPage() {
     return (
         <>
             <h1>Accounts</h1>
+            <p className={styles.actions}>
+                <Link to={RECORD_TRANSACTION_PATH}>Record transaction</Link>
+            </p>
             <AccountsList focusedAccountId={openedAccountId} onFocused={clearOpenedAccount} />
             <OpenAccountForm
                 onOpened={(account) => {
