@@ -12,7 +12,7 @@ const EMPTY_MESSAGE = 'No scenarios yet — the do-nothing baseline is a scenari
 /**
  * One scenario's name, taking focus once when it was just defined - the same signal
  * `AccountsPage`'s `AccountLink` gives its new row, without a link to carry it: a scenario has no
- * detail page yet.
+ * detail page.
  */
 function NameCell({
     scenario,

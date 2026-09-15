@@ -152,10 +152,11 @@ function LifecycleButtons({
  * The inline panel for one lifecycle action: a date defaulting to today, and a reason when
  * cancelling. Mirrors `AccountDetailPage`'s own `LifecycleActionPanel` exactly.
  *
- * On success it invalidates the flows and scenarios lists and closes. On failure - including a
- * 409 `ILLEGAL_TRANSITION` when the server no longer agrees this row's action is legal - it shows
- * the server's detail and stays open, so the owner can see why and try something else. Editing
- * the date or the reason clears that failure, since it answered the action as it was sent.
+ * On success it refetches what the transition can change (see `planQueries.ts`) and closes. On
+ * failure - including a 409 `ILLEGAL_TRANSITION` when the server no longer agrees this row's
+ * action is legal - it shows the server's detail and stays open, so the owner can see why and try
+ * something else. Editing the date or the reason clears that failure, since it answered the action
+ * as it was sent.
  *
  * The Reason field's own `required` is the whole of its client-side validation: the browser
  * refuses to fire the form's submit event while it is empty, so no duplicate check is needed here.
