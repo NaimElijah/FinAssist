@@ -3,6 +3,12 @@
 # and `uv run python -m finassist_assistant.adapters` against the Compose `db` still work, for
 # the faster native inner loop.
 #
+# Every published port binds the host's loopback only, as `127.0.0.1:<port>` (ADR-027). The
+# ledger, the assistant, the collector and Prometheus authenticate no caller, and PostgreSQL and
+# Grafana stand behind a password alone, so no port may be reachable from another machine.
+# Containers still reach one another by service name on the Compose network, which this leaves
+# untouched.
+#
 # The monitoring services sit behind a `monitoring` profile, so `docker compose up` stays
 # database-and-both-services-only and `docker compose --profile monitoring up` adds the
 # telemetry backend (ADR-019). Both services push OTLP; the ledger is also scraped directly by
@@ -19,7 +25,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-finassist}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       # 18+ moved the volume up from .../data; PGDATA is /var/lib/postgresql/18/docker.
       - db-data:/var/lib/postgresql
@@ -111,8 +117,8 @@ services:
     volumes:
       - ./ops/otel-collector.yaml:/etc/otel/config.yaml:ro
     ports:
-      - "${OTLP_HTTP_PORT:-4318}:4318"
-      - "${OTLP_GRPC_PORT:-4317}:4317"
+      - "127.0.0.1:${OTLP_HTTP_PORT:-4318}:4318"
+      - "127.0.0.1:${OTLP_GRPC_PORT:-4317}:4317"
 
   prometheus:
     profiles: [monitoring]
@@ -124,7 +130,7 @@ services:
       - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
 
   grafana:
     profiles: [monitoring]
@@ -139,7 +145,7 @@ services:
       - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
     depends_on:
       - prometheus
 
