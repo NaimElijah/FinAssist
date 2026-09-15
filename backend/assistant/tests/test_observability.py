@@ -321,8 +321,8 @@ def Given_a_foreign_host_When_a_websocket_upgrade_arrives_Then_it_is_refused_wit
 
     A WebSocket scope carries no method, and the request line records an HTTP request. The
     assistant serves no WebSocket route, so an admitted upgrade writes no line either, and uvicorn
-    reports a handshake it refused on its own logger. So the refusal writes no request line, and
-    must not fail on the way to answering.
+    reports a handshake it refused on ``uvicorn.error``, query string included, which no route
+    reads. So the refusal writes no request line, and must not fail on the way to answering.
     """
     capsys.readouterr()
 

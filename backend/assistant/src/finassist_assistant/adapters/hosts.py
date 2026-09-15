@@ -63,8 +63,11 @@ class HostAllowList:
     sees an outage, and that id is what joins the web client's log of the 403 to this line. No
     fresh id is minted, because the refusal echoes no correlation header a caller could quote. A
     refused WebSocket upgrade writes none. Its scope carries no method, and the request line records
-    an HTTP request: no WebSocket route is served, so an admitted upgrade writes none either, and
-    uvicorn reports a handshake it refused on its own logger.
+    an HTTP request: no WebSocket route is served, so an admitted upgrade writes none either.
+    uvicorn reports the refused handshake itself, at INFO on ``uvicorn.error``, which
+    ``access_log=False`` does not switch off. That line carries the upgrade's path with its query
+    string. It is acceptable because no route reads a query string and no amount travels in a URL
+    (ADR-028), so the only text it can quote is text the upgrader chose to send.
 
     Two differences from the ledger's filter come with the stock matching, which compares the text
     before the header's first colon exactly. An IPv6 literal such as ``[::1]`` can never be
