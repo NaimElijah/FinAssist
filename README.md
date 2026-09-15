@@ -262,7 +262,7 @@ pipeline and the local commands cannot drift.
 
 | Task | Make target | Raw command |
 |---|---|---|
-| Set up | `make setup` | `cd backend/ledger && ./mvnw -B dependency:go-offline`; `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci` |
+| Set up | `make setup` | `test -f .env \|\| cp .env.example .env`; `cd backend/ledger && ./mvnw -B -q dependency:go-offline`; `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci` |
 | Run | `make run` | `docker compose up --build` |
 | Run with monitoring | `make run-monitoring` | `docker compose --profile monitoring up --build` |
 | Test everything | `make test` | the three test rows below; all three measure coverage |
@@ -271,9 +271,9 @@ pipeline and the local commands cannot drift.
 | Test the web client | `make test-web` | `cd frontend/web && npm run test:coverage` |
 | Build the web bundle | `make build-web` | `cd frontend/web && npm run build` |
 | Regenerate the web client's contract types | `make generate-web-api` | `cd frontend/web && npm run generate:api` |
-| Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
+| Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
 | Lint and types | `make lint` | `./mvnw -B spotless:check`; `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; `npm run lint`, `format:check`, `typecheck` |
-| Format | `make format` | `./mvnw -B spotless:apply`; `uv run ruff format .`; `npm run format` |
+| Format | `make format` | `./mvnw -B spotless:apply`; `uv run ruff format .`, `uv run ruff check --fix .`; `npm run format` |
 | Audit | `make audit` | `cd backend/assistant && uv run pip-audit`; `cd frontend/web && npm audit --audit-level=high` |
 | Re-lock Python deps | `make lock` | `cd backend/assistant && uv lock` |
 | Regenerate the ledger's OpenAPI contract | — | `cd backend/ledger && ./mvnw -B verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running); on a mismatch, copy `target/contracts/ledger-v1.openapi.json` over `contracts/ledger-v1.openapi.json` |
@@ -344,7 +344,7 @@ says nothing about whether a test would notice them being wrong.
 **What answers that question is mutation testing**, on demand and also gated on nothing:
 
 ```bash
-cd backend/ledger && ./mvnw -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
+cd backend/ledger && ./mvnw -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
 ```
 
 It earned its place on the first run, finding that deleting `requireSameCurrency` from

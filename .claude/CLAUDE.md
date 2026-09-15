@@ -55,7 +55,8 @@ places rather than inferred from code.
 Every target below is a thin wrapper defined in `Makefile`; CI invokes the same ones. `make`
 is **not installed** on the development machine, so the raw command is given for each.
 
-- Build / setup: `make setup` — `cd backend/ledger && ./mvnw -B dependency:go-offline`;
+- Build / setup: `make setup` — `test -f .env || cp .env.example .env`;
+  `cd backend/ledger && ./mvnw -B -q dependency:go-offline`;
   `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci`
 - Run: `make run` — `docker compose up --build` (starts PostgreSQL, the ledger and the
   assistant; both services publish only on `127.0.0.1`, per ADR-027). For the native inner loop:
@@ -74,12 +75,13 @@ is **not installed** on the development machine, so the raw command is given for
   unit suite) needs no Docker; failsafe does.
 - Test (single, assistant): `cd backend/assistant && uv run pytest tests/test_architecture.py -k <name>`
 - Test (single, web): `cd frontend/web && npx vitest run -t <name>`
-- Mutation testing (ledger): `make mutation-ledger` — `cd backend/ledger && ./mvnw -Pmutation
-  org.pitest:pitest-maven:mutationCoverage`. A diagnostic, gated on nothing (ADR-017)
+- Mutation testing (ledger): `make mutation-ledger` — `cd backend/ledger && ./mvnw -B -Pmutation
+  test-compile org.pitest:pitest-maven:mutationCoverage`. A diagnostic, gated on nothing (ADR-017)
 - Lint / types: `make lint` — `./mvnw -B spotless:check`; `uv run ruff check .`,
   `uv run ruff format --check .`, `uv run mypy src tests`; `npm run lint`,
   `npm run format:check`, `npm run typecheck`
-- Format: `make format` — `./mvnw -B spotless:apply`; `uv run ruff format .`; `npm run format`
+- Format: `make format` — `./mvnw -B spotless:apply`; `uv run ruff format .`,
+  `uv run ruff check --fix .`; `npm run format`
 - Audit: `make audit` — `uv run pip-audit`; `npm audit --audit-level=high`
 - Re-lock Python deps: `make lock` — `cd backend/assistant && uv lock` (required after any
   `pyproject.toml` dependency edit, or CI's `uv sync --locked` fails)
