@@ -67,7 +67,7 @@ describe('buildEntries', () => {
 
     it('Given_a_row_naming_no_account_among_those_offered_When_built_Then_it_throws', () => {
         // Unreachable through the form itself: the Account select is `required` and offers only
-        // accounts from this same list (I1). Reaching this is a bug in the caller.
+        // accounts from this same list. Reaching this is a bug in the caller.
         const rows = [{ key: 0, accountId: 'not-a-real-account-id', debit: '10.00', credit: '' }];
 
         expect(() => buildEntries(rows, [CHECKING])).toThrow(/account/i);

@@ -4,7 +4,7 @@
 
 import { screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import { todayIsoDate } from '@/shared/lib/today';
@@ -18,6 +18,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
+import { accountKeys } from '../hooks/accountQueries';
 import { accountingRoutes } from '../index';
 
 const ACCOUNTS_URL = '/ledger/api/v1/accounts';
@@ -401,7 +402,8 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
                 },
             ),
         );
-        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const { queryClient } = renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
         const user = userEvent.setup();
         await screen.findByRole('table', { name: 'Transactions' });
 
@@ -416,6 +418,14 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         ).toEqual([
             { method: 'POST', url: `${RECORD_URL}/${PENDING_TX.id}/clear`, body: { on: today } },
         ]);
+        // I3d: the balance is invalidated too, not only the transactions list.
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toEqual(
+            expect.arrayContaining([
+                accountKeys.balance(CHECKING.id),
+                accountKeys.transactions(CHECKING.id),
+            ]),
+        );
     });
 
     it('Given_a_cleared_transaction_When_reconciled_Then_it_posts_on_and_the_row_shows_the_Reconciled_badge', async () => {
@@ -440,7 +450,8 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
                 },
             ),
         );
-        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const { queryClient } = renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
         const user = userEvent.setup();
         await screen.findByRole('table', { name: 'Transactions' });
 
@@ -450,6 +461,13 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         await user.click(screen.getByRole('button', { name: 'Reconcile' }));
 
         expect(await within(rowOf('Cleared purchase')).findByText('Reconciled')).toBeDefined();
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toEqual(
+            expect.arrayContaining([
+                accountKeys.balance(CHECKING.id),
+                accountKeys.transactions(CHECKING.id),
+            ]),
+        );
     });
 
     it('Given_a_pending_transaction_When_voided_without_a_reason_Then_the_required_field_refuses_submission_and_nothing_is_sent', async () => {
@@ -493,7 +511,8 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
                 },
             ),
         );
-        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const { queryClient } = renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
         const user = userEvent.setup();
         await screen.findByRole('table', { name: 'Transactions' });
 
@@ -513,6 +532,13 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
                 body: { on: today, reason: 'Entered twice' },
             },
         ]);
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toEqual(
+            expect.arrayContaining([
+                accountKeys.balance(CHECKING.id),
+                accountKeys.transactions(CHECKING.id),
+            ]),
+        );
     });
 
     it('Given_a_409_response_When_an_action_is_submitted_Then_the_server_detail_is_shown_in_the_panel_and_it_stays_open', async () => {

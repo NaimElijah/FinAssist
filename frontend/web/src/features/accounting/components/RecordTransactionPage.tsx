@@ -265,7 +265,7 @@ function RecordTransactionForm({ accounts }: { readonly accounts: readonly Accou
             return next;
         });
         // Row 1 is the mirror source and never disables it; any other row's amount being edited
-        // directly is the owner overriding the mirror, which then stops for good (I2).
+        // directly is the owner overriding the mirror, which then stops for good.
         if (index !== 0) {
             setMirrorActive(false);
         }
@@ -288,8 +288,8 @@ function RecordTransactionForm({ accounts }: { readonly accounts: readonly Accou
     }
 
     function addRow() {
-        // Adding a row stops the mirror for good (I2): there is no longer a single "row 2" the
-        // owner unambiguously means, so guessing which row to write into would be as likely to
+        // Adding a row stops the mirror for good: there is no longer a single "row 2" the owner
+        // unambiguously means, so guessing which row to write into would be as likely to
         // surprise as to help.
         setMirrorActive(false);
         setRows((previous) => {
@@ -300,8 +300,8 @@ function RecordTransactionForm({ accounts }: { readonly accounts: readonly Accou
     }
 
     function removeRow(key: number) {
-        // Removing a row stops the mirror for good too (I2): whichever row now sits at position 1
-        // may hold an amount the owner already typed there on purpose, and the mirror must never
+        // Removing a row stops the mirror for good too: whichever row now sits at position 1 may
+        // hold an amount the owner already typed there on purpose, and the mirror must never
         // overwrite it.
         setMirrorActive(false);
         setRows((previous) =>

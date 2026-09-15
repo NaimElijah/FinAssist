@@ -84,7 +84,7 @@ export function entryRowAmount(debit: string, credit: string): string | EntryRow
 
 /** One entry row's form state, before it is mapped to the wire by `buildEntries`. */
 export interface EntryRowState {
-    /** Stable across add and remove, so a row's own errors stay attached to it (M6). */
+    /** Stable across add and remove, so a row's own errors stay attached to it. */
     readonly key: number;
     readonly accountId: string;
     readonly debit: string;
@@ -94,7 +94,7 @@ export interface EntryRowState {
 /**
  * Map every row of a record-transaction form to a wire entry, or collect the amount-field
  * problem each invalid row has instead, keyed by the row's stable `key` rather than its position,
- * so removing one row never shifts another's error onto the wrong one (M6).
+ * so removing one row never shifts another's error onto the wrong one.
  *
  * No arithmetic and no balance check happens here (ADR-029): a row's amount is mapped by
  * `entryRowAmount` alone, and whether the whole set sums to zero is the ledger's own check, as
@@ -102,9 +102,9 @@ export interface EntryRowState {
  *
  * A row naming an account not among `accounts` is never a field to correct: the caller's Account
  * `SelectField` is `required` and offers only accounts from this same list, so the browser
- * refuses to submit the form before such a row can reach here (I1). Reaching this function with
- * one anyway is a bug in the caller, not the owner's mistake, so it throws rather than rendering
- * a message no real submission could ever trigger.
+ * refuses to submit the form before such a row can reach here. Reaching this function with one
+ * anyway is a bug in the caller, not the owner's mistake, so it throws rather than rendering a
+ * message no real submission could ever trigger.
  *
  * @throws Error - when a row's `accountId` matches none of `accounts`.
  */

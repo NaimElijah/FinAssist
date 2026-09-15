@@ -4,7 +4,7 @@
 
 import { screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import { todayIsoDate } from '@/shared/lib/today';
@@ -18,6 +18,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
+import { accountKeys } from '../hooks/accountQueries';
 import { accountingRoutes } from '../index';
 
 const ACCOUNTS_URL = '/ledger/api/v1/accounts';
@@ -30,11 +31,13 @@ const CHECKING = {
     type: 'ASSET',
     currency: 'ILS',
 } as const;
+// A different currency from Checking's, on purpose: it proves each entry's currency comes from
+// its own posted-to account, not from the first row or a hardcoded default.
 const RENT = {
     id: '1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b',
     name: 'Rent',
     type: 'EXPENSE',
-    currency: 'ILS',
+    currency: 'USD',
 } as const;
 
 /** A ledger holding Checking and Rent, so both accounts can be picked in an entry row. */
@@ -80,7 +83,7 @@ const RECORDED_TRANSACTION = {
     description: 'Rent',
     entries: [
         { account: CHECKING.id, amount: { amount: '-250.00', currency: 'ILS' } },
-        { account: RENT.id, amount: { amount: '250.00', currency: 'ILS' } },
+        { account: RENT.id, amount: { amount: '250.00', currency: 'USD' } },
     ],
     state: { status: 'PENDING' },
 };
@@ -222,7 +225,7 @@ describe('RecordTransactionPage entry rows', () => {
 });
 
 describe('RecordTransactionPage submission', () => {
-    it('Given_a_filled_form_When_submitted_Then_it_posts_the_mapped_entries_with_each_accounts_currency', async () => {
+    it('Given_a_filled_form_When_submitted_Then_it_posts_the_mapped_entries_with_each_accounts_own_currency', async () => {
         const today = todayIsoDate(new Date());
         const requests = fakeFetch(
             ledgerWithChecking((request) => {
@@ -248,12 +251,79 @@ describe('RecordTransactionPage submission', () => {
                     occurredOn: today,
                     description: 'Rent',
                     entries: [
+                        // Checking is ILS, Rent is USD: each entry carries its own account's
+                        // currency, not the first row's or a hardcoded default.
                         { account: CHECKING.id, amount: { amount: '-250.00', currency: 'ILS' } },
-                        { account: RENT.id, amount: { amount: '250.00', currency: 'ILS' } },
+                        { account: RENT.id, amount: { amount: '250.00', currency: 'USD' } },
                     ],
                 },
             },
         ]);
+    });
+
+    it('Given_two_accounts_named_in_the_entries_When_recorded_Then_only_their_balance_and_transactions_keys_are_invalidated', async () => {
+        // Ruling 37: the accounts list carries id, name, type and currency, none of which a
+        // transaction can change, so it must not be invalidated - only balance(id) and
+        // transactions(id) for the accounts the entries actually name.
+        fakeFetch(
+            ledgerWithChecking((request) => {
+                if (request.url === RECORD_URL && request.method === 'POST') {
+                    return jsonResponse(RECORDED_TRANSACTION, 201);
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        const { queryClient } = renderForm();
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        const user = userEvent.setup();
+
+        await fillValidTransaction(user);
+        await user.click(screen.getByRole('button', { name: 'Record transaction' }));
+        await screen.findByRole('heading', { level: 1, name: 'Checking' });
+
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toEqual(
+            expect.arrayContaining([
+                accountKeys.balance(CHECKING.id),
+                accountKeys.transactions(CHECKING.id),
+                accountKeys.balance(RENT.id),
+                accountKeys.transactions(RENT.id),
+            ]),
+        );
+        expect(invalidatedKeys).not.toContainEqual(accountKeys.list);
+        expect(invalidatedKeys).toHaveLength(4);
+    });
+
+    it('Given_one_account_named_in_two_entries_When_recorded_Then_its_keys_are_invalidated_only_once', async () => {
+        const transactionNamingCheckingTwice = {
+            ...RECORDED_TRANSACTION,
+            entries: [
+                { account: CHECKING.id, amount: { amount: '-100.00', currency: 'ILS' } },
+                { account: RENT.id, amount: { amount: '150.00', currency: 'USD' } },
+                { account: CHECKING.id, amount: { amount: '-50.00', currency: 'ILS' } },
+            ],
+        };
+        fakeFetch(
+            ledgerWithChecking((request) => {
+                if (request.url === RECORD_URL && request.method === 'POST') {
+                    return jsonResponse(transactionNamingCheckingTwice, 201);
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        const { queryClient } = renderForm();
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        const user = userEvent.setup();
+
+        await fillValidTransaction(user);
+        await user.click(screen.getByRole('button', { name: 'Record transaction' }));
+        await screen.findByRole('heading', { level: 1, name: 'Checking' });
+
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        const matching = (target: unknown) =>
+            invalidatedKeys.filter((key) => JSON.stringify(key) === JSON.stringify(target));
+        expect(matching(accountKeys.balance(CHECKING.id))).toHaveLength(1);
+        expect(matching(accountKeys.transactions(CHECKING.id))).toHaveLength(1);
     });
 
     it('Given_a_successful_recording_When_it_lands_Then_the_browser_moves_to_the_first_entrys_account', async () => {
