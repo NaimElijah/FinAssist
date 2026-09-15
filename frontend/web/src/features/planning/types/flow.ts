@@ -29,6 +29,18 @@ export const DIRECTION_OPTION_LABELS: Readonly<Record<Direction, string>> = {
 export type PlanStatus = 'PLANNED' | 'COMMITTED' | 'REALISED' | 'CANCELLED';
 
 /**
+ * The words shown for each status, rather than the wire's upper-case names. Shared by the flows
+ * table's `StateBadge` and the define-scenario form's flow checkboxes, so the two screens name a
+ * flow's state identically.
+ */
+export const PLAN_STATUS_LABELS: Readonly<Record<PlanStatus, string>> = {
+    PLANNED: 'Planned',
+    COMMITTED: 'Committed',
+    REALISED: 'Realised',
+    CANCELLED: 'Cancelled',
+};
+
+/**
  * Where a planned flow has got to (ADR-028: a discriminated object on the wire).
  *
  * Each state carries exactly what it has: a planned flow has no date, a committed or realised one

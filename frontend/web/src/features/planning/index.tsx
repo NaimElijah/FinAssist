@@ -12,6 +12,7 @@ import type { RouteHandle } from '@/shared/lib/routeHandle';
 import { FLOWS_PATH, PLANNING_PATH } from './components/paths';
 import { PlannedFlowsPage } from './components/PlannedFlowsPage';
 import { PlanningLayout } from './components/PlanningLayout';
+import { ScenariosPage } from './components/ScenariosPage';
 
 /**
  * The planning area's routes, under the base path `/planning`. src/app mounts them inside the
@@ -32,6 +33,11 @@ export const planningRoutes: RouteObject[] = [
                 path: 'flows',
                 Component: PlannedFlowsPage,
                 handle: { title: 'Planned flows' } satisfies RouteHandle,
+            },
+            {
+                path: 'scenarios',
+                Component: ScenariosPage,
+                handle: { title: 'Scenarios' } satisfies RouteHandle,
             },
         ],
     },

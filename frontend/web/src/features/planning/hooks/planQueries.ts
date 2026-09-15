@@ -9,11 +9,14 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tansta
 import {
     cancelFlow,
     commitFlow,
+    defineScenario,
     listPlannedFlows,
+    listScenarios,
     planFlow,
     realiseFlow,
 } from '../api/planningApi';
 import type { PlanFlowInput } from '../types/flow';
+import type { DefineScenarioInput } from '../types/scenario';
 
 /** The prefix every planning key starts with. */
 const PLANS_KEY = ['plans'] as const;
@@ -44,6 +47,16 @@ export const planKeys = {
  */
 export function usePlannedFlows() {
     return useQuery({ queryKey: planKeys.flows, queryFn: () => listPlannedFlows() });
+}
+
+/**
+ * Every scenario, in the ledger's order (by name).
+ *
+ * @returns the query for the scenarios list. Its error is an `ApiError` or `ApiBodyError` from
+ *   the client, or a `TypeError` for a network failure.
+ */
+export function useScenarios() {
+    return useQuery({ queryKey: planKeys.scenarios, queryFn: () => listScenarios() });
 }
 
 /**
@@ -127,5 +140,18 @@ export function useCancelFlow() {
     return useMutation({
         mutationFn: ({ flowId, on, reason }: CancelVariables) => cancelFlow(flowId, on, reason),
         onSuccess: () => invalidateFlowsAndScenarios(queryClient),
+    });
+}
+
+/**
+ * Define a scenario, then refetch the scenarios list and nothing else.
+ *
+ * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
+ */
+export function useDefineScenario() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (input: DefineScenarioInput) => defineScenario(input),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: planKeys.scenarios }),
     });
 }

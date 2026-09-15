@@ -10,6 +10,7 @@
  */
 import { ApiBodyError, LEDGER_API, requestJson, sendJson } from '@/shared/api/client';
 import type {
+    DefineScenarioRequest,
     MoneyDto,
     PlanCancelRequest,
     PlanFlowRequest,
@@ -18,14 +19,17 @@ import type {
     PlanTransitionRequest,
     RecurrenceRequest,
     RecurrenceResponse,
+    ScenarioResponse,
 } from '@/shared/api/contracts/ledger/types.gen';
 import { log } from '@/shared/lib/logger';
 
 import type { PlanFlowInput, PlannedFlow, PlanState } from '../types/flow';
 import type { Money } from '../types/money';
 import type { Recurrence } from '../types/recurrence';
+import type { DefineScenarioInput, Scenario } from '../types/scenario';
 
 const PLANNED_FLOWS_URL = `${LEDGER_API}/planned-flows`;
+const SCENARIOS_URL = `${LEDGER_API}/scenarios`;
 
 /** The URL of one planned flow's lifecycle action, with the id encoded as a single path segment. */
 function flowActionUrl(flowId: string, action: string): string {
@@ -151,6 +155,16 @@ function toPlannedFlow(wire: PlannedFlowResponse, url: string): PlannedFlow {
     };
 }
 
+function toScenario(wire: ScenarioResponse): Scenario {
+    return {
+        id: wire.id,
+        name: wire.name,
+        currency: wire.currency,
+        flows: wire.flows,
+        growthRatePerStep: wire.growthRatePerStep,
+    };
+}
+
 /**
  * Every planned flow, in the order the ledger lists them (by start date) - every state, a
  * cancelled flow included.
@@ -239,4 +253,39 @@ export async function cancelFlow(flowId: string, on: string, reason: string): Pr
     const body: PlanCancelRequest = { on, reason };
     const wire = await sendJson<PlannedFlowResponse>(url, 'POST', body);
     return toPlannedFlow(wire, url);
+}
+
+/**
+ * Every scenario, in the order the ledger lists them (by name).
+ *
+ * @returns the scenarios, in the ledger's order.
+ * @throws ApiError - on a non-2xx response.
+ * @throws ApiBodyError - when the response carries no JSON body.
+ */
+export async function listScenarios(): Promise<Scenario[]> {
+    const wire = await requestJson<ScenarioResponse[]>(SCENARIOS_URL);
+    return wire.map(toScenario);
+}
+
+/**
+ * Define a named scenario: a set of planned flows plus a growth assumption. The ledger generates
+ * its id. `flows` may be empty - the do-nothing baseline is a scenario with no flows.
+ *
+ * @param input - the name, currency, flow ids (each already in `currency`) and the per-step
+ *   growth rate, sent exactly as given.
+ * @returns the scenario as defined.
+ * @throws ApiError - on a non-2xx response: 422 `UNKNOWN_PLAN` for a flow id naming no plan, 422
+ *   `RULE_VIOLATED` for a flow in another currency or listed twice, 400 `MALFORMED_REQUEST`,
+ *   possibly listing field `errors`.
+ * @throws ApiBodyError - when the response carries no JSON body.
+ */
+export async function defineScenario(input: DefineScenarioInput): Promise<Scenario> {
+    const body: DefineScenarioRequest = {
+        name: input.name,
+        currency: input.currency,
+        flows: [...input.flows],
+        growthRatePerStep: input.growthRatePerStep,
+    };
+    const wire = await sendJson<ScenarioResponse>(SCENARIOS_URL, 'POST', body);
+    return toScenario(wire);
 }

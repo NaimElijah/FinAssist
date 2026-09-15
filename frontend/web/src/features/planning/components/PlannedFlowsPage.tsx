@@ -22,7 +22,12 @@ import {
     usePlannedFlows,
     useRealiseFlow,
 } from '../hooks/planQueries';
-import { DIRECTION_LABELS, type PlannedFlow, type PlanStatus } from '../types/flow';
+import {
+    DIRECTION_LABELS,
+    PLAN_STATUS_LABELS,
+    type PlannedFlow,
+    type PlanStatus,
+} from '../types/flow';
 import { recurrenceSummary } from '../types/recurrence';
 import { PlanFlowForm } from './PlanFlowForm';
 import styles from './PlannedFlowsPage.module.css';
@@ -43,14 +48,6 @@ const STATUS_TONES: Readonly<Record<PlanStatus, Tone>> = {
     COMMITTED: 'neutral',
     REALISED: 'positive',
     CANCELLED: 'negative',
-};
-
-/** The words shown for each status, rather than the wire's upper-case names. */
-const STATUS_LABELS: Readonly<Record<PlanStatus, string>> = {
-    PLANNED: 'Planned',
-    COMMITTED: 'Committed',
-    REALISED: 'Realised',
-    CANCELLED: 'Cancelled',
 };
 
 /** The three lifecycle actions a planned flow can move through, each opening its own panel. */
@@ -291,7 +288,7 @@ function StateCell({ state, id }: { readonly state: PlannedFlow['state']; readon
             <StateBadge
                 status={state.status}
                 tones={STATUS_TONES}
-                label={STATUS_LABELS[state.status]}
+                label={PLAN_STATUS_LABELS[state.status]}
             />
             {state.status === 'CANCELLED' ? (
                 <span className={styles.reason}>{state.reason}</span>

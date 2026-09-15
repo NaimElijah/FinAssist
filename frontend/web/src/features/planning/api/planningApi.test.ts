@@ -7,7 +7,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiBodyError, ApiError } from '@/shared/api/client';
 import { setLogSink } from '@/shared/lib/logger';
 
-import { cancelFlow, commitFlow, listPlannedFlows, planFlow, realiseFlow } from './planningApi';
+import {
+    cancelFlow,
+    commitFlow,
+    defineScenario,
+    listPlannedFlows,
+    listScenarios,
+    planFlow,
+    realiseFlow,
+} from './planningApi';
 
 const FLOW_ID = '0b7d2a4e-4d8c-4f3a-9a61-2f1c5e0d9b11';
 
@@ -426,5 +434,134 @@ describe('cancelFlow', () => {
             on: '2026-09-04',
             reason: 'No longer needed',
         });
+    });
+});
+
+describe('listScenarios', () => {
+    it('Given_a_wire_list_When_listed_Then_it_requests_the_ledger_scenarios_as_json_and_maps_each_scenario', async () => {
+        const stub = stubFetch(
+            jsonResponse([
+                {
+                    id: 's1',
+                    name: 'Baseline',
+                    currency: 'ILS',
+                    flows: [],
+                    growthRatePerStep: '0',
+                },
+                {
+                    id: 's2',
+                    name: 'Aggressive saving',
+                    currency: 'ILS',
+                    flows: [FLOW_ID],
+                    growthRatePerStep: '0.005',
+                },
+            ]),
+        );
+
+        const scenarios = await listScenarios();
+
+        expect(scenarios).toEqual([
+            { id: 's1', name: 'Baseline', currency: 'ILS', flows: [], growthRatePerStep: '0' },
+            {
+                id: 's2',
+                name: 'Aggressive saving',
+                currency: 'ILS',
+                flows: [FLOW_ID],
+                growthRatePerStep: '0.005',
+            },
+        ]);
+        const { url, init } = onlyCall(stub);
+        expect(url).toBe('/ledger/api/v1/scenarios');
+        expect(new Headers(init.headers).get('Accept')).toBe('application/json');
+    });
+});
+
+describe('defineScenario', () => {
+    it('Given_an_input_When_defined_Then_it_posts_json_to_the_scenarios_collection_and_maps_the_created_scenario', async () => {
+        const stub = stubFetch(
+            jsonResponse(
+                {
+                    id: 's1',
+                    name: 'Aggressive saving',
+                    currency: 'ILS',
+                    flows: [FLOW_ID],
+                    growthRatePerStep: '0.005',
+                },
+                201,
+            ),
+        );
+
+        const scenario = await defineScenario({
+            name: 'Aggressive saving',
+            currency: 'ILS',
+            flows: [FLOW_ID],
+            growthRatePerStep: '0.005',
+        });
+
+        expect(scenario.growthRatePerStep).toBe('0.005');
+        const { url, init } = onlyCall(stub);
+        expect(url).toBe('/ledger/api/v1/scenarios');
+        expect(init.method).toBe('POST');
+        expect(JSON.parse(init.body as string)).toEqual({
+            name: 'Aggressive saving',
+            currency: 'ILS',
+            flows: [FLOW_ID],
+            growthRatePerStep: '0.005',
+        });
+    });
+
+    it('Given_no_flows_When_defined_Then_it_posts_an_empty_flows_array_for_the_do_nothing_baseline', async () => {
+        const stub = stubFetch(
+            jsonResponse(
+                { id: 's1', name: 'Baseline', currency: 'ILS', flows: [], growthRatePerStep: '0' },
+                201,
+            ),
+        );
+
+        await defineScenario({
+            name: 'Baseline',
+            currency: 'ILS',
+            flows: [],
+            growthRatePerStep: '0',
+        });
+
+        const body = JSON.parse(onlyCall(stub).init.body as string) as Record<string, unknown>;
+        expect(body.flows).toEqual([]);
+    });
+
+    it('Given_a_flow_naming_no_plan_When_defined_Then_it_rejects_with_an_ApiError_coded_UNKNOWN_PLAN', async () => {
+        stubFetch(
+            problemResponse(
+                { status: 422, code: 'UNKNOWN_PLAN', detail: 'No planned flow has this id.' },
+                422,
+            ),
+        );
+
+        await expect(
+            defineScenario({
+                name: 'Aggressive saving',
+                currency: 'ILS',
+                flows: ['unknown'],
+                growthRatePerStep: '0.005',
+            }),
+        ).rejects.toMatchObject({ status: 422, problem: { code: 'UNKNOWN_PLAN' } });
+    });
+
+    it('Given_a_flow_in_another_currency_When_defined_Then_it_rejects_with_an_ApiError_coded_RULE_VIOLATED', async () => {
+        stubFetch(
+            problemResponse(
+                { status: 422, code: 'RULE_VIOLATED', detail: 'The flow is in another currency.' },
+                422,
+            ),
+        );
+
+        await expect(
+            defineScenario({
+                name: 'Aggressive saving',
+                currency: 'ILS',
+                flows: [FLOW_ID],
+                growthRatePerStep: '0.005',
+            }),
+        ).rejects.toMatchObject({ status: 422, problem: { code: 'RULE_VIOLATED' } });
     });
 });
