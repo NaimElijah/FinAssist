@@ -313,3 +313,6 @@ Stated so they are not re-proposed:
 | Does the assistant send the owner's financial data to a third-party LLM API, and is that acceptable? This is the project's central privacy decision and it needs an ADR | @NaimElijah |
 | Is the ledger single-currency or multi-currency? Multi-currency changes the domain model fundamentally and is far cheaper to decide now than later | @NaimElijah |
 | What authenticates the assistant to the ledger? Deferred by [ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md) while every service binds loopback; its revisit triggers say when this needs an answer | @NaimElijah |
+| Should a projection open at the start of its horizon rather than at today's balance, and should a flow dated on a step boundary count in that step? | @NaimElijah |
+| Should a recurring planned flow be allowed to have no end? Today every recurrence ends on a date or after a number of occurrences (`Recurrence`) | @NaimElijah |
+| After a transaction is recorded, which account's page should open? Today the web client moves to the first entry's account (`RecordTransactionPage`) | @NaimElijah |
