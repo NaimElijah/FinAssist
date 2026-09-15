@@ -369,6 +369,28 @@ describe('AccountsPage opening an account', () => {
         });
     });
 
+    it('Given_a_duplicate_name_refused_When_the_name_is_edited_Then_its_field_error_clears', async () => {
+        // The refusal answered the name that was sent; once the owner changes it, the message no
+        // longer describes anything on screen.
+        const detail = 'An account named Visa already exists.';
+        fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL && request.method === 'POST') {
+                return problemResponse({ status: 409, code: 'DUPLICATE_ACCOUNT_NAME', detail });
+            }
+            if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderAccounts();
+        const user = userEvent.setup({ delay: null });
+        await openVisa(user);
+        await screen.findByText(detail);
+
+        await user.type(screen.getByLabelText('Name'), ' Gold');
+
+        expect(screen.queryByText(detail)).toBeNull();
+        expect(screen.getByLabelText('Name').getAttribute('aria-invalid')).toBeNull();
+    });
+
     it('Given_a_failure_with_nothing_to_place_on_a_field_When_opened_Then_focus_moves_to_the_error_state', async () => {
         fakeFetch((request) => {
             if (request.url === ACCOUNTS_URL && request.method === 'POST') {

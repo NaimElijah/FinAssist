@@ -2,6 +2,7 @@ import { type ReactNode, type Ref, type SubmitEvent, useEffect, useRef, useState
 import { useNavigate } from 'react-router';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { todayIsoDate } from '@/shared/lib/today';
 import {
     Button,
@@ -201,7 +202,8 @@ function EntryRowFields({
  * transaction. A failure is shown where it can be acted on: a client-side row problem on that
  * row, a 400's top-level field errors on their fields, and anything else - including a 422
  * `RULE_VIOLATED` - in an `ErrorState` above the form. Focus follows the failure there, the same
- * rule every form in the app keeps.
+ * rule every form in the app keeps. Editing any field, or adding or removing a row, clears a
+ * failure that has settled, since it answered the entries as they were sent.
  */
 function RecordTransactionForm({
     accounts,
@@ -246,12 +248,14 @@ function RecordTransactionForm({
     }, [rowErrors, failure]);
 
     function updateAccount(index: number, accountId: string) {
+        clearSettledOutcome(record);
         setRows((previous) =>
             previous.map((row, i) => (i === index ? { ...row, accountId } : row)),
         );
     }
 
     function updateDebit(index: number, value: string) {
+        clearSettledOutcome(record);
         setRows((previous) => {
             const next = previous.map((row, i) => (i === index ? { ...row, debit: value } : row));
             if (index === 0 && mirrorActive) {
@@ -270,6 +274,7 @@ function RecordTransactionForm({
     }
 
     function updateCredit(index: number, value: string) {
+        clearSettledOutcome(record);
         setRows((previous) => {
             const next = previous.map((row, i) => (i === index ? { ...row, credit: value } : row));
             if (index === 0 && mirrorActive) {
@@ -286,6 +291,7 @@ function RecordTransactionForm({
     }
 
     function addRow() {
+        clearSettledOutcome(record);
         // Adding a row stops the mirror for good: there is no longer a single "row 2" the owner
         // unambiguously means, so guessing which row to write into would be as likely to
         // surprise as to help.
@@ -298,6 +304,7 @@ function RecordTransactionForm({
     }
 
     function removeRow(key: number) {
+        clearSettledOutcome(record);
         // Removing a row stops the mirror for good too: whichever row now sits at position 1 may
         // hold an amount the owner already typed there on purpose, and the mirror must never
         // overwrite it.
@@ -354,6 +361,7 @@ function RecordTransactionForm({
                         value={occurredOn}
                         error={errors.fields.occurredOn}
                         onChange={(event) => {
+                            clearSettledOutcome(record);
                             setOccurredOn(event.target.value);
                         }}
                     />
@@ -364,6 +372,7 @@ function RecordTransactionForm({
                         value={description}
                         error={errors.fields.description}
                         onChange={(event) => {
+                            clearSettledOutcome(record);
                             setDescription(event.target.value);
                         }}
                     />

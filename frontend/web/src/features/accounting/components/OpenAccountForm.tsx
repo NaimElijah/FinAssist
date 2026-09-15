@@ -1,6 +1,7 @@
 import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { Button, ErrorState, SelectField, type SelectOption, TextField } from '@/shared/ui';
 
 import { DUPLICATE_ACCOUNT_NAME } from '../api/accountingApi';
@@ -138,7 +139,8 @@ export interface OpenAccountFormProps {
  * Submit is disabled while the request is pending, and a submit event arriving anyway is ignored
  * (ADR-028: no double submit). On success the form resets and `onOpened` is called. A failure is
  * shown where it can be acted on: a duplicate name on the Name field, a 400's field errors on
- * their fields, and anything else in an `ErrorState` above the form.
+ * their fields, and anything else in an `ErrorState` above the form. Editing any field clears a
+ * failure that has settled, since it answered the fields as they were sent.
  *
  * Focus follows the failure there, which is the rule every form in the app keeps: to the first
  * field showing an error, which that error describes, so a screen reader reads the two together;
@@ -214,6 +216,7 @@ export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
                         value={name}
                         error={errors.fields.name}
                         onChange={(event) => {
+                            clearSettledOutcome(openAccount);
                             setName(event.target.value);
                         }}
                     />
@@ -224,6 +227,7 @@ export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
                         value={type}
                         error={errors.fields.type}
                         onChange={(event) => {
+                            clearSettledOutcome(openAccount);
                             setType(oneOf(ACCOUNT_TYPES, event.target.value));
                         }}
                     />
@@ -234,6 +238,7 @@ export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
                         value={currency}
                         error={errors.fields.currency}
                         onChange={(event) => {
+                            clearSettledOutcome(openAccount);
                             setCurrency(oneOf(CURRENCIES, event.target.value));
                         }}
                     />

@@ -375,6 +375,32 @@ describe('RecordTransactionPage submission', () => {
         expect(alert.textContent).toContain('The entries do not sum to zero.');
     });
 
+    it('Given_a_422_refusal_shown_When_an_amount_is_edited_Then_the_refusal_clears', async () => {
+        // The refusal described the entries that were sent; kept on screen, it would contradict
+        // the entries the owner has since corrected.
+        fakeFetch(
+            ledger((request) => {
+                if (request.url === RECORD_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 422,
+                        code: 'RULE_VIOLATED',
+                        detail: 'The entries do not sum to zero.',
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderForm();
+        const user = userEvent.setup({ delay: null });
+        await fillValidTransaction(user);
+        await user.click(screen.getByRole('button', { name: 'Record transaction' }));
+        await screen.findByRole('alert');
+
+        await user.type(screen.getByLabelText('Debit 2'), '0');
+
+        expect(screen.queryByRole('alert')).toBeNull();
+    });
+
     it('Given_a_request_in_flight_When_submitted_Then_the_submit_button_is_disabled', async () => {
         fakeFetch(
             ledger((request) => {

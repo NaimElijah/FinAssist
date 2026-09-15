@@ -666,6 +666,40 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         });
     });
 
+    it('Given_a_refused_void_shown_in_its_panel_When_its_reason_is_edited_Then_the_refusal_clears', async () => {
+        // The refusal answered the void as it was sent; once the owner changes it, the message no
+        // longer describes anything in the panel.
+        fakeFetch(
+            lifecycleLedger(
+                () => [PENDING_TX],
+                (request) => {
+                    if (
+                        request.url === `${RECORD_URL}/${PENDING_TX.id}/void` &&
+                        request.method === 'POST'
+                    ) {
+                        return problemResponse({
+                            status: 422,
+                            code: 'RULE_VIOLATED',
+                            detail: 'A transaction cannot be voided before it occurred.',
+                        });
+                    }
+                    return unexpectedRequest(request);
+                },
+            ),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Transactions' });
+        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Void' }));
+        await user.type(screen.getByLabelText('Reason'), 'Entered twice');
+        await user.click(screen.getByRole('button', { name: 'Void' }));
+        await screen.findByRole('alert');
+
+        await user.type(screen.getByLabelText('Reason'), ' by mistake');
+
+        expect(screen.queryByRole('alert')).toBeNull();
+    });
+
     it('Given_a_panel_open_on_a_pending_row_When_cancelled_Then_focus_returns_to_the_button_that_opened_it', async () => {
         fakeFetch(lifecycleLedger(() => [PENDING_TX], unexpectedRequest));
         renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
