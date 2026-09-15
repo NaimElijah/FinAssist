@@ -249,9 +249,9 @@
       notice if those lines were wrong, which is the question worth asking of a domain whose whole
       job is refusing things. See docs/ADRs/ADR-017-test-strategy.md.
 
-      Scoped to the domain and shared kernel. LedgerApplicationTest is excluded because PIT reruns
-      tests per mutant and booting Spring each time buys nothing - the wiring it checks has no
-      mutable logic in it.
+      Scoped to the domain, the shared kernel, the application services and the composition root.
+      LedgerApplicationIT and LedgerCompositionIT are excluded because PIT reruns tests per mutant
+      and booting Spring each time buys nothing - the wiring they check has no mutable logic in it.
     -->
     <profile>
       <id>mutation</id>
@@ -273,18 +273,18 @@
                 <param>io.github.naimelijah.finassist.ledger.composition.*</param>
               </targetClasses>
               <excludedTestClasses>
-                <param>io.github.naimelijah.finassist.ledger.LedgerApplicationTest</param>
+                <param>io.github.naimelijah.finassist.ledger.LedgerApplicationIT</param>
                 <param>io.github.naimelijah.finassist.ledger.LedgerArchitectureTest</param>
                 <!-- Boots Tomcat once per mutant for wiring that holds no logic. -->
-                <param>io.github.naimelijah.finassist.ledger.LedgerObservabilityTest</param>
-                <param>io.github.naimelijah.finassist.ledger.composition.LedgerCompositionTest</param>
+                <param>io.github.naimelijah.finassist.ledger.LedgerObservabilityIT</param>
+                <param>io.github.naimelijah.finassist.ledger.composition.LedgerCompositionIT</param>
               </excludedTestClasses>
               <excludedClasses>
-                <!-- Excluded because the only test that covers it is excluded above. Left in scope, every
-                     mutant planted in a @Bean method would report as uncovered by construction, and the
-                     report ADR-017 keeps to answer "would a test notice this being wrong?" would fill up
-                     with noise no test change could ever clear. The translations beside it stay in scope:
-                     they hold logic and have POJO tests. -->
+                <!-- Excluded because LedgerCompositionIT, the test that exists to cover it, is excluded above.
+                     Left in scope, every mutant planted in a @Bean method would be judged only by tests that
+                     boot the whole application, and the report ADR-017 keeps to answer "would a test notice
+                     this being wrong?" would fill up with noise no test change could ever clear. The
+                     translations beside it stay in scope: they hold logic and have POJO tests. -->
                 <param>io.github.naimelijah.finassist.ledger.composition.LedgerConfiguration</param>
               </excludedClasses>
               <outputFormats>
