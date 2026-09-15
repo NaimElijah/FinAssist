@@ -183,8 +183,6 @@ rendered — and the log line carries the trace id that finds it.
   the point, and it is still a step to remember.
 - The controller exception to ADR-022 is a hole, and holes grow. "Scanned because the test slice
   needs it" must not become the reason anything else is scanned.
-- springdoc 3.1.1 has not yet run against Spring Boot 4.1.1 in this repository. The fallback, if it
-  does not work, is named under Alternatives considered.
 
 **Accepted cost**
 
@@ -207,9 +205,7 @@ and the code would follow. Rejected: it adds a generator to both toolchains, and
 interfaces would fight the hand-built composition root that ADR-021 and ADR-022 established.
 
 **A hand-written document with no generator.** No new dependency at all. Rejected: it drifts
-silently, because nothing ties it to the handlers. It is kept only as the named fallback if
-springdoc 3.1.1 turns out not to support Spring Boot 4.1.1, and then with a test asserting that
-every handler mapping appears in it.
+silently, because nothing ties it to the handlers.
 
 **JSON numbers for money.** The natural encoding, and what most APIs do. Rejected: most parsers read a
 JSON number into a float, so `12.50` arrives as `12.5` with its scale gone, and a value with no exact
@@ -232,5 +228,3 @@ annotations on an aggregate.
 - **A list exceeds about 1,000 items, or its latency is measured as a problem.** Paginate it. The
   per-account balance requests share this trigger.
 - **Single-item reads are added.** A create then sends `Location`, because it has a URL to name.
-- **springdoc 3.1.1 does not work with Spring Boot 4.1.1.** Fall back to the hand-written document
-  named above.
