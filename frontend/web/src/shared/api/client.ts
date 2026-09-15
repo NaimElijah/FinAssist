@@ -1,9 +1,9 @@
 /**
  * The one place the app talks HTTP.
  *
- * Once `contracts/` holds an OpenAPI document, the typed client is generated beside this file
- * and this wrapper is what it builds on. Until then it carries no endpoint knowledge beyond the
- * two base paths below, because there are no endpoints.
+ * Every feature's `api/` module builds its calls on `requestJson` and `sendJson`, typing each
+ * response with the types generated from `contracts/` into `src/shared/api/contracts/`. No client
+ * is generated (ADR-029), so this wrapper knows no endpoint beyond the two base paths below.
  *
  * Being the single chokepoint is also why correlation lives here: every request carries a
  * `traceparent`, so the backends continue the browser's trace rather than starting their own,
@@ -62,8 +62,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Validate a parsed JSON body as a `Problem`, at the boundary where it arrives from the network.
  *
- * Checks only the two fields the client depends on to recognise a problem at all - `status` is
- * a number and `code` is a string, both required by ADR-028's problem shape - so a body missing
+ * Checks only the two fields the client depends on to recognise a problem at all - `code` is a
+ * string, the one member ADR-028 and both contracts require, and `status` is a number, which both
+ * services always send though their contracts mark it optional - so a body missing
  * `title`, `detail` or `errors`, all optional, still validates. `errors` is deliberately not
  * checked here: a malformed one must not disqualify the rest of the problem, so it is validated
  * separately, by `readProblem`, once this guard has already decided the body is a problem.
@@ -174,6 +175,23 @@ async function readProblem(response: Response): Promise<Problem | undefined> {
     }
 }
 
+/**
+ * Send a request and read its JSON body: the path every call in the app takes, `sendJson`'s
+ * included.
+ *
+ * `Accept: application/json` is always set, and a `traceparent` is added unless the caller already
+ * sent one, so the backend continues the browser's trace. Every failure is logged once, with that
+ * trace id and never a problem's `detail`, before it is thrown (ADR-019).
+ *
+ * @param url - the request URL, typically built from `LEDGER_API` or `ASSISTANT_API`.
+ * @param init - further `RequestInit` fields; its headers may be any `HeadersInit` shape.
+ * @returns the parsed JSON body, typed as the caller asks. It is not checked against the contract
+ *   here: that is each feature's `api/` module's job.
+ * @throws ApiError - on a non-2xx response, carrying the parsed problem when the body is one.
+ * @throws ApiBodyError - when a 2xx response carries no body, or one that is not JSON.
+ * @throws TypeError - rethrown from `fetch` when the request cannot be sent, such as a network
+ *   failure.
+ */
 export async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     // Built through the Headers API rather than object spread: HeadersInit is also allowed to
     // be a Headers instance or an array of pairs, neither of which spreads into an object.

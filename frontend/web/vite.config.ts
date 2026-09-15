@@ -85,7 +85,8 @@ export default defineConfig({
         // the filesystem one forgotten pragma away from failing: under jsdom `import.meta.url`
         // is an http: URL and fileURLToPath rejects it, which tests/architecture.test.ts
         // already records having hit. Vitest 3 removed environmentMatchGlobs, so the choice is
-        // per-file pragmas or a projects split, and four DOM tests do not justify the latter.
+        // per-file pragmas or a projects split; a pragma states each test file's environment in
+        // that file, where a split would move it into this config, away from the test it governs.
         environment: 'node',
         include: [
             'tests/**/*.test.ts',

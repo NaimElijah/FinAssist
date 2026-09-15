@@ -4,8 +4,9 @@
  *
  * Nothing here runs: `expectTypeOf` assertions are checked by `tsc`, so a regenerated file that
  * silently loosens a type - every response member turning optional, a decimal becoming
- * `number` - fails `npm run typecheck` and `npm run test:coverage` alike, without needing a
- * value to assert against.
+ * `number` - fails `npm run typecheck`, without needing a value to assert against. Vitest runs no
+ * type check of its own, so `npm run test:coverage` passes these assertions as no-ops; the
+ * guarantee rests on `typecheck`, which CI runs.
  */
 import { describe, expectTypeOf, it } from 'vitest';
 
