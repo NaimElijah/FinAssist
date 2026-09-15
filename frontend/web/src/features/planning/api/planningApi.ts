@@ -269,14 +269,36 @@ function toPoints(
     return [toBalancePoint(first, url), ...rest.map((point) => toBalancePoint(point, url))];
 }
 
+/**
+ * `date`, checked to name one of `points`' step boundaries. A shortfall is only ever reported at a
+ * boundary (requirements § Planning), so one naming none means the ledger broke its own contract,
+ * and the chart would have no step to mark it at. The date itself is left out of the log line,
+ * since it arrived unvalidated.
+ *
+ * @throws ApiBodyError - when no point carries `date`.
+ */
+function toShortfall(date: string, points: readonly BalancePoint[], url: string): string {
+    if (!points.some((point) => point.date === date)) {
+        log.error('ledger projection has a first shortfall at none of its steps', { url });
+        throw new ApiBodyError(
+            url,
+            'A projection arrived with a first shortfall at none of its steps',
+        );
+    }
+    return date;
+}
+
 function toProjection(wire: ProjectionResponse, url: string): Projection {
+    const points = toPoints(wire.points, url);
     return {
         scenario: wire.scenario,
         horizon: { from: wire.horizon.from, to: wire.horizon.to },
         step: knownStep(wire.step, url),
         currency: knownCurrency(wire.currency, url),
-        points: toPoints(wire.points, url),
-        ...(wire.firstShortfall === undefined ? {} : { firstShortfall: wire.firstShortfall }),
+        points,
+        ...(wire.firstShortfall === undefined
+            ? {}
+            : { firstShortfall: toShortfall(wire.firstShortfall, points, url) }),
     };
 }
 

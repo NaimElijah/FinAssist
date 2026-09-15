@@ -36,7 +36,8 @@ export interface Projection {
      */
     readonly points: readonly [BalancePoint, ...BalancePoint[]];
     /**
-     * The first step boundary at which cash is negative; absent when there is none. A dip that
+     * The first step boundary at which cash is negative; absent when there is none. Always one of
+     * `points`' dates: `planningApi` refuses a projection whose shortfall names no step. A dip that
      * opens and closes inside a single step is never reported (requirements § Planning).
      */
     readonly firstShortfall?: string;

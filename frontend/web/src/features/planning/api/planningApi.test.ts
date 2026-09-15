@@ -785,6 +785,10 @@ describe('projectScenario', () => {
             },
         },
         { name: 'no_points', body: { ...WIRE_PROJECTION, points: [] } },
+        {
+            name: 'a_first_shortfall_naming_no_points_date',
+            body: { ...WIRE_PROJECTION, firstShortfall: '2026-10-15' },
+        },
     ] as const;
 
     for (const { name, body } of MALFORMED) {
