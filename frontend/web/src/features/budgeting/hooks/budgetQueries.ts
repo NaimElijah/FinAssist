@@ -19,38 +19,32 @@ import type { CategorisationRule } from '../types/rule';
 /** The prefix every budgeting key starts with. */
 const BUDGETS_KEY = ['budgets'] as const;
 
+/** The segment every budget review key shares, between the feature prefix and the budget id. */
+const REVIEWS_SEGMENT = 'reviews';
+
 /**
  * The query keys the budgeting feature reads and invalidates for budgets.
  *
  * Every key starts with `all`, and TanStack Query matches an invalidation by prefix - but nothing
- * here invalidates `all` itself. Defining a budget adds a row to the list; it cannot change any
- * budget's review, so `useDefineBudget` invalidates `list` alone (Ruling 37). Adding a
- * categorisation rule is the opposite: it cannot change the list (a budget's period, currency and
- * limits are unaffected), but can change how any budget's spend categorises, so
- * `useAddCategorisationRule` invalidates every `review` key instead.
+ * here invalidates `all` itself. `list` and `reviews` are siblings under `all` (`['budgets',
+ * 'list']` and `['budgets', 'reviews']`), so invalidating one by prefix can never also match the
+ * other: defining a budget adds a row to the list; it cannot change any budget's review, so
+ * `useDefineBudget` invalidates `list` alone (Ruling 37). Adding a categorisation rule is the
+ * opposite: it cannot change the list (a budget's period, currency and limits are unaffected),
+ * but can change how any budget's spend categorises, so `useAddCategorisationRule` invalidates
+ * the whole `reviews` prefix instead - a plain prefix match, not a predicate, since the hierarchy
+ * itself keeps `list` out of it.
  */
 export const budgetKeys = {
     /** The prefix of every budgeting key. */
     all: BUDGETS_KEY,
     /** The budgets list. */
     list: [...BUDGETS_KEY, 'list'] as const,
+    /** The prefix of every budget's review key, for invalidating all of them at once. */
+    reviews: [...BUDGETS_KEY, REVIEWS_SEGMENT] as const,
     /** One budget's review. */
-    review: (budgetId: string) => [...BUDGETS_KEY, budgetId, 'review'] as const,
+    review: (budgetId: string) => [...BUDGETS_KEY, REVIEWS_SEGMENT, budgetId] as const,
 };
-
-/** The last segment of every key `budgetKeys.review` builds. */
-const REVIEW_KEY_SUFFIX = 'review';
-
-/**
- * Whether `queryKey` is some budget's review key, from `budgetKeys.review`.
- *
- * A predicate rather than a literal key, because `useAddCategorisationRule` does not know which
- * budgets exist - it invalidates whichever review queries the cache happens to hold, and none
- * that are not reviews, matching only on `budgetKeys.review`'s own shape.
- */
-function isBudgetReviewQuery(queryKey: readonly unknown[]): boolean {
-    return queryKey[0] === BUDGETS_KEY[0] && queryKey.at(-1) === REVIEW_KEY_SUFFIX;
-}
 
 /** The prefix every categorisation-rule key starts with. */
 const CATEGORISATION_RULES_KEY = ['categorisationRules'] as const;
@@ -129,10 +123,7 @@ export function useCategorisationRules() {
 function invalidateRulesAndReviews(queryClient: QueryClient): Promise<unknown> {
     return Promise.all([
         queryClient.invalidateQueries({ queryKey: categorisationRuleKeys.list }),
-        queryClient.invalidateQueries({
-            queryKey: budgetKeys.all,
-            predicate: (query) => isBudgetReviewQuery(query.queryKey),
-        }),
+        queryClient.invalidateQueries({ queryKey: budgetKeys.reviews }),
     ]);
 }
 

@@ -297,13 +297,17 @@ consistent rather than because a test would catch a deviation.
 - **A lifecycle date on the web client defaults to the browser's local today**, built through a
   helper that takes the date as an argument, such as `todayIsoDate(new Date())` — never
   `toISOString()`, which reads UTC and never `now()` called inside the helper itself.
-- **A mutation that can affect an unknown number of cached queries invalidates them by predicate,
-  not by enumeration.** `useAddCategorisationRule` cannot list which budgets exist, so it
-  invalidates every `budgetKeys.review(id)` query with `queryClient.invalidateQueries({ queryKey:
-  budgetKeys.all, predicate: … })` rather than one call per id; a mutation that already knows the
-  affected ids (such as `useRecordTransaction` knowing which accounts an entry set names) still
-  invalidates each key directly. A test proves the scope through the query client's own state
-  (`getQueryState(key)?.isInvalidated`), not just the call's arguments.
+- **A mutation that can affect an unknown number of cached queries invalidates them by a
+  hierarchical key prefix, not by enumeration or a predicate.** `useAddCategorisationRule` cannot
+  list which budgets exist, so `budgetKeys` gives every review a shared parent -
+  `reviews: ['budgets', 'reviews']` and `review(id): ['budgets', 'reviews', id]` - and the
+  mutation invalidates `queryKey: budgetKeys.reviews`, a plain prefix match that reaches every
+  review and nothing else, since a sibling such as `list` sits outside that prefix by
+  construction. Reach for `predicate` only when the affected keys cannot be given a common
+  prefix without also catching a key that must not be invalidated. A mutation that already knows
+  the affected ids (such as `useRecordTransaction` knowing which accounts an entry set names)
+  still invalidates each key directly. A test proves the scope through the query client's own
+  state (`getQueryState(key)?.isInvalidated`), not just the call's arguments.
 - **A web date helper does calendar-part arithmetic on integers, never `Date` parsed from a
   string.** `period.ts`'s month-to-period mapping and day-before calculation use plain year/month
   integers with a leap-year-aware days-in-month table; a `Date` is built only to hand an already
