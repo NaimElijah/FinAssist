@@ -101,7 +101,9 @@ management:
         # Spring Boot documents that global one as "export and propagate": off, it removes both
         # W3C propagators (OpenTelemetryPropagationConfigurations) and leaves a no-op one, so every
         # request would start a new trace instead of continuing the caller's traceparent.
-        # Correlation holds with export off (ADR-019); only export is opt-in.
+        # Correlation holds with export off (ADR-019); only export is opt-in. Any tracing exporter
+        # added later needs its own management.tracing.export.<name>.enabled set to
+        # ${OTEL_EXPORT_ENABLED:false}, because the global switch no longer gates export.
         #
         # Both signals are gated by one flag. Metrics need it as much as traces:
         # spring-boot-starter-opentelemetry drags in micrometer-registry-otlp, which otherwise

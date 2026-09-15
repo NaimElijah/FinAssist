@@ -41,8 +41,8 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>Before this existed the README promised structured logs with a correlation id and OTLP
  * traces, and nothing checked either. These tests assert the wiring rather than any FinAssist
- * behaviour, because there is no business endpoint to observe yet — the ledger serves Actuator and
- * nothing else.
+ * behaviour. The one that calls a business endpoint, {@code /api/v1/accounts}, does so only to make
+ * the ledger write a line; what it asserts is the trace id on that line.
  *
  * <p>That this class boots at all is itself the proof of ADR-019's central promise: no collector
  * runs during a test, and the service starts anyway. Spring Boot 4 disables both metrics and
@@ -186,9 +186,10 @@ class LedgerObservabilityIT extends PostgresFixture {
      * ADR-019's no-op contract, read from the shipped file rather than from the running
      * context.
      *
-     * <p>Two reasons it is done this way. {@link AutoConfigureTracing} on this class turns
-     * export back on, so the live {@code Environment} would answer for the test rather than for
-     * production. And Spring Boot 4.1's {@code
+     * <p>Two reasons it is done this way. {@link AutoConfigureTracing} on this class stops Boot's
+     * test support forcing {@code management.tracing.export.enabled} to false, and the class pins
+     * {@code OTEL_EXPORT_ENABLED} itself, so the live {@code Environment} would answer for the test
+     * rather than for production. And Spring Boot 4.1's {@code
      * OpenTelemetryEnvironmentVariableEnvironmentPostProcessor} maps {@code
      * OTEL_EXPORTER_OTLP_ENDPOINT} onto these properties with {@code addFirst} — so a developer
      * who exports the variable this project now documents would fail an assertion made against
