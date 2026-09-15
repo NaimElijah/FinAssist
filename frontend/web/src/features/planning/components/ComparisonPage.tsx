@@ -22,9 +22,11 @@ import {
 } from '../types/projectionSettings';
 import type { Scenario } from '../types/scenario';
 import { BALANCE_POINT_COLUMNS } from './balancePointColumns';
+import groupStyles from './checkboxGroup.module.css';
 import styles from './ComparisonPage.module.css';
 import { ProjectionSettingsFields } from './ProjectionSettingsFields';
 import { QueryFailure, RetryButton } from './QueryFailure';
+import { toggled } from './toggled';
 
 /** A comparison needs something to compare against; the ledger refuses fewer with 400. */
 const MINIMUM_SCENARIOS = 2;
@@ -42,17 +44,6 @@ const MIXED_CURRENCIES_MESSAGE =
 const NO_BASELINE_OPTIONS: readonly SelectOption[] = [
     { value: '', label: 'Choose scenarios first' },
 ];
-
-/** `chosen` with `id` added when absent, or removed when present - a new set either way. */
-function toggled(chosen: ReadonlySet<string>, id: string): ReadonlySet<string> {
-    const next = new Set(chosen);
-    if (next.has(id)) {
-        next.delete(id);
-    } else {
-        next.add(id);
-    }
-    return next;
-}
 
 /** The end-state table's columns: the scenario, marked when it is the baseline, then its amounts. */
 function endStateColumns(baselineId: string): readonly Column<ComparedScenario>[] {
@@ -224,12 +215,12 @@ function ComparisonForm({
             <fieldset
                 ref={scenariosRef}
                 aria-describedby={scenariosError === undefined ? undefined : scenariosErrorId}
-                className={styles.group}
+                className={groupStyles.group}
             >
-                <legend className={styles.legend}>Scenarios</legend>
-                <div className={styles.options}>
+                <legend className={groupStyles.legend}>Scenarios</legend>
+                <div className={groupStyles.options}>
                     {scenarios.map((scenario) => (
-                        <label key={scenario.id} className={styles.option}>
+                        <label key={scenario.id} className={groupStyles.option}>
                             <input
                                 type="checkbox"
                                 checked={chosenIds.has(scenario.id)}

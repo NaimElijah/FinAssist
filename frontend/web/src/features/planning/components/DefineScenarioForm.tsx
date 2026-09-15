@@ -14,8 +14,10 @@ import { useDefineScenario, usePlannedFlows } from '../hooks/planQueries';
 import { DIRECTION_LABELS, PLAN_STATUS_LABELS, type PlannedFlow } from '../types/flow';
 import { CURRENCIES, type Currency } from '../types/money';
 import type { Scenario } from '../types/scenario';
+import groupStyles from './checkboxGroup.module.css';
 import styles from './DefineScenarioForm.module.css';
 import { QueryFailure } from './QueryFailure';
+import { toggled } from './toggled';
 
 const CURRENCY_OPTIONS: readonly SelectOption[] = CURRENCIES.map((currency) => ({
     value: currency,
@@ -146,14 +148,14 @@ function FlowsFieldset({
 }) {
     const flowsInCurrency = flows.filter((flow) => flow.amount.currency === currency);
     return (
-        <fieldset className={styles.flowsFieldset}>
-            <legend className={styles.flowsLegend}>Flows</legend>
+        <fieldset className={groupStyles.group}>
+            <legend className={groupStyles.legend}>Flows</legend>
             {flowsInCurrency.length === 0 ? (
                 <p className={styles.noFlows}>{`No planned flows in ${currency} yet.`}</p>
             ) : (
-                <div className={styles.flowsList}>
+                <div className={groupStyles.options}>
                     {flowsInCurrency.map((flow) => (
-                        <label key={flow.id} className={styles.flowOption}>
+                        <label key={flow.id} className={groupStyles.option}>
                             <input
                                 type="checkbox"
                                 checked={selectedFlowIds.has(flow.id)}
@@ -222,15 +224,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
     }, [failure]);
 
     function toggleFlow(flowId: string) {
-        setSelectedFlowIds((previous) => {
-            const next = new Set(previous);
-            if (next.has(flowId)) {
-                next.delete(flowId);
-            } else {
-                next.add(flowId);
-            }
-            return next;
-        });
+        setSelectedFlowIds((previous) => toggled(previous, flowId));
     }
 
     function changeCurrency(nextCurrency: Currency) {

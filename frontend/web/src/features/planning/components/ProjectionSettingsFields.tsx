@@ -6,8 +6,10 @@ import { useAccountOptions } from '../hooks/accountOptions';
 import type { AccountOption, AccountOptionsFailure } from '../types/accountOption';
 import type { ProjectionSettingsForm } from '../types/projectionSettings';
 import { CADENCE_LABELS, CADENCES } from '../types/recurrence';
+import groupStyles from './checkboxGroup.module.css';
 import styles from './ProjectionSettingsFields.module.css';
 import { RetryButton } from './QueryFailure';
+import { toggled } from './toggled';
 
 const STEP_OPTIONS: readonly SelectOption[] = CADENCES.map((cadence) => ({
     value: cadence,
@@ -25,17 +27,6 @@ function oneOf<Value extends string>(allowed: readonly Value[], value: string): 
         throw new Error('A select produced a value it does not offer');
     }
     return match;
-}
-
-/** `checked` with `ref` added when absent, or removed when present - a new set either way. */
-function toggled(checked: ReadonlySet<string>, ref: string): ReadonlySet<string> {
-    const next = new Set(checked);
-    if (next.has(ref)) {
-        next.delete(ref);
-    } else {
-        next.add(ref);
-    }
-    return next;
 }
 
 /** The accounts could not be read: the failure, with a retry, in place of the pickers alone. */
@@ -66,14 +57,14 @@ function AccountGroup({
     readonly onToggle: (ref: string) => void;
 }) {
     return (
-        <fieldset aria-describedby={describedBy} className={styles.group}>
-            <legend className={styles.legend}>{legend}</legend>
+        <fieldset aria-describedby={describedBy} className={groupStyles.group}>
+            <legend className={groupStyles.legend}>{legend}</legend>
             {accounts.length === 0 ? (
                 <p className={styles.muted}>{`No accounts in ${currency}.`}</p>
             ) : (
-                <div className={styles.options}>
+                <div className={groupStyles.options}>
                     {accounts.map((account) => (
-                        <label key={account.ref} className={styles.option}>
+                        <label key={account.ref} className={groupStyles.option}>
                             <input
                                 type="checkbox"
                                 checked={checked.has(account.ref)}
