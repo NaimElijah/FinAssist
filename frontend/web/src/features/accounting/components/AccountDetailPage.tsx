@@ -101,12 +101,16 @@ const ACTION_TITLES: Readonly<Record<LifecycleKind, string>> = {
     VOID: 'Void transaction',
 };
 
-/** The id of one transaction's actions cell, so focus can be restored to it after its panel closes. */
+/**
+ * The id of one transaction's actions cell, so focus can be restored to it after its panel closes.
+ */
 function actionsCellId(transactionId: string): string {
     return `transaction-actions-${transactionId}`;
 }
 
-/** The id of one transaction's state cell, the fallback focus target when its own action is gone. */
+/**
+ * The id of one transaction's state cell, the fallback focus target when its own action is gone.
+ */
 function stateCellId(transactionId: string): string {
     return `transaction-state-${transactionId}`;
 }

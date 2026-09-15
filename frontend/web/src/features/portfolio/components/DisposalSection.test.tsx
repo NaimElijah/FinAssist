@@ -191,7 +191,7 @@ describe('DisposalSection', () => {
     for (const currency of ['USD', 'GBP'] as const) {
         it(`Given_a_holding_whose_lots_are_in_${currency}_When_priced_without_choosing_a_currency_Then_the_proceeds_are_posted_in_${currency}`, async () => {
             // The assistant prices proceeds only in the lots' own currency and answers any other
-            // with 422 CURRENCY_MISMATCH, so the calculator starts in the currency the holding cost.
+            // with 422 CURRENCY_MISMATCH, so the calculator starts in the currency its lots cost.
             const requests = fakeFetch(assistant(() => jsonResponse(DISPOSITION), currency));
             renderRoutes(portfolioRoutes, '/portfolio/VOO');
             await screen.findByLabelText('Quantity');

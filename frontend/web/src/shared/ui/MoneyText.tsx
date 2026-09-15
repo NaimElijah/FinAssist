@@ -1,7 +1,9 @@
 import { DISPLAY_LOCALE } from './locale';
 import styles from './MoneyText.module.css';
 
-/** The wire's decimal-string pattern, as `contracts/ledger-v1.openapi.json` declares it (ADR-028). */
+/**
+ * The wire's decimal-string pattern, as `contracts/ledger-v1.openapi.json` declares it (ADR-028).
+ */
 const DECIMAL_STRING = /^-?\d+(\.\d+)?$/;
 
 /**

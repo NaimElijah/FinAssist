@@ -44,7 +44,9 @@ const NO_BASELINE_OPTIONS: readonly SelectOption[] = [
     { value: '', label: 'Choose scenarios first' },
 ];
 
-/** The end-state table's columns: the scenario, marked when it is the baseline, then its amounts. */
+/**
+ * The end-state table's columns: the scenario, marked when it is the baseline, then its amounts.
+ */
 function endStateColumns(baselineId: string): readonly Column<ComparedScenario>[] {
     return [
         {

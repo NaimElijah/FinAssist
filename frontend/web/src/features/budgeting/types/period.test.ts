@@ -162,7 +162,7 @@ describe('periodLabel', () => {
     });
 
     it('Given_a_single_month_period_in_a_year_below_100_When_labelled_Then_it_names_that_year_not_one_in_the_1900s', () => {
-        // The month input and the ledger both accept year 26; `Date.UTC` alone would read it as 1926.
+        // A month input and the ledger both take year 26, which `Date.UTC` alone reads as 1926.
         expect(periodLabel({ start: '0026-09-01', end: '0026-10-01' })).toBe('September 26');
     });
 

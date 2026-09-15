@@ -125,7 +125,10 @@ function invalidateAccounts(
     );
 }
 
-/** The account ids an entry set names, in entry order - may repeat when one account is posted to twice. */
+/**
+ * The account ids an entry set names, in entry order - may repeat when one account is posted to
+ * twice.
+ */
 function accountIdsOf(transaction: Transaction): string[] {
     return transaction.entries.map((entry) => entry.account);
 }

@@ -29,7 +29,9 @@ export const LEDGER_API = `${LEDGER_BACKEND.prefix}/api/v1`;
 /** The assistant's base path, reached through the dev/preview proxy (ADR-026). */
 export const ASSISTANT_API = `${ASSISTANT_BACKEND.prefix}/api/v1`;
 
-/** One field-level validation failure inside `Problem.errors` (ADR-028: populated only for a 400). */
+/**
+ * One field-level validation failure inside `Problem.errors` (ADR-028: populated only for a 400).
+ */
 export interface ProblemFieldError {
     readonly field: string;
     readonly message: string;

@@ -10,8 +10,8 @@ export const BUDGETS_PATH = '/budgets';
  * Categorisation rules. A static route one segment below `/budgets`, the same depth as
  * `BUDGET_PATH`'s dynamic `:budgetId` - so, unlike accounting's two-segment
  * `RECORD_TRANSACTION_PATH`, the two routes genuinely compete for a match here. React Router
- * ranks a static path segment above a dynamic one regardless of declaration order, so `/budgets/rules`
- * always resolves to this route rather than being read as a budget id;
+ * ranks a static path segment above a dynamic one regardless of declaration order, so
+ * `/budgets/rules` always resolves to this route rather than being read as a budget id;
  * `CategorisationRulesPage.test.tsx` proves it.
  */
 export const CATEGORISATION_RULES_PATH = '/budgets/rules';

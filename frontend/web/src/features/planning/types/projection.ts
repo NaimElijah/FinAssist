@@ -53,7 +53,9 @@ export interface ProjectionSettings {
     /** An ISO `YYYY-MM-DD` date, a whole number of steps after `from`. */
     readonly to: string;
     readonly step: Cadence;
-    /** Account refs opening the cash line, in the order offered. May be empty: cash opens at zero. */
+    /**
+     * Account refs opening the cash line, in the order offered. May be empty: cash opens at zero.
+     */
     readonly cash: readonly string[];
     /** Account refs opening the invested line, in the order offered. May be empty. */
     readonly invested: readonly string[];

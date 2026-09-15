@@ -27,7 +27,9 @@ const NOT_ADVICE = 'These figures describe your own holdings and are not financi
 
 const NO_PRICE_MESSAGE = 'No usable price right now';
 
-/** A quantity with more digits than a thousands separator would leave alone, had it been formatted. */
+/**
+ * A quantity with more digits than a thousands separator would leave alone, had it been formatted.
+ */
 const POSITION = {
     symbol: 'VOO',
     quantity: '1234.125',

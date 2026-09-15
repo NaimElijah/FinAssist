@@ -21,7 +21,7 @@ export interface QueryErrorStateProps {
  *
  * A retry is offered only when `isRetryable` says a second attempt could change the answer: a
  * network failure, or a 5xx other than a 503. A 4xx is the server's considered answer and a defect
- * would only repeat itself, so for either the alert explains the failure and offers nothing to press.
+ * would only repeat itself, so for either the alert explains the failure with nothing to press.
  *
  * A screen renders it beside data the read still holds, never in its place: TanStack Query keeps a
  * query's data when a later refetch fails, so what the owner was reading stays on screen below the

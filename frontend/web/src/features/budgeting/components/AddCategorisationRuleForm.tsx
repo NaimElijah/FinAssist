@@ -100,11 +100,11 @@ export interface AddCategorisationRuleFormProps {
  * (ADR-028: no double submit). On success the form resets and `onAdded` is called. A failure is
  * shown where it can be acted on: a 400's field errors on their fields, and anything else in an
  * `ErrorState` above the form, exactly as `OpenAccountForm` does. Focus follows the failure there.
- * Editing either field clears a failure that has settled, since it answered the rule as it was sent.
+ * Editing either field clears a failure that has settled: it answered the rule as it was sent.
  *
- * `focusRequested` moves focus to the Fragment field on demand - the fallback `CategorisationRulesPage`
- * reaches for when a rule was added but its list's own refetch failed, so no row can be identified
- * as the new one to focus instead.
+ * `focusRequested` moves focus to the Fragment field on demand - the fallback
+ * `CategorisationRulesPage` reaches for when a rule was added but its list's own refetch failed, so
+ * no row can be identified as the new one to focus instead.
  *
  * @param props - see `AddCategorisationRuleFormProps`.
  */

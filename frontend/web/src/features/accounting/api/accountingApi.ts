@@ -46,7 +46,9 @@ export const ACCOUNT_NOT_FOUND = 'ACCOUNT_NOT_FOUND';
 const ACCOUNTS_URL = `${LEDGER_API}/accounts`;
 const TRANSACTIONS_URL = `${LEDGER_API}/transactions`;
 
-/** The wire's decimal-string pattern, as `contracts/ledger-v1.openapi.json` declares it (ADR-028). */
+/**
+ * The wire's decimal-string pattern, as `contracts/ledger-v1.openapi.json` declares it (ADR-028).
+ */
 const DECIMAL_STRING = /^-?\d+(\.\d+)?$/;
 
 /** The URL of one account's sub-resource, with the id encoded as a single path segment. */

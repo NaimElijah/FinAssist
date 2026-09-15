@@ -1,6 +1,8 @@
 import styles from './StateBadge.module.css';
 
-/** The colour role a status is shown in. The text always carries the meaning; tone reinforces it. */
+/**
+ * The colour role a status is shown in. The text always carries the meaning; tone reinforces it.
+ */
 export type Tone = 'neutral' | 'positive' | 'negative' | 'warning';
 
 /** A status, the tone for every status it could be, and optional words for it. */

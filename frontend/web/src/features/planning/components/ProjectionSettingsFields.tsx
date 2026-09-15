@@ -180,9 +180,10 @@ export interface ProjectionSettingsFieldsProps {
  * account pickers, read from the account choices `src/app` provides (`useAccountOptions`).
  *
  * The pickers offer only accounts in `currency`, with a hint saying the projection or comparison
- * they open - `noun` names which - covers one currency (ADR-012, ADR-016). While the accounts load they say so; when the accounts cannot be
- * read, the failure and its retry replace the pickers alone, so the rest of the form still works -
- * a projection may open with no accounts at all. From and To are natively required, so the browser
+ * they open - `noun` names which - covers one currency (ADR-012, ADR-016). While the accounts load
+ * they say so; when the accounts cannot be read, the failure and its retry replace the pickers
+ * alone, so the rest of the form still works - a projection may open with no accounts at all. From
+ * and To are natively required, so the browser
  * refuses to submit without a horizon.
  *
  * @param props - see `ProjectionSettingsFieldsProps`.

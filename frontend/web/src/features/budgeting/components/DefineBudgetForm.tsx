@@ -22,7 +22,9 @@ const CURRENCY_OPTIONS: readonly SelectOption[] = CURRENCIES.map((currency) => (
     label: currency,
 }));
 
-/** A new budget starts in shekels, the currency the owner keeps books in (see `OpenAccountForm`). */
+/**
+ * A new budget starts in shekels, the currency the owner keeps books in (see `OpenAccountForm`).
+ */
 const DEFAULT_CURRENCY: Currency = 'ILS';
 
 /**

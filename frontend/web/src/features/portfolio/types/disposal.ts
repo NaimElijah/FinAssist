@@ -23,7 +23,9 @@ export interface Lot {
     readonly unitCost: Money;
 }
 
-/** What selling units would realise, lots consumed oldest first (ADR-013), and what would remain. */
+/**
+ * What selling units would realise, lots consumed oldest first (ADR-013), and what would remain.
+ */
 export interface Disposition {
     readonly symbol: string;
     /** A decimal string exactly as received. Never parsed. */

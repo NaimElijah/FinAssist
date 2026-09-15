@@ -237,7 +237,9 @@ function unknownStep(url: string): never {
     throw new ApiBodyError(url, 'A response arrived with a step the contract does not name');
 }
 
-/** `value`, validated against `CADENCES`: a projection steps at the same cadences a flow repeats at. */
+/**
+ * `value`, validated against `CADENCES`: a projection steps at the same cadences a flow repeats at.
+ */
 function knownStep(value: Cadence, url: string): Cadence {
     return CADENCES.includes(value) ? value : unknownStep(url);
 }

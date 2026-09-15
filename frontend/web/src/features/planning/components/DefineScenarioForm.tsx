@@ -26,7 +26,9 @@ const CURRENCY_OPTIONS: readonly SelectOption[] = CURRENCIES.map((currency) => (
     label: currency,
 }));
 
-/** A new scenario starts in shekels, the currency the owner keeps books in (see `OpenAccountForm`). */
+/**
+ * A new scenario starts in shekels, the currency the owner keeps books in (see `OpenAccountForm`).
+ */
 const DEFAULT_CURRENCY: Currency = 'ILS';
 
 /** The rate a do-nothing scenario carries: no growth at all. */
@@ -121,7 +123,10 @@ function submissionErrors(error: Error | null): SubmissionErrors {
     return { fields: {}, unplaced: error };
 }
 
-/** One flow checkbox's label: its description, amount, direction and state (requirements § Planning). */
+/**
+ * One flow checkbox's label: its description, amount, direction and state
+ * (requirements § Planning).
+ */
 function FlowOptionLabel({ flow }: { readonly flow: PlannedFlow }) {
     return (
         <span>
@@ -179,7 +184,9 @@ function FlowsFieldset({
 
 /** What happens once a scenario is defined. */
 export interface DefineScenarioFormProps {
-    /** Called with the defined scenario, once the scenarios list has been refetched to include it. */
+    /**
+     * Called with the defined scenario, once the scenarios list has been refetched to include it.
+     */
     readonly onDefined: (scenario: Scenario) => void;
 }
 

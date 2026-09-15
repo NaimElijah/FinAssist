@@ -69,7 +69,9 @@ function renderForm() {
     return renderRoutes(accountingRoutes, RECORD_TRANSACTION_PATH);
 }
 
-/** Description, Checking as row 1, Rent as row 2, and a credit on row 1 that mirrors row 2's debit. */
+/**
+ * Description, Checking as row 1, Rent as row 2, and a credit on row 1 that mirrors row 2's debit.
+ */
 async function fillValidTransaction(user: ReturnType<typeof userEvent.setup>) {
     await user.type(await screen.findByLabelText('Description'), 'Rent');
     await user.selectOptions(screen.getByLabelText('Account 1'), CHECKING.id);

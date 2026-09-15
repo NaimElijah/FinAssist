@@ -124,7 +124,10 @@ interface EntryRowFieldsProps {
     readonly index: number;
     readonly row: EntryRowState;
     readonly accounts: readonly Account[];
-    /** The row's amount-field error, if any - an account error is never possible (see `buildEntries`). */
+    /**
+     * The row's amount-field error, if any - an account error is never possible (see
+     * `buildEntries`).
+     */
     readonly error: string | undefined;
     readonly removable: boolean;
     readonly onAccountChange: (accountId: string) => void;
