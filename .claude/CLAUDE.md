@@ -59,7 +59,7 @@ is **not installed** on the development machine, so the raw command is given for
   `cd backend/ledger && ./mvnw -B -q dependency:go-offline`;
   `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci`
 - Run: `make run` — `docker compose up --build` (starts PostgreSQL, the ledger and the
-  assistant; both services publish only on `127.0.0.1`, per ADR-027). For the native inner loop:
+  assistant; every published port binds `127.0.0.1` only, per ADR-027). For the native inner loop:
   `cd backend/ledger && ./mvnw spring-boot:run` — it needs the database up first
   (`docker compose up -d db`) and applies its Flyway migrations at start-up;
   `cd backend/assistant && uv run python -m finassist_assistant.adapters`; the web client with
