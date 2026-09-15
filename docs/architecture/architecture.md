@@ -394,7 +394,7 @@ Logging, correlation and telemetry are the same decision applied three times, re
 | Boundary | Logback, configured in `application.yml` | `adapters/observability.py` | `shared/lib/logger.ts`, the only file allowed to call `console` |
 | Redaction | No secret reaches it — Actuator's `env` endpoint is not exposed | Key names plus registered values, as a `structlog` processor | Key names, depth-bounded |
 | Correlation | `traceId` in the MDC, from Micrometer Tracing | `contextvar`, seeded from an inbound `traceparent` | Generates the `traceparent` every request carries |
-| Traces | OTLP over HTTP, off unless a collector is configured | The same | None; no browser SDK |
+| Traces | OTLP over HTTP, off unless `OTEL_EXPORT_ENABLED` is true | The same | None; no browser SDK |
 | Metrics | Micrometer, scraped at `/actuator/prometheus` | None yet | None |
 
 **The correlation id is a W3C trace context.** The browser generates a `traceparent`; the

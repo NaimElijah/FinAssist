@@ -389,7 +389,7 @@ in the repository, the logs or an error message.
 | `LEDGER_BASE_URL` | Where the assistant reaches the ledger | `http://ledger:8080` |
 | `POSTGRES_PORT` | Host port mapped to Postgres. Change it, and `LEDGER_DB_URL` with it, if something already owns 5432 — a natively installed PostgreSQL will otherwise answer instead of the container | `5432` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; each service appends its own signal path | `http://localhost:4318` |
-| `OTEL_EXPORT_ENABLED` | Whether to export telemetry at all — traces and metrics both. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` |
+| `OTEL_EXPORT_ENABLED` | Whether to export telemetry at all — traces, metrics, and the ledger's OTLP log export, which nothing feeds yet. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` |
 | `ASSISTANT_LOG_LEVEL` | Threshold for the assistant's structured logger; one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
 | `ASSISTANT_HOST` | Interface the assistant binds. Loopback by default, because the assistant has no authentication; `0.0.0.0` only inside a container, where Compose sets it ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `127.0.0.1` |
 | `ASSISTANT_ALLOWED_HOSTS` | Comma-separated host names the assistant answers to. An entry containing a `:` or a `[`, which covers a port and every IPv6 literal, or a wildcard, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `localhost,127.0.0.1` |
