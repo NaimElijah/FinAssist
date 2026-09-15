@@ -18,10 +18,10 @@ import { RecordTransactionPage } from './components/RecordTransactionPage';
  * The accounting area's routes, under the base path `/accounts`. src/app mounts them inside the
  * shared layout, which titles the document from each route's `handle`.
  *
- * The static `RECORD_TRANSACTION_PATH` is listed before the dynamic `ACCOUNT_PATH`; react-router
- * ranks a static path above a dynamic one regardless of array order, so `/accounts/transactions/new`
- * always reaches `RecordTransactionPage`, never `AccountDetailPage` with `transactions` read as an
- * id (`RecordTransactionPage.test.tsx` proves it).
+ * `RECORD_TRANSACTION_PATH` and `ACCOUNT_PATH` never actually compete for a match: a dynamic
+ * segment such as `:accountId` captures exactly one path segment, so `ACCOUNT_PATH` matches only
+ * `/accounts/<one segment>`, never the two segments `/accounts/transactions/new` has after
+ * `/accounts`. `RecordTransactionPage.test.tsx` proves the two paths do not collide.
  *
  * An account's page is titled "Account" rather than by its name: a `handle` is static, and the
  * name is known only once the accounts list has loaded.

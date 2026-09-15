@@ -7,8 +7,9 @@ import { generatePath } from 'react-router';
 export const ACCOUNTS_PATH = '/accounts';
 
 /**
- * Recording a transaction by hand. A static path, so it must be registered where react-router
- * ranks it above the dynamic `ACCOUNT_PATH` below; `RecordTransactionPage.test.tsx` proves it is.
+ * Recording a transaction by hand. Two segments after `/accounts`, so it can never be matched by
+ * the single dynamic segment `ACCOUNT_PATH` captures below - the two routes do not compete for a
+ * match at all; `RecordTransactionPage.test.tsx` proves it.
  */
 export const RECORD_TRANSACTION_PATH = '/accounts/transactions/new';
 
