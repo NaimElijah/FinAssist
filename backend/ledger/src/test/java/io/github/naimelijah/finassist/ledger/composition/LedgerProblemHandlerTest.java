@@ -196,11 +196,18 @@ class LedgerProblemHandlerTest {
     }
 
     /**
-     * Statuses outside ADR-028's table. A standard 4xx is named by its reason; every 5xx, and any
-     * status with no standard name, is an internal error.
+     * Statuses outside ADR-028's table. The two the framework can still raise, 409 and 413, carry codes of
+     * their own. Every other status, 4xx or 5xx, is an internal error: the ledger never means to send one,
+     * and an {@code HttpStatus} constant's name is no stable code, since Spring renames them.
      */
     @ParameterizedTest
-    @CsvSource({"409, CONFLICT", "503, INTERNAL_ERROR", "499, INTERNAL_ERROR"})
+    @CsvSource({
+        "409, CONFLICT",
+        "413, CONTENT_TOO_LARGE",
+        "418, INTERNAL_ERROR",
+        "503, INTERNAL_ERROR",
+        "499, INTERNAL_ERROR"
+    })
     void Given_a_status_outside_the_table_When_raised_Then_its_problem_still_carries_a_code(int status, String code)
             throws Exception {
         mvc.perform(get("/status/" + status))

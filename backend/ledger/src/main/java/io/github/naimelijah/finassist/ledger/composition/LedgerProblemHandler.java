@@ -37,9 +37,9 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  *
  * <ul>
  *   <li>a failure Spring MVC raised is coded from its status: 400 {@code MALFORMED_REQUEST}, 404
- *       {@code NOT_FOUND}, 405 {@code METHOD_NOT_ALLOWED}, 406 {@code NOT_ACCEPTABLE} and 415 {@code
- *       UNSUPPORTED_MEDIA_TYPE}. Bean-validation failures also list each rejection under {@code
- *       errors};
+ *       {@code NOT_FOUND}, 405 {@code METHOD_NOT_ALLOWED}, 406 {@code NOT_ACCEPTABLE}, 409 {@code
+ *       CONFLICT}, 413 {@code CONTENT_TOO_LARGE} and 415 {@code UNSUPPORTED_MEDIA_TYPE}. Bean-validation
+ *       failures also list each rejection under {@code errors};
  *   <li>{@link IllegalArgumentException} is 422 {@code RULE_VIOLATED}, with the exception's message as
  *       the detail. It signals that a well-formed request broke a rule: the domain raises it for its own
  *       invariants, and an inbound adapter for a rule about the request itself, such as a period that
@@ -67,13 +67,18 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
 
     private static final String INTERNAL_ERROR_DETAIL = "The ledger failed to handle this request.";
 
-    /** ADR-028's names for the statuses Spring MVC raises on its own. */
-    private static final Map<HttpStatus, String> CODES_BY_STATUS = Map.of(
-            HttpStatus.BAD_REQUEST, Problems.MALFORMED_REQUEST,
-            HttpStatus.NOT_FOUND, Problems.NOT_FOUND,
-            HttpStatus.METHOD_NOT_ALLOWED, Problems.METHOD_NOT_ALLOWED,
-            HttpStatus.NOT_ACCEPTABLE, Problems.NOT_ACCEPTABLE,
-            HttpStatus.UNSUPPORTED_MEDIA_TYPE, Problems.UNSUPPORTED_MEDIA_TYPE);
+    /**
+     * The code for each status Spring MVC can raise on its own. Keyed by status value, so a status with no
+     * {@link HttpStatus} constant needs no special case.
+     */
+    private static final Map<Integer, String> CODES_BY_STATUS = Map.of(
+            HttpStatus.BAD_REQUEST.value(), Problems.MALFORMED_REQUEST,
+            HttpStatus.NOT_FOUND.value(), Problems.NOT_FOUND,
+            HttpStatus.METHOD_NOT_ALLOWED.value(), Problems.METHOD_NOT_ALLOWED,
+            HttpStatus.NOT_ACCEPTABLE.value(), Problems.NOT_ACCEPTABLE,
+            HttpStatus.CONFLICT.value(), Problems.CONFLICT,
+            HttpStatus.CONTENT_TOO_LARGE.value(), Problems.CONTENT_TOO_LARGE,
+            HttpStatus.UNSUPPORTED_MEDIA_TYPE.value(), Problems.UNSUPPORTED_MEDIA_TYPE);
 
     /** A well-formed request broke a rule, which the domain or an inbound adapter enforces. */
     @ExceptionHandler(IllegalArgumentException.class)
@@ -184,15 +189,12 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * A status outside ADR-028's table is named by its standard reason, such as {@code CONFLICT}. A 5xx,
-     * and a status with no standard name, is {@code INTERNAL_ERROR}: the ledger means to send neither.
+     * A status outside the table, a 5xx or a 4xx alike, is {@code INTERNAL_ERROR}: the ledger never means to
+     * send one. A code is never derived from an {@link HttpStatus} constant's name, because a code is
+     * contract once served and Spring renames constants: Spring 7 already renamed 413 and 422.
      */
     private static String codeFor(HttpStatusCode status) {
-        HttpStatus known = HttpStatus.resolve(status.value());
-        if (known == null || known.is5xxServerError()) {
-            return Problems.INTERNAL_ERROR;
-        }
-        return CODES_BY_STATUS.getOrDefault(known, known.name());
+        return CODES_BY_STATUS.getOrDefault(status.value(), Problems.INTERNAL_ERROR);
     }
 
     /**

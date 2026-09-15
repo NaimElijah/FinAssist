@@ -65,6 +65,12 @@ final class Problems {
     /** The body is not {@code application/json}, which every write requires (ADR-027). */
     static final String UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE";
 
+    /** A conflict the framework raised, where no context's advice named a more specific code. */
+    static final String CONFLICT = "CONFLICT";
+
+    /** The request is larger than the server accepts. */
+    static final String CONTENT_TOO_LARGE = "CONTENT_TOO_LARGE";
+
     /** Well-formed, and refused by a rule the request broke, whether the domain's or the adapter's. */
     static final String RULE_VIOLATED = "RULE_VIOLATED";
 
