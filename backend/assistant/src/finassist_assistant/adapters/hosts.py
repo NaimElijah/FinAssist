@@ -26,6 +26,8 @@ _ADMITTED: Final = "finassist.host_admitted"
 
 _REFUSAL_DETAIL: Final = "The request's Host header does not name a host this assistant serves."
 
+_HTTP_SCOPE: Final = "http"
+
 
 async def _record_admission(scope: Scope, receive: Receive, send: Send) -> None:
     """Stands in for the application behind the stock check, and only records being reached."""
@@ -50,7 +52,10 @@ class HostAllowList:
     never echoes the header back.
 
     A refused request never reaches the correlation middleware, so its request line is written
-    here, without a correlation id, exactly as every admitted request has one written there.
+    here, without a correlation id, exactly as every admitted request has one written there. A
+    refused WebSocket upgrade writes none. Its scope carries no method, and the request line records
+    an HTTP request: no WebSocket route is served, so an admitted upgrade writes none either, and
+    uvicorn reports a handshake it refused on its own logger.
 
     Two differences from the ledger's filter come with the stock matching, which compares the text
     before the header's first colon exactly. An IPv6 literal such as ``[::1]`` can never be
@@ -76,4 +81,5 @@ class HostAllowList:
             return
         refusal = problem_response(HTTPStatus.FORBIDDEN, HOST_NOT_ALLOWED, _REFUSAL_DETAIL)
         await refusal(scope, receive, send)
-        log_request(scope, refusal.status_code, started)
+        if scope["type"] == _HTTP_SCOPE:
+            log_request(scope, refusal.status_code, started)

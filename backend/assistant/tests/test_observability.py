@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from opentelemetry.sdk.trace import TracerProvider
 from pydantic import ValidationError
 from starlette.requests import Request
+from starlette.testclient import WebSocketDenialResponse
 
 from finassist_assistant.adapters.__main__ import main
 from finassist_assistant.adapters.app import (
@@ -87,9 +88,12 @@ def _request_with(headers: dict[str, str]) -> Request:
     return Request({"type": "http", "method": "GET", "path": "/health", "headers": raw})
 
 
+def _records(captured: str) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in captured.strip().splitlines() if line.startswith("{")]
+
+
 def _request_lines(captured: str) -> list[dict[str, Any]]:
-    records = (json.loads(line) for line in captured.strip().splitlines() if line.startswith("{"))
-    return [record for record in records if record.get("event") == REQUEST_LINE]
+    return [record for record in _records(captured) if record.get("event") == REQUEST_LINE]
 
 
 # --- the endpoints -------------------------------------------------------------------------
@@ -272,6 +276,31 @@ def Given_a_refused_unknown_or_failing_request_When_answered_Then_one_info_reque
     assert [(line["path"], line["status"], line["level"]) for line in lines] == [
         (path, status, "info")
     ]
+
+
+def Given_a_foreign_host_When_a_websocket_upgrade_arrives_Then_it_is_refused_without_an_error(
+    client: TestClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The allow-list checks WebSocket upgrades too, on the DNS-rebinding path it exists for.
+
+    A WebSocket scope carries no method, and the request line records an HTTP request. The
+    assistant serves no WebSocket route, so an admitted upgrade writes no line either, and uvicorn
+    reports a handshake it refused on its own logger. So the refusal writes no request line, and
+    must not fail on the way to answering.
+    """
+    capsys.readouterr()
+
+    with (
+        pytest.raises(WebSocketDenialResponse) as refused,
+        client.websocket_connect("/health", headers={"host": "attacker.example"}),
+    ):
+        pass
+
+    captured = capsys.readouterr().out
+    assert refused.value.status_code == 403
+    assert "Traceback" not in captured
+    assert [record for record in _records(captured) if record["level"] == "error"] == []
+    assert _request_lines(captured) == []
 
 
 def Given_the_entry_point_When_it_starts_the_server_Then_uvicorn_writes_no_access_log(
