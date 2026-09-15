@@ -18,8 +18,9 @@ from decimal import Decimal
 from types import MappingProxyType
 from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, StringConstraints
 from pydantic.alias_generators import to_camel
+from pydantic_core import PydanticCustomError
 
 from finassist_assistant.portfolio.application.usecase import Disposition, Valuation
 from finassist_assistant.portfolio.domain.model import Lot, Position, Symbol
@@ -41,13 +42,43 @@ __all__ = [
 DECIMAL_PATTERN: Final = r"^-?\d+(\.\d+)?$"
 """A decimal written out in full: an optional sign, digits, and an optional fraction.
 
-Anchored at both ends, the ledger's pattern exactly. Neither a JSON Schema ``pattern`` nor
-pydantic's is anchored implicitly, so without them ``"12abc"`` would match. No exponent and no digit
-grouping: the text is the number as ``Decimal`` prints it, and nothing a client has to interpret.
+Anchored at both ends. The text is the ledger's pattern exactly, and a contract test holds it so.
+Neither a JSON Schema ``pattern`` nor pydantic's is anchored implicitly, so without them ``"12abc"``
+would match. No exponent and no digit grouping: the text is the number as ``Decimal`` prints it,
+and nothing a client has to interpret.
+
+The text alone does not make the rule the ledger's. ``\\d`` is an ASCII digit to the ledger's Java
+and to JSON Schema's ECMA-262 regex, but pydantic's Rust engine reads it as any Unicode decimal
+digit, which ``Decimal`` then parses. :data:`DecimalString` adds the check that closes that gap.
 """
 
-DecimalString = Annotated[str, StringConstraints(pattern=DECIMAL_PATTERN)]
-"""A decimal on the wire."""
+
+def _ascii_only(text: str) -> str:
+    """Refuses a decimal the pattern admitted only because pydantic reads ``\\d`` as Unicode.
+
+    Anything outside ASCII that got past the pattern is a digit from another script, such as a
+    fullwidth or Arabic-Indic one. It is refused as the pattern's own mismatch, with the same type
+    and message, because under the pattern's published meaning that is what it is, and a client
+    then sees one refusal for every decimal the ledger would refuse.
+
+    A validator after the pattern rather than a different pattern, so the published text stays the
+    ledger's and neither contract changes.
+
+    :raises PydanticCustomError: ``string_pattern_mismatch``, which FastAPI answers 400.
+    """
+    if not text.isascii():
+        raise PydanticCustomError(
+            "string_pattern_mismatch",
+            "String should match pattern '{pattern}'",
+            {"pattern": DECIMAL_PATTERN},
+        )
+    return text
+
+
+DecimalString = Annotated[
+    str, StringConstraints(pattern=DECIMAL_PATTERN), AfterValidator(_ascii_only)
+]
+"""A decimal on the wire: :data:`DECIMAL_PATTERN`, with ``\\d`` read as the ledger reads it."""
 
 CurrencyCode = Literal["ILS", "USD", "EUR", "GBP", "JPY"]
 """The currencies the wire carries, which a test holds equal to ``Currency``'s codes.

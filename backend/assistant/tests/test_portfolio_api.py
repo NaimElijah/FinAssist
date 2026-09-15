@@ -298,6 +298,34 @@ def Given_a_malformed_body_member_When_a_disposal_is_priced_Then_it_is_a_malform
 
 
 @pytest.mark.parametrize(
+    ("field", "body"),
+    [
+        # ARABIC-INDIC DIGIT ONE and TWO: twelve and a half, to Python's Decimal.
+        ("proceeds.amount", _disposal(amount="\u0661\u0662.50")),
+        # FULLWIDTH DIGIT ONE and TWO: twelve, to Python's Decimal.
+        ("quantity", _disposal(quantity="\uff11\uff12")),
+    ],
+    ids=["arabic-indic-amount", "fullwidth-quantity"],
+)
+def Given_a_decimal_in_non_ascii_digits_When_a_disposal_is_priced_Then_it_is_a_malformed_request(
+    client: TestClient, field: str, body: dict[str, Any]
+) -> None:
+    """The published pattern's ``\\d`` is an ASCII digit to the ledger's Java and to JSON Schema,
+    so the ledger answers these 400. pydantic's regex engine reads it as any Unicode digit, and the
+    same pattern text must not mean more on this wire than on the ledger's."""
+    refused_by_pattern = client.post(DISPOSAL_URL, json=_disposal(quantity="12abc")).json()
+
+    response = client.post(DISPOSAL_URL, json=body)
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "MALFORMED_REQUEST"
+    # The same refusal, in the same words, as any other text the pattern refuses.
+    assert response.json()["errors"] == [
+        {"field": field, "message": refused_by_pattern["errors"][0]["message"]}
+    ]
+
+
+@pytest.mark.parametrize(
     "sent",
     [
         {"data": {"quantity": "12"}},
