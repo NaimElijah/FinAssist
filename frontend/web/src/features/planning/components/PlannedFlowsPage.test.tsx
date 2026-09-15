@@ -640,6 +640,38 @@ describe('PlannedFlowsPage plan-flow form', () => {
         });
     });
 
+    it('Given_a_400_listing_a_startsOn_error_When_planned_Then_the_message_is_on_the_Starts_on_field', async () => {
+        fakeFetch(
+            ledger([], (request) => {
+                if (request.url === FLOWS_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: [{ field: 'startsOn', message: 'must not be null' }],
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+
+        await user.type(screen.getByLabelText('Description'), 'Salary');
+        await user.type(screen.getByLabelText('Amount'), '1000.00');
+        await user.click(screen.getByRole('button', { name: 'Plan flow' }));
+
+        const startsOnError = await screen.findByText('must not be null');
+        expect(screen.getByLabelText('Starts on').getAttribute('aria-describedby')).toBe(
+            startsOnError.id,
+        );
+        expect(screen.queryByRole('alert')).toBeNull();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(screen.getByLabelText('Starts on'));
+        });
+    });
+
     it('Given_a_negative_amount_When_planned_Then_it_is_sent_as_typed_and_a_422_shows_the_detail', async () => {
         const requests = fakeFetch(
             ledger([], (request) => {

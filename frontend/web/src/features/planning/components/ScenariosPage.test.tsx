@@ -361,6 +361,77 @@ describe('ScenariosPage define-scenario form', () => {
         expect(screen.queryByRole('alert')).toBeNull();
     });
 
+    it('Given_a_400_listing_a_currency_error_When_defined_Then_the_message_is_on_the_Currency_field', async () => {
+        fakeFetch(
+            ledger([], [], (request) => {
+                if (request.url === SCENARIOS_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: [{ field: 'currency', message: 'must not be null' }],
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderScenarios();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Define a scenario' });
+
+        await user.type(screen.getByLabelText('Name'), 'Aggressive saving');
+        await user.click(screen.getByRole('button', { name: 'Define scenario' }));
+
+        const error = await screen.findByText('must not be null');
+        expect(screen.getByLabelText('Currency').getAttribute('aria-describedby')).toBe(error.id);
+        expect(screen.queryByRole('alert')).toBeNull();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(screen.getByLabelText('Currency'));
+        });
+    });
+
+    it('Given_a_400_listing_a_growthRatePerStep_error_When_defined_Then_the_message_is_on_its_field', async () => {
+        // Reachable through the UI: the ledger's own @Pattern rejects an exponent, a percentage
+        // sign or any character outside plain decimal text, none of which the free-text field
+        // itself refuses.
+        fakeFetch(
+            ledger([], [], (request) => {
+                if (request.url === SCENARIOS_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: [
+                            { field: 'growthRatePerStep', message: 'must be a decimal number' },
+                        ],
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderScenarios();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Define a scenario' });
+
+        await user.type(screen.getByLabelText('Name'), 'Aggressive saving');
+        await user.clear(screen.getByLabelText('Growth rate per step'));
+        await user.type(screen.getByLabelText('Growth rate per step'), '0.5%');
+        await user.click(screen.getByRole('button', { name: 'Define scenario' }));
+
+        const error = await screen.findByText('must be a decimal number');
+        // Also described by its hint ("e.g. 0.005 per step"), so the error id is one of two.
+        expect(
+            screen
+                .getByLabelText('Growth rate per step')
+                .getAttribute('aria-describedby')
+                ?.split(' '),
+        ).toContain(error.id);
+        expect(screen.queryByRole('alert')).toBeNull();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(screen.getByLabelText('Growth rate per step'));
+        });
+    });
+
     it('Given_a_scenario_defined_successfully_When_the_list_shows_it_Then_the_form_is_reset_and_invalidates_only_scenarios', async () => {
         let served: readonly unknown[] = [];
         const requests = fakeFetch((request) => {
