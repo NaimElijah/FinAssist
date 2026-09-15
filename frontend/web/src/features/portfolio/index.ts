@@ -1,5 +1,6 @@
 /**
- * Portfolio feature - one holding at a time: its position and its valuation.
+ * Portfolio feature - one holding at a time: its position, its valuation, and a disposal priced
+ * without being recorded.
  *
  * Mirrors the `portfolio` bounded context in the Python assistant, the one area the assistant
  * serves rather than the ledger (ADR-026). Everything this feature exposes to the rest of the app

@@ -4,9 +4,10 @@
  * Every query key comes from `portfolioKeys`, so a refresh invalidates exactly what a query reads
  * rather than a key spelled twice.
  */
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { readPosition, valueHolding } from '../api/portfolioApi';
+import { priceDisposal, readPosition, valueHolding } from '../api/portfolioApi';
+import type { DisposalInput } from '../types/disposal';
 
 /** The prefix every holding's key starts with. */
 const HOLDINGS_KEY = ['portfolio', 'holdings'] as const;
@@ -76,4 +77,21 @@ export function useRefreshHolding(): (symbol: string) => void {
         // each query's own error, so there is nothing here to await.
         void queryClient.invalidateQueries({ queryKey: portfolioKeys.holding(symbol) });
     };
+}
+
+/**
+ * Price a disposal of one holding: what selling units would realise, and the lots that would
+ * remain.
+ *
+ * A mutation rather than a query, because it runs when the owner submits and nothing should cache
+ * or refetch it. It records nothing, so it invalidates no key: no position, valuation or lot can
+ * have changed.
+ *
+ * @param symbol - the holding to price a disposal of, as it appears in the URL.
+ * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
+ */
+export function usePriceDisposal(symbol: string) {
+    return useMutation({
+        mutationFn: (input: DisposalInput) => priceDisposal(symbol, input),
+    });
 }

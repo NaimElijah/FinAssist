@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiBodyError, ApiError } from '@/shared/api/client';
 import { setLogSink } from '@/shared/lib/logger';
 
-import { readPosition, valueHolding } from './portfolioApi';
+import { priceDisposal, readPosition, valueHolding } from './portfolioApi';
 
 const HOLDINGS_URL = '/assistant/api/v1/portfolio/holdings';
 
@@ -180,4 +180,122 @@ describe('valueHolding', () => {
             await expect(valueHolding('VOO')).rejects.toBeInstanceOf(ApiBodyError);
         });
     }
+});
+
+describe('priceDisposal', () => {
+    const INPUT = { quantity: '4', proceeds: { amount: '2100.00', currency: 'USD' } } as const;
+
+    const WIRE_DISPOSITION = {
+        symbol: 'VOO',
+        quantity: '4',
+        proceeds: { amount: '2100.00', currency: 'USD' },
+        costOfSale: { amount: '1600.00', currency: 'USD' },
+        realisedGain: { amount: '500.00', currency: 'USD' },
+        remaining: [
+            {
+                acquiredOn: '2024-03-01',
+                quantity: '6',
+                unitCost: { amount: '400.00', currency: 'USD' },
+            },
+            {
+                acquiredOn: '2025-01-15',
+                quantity: '2.5',
+                unitCost: { amount: '450.50', currency: 'USD' },
+            },
+        ],
+    };
+
+    it('Given_a_quantity_and_proceeds_When_priced_Then_it_posts_the_exact_json_body_to_the_disposal_with_no_query_string', async () => {
+        const stub = stubFetch(jsonResponse(WIRE_DISPOSITION));
+
+        await priceDisposal('VOO', INPUT);
+
+        const { url, init } = onlyCall(stub);
+        // The proceeds are an amount of money, which never travels in a URL (ADR-028).
+        expect(url).toBe(`${HOLDINGS_URL}/VOO/disposal`);
+        expect(url).not.toContain('?');
+        expect(init.method).toBe('POST');
+        expect(new Headers(init.headers).get('Content-Type')).toBe('application/json');
+        expect(JSON.parse(init.body as string)).toEqual({
+            quantity: '4',
+            proceeds: { amount: '2100.00', currency: 'USD' },
+        });
+    });
+
+    it('Given_a_wire_disposition_When_priced_Then_every_member_is_mapped_and_the_remaining_lots_keep_their_order', async () => {
+        stubFetch(jsonResponse(WIRE_DISPOSITION));
+
+        const disposition = await priceDisposal('VOO', INPUT);
+
+        expect(disposition).toEqual({
+            symbol: 'VOO',
+            quantity: '4',
+            proceeds: { amount: '2100.00', currency: 'USD' },
+            costOfSale: { amount: '1600.00', currency: 'USD' },
+            realisedGain: { amount: '500.00', currency: 'USD' },
+            remaining: [
+                {
+                    acquiredOn: '2024-03-01',
+                    quantity: '6',
+                    unitCost: { amount: '400.00', currency: 'USD' },
+                },
+                {
+                    acquiredOn: '2025-01-15',
+                    quantity: '2.5',
+                    unitCost: { amount: '450.50', currency: 'USD' },
+                },
+            ],
+        });
+    });
+
+    for (const { name, symbol, segment } of ENCODED_SYMBOLS) {
+        it(`Given_a_symbol_with_${name}_When_priced_Then_it_travels_as_one_encoded_path_segment`, async () => {
+            const stub = stubFetch(jsonResponse({ ...WIRE_DISPOSITION, symbol }));
+
+            await priceDisposal(symbol, INPUT);
+
+            expect(onlyCall(stub).url).toBe(`${HOLDINGS_URL}/${segment}/disposal`);
+        });
+    }
+
+    it('Given_more_units_than_are_held_When_priced_Then_it_rejects_with_the_INSUFFICIENT_HOLDING_problem', async () => {
+        stubFetch(problemResponse({ status: 422, code: 'INSUFFICIENT_HOLDING' }, 422));
+
+        const failure = await priceDisposal('VOO', INPUT).catch((error: unknown) => error);
+
+        expect(failure).toBeInstanceOf(ApiError);
+        expect((failure as ApiError).problem?.code).toBe('INSUFFICIENT_HOLDING');
+    });
+
+    const MONEY_MEMBERS = ['proceeds', 'costOfSale', 'realisedGain'] as const;
+
+    for (const member of MONEY_MEMBERS) {
+        it(`Given_a_${member}_currency_the_contract_does_not_name_When_priced_Then_it_rejects_with_an_ApiBodyError`, async () => {
+            stubFetch(
+                jsonResponse({
+                    ...WIRE_DISPOSITION,
+                    [member]: { amount: '1.00', currency: 'XAU' },
+                }),
+            );
+
+            await expect(priceDisposal('VOO', INPUT)).rejects.toBeInstanceOf(ApiBodyError);
+        });
+    }
+
+    it('Given_a_remaining_lot_whose_unit_cost_currency_the_contract_does_not_name_When_priced_Then_it_rejects_with_an_ApiBodyError', async () => {
+        stubFetch(
+            jsonResponse({
+                ...WIRE_DISPOSITION,
+                remaining: [
+                    {
+                        acquiredOn: '2024-03-01',
+                        quantity: '6',
+                        unitCost: { amount: '400.00', currency: 'XAU' },
+                    },
+                ],
+            }),
+        );
+
+        await expect(priceDisposal('VOO', INPUT)).rejects.toBeInstanceOf(ApiBodyError);
+    });
 });

@@ -11,6 +11,7 @@ import { usePosition, useValuation } from '../hooks/portfolioQueries';
 import type { Position, Valuation } from '../types/holding';
 import { gainOrLoss } from '../types/money';
 import { AdviceNote } from './AdviceNote';
+import { DisposalSection } from './DisposalSection';
 import { Figure, Figures } from './Figures';
 import styles from './HoldingPage.module.css';
 import { PORTFOLIO_PATH } from './paths';
@@ -96,10 +97,14 @@ function ValuationSection({ query }: { readonly query: UseQueryResult<Valuation>
  * One holding's page, for a symbol taken from the URL.
  *
  * The position and the valuation are read side by side, and each section shows its own state.
- * Nothing held (404 `HOLDING_NOT_FOUND` on the position) is a calm empty state in place of both
- * sections, rather than a second error from the valuation. No usable price (503
- * `PRICE_UNAVAILABLE`) is an empty state in the valuation's section alone, and the position still
- * shows. Any other failure is an error state offering a retry.
+ * Nothing held (404 `HOLDING_NOT_FOUND` on the position) is a calm empty state in place of the
+ * position, the valuation and the disposal calculator, rather than a second error from the
+ * valuation and a calculator with nothing to price. No usable price (503 `PRICE_UNAVAILABLE`) is
+ * an empty state in the valuation's section alone, and the position still shows. Any other failure
+ * is an error state offering a retry.
+ *
+ * The disposal calculator is keyed by symbol, so moving to another holding starts it afresh rather
+ * than showing one holding's calculation under another's name.
  */
 function Holding({ symbol }: { readonly symbol: string }) {
     const position = usePosition(symbol);
@@ -120,6 +125,7 @@ function Holding({ symbol }: { readonly symbol: string }) {
                 <>
                     <PositionSection query={position} />
                     <ValuationSection query={valuation} />
+                    <DisposalSection key={symbol} symbol={symbol} />
                 </>
             )}
             <SymbolLookup heading="Look up another holding" />
@@ -128,7 +134,8 @@ function Holding({ symbol }: { readonly symbol: string }) {
 }
 
 /**
- * `/portfolio/:symbol`: one holding's position and valuation, and a lookup for another.
+ * `/portfolio/:symbol`: one holding's position and valuation, a calculator pricing a disposal of
+ * it, and a lookup for another.
  *
  * @throws Error - when mounted on a route without a `:symbol` segment, which only a broken route
  *   table can do.

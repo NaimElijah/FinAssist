@@ -183,6 +183,8 @@ describe('HoldingPage', () => {
             expect(queryClient.getQueryState(portfolioKeys.valuation('VOO'))?.status).toBe('error');
         });
         expect(screen.queryByRole('heading', { name: 'Valuation' })).toBeNull();
+        // With nothing held, there is nothing to price a disposal of.
+        expect(screen.queryByRole('heading', { name: 'Price a disposal' })).toBeNull();
         expect(screen.queryByRole('alert')).toBeNull();
         expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
     });

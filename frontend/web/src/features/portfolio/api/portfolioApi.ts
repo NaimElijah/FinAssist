@@ -7,14 +7,18 @@
  * `types/`. Quantities and amounts stay the strings the assistant sent, signs included - never
  * converted (ADR-028, ADR-029).
  */
-import { ApiBodyError, ASSISTANT_API, requestJson } from '@/shared/api/client';
+import { ApiBodyError, ASSISTANT_API, requestJson, sendJson } from '@/shared/api/client';
 import type {
+    DisposalRequestModel,
+    DispositionModel,
+    LotModel,
     MoneyModel,
     PositionModel,
     ValuationModel,
 } from '@/shared/api/contracts/assistant/types.gen';
 import { log } from '@/shared/lib/logger';
 
+import type { DisposalInput, Disposition, Lot } from '../types/disposal';
 import type { Position, Valuation } from '../types/holding';
 import { CURRENCIES, type Money } from '../types/money';
 
@@ -27,11 +31,11 @@ export const PRICE_UNAVAILABLE = 'PRICE_UNAVAILABLE';
 const HOLDINGS_URL = `${ASSISTANT_API}/portfolio/holdings`;
 
 /**
- * The URL of one read about a holding, its symbol encoded as a single path segment: a symbol
- * containing a space or a slash would otherwise change the path it names.
+ * The URL of one read or calculation on a holding, its symbol encoded as a single path segment: a
+ * symbol containing a space or a slash would otherwise change the path it names.
  */
-function holdingUrl(symbol: string, read: 'position' | 'valuation'): string {
-    return `${HOLDINGS_URL}/${encodeURIComponent(symbol)}/${read}`;
+function holdingUrl(symbol: string, resource: 'position' | 'valuation' | 'disposal'): string {
+    return `${HOLDINGS_URL}/${encodeURIComponent(symbol)}/${resource}`;
 }
 
 /**
@@ -69,6 +73,25 @@ function toValuation(wire: ValuationModel, url: string): Valuation {
     };
 }
 
+function toLot(wire: LotModel, url: string): Lot {
+    return {
+        acquiredOn: wire.acquiredOn,
+        quantity: wire.quantity,
+        unitCost: toMoney(wire.unitCost, url),
+    };
+}
+
+function toDisposition(wire: DispositionModel, url: string): Disposition {
+    return {
+        symbol: wire.symbol,
+        quantity: wire.quantity,
+        proceeds: toMoney(wire.proceeds, url),
+        costOfSale: toMoney(wire.costOfSale, url),
+        realisedGain: toMoney(wire.realisedGain, url),
+        remaining: wire.remaining.map((lot) => toLot(lot, url)),
+    };
+}
+
 /**
  * What is held under one symbol, across its lots, and what it cost in total.
  *
@@ -99,4 +122,33 @@ export async function valueHolding(symbol: string): Promise<Valuation> {
     const url = holdingUrl(symbol, 'valuation');
     const wire = await requestJson<ValuationModel>(url);
     return toValuation(wire, url);
+}
+
+/**
+ * What selling a quantity of one holding's units for the given proceeds would realise, its lots
+ * consumed oldest first (ADR-013). A calculation that records nothing: no lot is consumed, so it
+ * is safe to repeat.
+ *
+ * A `POST` with a JSON body only so the proceeds, an amount of money, never travel in a URL
+ * (ADR-028), so no query string is built.
+ *
+ * @param symbol - the symbol as the owner typed it; the assistant upper-cases it.
+ * @param input - the quantity and the proceeds, sent exactly as typed.
+ * @returns the disposition, every figure exactly as the assistant sent it - a realised loss as a
+ *   negative amount - and the lots that would remain, oldest first, in the order received.
+ * @throws ApiError - on a non-2xx response: 404 `HOLDING_NOT_FOUND`; 422 `INSUFFICIENT_HOLDING`
+ *   for more units than are held; 422 `RULE_VIOLATED` for a non-positive quantity or an amount
+ *   finer than its currency; 422 `CURRENCY_MISMATCH` for proceeds in a currency other than the
+ *   lots'; 400 `MALFORMED_REQUEST`, listing field `errors`.
+ * @throws ApiBodyError - when the response carries no JSON body, or a currency the contract does
+ *   not name.
+ */
+export async function priceDisposal(symbol: string, input: DisposalInput): Promise<Disposition> {
+    const url = holdingUrl(symbol, 'disposal');
+    const body: DisposalRequestModel = {
+        quantity: input.quantity,
+        proceeds: { amount: input.proceeds.amount, currency: input.proceeds.currency },
+    };
+    const wire = await sendJson<DispositionModel>(url, 'POST', body);
+    return toDisposition(wire, url);
 }
