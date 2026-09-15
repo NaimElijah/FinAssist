@@ -5,7 +5,6 @@ import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanState;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Recurrence;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
-import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
@@ -24,6 +23,10 @@ import java.time.LocalDate;
  * fault; letting the domain's exception escape would have the problem handler answer it as a rule the
  * caller broke, with a 422 and no log line (ADR-028). Duplicated per context for the reason {@code
  * AccountingRows} gives.
+ *
+ * <p>That log line is at ERROR, and ECS prints every cause's message into its stack trace. So a stored
+ * value is quoted only when it is an enum discriminator; an amount is named by its row's key, and a
+ * scenario the domain refuses by its id, instead.
  */
 final class PlanningRows {
 
@@ -86,16 +89,19 @@ final class PlanningRows {
     /**
      * Reads a monetary amount from an amount column and its currency column.
      *
+     * @param rowKey the row's key, such as {@code id=…}, which a failure names in place of the amount
      * @throws IllegalStateException if the stored amount carries more precision than the currency
      *     admits, or the currency is unknown
      */
-    static Money money(ResultSet row, String table, String amountColumn, String currencyColumn) throws SQLException {
+    static Money money(ResultSet row, String table, String rowKey, String amountColumn, String currencyColumn)
+            throws SQLException {
         Currency currency = currency(row, table, currencyColumn);
-        BigDecimal amount = row.getBigDecimal(amountColumn);
         try {
-            return new Money(amount, currency);
+            return new Money(row.getBigDecimal(amountColumn), currency);
         } catch (IllegalArgumentException refused) {
-            throw unmappable(table, amountColumn, amount.toPlainString() + " " + currency, refused);
+            // Not chained: Money's message repeats the amount, and the key is enough to find the row.
+            throw new IllegalStateException("Stored " + table + "." + amountColumn + " at " + rowKey
+                    + " is not a valid " + currency + " amount and cannot be read back");
         }
     }
 
@@ -129,10 +135,12 @@ final class PlanningRows {
     /**
      * Rows that each read back, and together make an aggregate the domain refuses. No single column is
      * at fault, so the aggregate and the tables it spans are named instead.
+     *
+     * <p>The domain's refusal is deliberately not carried, as message or cause: it quotes what the owner
+     * wrote, such as a flow's description, and the aggregate's id is enough to find the rows.
      */
-    static IllegalStateException unreconstructable(String aggregate, Object id, String tables, RuntimeException cause) {
-        return new IllegalStateException(
-                "Stored " + aggregate + " " + id + " in " + tables + " cannot be reconstructed: " + cause.getMessage(),
-                cause);
+    static IllegalStateException unreconstructable(String aggregate, Object id, String tables) {
+        return new IllegalStateException("Stored " + aggregate + " " + id + " in " + tables
+                + " cannot be reconstructed: the domain refuses its rows together");
     }
 }

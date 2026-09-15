@@ -140,7 +140,7 @@ public class JdbcScenarioRepository implements ScenarioRepository {
             return new Scenario(id, name, currency, flows, growth);
         } catch (IllegalArgumentException refused) {
             throw PlanningRows.unreconstructable(
-                    "scenario", id.value(), SCENARIO_TABLE + " and " + SCENARIO_FLOW_TABLE, refused);
+                    "scenario", id.value(), SCENARIO_TABLE + " and " + SCENARIO_FLOW_TABLE);
         }
     }
 }

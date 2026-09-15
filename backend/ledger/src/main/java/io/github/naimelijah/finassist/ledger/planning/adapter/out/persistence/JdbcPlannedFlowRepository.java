@@ -119,11 +119,12 @@ public class JdbcPlannedFlowRepository implements PlannedFlowRepository {
                 (Integer) row.getObject("occurrences"));
         PlanningRows.StoredPlanState state = new PlanningRows.StoredPlanState(
                 row.getString("state"), row.getObject("state_on", LocalDate.class), row.getString("state_reason"));
+        UUID id = row.getObject("id", UUID.class);
 
         return new PlannedFlow(
-                new PlanId(row.getObject("id", UUID.class)),
+                new PlanId(id),
                 row.getString("description"),
-                PlanningRows.money(row, PlanningRows.PLANNED_FLOW, "amount", "currency"),
+                PlanningRows.money(row, PlanningRows.PLANNED_FLOW, "id=" + id, "amount", "currency"),
                 PlanningRows.enumerated(
                         Direction.class, PlanningRows.PLANNED_FLOW, "direction", row.getString("direction")),
                 row.getObject("starts_on", LocalDate.class),

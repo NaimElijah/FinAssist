@@ -173,6 +173,9 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
      * {@code numeric} keeps whatever scale it is given, and {@link Money} refuses more precision than a
      * currency admits. Reading such a row is a server fault naming the column, not an {@code
      * IllegalArgumentException} a problem handler would answer as a broken rule.
+     *
+     * <p>The fault is logged at ERROR, and ECS prints every cause's message into {@code stack_trace}, so it
+     * names the budget and carries neither the amount nor {@code Money}'s refusal, which repeats it.
      */
     @Test
     void Given_a_limit_stored_with_more_precision_than_its_currency_admits_When_read_Then_it_is_a_server_fault() {
@@ -183,12 +186,17 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
 
         assertThatThrownBy(() -> budgets.findById(id))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("budgeting.budget_limit.amount");
+                .hasMessageContaining("budgeting.budget_limit.amount")
+                .hasMessageContaining(id.value().toString())
+                .hasNoCause()
+                .message()
+                .doesNotContain("1200.005");
     }
 
     /**
      * No constraint ties a limit's currency to its budget's, because they sit in two tables. {@code
-     * Budget} refuses the pair, and a stored pair it refuses is a server fault naming the budget.
+     * Budget} refuses the pair, and a stored pair it refuses is a server fault naming the budget. Its
+     * refusal names the category, the owner's own word, so it is not carried into the logged fault.
      */
     @Test
     void Given_a_limit_stored_in_another_currency_than_its_budget_When_read_Then_it_is_a_server_fault() {
@@ -200,7 +208,10 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
         assertThatThrownBy(() -> budgets.findById(id))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("budgeting.budget")
-                .hasMessageContaining(id.value().toString());
+                .hasMessageContaining(id.value().toString())
+                .hasNoCause()
+                .message()
+                .doesNotContain("groceries");
     }
 
     /**

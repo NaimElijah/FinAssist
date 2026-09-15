@@ -294,6 +294,9 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
      * {@code numeric} keeps whatever scale it is given, and {@link Money} refuses more precision than a
      * currency admits. Reading such a row is a server fault naming the column, not an {@code
      * IllegalArgumentException} a problem handler would answer as a broken rule.
+     *
+     * <p>The fault is logged at ERROR, and ECS prints every cause's message into {@code stack_trace}, so it
+     * names the flow by its id and carries neither the amount nor {@code Money}'s refusal, which repeats it.
      */
     @Test
     void Given_a_flow_stored_with_more_precision_than_its_currency_admits_When_read_Then_it_is_a_server_fault() {
@@ -306,12 +309,18 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
 
         assertThatThrownBy(() -> flows.findById(id))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("planning.planned_flow.amount");
+                .hasMessageContaining("planning.planned_flow.amount")
+                .hasMessageContaining(id.value().toString())
+                .hasNoCause()
+                .message()
+                .doesNotContain("40000.005");
     }
 
     /**
      * No constraint ties a flow's currency to a scenario's, because they sit in two tables. {@code
-     * Scenario} refuses the pair, and a stored pair it refuses is a server fault naming the scenario.
+     * Scenario} refuses the pair, and a stored pair it refuses is a server fault naming the scenario. Its
+     * refusal quotes the flow's description, the owner's own words, so it is not carried into the logged
+     * fault.
      */
     @Test
     void Given_a_scenario_stored_over_a_flow_in_another_currency_When_read_Then_it_is_a_server_fault() {
@@ -328,7 +337,10 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
         assertThatThrownBy(() -> scenarios.findById(id))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("planning.scenario")
-                .hasMessageContaining(id.value().toString());
+                .hasMessageContaining(id.value().toString())
+                .hasNoCause()
+                .message()
+                .doesNotContain("New car");
     }
 
     private PlannedFlow stored(String description, String amount) {

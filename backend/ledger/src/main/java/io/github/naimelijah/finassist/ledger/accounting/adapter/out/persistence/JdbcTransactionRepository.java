@@ -286,8 +286,9 @@ public class JdbcTransactionRepository implements TransactionRepository {
         static final org.springframework.jdbc.core.RowMapper<Row> MAPPER = Row::map;
 
         static Row map(ResultSet row, int rowNumber) throws SQLException {
+            UUID transactionId = row.getObject("transaction_id", UUID.class);
             return new Row(
-                    row.getObject("transaction_id", UUID.class),
+                    transactionId,
                     row.getObject("occurred_on", LocalDate.class),
                     row.getString("description"),
                     new StoredState(
@@ -295,7 +296,12 @@ public class JdbcTransactionRepository implements TransactionRepository {
                             row.getObject("effective_on", LocalDate.class),
                             row.getString("reason")),
                     row.getObject("account_id", UUID.class),
-                    AccountingRows.money(row, ENTRY_TABLE, "amount", "currency"));
+                    AccountingRows.money(
+                            row,
+                            ENTRY_TABLE,
+                            "transaction_id=" + transactionId + ", ordinal=" + row.getInt("ordinal"),
+                            "amount",
+                            "currency"));
         }
     }
 

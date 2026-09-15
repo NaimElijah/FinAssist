@@ -134,9 +134,10 @@ public class JdbcBudgetRepository implements BudgetRepository {
     private Map<Category, Money> limitsOf(BudgetId id) {
         List<Map.Entry<Category, Money>> rows = jdbc.sql(SELECT_LIMITS)
                 .param("budgetId", id.value())
+                // The key names the budget and not the category, which is the owner's own word.
                 .query((row, rowNumber) -> Map.entry(
                         category(row.getString("category")),
-                        BudgetingRows.money(row, LIMIT_TABLE, "amount", "currency")))
+                        BudgetingRows.money(row, LIMIT_TABLE, "budget_id=" + id.value(), "amount", "currency")))
                 .list();
 
         Map<Category, Money> limits = new LinkedHashMap<>();
@@ -168,7 +169,7 @@ public class JdbcBudgetRepository implements BudgetRepository {
                     row.getObject("period_start", LocalDate.class), row.getObject("period_end", LocalDate.class));
             return new Budget(id, period, currency, limits);
         } catch (IllegalArgumentException refused) {
-            throw BudgetingRows.unreconstructable("budget", id.value(), BUDGET_TABLE + " and " + LIMIT_TABLE, refused);
+            throw BudgetingRows.unreconstructable("budget", id.value(), BUDGET_TABLE + " and " + LIMIT_TABLE);
         }
     }
 }

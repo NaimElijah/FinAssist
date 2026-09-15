@@ -187,6 +187,9 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
      * currency admits. A row holding such an amount is the store's fault, not the caller's, so reading it
      * must be a server fault naming where the value sits. An {@code IllegalArgumentException} here would
      * reach the problem handler as a broken domain rule and be answered 422, unlogged.
+     *
+     * <p>The fault is logged at ERROR, and ECS prints every cause's message into {@code stack_trace}, so it
+     * names the row by its key and carries neither the amount nor {@code Money}'s refusal, which repeats it.
      */
     @Test
     void Given_an_entry_stored_with_more_precision_than_its_currency_admits_When_read_Then_it_is_a_server_fault() {
@@ -211,7 +214,11 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
 
         assertThatThrownBy(() -> transactions.findById(id))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("accounting.journal_entry.amount");
+                .hasMessageContaining("accounting.journal_entry.amount")
+                .hasMessageContaining(id.value().toString())
+                .hasNoCause()
+                .message()
+                .doesNotContain("10.005");
     }
 
     /**
