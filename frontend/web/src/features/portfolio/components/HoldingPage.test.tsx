@@ -443,4 +443,32 @@ describe('HoldingPage', () => {
             expect(queryClient.isFetching()).toBe(0);
         });
     });
+
+    it('Given_another_symbol_looked_up_from_a_holding_When_its_page_opens_Then_the_lookup_starts_empty', async () => {
+        // The lookup belongs to the holding on screen, so text typed on one holding's page must not
+        // follow the owner onto the next.
+        const BND = assistant(
+            {
+                position: () => jsonResponse({ ...POSITION, symbol: 'BND' }),
+                valuation: () => jsonResponse({ ...VALUATION, symbol: 'BND' }),
+            },
+            'BND',
+        );
+        fakeFetch((request) =>
+            request.url.startsWith(`${HOLDINGS_URL}/BND/`) ? BND(request) : PRICED(request),
+        );
+        const { router, queryClient } = renderHolding();
+        await screen.findByText('1234.125');
+        const user = userEvent.setup({ delay: null });
+
+        await user.type(screen.getByLabelText('Symbol'), 'BND');
+        await user.click(screen.getByRole('button', { name: 'Look up' }));
+
+        expect(await screen.findByRole('heading', { level: 1, name: 'BND' })).toBeDefined();
+        expect(router.state.location.pathname).toBe('/portfolio/BND');
+        expect(screen.getByLabelText('Symbol')).toHaveProperty('value', '');
+        await waitFor(() => {
+            expect(queryClient.isFetching()).toBe(0);
+        });
+    });
 });

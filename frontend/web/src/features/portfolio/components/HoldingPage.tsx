@@ -124,7 +124,8 @@ function ValuationSection({
  * The disposal calculator is offered once the position has loaded, its proceeds starting in the
  * currency the holding's lots cost, the only one the assistant prices them in. It is keyed by
  * symbol, so moving to another holding starts it afresh rather than showing one holding's
- * calculation under another's name.
+ * calculation under another's name. The lookup is keyed by symbol too, so text typed on one
+ * holding's page does not follow the owner onto the next.
  */
 function Holding({ symbol }: { readonly symbol: string }) {
     const position = usePosition(symbol);
@@ -154,7 +155,7 @@ function Holding({ symbol }: { readonly symbol: string }) {
                     )}
                 </>
             )}
-            <SymbolLookup heading="Look up another holding" />
+            <SymbolLookup key={symbol} heading="Look up another holding" />
         </>
     );
 }
