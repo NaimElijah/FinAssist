@@ -67,8 +67,9 @@ def _seam(assembly: Assembly) -> InMemoryQuoteFeed:
 class _ScopeRecorder:
     """Keeps every HTTP scope the app receives.
 
-    The scope is what uvicorn writes its access line from and what OpenTelemetry takes a request's
-    URL attributes from, so an amount absent from the scope reaches neither. Kept as ``Any``
+    The scope is what OpenTelemetry takes a request's URL attributes from, and what uvicorn writes
+    its access line from wherever that line is on; the assistant's own entry point turns it off, but
+    another launcher need not. An amount absent from the scope reaches neither. Kept as ``Any``
     because uvicorn types its helpers with its own scope dictionaries, not Starlette's mapping.
     """
 
@@ -343,12 +344,14 @@ def Given_a_disposal_priced_by_get_with_query_parameters_When_requested_Then_it_
 def Given_proceeds_with_a_recognisable_amount_When_a_disposal_is_priced_Then_no_log_line_holds_it(
     app: FastAPI, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Money never travels in a URL. A URL is written to the access log, to trace attributes and by
-    any proxy on the way, and keeping the amount out of the URL keeps it out of all of them at once.
+    """Money never travels in a URL. A URL is written to trace attributes, by any proxy on the way
+    and by any server access log left on, and keeping the amount out of the URL keeps it out of all
+    of them at once.
 
-    TestClient runs no server, so the access line uvicorn would write is written here, from the
-    scope the app actually received, with uvicorn's own helpers and format. The test client's own
-    request line and every line the service writes are captured with it.
+    The assistant's entry point switches uvicorn's access log off, but a different launcher would
+    leave it on. TestClient runs no server, so the line uvicorn writes when it is on is written
+    here, from the scope the app actually received, with uvicorn's own helpers and format. The test
+    client's own request line and every line the service writes are captured with it.
     """
     scopes: list[Any] = []
     app.add_middleware(_ScopeRecorder, scopes=scopes)
