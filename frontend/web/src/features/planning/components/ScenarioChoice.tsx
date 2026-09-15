@@ -18,9 +18,9 @@ export interface ScenarioChoiceProps {
  * The scenarios a planning form chooses from - to project one, or compare several - in whichever
  * state their request is in: loading, failed, none defined, or loaded.
  *
- * A failed background refetch never hides a form already on screen: TanStack Query keeps the list
- * it holds, so the failure is shown above the form rather than in its place. A retry that restores
- * the list moves focus to what it restored.
+ * A failed background refetch never hides what is already on screen: TanStack Query keeps the list
+ * it holds, so the failure is shown above the form, or above the empty state when the list held
+ * none, rather than in its place. A retry that restores the list moves focus to what it restored.
  *
  * @param props - see `ScenarioChoiceProps`.
  */
@@ -49,13 +49,11 @@ export function ScenarioChoice({ emptyMessage, children }: ScenarioChoiceProps) 
     }
     return (
         <div ref={targetRef} tabIndex={-1} className={styles.choice}>
+            {failure}
             {scenarios.data.length === 0 ? (
                 <EmptyState message={emptyMessage} />
             ) : (
-                <>
-                    {failure}
-                    {children(scenarios.data)}
-                </>
+                children(scenarios.data)
             )}
         </div>
     );

@@ -3,7 +3,7 @@
 // faked, so the feature's real api/ module and its mapping run under test; the account choices
 // src/app would provide are provided here directly, in planning's own terms.
 
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { Outlet, type RouteObject } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,6 +22,7 @@ import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { AccountOptionsContext } from '../hooks/accountOptions';
+import { planKeys } from '../hooks/planQueries';
 import { planningRoutes } from '../index';
 import type { AccountOptions } from '../types/accountOption';
 
@@ -514,6 +515,28 @@ describe('ProjectionPage', () => {
             await screen.findByText('No scenarios to project yet — define one under Scenarios.'),
         ).toBeDefined();
         expect(screen.queryByRole('button', { name: 'Project' })).toBeNull();
+    });
+
+    it('Given_no_scenarios_shown_When_the_list_is_read_again_and_fails_Then_the_failure_shows_above_the_empty_state', async () => {
+        // An empty list is still what the ledger last answered, and a scenario defined since may
+        // be what the failed read would have found, so the owner is told it did not land.
+        let failing = false;
+        fakeFetch((request) => {
+            if (request.url !== SCENARIOS_URL) return unexpectedRequest(request);
+            return failing
+                ? problemResponse({ status: 502, code: 'UNAVAILABLE', detail: 'Try later.' })
+                : jsonResponse([]);
+        });
+        const { queryClient } = renderProjection();
+        const empty = 'No scenarios to project yet — define one under Scenarios.';
+        await screen.findByText(empty);
+
+        failing = true;
+        await act(() => queryClient.invalidateQueries({ queryKey: planKeys.scenarios }));
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('Try later.')).toBeDefined();
+        expect(screen.getByText(empty)).toBeDefined();
     });
 
     it('Given_the_scenarios_read_fails_When_the_page_renders_Then_a_retry_is_offered_that_refetches', async () => {
