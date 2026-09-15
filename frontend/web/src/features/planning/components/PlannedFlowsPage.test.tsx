@@ -593,6 +593,35 @@ describe('PlannedFlowsPage plan-flow form', () => {
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(0);
     });
 
+    it('Given_an_every_of_zero_submitted_by_script_When_planned_Then_the_Every_field_says_why_and_takes_focus', async () => {
+        // Native validation refuses "0" before a click reaches submit; a scripted submit does not,
+        // and refusing it without a word would leave "Plan flow" doing nothing at all.
+        const requests = fakeFetch(ledger([]));
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+        await user.type(screen.getByLabelText('Description'), 'Salary');
+        await user.type(screen.getByLabelText('Amount'), '1000.00');
+        await user.selectOptions(screen.getByLabelText('Repeats'), 'TIMES');
+        const every = screen.getByLabelText('Every');
+        fireEvent.change(every, { target: { value: '0' } });
+        fireEvent.change(screen.getByLabelText('Times'), { target: { value: '12' } });
+        const form = every.closest('form');
+        if (form === null) {
+            throw new Error('the Every field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+
+        const error = await screen.findByText('Enter a whole number, 1 or more');
+        expect(every.getAttribute('aria-invalid')).toBe('true');
+        expect(every.getAttribute('aria-describedby')?.split(' ')).toContain(error.id);
+        await waitFor(() => {
+            expect(document.activeElement).toBe(every);
+        });
+        expect(requests.filter((request) => request.method === 'POST')).toHaveLength(0);
+    });
+
     it('Given_a_complete_times_recurrence_When_submitted_Then_it_posts_the_mapped_body', async () => {
         const requests = fakeFetch(
             ledger([], (request) => {

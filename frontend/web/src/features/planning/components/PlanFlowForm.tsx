@@ -25,6 +25,7 @@ import {
     CADENCE_LABELS,
     CADENCES,
     type Cadence,
+    InvalidCountError,
     RECURRENCE_KIND_LABELS,
     RECURRENCE_KINDS,
     type Recurrence,
@@ -65,6 +66,9 @@ const DEFAULT_INTERVAL = '1';
  * below one.
  */
 const POSITIVE_INTEGER_PATTERN = '[1-9][0-9]*';
+
+/** Shown on Every or Times when a submitted count is not a positive integer; see `submit`. */
+const COUNT_REFUSED_MESSAGE = 'Enter a whole number, 1 or more';
 
 /** ADR-028 lists field `errors` only on a 400. */
 const MALFORMED_REQUEST_STATUS = 400;
@@ -181,9 +185,10 @@ export interface PlanFlowFormProps {
  * **Repeats** conditionally reveals Cadence and Every (`interval`) for `Until a date` and `A
  * number of times`, plus Until or Times depending on which is chosen. `buildRecurrence` maps the
  * chosen fields to the `recurrence` the ledger expects, omitting whichever members the kind does
- * not carry; `interval` and `count` are computed before the in-flight guard is set, so a value
- * native validation somehow let through and `buildRecurrence` cannot parse never leaves the form
- * stuck pending (mirrors `DefineBudgetForm`'s month parse).
+ * not carry. `interval` and `count` are computed before the in-flight guard is set: a count native
+ * validation let through - a scripted submit skips it - and `buildRecurrence` refuses is shown on
+ * Every or Times, which takes focus, and never leaves the form stuck pending (as `DefineBudgetForm`
+ * refuses a month).
  *
  * The amount is sent exactly as typed: a negative one is not normalised, so the ledger refuses it
  * with 422 and the owner sees why (ADR-015).
@@ -216,6 +221,9 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
     const [everyValue, setEveryValue] = useState(DEFAULT_INTERVAL);
     const [until, setUntil] = useState('');
     const [count, setCount] = useState('');
+    // The count `buildRecurrence` last refused, until Repeats, Every or Times changes: a new error
+    // for every refused submit, so each refusal moves focus.
+    const [countRefusal, setCountRefusal] = useState<InvalidCountError | null>(null);
 
     const planFlow = usePlanFlow();
     const failure = planFlow.error;
@@ -231,6 +239,15 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
             formRef.current?.querySelector<HTMLElement>(INVALID_CONTROL_SELECTOR);
         (invalidControl ?? errorStateRef.current)?.focus();
     }, [failure]);
+
+    // Runs after the render that marks the refused field invalid, so focus lands on a control that
+    // already says why.
+    useEffect(() => {
+        if (countRefusal === null) {
+            return;
+        }
+        formRef.current?.querySelector<HTMLElement>(INVALID_CONTROL_SELECTOR)?.focus();
+    }, [countRefusal]);
 
     function resetForm() {
         setDescription('');
@@ -261,13 +278,14 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
         let recurrence: Recurrence;
         try {
             recurrence = buildRecurrence(form);
-        } catch {
-            // Native `required` and the `[1-9][0-9]*` pattern on Every and Times refuse a blank,
-            // fractional, negative or zero value before the browser ever fires this handler, so
-            // this catch is unreachable through the UI; a scripted or malformed value is refused
-            // rather than setting `submitting` and locking the form on a recurrence the ledger
-            // could never have accepted anyway. Computed before the ref is set, so a bad parse
-            // never leaves submit stuck disabled.
+        } catch (error) {
+            if (!(error instanceof InvalidCountError)) {
+                throw error;
+            }
+            // Native `required` and the pattern on Every and Times refuse a bad count before a
+            // click submits, but not a scripted submit. The refusal shows on the field it came
+            // from, before `submitting` is set, so submit is never left disabled.
+            setCountRefusal(error);
             return;
         }
 
@@ -354,6 +372,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         value={recurrenceKind}
                         onChange={(event) => {
                             clearSettledOutcome(planFlow);
+                            setCountRefusal(null);
                             setRecurrenceKind(oneOf(RECURRENCE_KINDS, event.target.value));
                         }}
                     />
@@ -375,8 +394,14 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                                 required
                                 autoComplete="off"
                                 value={everyValue}
+                                error={
+                                    countRefusal?.field === 'interval'
+                                        ? COUNT_REFUSED_MESSAGE
+                                        : undefined
+                                }
                                 onChange={(event) => {
                                     clearSettledOutcome(planFlow);
+                                    setCountRefusal(null);
                                     setEveryValue(event.target.value);
                                 }}
                             />
@@ -401,8 +426,12 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                             required
                             autoComplete="off"
                             value={count}
+                            error={
+                                countRefusal?.field === 'count' ? COUNT_REFUSED_MESSAGE : undefined
+                            }
                             onChange={(event) => {
                                 clearSettledOutcome(planFlow);
+                                setCountRefusal(null);
                                 setCount(event.target.value);
                             }}
                         />

@@ -418,6 +418,35 @@ describe('BudgetsPage defining a budget', () => {
         );
     });
 
+    it('Given_a_month_the_form_cannot_read_When_submitted_Then_the_Month_field_says_why_and_takes_focus', async () => {
+        // A month input accepts a year of five digits, such as 20266-09, and ignores `pattern`, so
+        // a value the period cannot be read from reaches submit. Refusing it without a word would
+        // leave "Define budget" doing nothing at all.
+        const requests = fakeFetch((request) =>
+            request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
+        renderBudgets();
+        const user = userEvent.setup({ delay: null });
+        const month = await screen.findByLabelText('Month');
+        fireEvent.change(month, { target: { value: '20266-09' } });
+        await user.type(screen.getByLabelText('Category 1'), 'groceries');
+        await user.type(screen.getByLabelText('Limit amount 1'), '1000.00');
+        const form = month.closest('form');
+        if (form === null) {
+            throw new Error('the Month field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+
+        const error = await screen.findByText('Enter a month as YYYY-MM');
+        expect(month.getAttribute('aria-invalid')).toBe('true');
+        expect(month.getAttribute('aria-describedby')?.split(' ')).toContain(error.id);
+        await waitFor(() => {
+            expect(document.activeElement).toBe(month);
+        });
+        expect(requests.filter((request) => request.method === 'POST')).toHaveLength(0);
+    });
+
     it('Given_a_filled_form_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
         // Two submit events can arrive in one tick, before the pending state has rendered, so a
         // guard that reads render-time state lets both through. Counting requests right after

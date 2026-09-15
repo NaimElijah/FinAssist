@@ -32,6 +32,9 @@ const DEFAULT_CURRENCY: Currency = 'ILS';
  */
 const MONTH_INPUT_PATTERN = '\\d{4}-(0[1-9]|1[0-2])';
 
+/** Shown on the Month field when a submitted value is not `YYYY-MM`; see `submit`. */
+const MONTH_REFUSED_MESSAGE = 'Enter a month as YYYY-MM';
+
 /** ADR-028 lists field `errors` only on a 400. */
 const MALFORMED_REQUEST_STATUS = 400;
 
@@ -209,8 +212,9 @@ export interface DefineBudgetFormProps {
  * shown where it can be acted on: a 400's top-level field errors on their fields, and anything
  * else - including a 422 `RULE_VIOLATED` for a rule the domain refuses - in an `ErrorState` above
  * the form, exactly as `OpenAccountForm` and `RecordTransactionForm` do. Focus follows the
- * failure there. Editing any field, or adding or removing a limit, clears a failure that has
- * settled, since it answered the budget as it was sent.
+ * failure there. A month the period cannot be read from is refused on the Month field before any
+ * request, and focus moves to it. Editing any field, or adding or removing a limit, clears a
+ * failure that has settled, since it answered the budget as it was sent.
  *
  * @param props - see `DefineBudgetFormProps`.
  */
@@ -223,6 +227,9 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
     const nextKey = useRef(1);
 
     const [month, setMonth] = useState('');
+    // Counts the submits refused since the Month field last changed: a new count for each, so each
+    // refusal moves focus, and zero while none has been.
+    const [monthRefusals, setMonthRefusals] = useState(0);
     const [currency, setCurrency] = useState<Currency>(DEFAULT_CURRENCY);
     const [rows, setRows] = useState<LimitRowState[]>(initialRows);
     const defineBudget = useDefineBudget();
@@ -239,6 +246,15 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
             formRef.current?.querySelector<HTMLElement>(INVALID_CONTROL_SELECTOR);
         (invalidControl ?? errorStateRef.current)?.focus();
     }, [failure]);
+
+    // Runs after the render that marks the Month field invalid, so focus lands on a control that
+    // already says why.
+    useEffect(() => {
+        if (monthRefusals === 0) {
+            return;
+        }
+        formRef.current?.querySelector<HTMLElement>(INVALID_CONTROL_SELECTOR)?.focus();
+    }, [monthRefusals]);
 
     function updateCategory(key: number, category: string) {
         clearSettledOutcome(defineBudget);
@@ -282,11 +298,10 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
         try {
             period = monthInputToPeriod(month);
         } catch {
-            // The month field's native picker, and its `pattern` fallback, keep this
-            // unreachable through the UI; a scripted or malformed value is refused rather than
-            // setting `submitting` and locking the form on a period the ledger could never have
-            // accepted anyway. Computed before the ref is set, so a bad parse never leaves
-            // submit stuck disabled.
+            // A month input can hold a year of five digits, such as 20266-09, and ignores
+            // `pattern`, so a value `monthInputToPeriod` refuses can reach here. It is refused on
+            // the Month field, before `submitting` is set, so submit is never left disabled.
+            setMonthRefusals((refusals) => refusals + 1);
             return;
         }
         submitting.current = true;
@@ -322,8 +337,10 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                         required
                         pattern={MONTH_INPUT_PATTERN}
                         value={month}
+                        error={monthRefusals === 0 ? undefined : MONTH_REFUSED_MESSAGE}
                         onChange={(event) => {
                             clearSettledOutcome(defineBudget);
+                            setMonthRefusals(0);
                             setMonth(event.target.value);
                         }}
                     />

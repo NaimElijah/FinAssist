@@ -79,15 +79,33 @@ export interface RecurrenceFormState {
     readonly count: string;
 }
 
+/** A recurrence member `buildRecurrence` reads as a count: the steps between, or how many times. */
+export type CountField = 'interval' | 'count';
+
+/**
+ * Thrown by `buildRecurrence` when a count it needs is not a positive integer. It names the member,
+ * so the plan-flow form can show the refusal on the field it came from.
+ */
+export class InvalidCountError extends Error {
+    /** The member that did not parse to a positive integer. */
+    readonly field: CountField;
+
+    constructor(field: CountField, value: string) {
+        super(`Expected ${field} to be a positive integer, got "${value}"`);
+        this.name = 'InvalidCountError';
+        this.field = field;
+    }
+}
+
 /**
  * `value` parsed as a positive integer count, never money (ADR-029).
  *
- * @throws Error - when `value` does not parse to a positive integer.
+ * @throws InvalidCountError - when `value` does not parse to a positive integer.
  */
-function parseCount(value: string, field: string): number {
+function parseCount(value: string, field: CountField): number {
     const parsed = Number.parseInt(value, 10);
     if (!Number.isInteger(parsed) || parsed <= 0) {
-        throw new Error(`Expected ${field} to be a positive integer, got "${value}"`);
+        throw new InvalidCountError(field, value);
     }
     return parsed;
 }
@@ -102,9 +120,9 @@ function parseCount(value: string, field: string): number {
  *
  * @param form - the form's current recurrence fields.
  * @returns the mapped `Recurrence`, holding exactly the members its `kind` carries.
- * @throws Error - when `interval` or `count` (whichever `kind` needs) is not a positive integer,
- *   which the form's own validation keeps unreachable through the UI; a scripted or malformed
- *   value is refused rather than sent as `NaN` or zero.
+ * @throws InvalidCountError - when `interval` or `count` (whichever `kind` needs) is not a
+ *   positive integer, naming which; a scripted or malformed value is refused rather than sent as
+ *   `NaN` or zero.
  */
 export function buildRecurrence(form: RecurrenceFormState): Recurrence {
     if (form.kind === 'ONCE') {

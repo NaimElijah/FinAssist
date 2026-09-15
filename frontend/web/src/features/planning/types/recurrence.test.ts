@@ -3,7 +3,22 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { buildRecurrence, type Recurrence, recurrenceSummary } from './recurrence';
+import {
+    buildRecurrence,
+    InvalidCountError,
+    type Recurrence,
+    recurrenceSummary,
+} from './recurrence';
+
+/** What `action` throws, or `undefined` when it returns normally. */
+function thrownBy(action: () => unknown): unknown {
+    try {
+        action();
+    } catch (error) {
+        return error;
+    }
+    return undefined;
+}
 
 describe('recurrenceSummary', () => {
     it('Given_a_once_recurrence_When_summarised_Then_it_reads_Once', () => {
@@ -129,5 +144,36 @@ describe('buildRecurrence', () => {
                 count: '0',
             }),
         ).toThrow();
+    });
+
+    it('Given_a_zero_interval_When_built_Then_the_error_names_interval_as_the_member_refused', () => {
+        // The form shows the refusal on the field it came from, so the error must say which.
+        const thrown = thrownBy(() =>
+            buildRecurrence({
+                kind: 'TIMES',
+                cadence: 'MONTHLY',
+                interval: '0',
+                until: '',
+                count: '12',
+            }),
+        );
+
+        expect(thrown).toBeInstanceOf(InvalidCountError);
+        expect(thrown).toHaveProperty('field', 'interval');
+    });
+
+    it('Given_a_zero_count_When_built_Then_the_error_names_count_as_the_member_refused', () => {
+        const thrown = thrownBy(() =>
+            buildRecurrence({
+                kind: 'TIMES',
+                cadence: 'MONTHLY',
+                interval: '1',
+                until: '',
+                count: '0',
+            }),
+        );
+
+        expect(thrown).toBeInstanceOf(InvalidCountError);
+        expect(thrown).toHaveProperty('field', 'count');
     });
 });
