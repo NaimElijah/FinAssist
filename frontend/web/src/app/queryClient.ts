@@ -3,23 +3,13 @@
  */
 import { QueryClient } from '@tanstack/react-query';
 
-import { ApiError } from '@/shared/api/client';
+import { isRetryable } from '@/shared/api/retry';
 
 /**
  * At most one retry. It absorbs a dropped connection or a backend restarting under Compose,
  * without hiding a real outage behind several attempts, each waiting out its own backoff.
  */
 const MAX_QUERY_RETRIES = 1;
-
-/** The lowest status meaning the server failed, rather than that it refused the request. */
-const FIRST_SERVER_ERROR_STATUS = 500;
-
-/**
- * The one 5xx that is a considered answer rather than a failure: the assistant's
- * `PRICE_UNAVAILABLE`, a price feed gone stale. A stale feed does not recover within a retry's
- * backoff, so a retry would only delay showing that no price is usable.
- */
-const SERVICE_UNAVAILABLE_STATUS = 503;
 
 /**
  * Refetching on window focus suits data other people change. Here the owner is the only writer,
@@ -34,31 +24,15 @@ const REFETCH_ON_WINDOW_FOCUS = false;
 const MUTATION_RETRIES = 0;
 
 /**
- * Whether a failed query is tried again: at most once, and only when a second attempt could meet
- * a different outcome.
- *
- * That means a network failure, which `fetch` reports as a `TypeError` and `requestJson` rethrows,
- * or a 5xx `ApiError` other than a 503. A backend restarting refuses the connection, which reaches
- * here as a `TypeError`, or through the dev proxy as a 502. A 4xx is the server's considered
- * answer - a 404 stays missing and a 409 stays in conflict - so a retry would only delay showing
- * it, and a 503 is considered too: see `SERVICE_UNAVAILABLE_STATUS`. Anything else, such as an
- * `ApiBodyError`, is a defect a retry would repeat. A `TypeError` thrown by a defect in a query
- * function is retried once as well; from here the two cannot be told apart.
+ * Whether a failed query is tried again: at most once, and only when `isRetryable` holds - a
+ * network failure, or a 5xx other than a 503.
  *
  * @param failureCount - retries already made. TanStack Query passes 0 on the first failure.
  * @param error - what the query function threw.
  * @returns whether to retry.
  */
 function shouldRetryQuery(failureCount: number, error: unknown): boolean {
-    if (failureCount >= MAX_QUERY_RETRIES) {
-        return false;
-    }
-    if (error instanceof ApiError) {
-        return (
-            error.status >= FIRST_SERVER_ERROR_STATUS && error.status !== SERVICE_UNAVAILABLE_STATUS
-        );
-    }
-    return error instanceof TypeError;
+    return failureCount < MAX_QUERY_RETRIES && isRetryable(error);
 }
 
 /**
