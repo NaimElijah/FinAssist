@@ -56,8 +56,9 @@ Today the client depends on `react` and `react-dom` 19.2.8 at runtime, and build
 rebuild URLs, history and the back button across roughly a dozen views. It is used in data mode:
 `createBrowserRouter` from `react-router`, and `RouterProvider` from `react-router/dom`. 8.3.1 is the
 current release, published 2026-08-28. Its peers are `react` and `react-dom` 19.2.7 or later, and
-19.2.8 is pinned; its Node engine, 22.22.0 or later, sits inside the client's own. It is ESM-only,
-which Vite consumes natively, and its own tooling is on TypeScript 6. The v8 line's floor of Vite 7
+19.2.8 is pinned; its Node engine, 22.22.0 or later, admits every version the client's own
+`engines` range allows. It is ESM-only, which Vite consumes natively, and its own tooling is on
+TypeScript 6. The v8 line's floor of Vite 7
 belongs to `@react-router/dev`, framework mode's tooling, which data mode does not install — and
 8.2.2 would clear it regardless. The platform's History API changes a URL; it does not map one to a
 view, load that view's data or answer a route that does not exist.
@@ -114,9 +115,10 @@ This extends ADR-009's feature layout and ADR-010's context-first packaging.
   outbound adapter.
 - **Cross-feature data flows through `src/app`, never through an import**, mirroring the ledger's
   `composition` translations ([ADR-022](ADR-022-ledger-composition-root.md)):
-  - `planning` exports an `AccountOptionsProvider` context and an `AccountOption` type;
+  - `planning` exports `AccountOptionsContext`, a React context, and the `AccountOption`,
+    `AccountOptions` and `AccountOptionsFailure` types its value is built from;
   - an app-level bridge component calls `accounting`'s accounts hook and renders `planning`'s
-    provider with the result.
+    context, as the provider, with the result.
 
   Passing the hook to `planning` as a prop instead would break the Rules of Hooks, which forbid
   passing a hook around as a value.
