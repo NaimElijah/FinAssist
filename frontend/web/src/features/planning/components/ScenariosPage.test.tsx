@@ -2,7 +2,7 @@
 // Renders the planning routes through the feature's own route table, so it needs a DOM. fetch is
 // faked, so the feature's real api/ module and its mapping run under test.
 
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -176,6 +176,25 @@ describe('ScenariosPage', () => {
         ).toBeDefined();
         expect(requests.filter((request) => request.url === SCENARIOS_URL)).toHaveLength(2);
     });
+
+    it('Given_scenarios_on_screen_When_a_background_refetch_fails_Then_the_rows_stay_and_a_retry_is_offered', async () => {
+        let scenarioReads = 0;
+        fakeFetch((request) => {
+            if (request.url === FLOWS_URL && request.method === 'GET') return jsonResponse([]);
+            if (request.url !== SCENARIOS_URL) return unexpectedRequest(request);
+            scenarioReads += 1;
+            if (scenarioReads === 1) return jsonResponse([BASELINE]);
+            return problemResponse({ status: 503, code: 'UNAVAILABLE', detail: 'Try later.' });
+        });
+        const { queryClient } = renderScenarios();
+        await screen.findByRole('rowheader', { name: 'Baseline' });
+
+        await act(() => queryClient.invalidateQueries({ queryKey: planKeys.scenarios }));
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('Try later.')).toBeDefined();
+        expect(screen.getByRole('rowheader', { name: 'Baseline' })).toBeDefined();
+    });
 });
 
 describe('ScenariosPage define-scenario form', () => {
@@ -199,6 +218,27 @@ describe('ScenariosPage define-scenario form', () => {
         expect(label?.textContent).toContain('250.00');
         expect(label?.textContent).toContain('Out');
         expect(label?.textContent).toContain('Planned');
+    });
+
+    it('Given_flow_checkboxes_on_screen_When_a_background_refetch_fails_Then_they_stay_and_a_retry_is_offered', async () => {
+        let flowReads = 0;
+        fakeFetch((request) => {
+            if (request.url === FLOWS_URL && request.method === 'GET') {
+                flowReads += 1;
+                if (flowReads === 1) return jsonResponse([RENT_ILS]);
+                return problemResponse({ status: 503, code: 'UNAVAILABLE', detail: 'Try later.' });
+            }
+            if (request.url === SCENARIOS_URL && request.method === 'GET') return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        const { queryClient } = renderScenarios();
+        await screen.findByLabelText(/Rent/);
+
+        await act(() => queryClient.invalidateQueries({ queryKey: planKeys.flows }));
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('Try later.')).toBeDefined();
+        expect(screen.getByLabelText(/Rent/)).toBeDefined();
     });
 
     it('Given_a_USD_flow_selected_When_the_currency_changes_to_ILS_and_back_to_USD_Then_its_selection_stays_cleared', async () => {

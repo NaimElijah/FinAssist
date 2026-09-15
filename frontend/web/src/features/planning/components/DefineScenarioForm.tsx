@@ -319,12 +319,18 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                 ) : flowsQuery.data === undefined ? (
                     <QueryFailure query={flowsQuery} />
                 ) : (
-                    <FlowsFieldset
-                        flows={flowsQuery.data}
-                        currency={currency}
-                        selectedFlowIds={selectedFlowIds}
-                        onToggle={toggleFlow}
-                    />
+                    <>
+                        {/* A failed background refetch never hides the checkboxes already on
+                            screen: TanStack Query keeps the data it holds, so the failure is
+                            shown above them rather than in their place. */}
+                        <QueryFailure query={flowsQuery} />
+                        <FlowsFieldset
+                            flows={flowsQuery.data}
+                            currency={currency}
+                            selectedFlowIds={selectedFlowIds}
+                            onToggle={toggleFlow}
+                        />
+                    </>
                 )}
                 <div>
                     <Button type="submit" pending={defineScenario.isPending}>
