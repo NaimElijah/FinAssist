@@ -13,3 +13,6 @@ export const SCENARIOS_PATH = '/planning/scenarios';
 
 /** One scenario projected against chosen accounts, with its first shortfall. */
 export const PROJECTION_PATH = '/planning/projection';
+
+/** Two or more scenarios compared against a baseline. */
+export const COMPARISON_PATH = '/planning/compare';

@@ -1,0 +1,74 @@
+.section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.section + .section {
+    margin-block-start: var(--space-6);
+}
+
+.heading {
+    margin: 0;
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-strong);
+    line-height: var(--line-height-tight);
+}
+
+.form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+/* Fields top-aligned, so one showing an error beneath it does not push its neighbours down. */
+.fields {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--space-3) var(--space-4);
+}
+
+.group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    border: none;
+}
+
+.legend {
+    padding: 0;
+    font-weight: var(--font-weight-strong);
+}
+
+.options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.option {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+}
+
+/* Matches the shared field frame's own error, so a group's error reads like a field's. */
+.error {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-strong);
+    color: var(--color-negative);
+}
+
+.muted {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+.baselineMark {
+    color: var(--color-muted);
+    font-weight: var(--font-weight-regular);
+}

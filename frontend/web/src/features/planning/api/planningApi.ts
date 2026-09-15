@@ -11,6 +11,8 @@
 import { ApiBodyError, LEDGER_API, requestJson, sendJson } from '@/shared/api/client';
 import type {
     BalancePointResponse,
+    ComparedScenarioResponse,
+    ComparisonResponse,
     DefineScenarioRequest,
     MoneyDto,
     PlanCancelRequest,
@@ -25,6 +27,7 @@ import type {
 } from '@/shared/api/contracts/ledger/types.gen';
 import { log } from '@/shared/lib/logger';
 
+import type { ComparedScenario, Comparison, ComparisonParams } from '../types/comparison';
 import { DIRECTIONS, type PlanFlowInput, type PlannedFlow, type PlanState } from '../types/flow';
 import { CURRENCIES, type Currency, type Money } from '../types/money';
 import type {
@@ -38,6 +41,7 @@ import type { DefineScenarioInput, Scenario } from '../types/scenario';
 
 const PLANNED_FLOWS_URL = `${LEDGER_API}/planned-flows`;
 const SCENARIOS_URL = `${LEDGER_API}/scenarios`;
+const SCENARIO_COMPARISONS_URL = `${LEDGER_API}/scenario-comparisons`;
 
 /** The URL of one planned flow's lifecycle action, with the id encoded as a single path segment. */
 function flowActionUrl(flowId: string, action: string): string {
@@ -224,13 +228,13 @@ function knownCurrency(value: Currency, url: string): Currency {
 }
 
 /**
- * A projection step the contract does not name. See `unknownStatus`.
+ * A projection or comparison step the contract does not name. See `unknownStatus`.
  *
  * @throws ApiBodyError - always.
  */
 function unknownStep(url: string): never {
-    log.error('ledger projection has a step the contract does not name', { url });
-    throw new ApiBodyError(url, 'A projection arrived with a step the contract does not name');
+    log.error('ledger response has a step the contract does not name', { url });
+    throw new ApiBodyError(url, 'A response arrived with a step the contract does not name');
 }
 
 /** `value`, validated against `CADENCES`: a projection steps at the same cadences a flow repeats at. */
@@ -276,13 +280,48 @@ function toProjection(wire: ProjectionResponse, url: string): Projection {
     };
 }
 
+function toComparedScenario(wire: ComparedScenarioResponse, url: string): ComparedScenario {
+    return {
+        id: wire.id,
+        name: wire.name,
+        points: wire.points.map((point) => toBalancePoint(point, url)),
+        endState: toBalancePoint(wire.endState, url),
+        // A divergence has a balance point's shape, its amounts signed differences instead.
+        divergence: wire.divergence.map((difference) => toBalancePoint(difference, url)),
+    };
+}
+
 /**
- * `settings` as query parameters: the horizon and the step, then one `cash` and one `invested`
+ * `wire` mapped, its baseline resolved to the compared scenario carrying that id.
+ *
+ * @throws ApiBodyError - when no compared scenario carries the baseline's id: every divergence is
+ *   measured from it, so a comparison without it has nothing to show them against.
+ */
+function toComparison(wire: ComparisonResponse, url: string): Comparison {
+    const scenarios = wire.scenarios.map((scenario) => toComparedScenario(scenario, url));
+    const baseline = scenarios.find((scenario) => scenario.id === wire.baseline);
+    if (baseline === undefined) {
+        log.error('ledger comparison has a baseline that is none of its scenarios', { url });
+        throw new ApiBodyError(
+            url,
+            'A comparison arrived whose baseline is not among its scenarios',
+        );
+    }
+    return {
+        horizon: { from: wire.horizon.from, to: wire.horizon.to },
+        step: knownStep(wire.step, url),
+        currency: knownCurrency(wire.currency, url),
+        baseline,
+        scenarios,
+    };
+}
+
+/**
+ * Append `settings` to `query`: the horizon and the step, then one `cash` and one `invested`
  * parameter per account, appended rather than joined, as the ledger reads a repeated parameter.
  * Only ids, dates and the step travel in the URL - never an amount (ADR-028).
  */
-function settingsQuery(settings: ProjectionSettings): URLSearchParams {
-    const query = new URLSearchParams();
+function appendSettings(query: URLSearchParams, settings: ProjectionSettings): void {
     query.append('from', settings.from);
     query.append('to', settings.to);
     query.append('step', settings.step);
@@ -292,7 +331,6 @@ function settingsQuery(settings: ProjectionSettings): URLSearchParams {
     for (const ref of settings.invested) {
         query.append('invested', ref);
     }
-    return query;
 }
 
 /**
@@ -433,7 +471,35 @@ export async function defineScenario(input: DefineScenarioInput): Promise<Scenar
  *   the contract does not name.
  */
 export async function projectScenario(params: ProjectionParams): Promise<Projection> {
-    const url = `${SCENARIOS_URL}/${encodeURIComponent(params.scenarioId)}/projection?${settingsQuery(params).toString()}`;
+    const query = new URLSearchParams();
+    appendSettings(query, params);
+    const url = `${SCENARIOS_URL}/${encodeURIComponent(params.scenarioId)}/projection?${query.toString()}`;
     const wire = await requestJson<ProjectionResponse>(url);
     return toProjection(wire, url);
+}
+
+/**
+ * Compare two or more scenarios over one horizon, one step and one opening position, measuring
+ * each from a baseline. Side-effect free: nothing is recorded (ADR-016).
+ *
+ * @param params - the scenario ids in the order to list them, the baseline among them, the
+ *   horizon, the step, and the account refs opening each line.
+ * @returns the comparison, its scenarios in the order requested, every amount - divergences
+ *   included - the signed string the ledger sent.
+ * @throws ApiError - on a non-2xx response: 400 when fewer than two scenarios are named, 422
+ *   `UNKNOWN_SCENARIO` for an id naming no scenario, and 422 `RULE_VIOLATED` for a baseline not
+ *   among them, scenarios in different currencies, or a horizon or account ref it refuses.
+ * @throws ApiBodyError - when the response carries no JSON body, a baseline that is none of its
+ *   scenarios, or a step or currency the contract does not name.
+ */
+export async function compareScenarios(params: ComparisonParams): Promise<Comparison> {
+    const query = new URLSearchParams();
+    for (const scenarioId of params.scenarioIds) {
+        query.append('scenario', scenarioId);
+    }
+    query.append('baseline', params.baselineId);
+    appendSettings(query, params);
+    const url = `${SCENARIO_COMPARISONS_URL}?${query.toString()}`;
+    const wire = await requestJson<ComparisonResponse>(url);
+    return toComparison(wire, url);
 }

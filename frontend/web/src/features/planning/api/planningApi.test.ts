@@ -10,6 +10,7 @@ import { setLogSink } from '@/shared/lib/logger';
 import {
     cancelFlow,
     commitFlow,
+    compareScenarios,
     defineScenario,
     listPlannedFlows,
     listScenarios,
@@ -807,5 +808,163 @@ describe('projectScenario', () => {
         await expect(
             projectScenario({ scenarioId: SCENARIO_ID, ...SETTINGS, cash: [], invested: [] }),
         ).rejects.toMatchObject({ status: 422, problem: { code: 'RULE_VIOLATED' } });
+    });
+});
+
+describe('compareScenarios', () => {
+    const BASE = 'c1c1c1c1-4d8c-4f3a-9a61-000000000001';
+    const SAVE = 'c1c1c1c1-4d8c-4f3a-9a61-000000000002';
+
+    /** A step's amounts on `date`, in ILS exactly as given. */
+    function wirePoint(date: string, cash: string, invested: string, total: string) {
+        return {
+            date,
+            cash: { amount: cash, currency: 'ILS' },
+            invested: { amount: invested, currency: 'ILS' },
+            total: { amount: total, currency: 'ILS' },
+        };
+    }
+
+    const BASE_SCENARIO = {
+        id: BASE,
+        name: 'Do nothing',
+        points: [
+            wirePoint('2026-09-01', '100.00', '0.00', '100.00'),
+            wirePoint('2026-10-01', '100.00', '0.00', '100.00'),
+        ],
+        endState: wirePoint('2026-10-01', '100.00', '0.00', '100.00'),
+        divergence: [],
+    };
+
+    const SAVE_SCENARIO = {
+        id: SAVE,
+        name: 'Aggressive saving',
+        points: [
+            wirePoint('2026-09-01', '100.00', '0.00', '100.00'),
+            wirePoint('2026-10-01', '-50.00', '300.00', '250.00'),
+        ],
+        endState: wirePoint('2026-10-01', '-50.00', '300.00', '250.00'),
+        divergence: [
+            wirePoint('2026-09-01', '0.00', '0.00', '0.00'),
+            wirePoint('2026-10-01', '-150.00', '300.00', '150.00'),
+        ],
+    };
+
+    const WIRE_COMPARISON = {
+        baseline: BASE,
+        currency: 'ILS',
+        horizon: { from: '2026-09-01', to: '2026-10-01' },
+        step: 'MONTHLY',
+        scenarios: [BASE_SCENARIO, SAVE_SCENARIO],
+    };
+
+    const SETTINGS = { from: '2026-09-01', to: '2026-10-01', step: 'MONTHLY' } as const;
+
+    it('Given_scenarios_a_baseline_and_accounts_When_compared_Then_it_requests_each_scenario_repeated_then_the_baseline_horizon_step_and_accounts', async () => {
+        const stub = stubFetch(jsonResponse(WIRE_COMPARISON));
+
+        await compareScenarios({
+            scenarioIds: [BASE, SAVE],
+            baselineId: BASE,
+            ...SETTINGS,
+            cash: ['acc-checking'],
+            invested: ['acc-brokerage', 'acc-pension'],
+        });
+
+        const { url, init } = onlyCall(stub);
+        expect(url).toBe(
+            '/ledger/api/v1/scenario-comparisons' +
+                `?scenario=${BASE}&scenario=${SAVE}&baseline=${BASE}` +
+                '&from=2026-09-01&to=2026-10-01&step=MONTHLY' +
+                '&cash=acc-checking&invested=acc-brokerage&invested=acc-pension',
+        );
+        expect(init.method).toBeUndefined();
+        expect(new Headers(init.headers).get('Accept')).toBe('application/json');
+    });
+
+    it('Given_a_wire_comparison_When_compared_Then_the_baseline_is_its_own_scenario_and_every_signed_string_is_kept', async () => {
+        stubFetch(jsonResponse(WIRE_COMPARISON));
+
+        const comparison = await compareScenarios({
+            scenarioIds: [BASE, SAVE],
+            baselineId: BASE,
+            ...SETTINGS,
+            cash: [],
+            invested: [],
+        });
+
+        expect(comparison).toEqual({
+            horizon: { from: '2026-09-01', to: '2026-10-01' },
+            step: 'MONTHLY',
+            currency: 'ILS',
+            baseline: BASE_SCENARIO,
+            scenarios: [BASE_SCENARIO, SAVE_SCENARIO],
+        });
+        expect(comparison.baseline).toBe(comparison.scenarios[0]);
+    });
+
+    const MALFORMED = [
+        {
+            name: 'a_baseline_not_among_its_scenarios',
+            body: { ...WIRE_COMPARISON, baseline: 'c1c1c1c1-4d8c-4f3a-9a61-000000000009' },
+        },
+        { name: 'a_step_the_contract_does_not_name', body: { ...WIRE_COMPARISON, step: 'DAILY' } },
+        {
+            name: 'a_currency_the_contract_does_not_name',
+            body: { ...WIRE_COMPARISON, currency: 'XYZ' },
+        },
+        {
+            name: 'a_divergence_amount_in_a_currency_the_contract_does_not_name',
+            body: {
+                ...WIRE_COMPARISON,
+                scenarios: [
+                    BASE_SCENARIO,
+                    {
+                        ...SAVE_SCENARIO,
+                        divergence: [
+                            {
+                                ...wirePoint('2026-09-01', '0.00', '0.00', '0.00'),
+                                total: { amount: '0.00', currency: 'XYZ' },
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
+    ] as const;
+
+    for (const { name, body } of MALFORMED) {
+        it(`Given_${name}_When_compared_Then_it_rejects_with_an_ApiBodyError`, async () => {
+            stubFetch(jsonResponse(body));
+
+            await expect(
+                compareScenarios({
+                    scenarioIds: [BASE, SAVE],
+                    baselineId: BASE,
+                    ...SETTINGS,
+                    cash: [],
+                    invested: [],
+                }),
+            ).rejects.toBeInstanceOf(ApiBodyError);
+        });
+    }
+
+    it('Given_a_scenario_id_naming_no_scenario_When_compared_Then_it_rejects_with_an_ApiError_coded_UNKNOWN_SCENARIO', async () => {
+        stubFetch(
+            problemResponse(
+                { status: 422, code: 'UNKNOWN_SCENARIO', detail: 'No scenario has this id.' },
+                422,
+            ),
+        );
+
+        await expect(
+            compareScenarios({
+                scenarioIds: [BASE, SAVE],
+                baselineId: BASE,
+                ...SETTINGS,
+                cash: [],
+                invested: [],
+            }),
+        ).rejects.toMatchObject({ status: 422, problem: { code: 'UNKNOWN_SCENARIO' } });
     });
 });

@@ -96,6 +96,17 @@ const PROJECTION_KEY = planKeys.projection({
     invested: [],
 });
 
+/** A comparison cached before a lifecycle action, likewise. */
+const COMPARISON_KEY = planKeys.comparison({
+    scenarioIds: ['s1', 's2'],
+    baselineId: 's1',
+    from: '2026-09-01',
+    to: '2026-12-01',
+    step: 'MONTHLY',
+    cash: [],
+    invested: [],
+});
+
 /** The pinned instant a lifecycle panel's Date field defaults from, and the ISO date it maps to. */
 const FAKE_NOW = new Date(2026, 8, 15, 12, 0);
 const TODAY = todayIsoDate(FAKE_NOW);
@@ -263,6 +274,7 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         );
         const { queryClient } = renderFlows();
         queryClient.setQueryData(PROJECTION_KEY, {});
+        queryClient.setQueryData(COMPARISON_KEY, {});
         const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Planned flows' });
@@ -278,13 +290,14 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         ).toEqual([{ method: 'POST', url: `${FLOWS_URL}/${RENT_ID}/commit`, body: { on: today } }]);
         // No ScenarioResponse field can change when a flow moves state, and a committed flow is
         // still projected, so only flows is invalidated - not a wider prefix, not scenarios, and
-        // not a projection.
+        // neither a projection nor a comparison.
         const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
         expect(invalidatedKeys).toEqual([planKeys.flows]);
         expect(queryClient.getQueryState(PROJECTION_KEY)?.isInvalidated).toBe(false);
+        expect(queryClient.getQueryState(COMPARISON_KEY)?.isInvalidated).toBe(false);
     });
 
-    it('Given_a_committed_flow_When_realised_Then_it_posts_on_and_the_row_shows_the_Realised_badge_and_invalidates_flows_and_projections', async () => {
+    it('Given_a_committed_flow_When_realised_Then_it_posts_on_and_the_row_shows_the_Realised_badge_and_invalidates_flows_projections_and_comparisons', async () => {
         const today = TODAY;
         let flows: readonly unknown[] = [SALARY];
         fakeFetch(
@@ -305,6 +318,7 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         );
         const { queryClient } = renderFlows();
         queryClient.setQueryData(PROJECTION_KEY, {});
+        queryClient.setQueryData(COMPARISON_KEY, {});
         const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Planned flows' });
@@ -313,11 +327,16 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         await user.click(screen.getByRole('button', { name: 'Realise' }));
 
         expect(await within(rowOf('Salary')).findByText('Realised')).toBeDefined();
-        // A realised flow no longer counts towards a projection, so every cached projection is
-        // stale; no scenario field changes, so the scenarios list is not.
+        // A realised flow no longer counts towards a projection, so every cached projection and
+        // comparison is stale; no scenario field changes, so the scenarios list is not.
         const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
-        expect(invalidatedKeys).toEqual([planKeys.flows, planKeys.projections]);
+        expect(invalidatedKeys).toEqual([
+            planKeys.flows,
+            planKeys.projections,
+            planKeys.comparisons,
+        ]);
         expect(queryClient.getQueryState(PROJECTION_KEY)?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(COMPARISON_KEY)?.isInvalidated).toBe(true);
     });
 
     it('Given_a_planned_flow_When_cancelled_without_a_reason_Then_the_required_field_refuses_submission_and_nothing_is_sent', async () => {
@@ -336,7 +355,7 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         expect(screen.getByRole('button', { name: 'Cancel' })).toBeDefined();
     });
 
-    it('Given_a_planned_flow_When_cancelled_with_a_reason_Then_it_posts_on_and_reason_and_shows_the_Cancelled_badge_and_invalidates_flows_and_projections', async () => {
+    it('Given_a_planned_flow_When_cancelled_with_a_reason_Then_it_posts_on_and_reason_and_shows_the_Cancelled_badge_and_invalidates_flows_projections_and_comparisons', async () => {
         const today = TODAY;
         let flows: readonly unknown[] = [RENT];
         const requests = fakeFetch(
@@ -379,9 +398,13 @@ describe('PlannedFlowsPage lifecycle actions', () => {
                 body: { on: today, reason: 'No longer needed' },
             },
         ]);
-        // A cancelled flow no longer counts towards a projection either.
+        // A cancelled flow no longer counts towards a projection or a comparison either.
         const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
-        expect(invalidatedKeys).toEqual([planKeys.flows, planKeys.projections]);
+        expect(invalidatedKeys).toEqual([
+            planKeys.flows,
+            planKeys.projections,
+            planKeys.comparisons,
+        ]);
     });
 
     it('Given_a_409_response_When_an_action_is_submitted_Then_the_server_detail_is_shown_in_the_panel_and_it_stays_open', async () => {

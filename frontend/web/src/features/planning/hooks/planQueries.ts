@@ -9,6 +9,7 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tansta
 import {
     cancelFlow,
     commitFlow,
+    compareScenarios,
     defineScenario,
     listPlannedFlows,
     listScenarios,
@@ -16,6 +17,7 @@ import {
     projectScenario,
     realiseFlow,
 } from '../api/planningApi';
+import type { ComparisonParams } from '../types/comparison';
 import type { PlanFlowInput } from '../types/flow';
 import type { ProjectionParams } from '../types/projection';
 import type { DefineScenarioInput } from '../types/scenario';
@@ -26,13 +28,17 @@ const PLANS_KEY = ['plans'] as const;
 /** The prefix every projection's key starts with. */
 const PROJECTIONS_KEY = [...PLANS_KEY, 'projections'] as const;
 
+/** The prefix every comparison's key starts with. */
+const COMPARISONS_KEY = [...PLANS_KEY, 'comparisons'] as const;
+
 /**
  * The query keys the planning feature reads and invalidates.
  *
  * Every key starts with `all`, and TanStack Query matches an invalidation by prefix - but nothing
- * here invalidates `all` itself. `flows`, `scenarios` and `projections` are siblings, so
- * invalidating one by prefix can never also match another, and `projections` is the parent of
- * every `projection(params)`, so "every projection" is a plain prefix.
+ * here invalidates `all` itself. `flows`, `scenarios`, `projections` and `comparisons` are
+ * siblings, so invalidating one by prefix can never also match another; `projections` is the
+ * parent of every `projection(params)` and `comparisons` of every `comparison(params)`, so "every
+ * projection" and "every comparison" are plain prefixes.
  */
 export const planKeys = {
     /** The prefix of every planning key. */
@@ -48,6 +54,20 @@ export const planKeys = {
         [
             ...PROJECTIONS_KEY,
             params.scenarioId,
+            params.from,
+            params.to,
+            params.step,
+            params.cash,
+            params.invested,
+        ] as const,
+    /** The prefix of every comparison, whatever its scenarios, baseline, horizon or accounts. */
+    comparisons: COMPARISONS_KEY,
+    /** Scenarios compared against one baseline over one horizon, step and set of accounts. */
+    comparison: (params: ComparisonParams) =>
+        [
+            ...COMPARISONS_KEY,
+            params.scenarioIds,
+            params.baselineId,
             params.from,
             params.to,
             params.step,
@@ -99,6 +119,26 @@ export function useProjection(params: ProjectionParams) {
 }
 
 /**
+ * Scenarios compared against a baseline over one horizon, from the accounts named.
+ *
+ * Invalidated exactly when a projection is, for the same reasons (see `useProjection`): a realised
+ * or cancelled flow stops counting, and accounting's mutations are deliberately not followed
+ * across features. A screen mounting it afresh refetches it.
+ *
+ * @param params - the scenarios, the baseline, the horizon, the step and the opening accounts;
+ *   each distinct set is its own cache entry.
+ * @returns the query for the comparison. Its error is an `ApiError` - 400, or 422
+ *   `UNKNOWN_SCENARIO` or `RULE_VIOLATED`, none retried - or an `ApiBodyError` from the client, or
+ *   a `TypeError` for a network failure.
+ */
+export function useComparison(params: ComparisonParams) {
+    return useQuery({
+        queryKey: planKeys.comparison(params),
+        queryFn: () => compareScenarios(params),
+    });
+}
+
+/**
  * Plan a flow, then refetch the flows list and nothing else.
  *
  * Planning a flow cannot change any existing scenario - a new flow's id names no scenario yet -
@@ -126,7 +166,7 @@ interface TransitionVariables {
  *
  * No `ScenarioResponse` field can change when a flow moves state - a scenario names flow ids and
  * a growth rate, neither of which a transition touches - and a committed flow counts towards a
- * projection exactly as a planned one does, so only `flows` is invalidated.
+ * projection or comparison exactly as a planned one does, so only `flows` is invalidated.
  *
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
@@ -139,13 +179,14 @@ export function useCommitFlow() {
 }
 
 /**
- * Refetch the flows list and every cached projection, for a transition that takes a flow out of
- * what a projection counts.
+ * Refetch the flows list and every cached projection and comparison, for a transition that takes
+ * a flow out of what a projection counts.
  *
  * The ledger projects only `PLANNED` and `COMMITTED` flows (`PlannedFlow.countsTowardsProjection`),
- * so realising or cancelling one changes any projection of a scenario naming it. Which scenarios
- * name it is not known here, so every projection is invalidated by its shared prefix. The
- * scenarios list is not: no scenario field changes.
+ * and a comparison is projections side by side, so realising or cancelling one changes any
+ * projection or comparison of a scenario naming it. Which scenarios name it is not known here, so
+ * every one is invalidated by its shared prefix. The scenarios list is not: no scenario field
+ * changes.
  *
  * @returns the settled refetches, so a caller can return it from `onSuccess` and stay pending
  *   until they land.
@@ -154,12 +195,14 @@ function invalidateAfterLeavingProjection(queryClient: QueryClient): Promise<unk
     return Promise.all([
         queryClient.invalidateQueries({ queryKey: planKeys.flows }),
         queryClient.invalidateQueries({ queryKey: planKeys.projections }),
+        queryClient.invalidateQueries({ queryKey: planKeys.comparisons }),
     ]);
 }
 
 /**
- * Realise a committed flow, then refetch the flows list and every cached projection - a realised
- * flow no longer counts towards one (see `invalidateAfterLeavingProjection`).
+ * Realise a committed flow, then refetch the flows list and every cached projection and
+ * comparison - a realised flow no longer counts towards either (see
+ * `invalidateAfterLeavingProjection`).
  *
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
@@ -177,8 +220,9 @@ interface CancelVariables extends TransitionVariables {
 }
 
 /**
- * Cancel a planned or committed flow, then refetch the flows list and every cached projection - a
- * cancelled flow no longer counts towards one (see `invalidateAfterLeavingProjection`).
+ * Cancel a planned or committed flow, then refetch the flows list and every cached projection and
+ * comparison - a cancelled flow no longer counts towards either (see
+ * `invalidateAfterLeavingProjection`).
  *
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */

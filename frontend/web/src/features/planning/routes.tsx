@@ -9,6 +9,7 @@ import { Navigate, type RouteObject } from 'react-router';
 
 import type { RouteHandle } from '@/shared/lib/routeHandle';
 
+import { ComparisonPage } from './components/ComparisonPage';
 import { FLOWS_PATH, PLANNING_PATH } from './components/paths';
 import { PlannedFlowsPage } from './components/PlannedFlowsPage';
 import { PlanningLayout } from './components/PlanningLayout';
@@ -23,8 +24,8 @@ import { ScenariosPage } from './components/ScenariosPage';
  * more specific one, which the app layout prefers as the deepest match. The index route redirects
  * to Flows, since a plan with nothing in it yet is still the area's primary screen.
  *
- * The projection screen reads its account choices through `AccountOptionsContext`, so src/app
- * must provide one around these routes.
+ * The projection and comparison screens read their account choices through
+ * `AccountOptionsContext`, so src/app must provide one around these routes.
  */
 export const planningRoutes: RouteObject[] = [
     {
@@ -47,6 +48,11 @@ export const planningRoutes: RouteObject[] = [
                 path: 'projection',
                 Component: ProjectionPage,
                 handle: { title: 'Scenario projection' } satisfies RouteHandle,
+            },
+            {
+                path: 'compare',
+                Component: ComparisonPage,
+                handle: { title: 'Scenario comparison' } satisfies RouteHandle,
             },
         ],
     },

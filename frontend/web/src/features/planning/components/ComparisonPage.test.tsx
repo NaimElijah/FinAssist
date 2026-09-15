@@ -1,0 +1,465 @@
+// @vitest-environment jsdom
+// Renders the planning routes through the feature's own route table, so it needs a DOM. fetch is
+// faked, so the feature's real api/ module and its mapping run under test; the account choices
+// src/app would provide are provided here directly, in planning's own terms.
+
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { userEvent } from '@testing-library/user-event';
+import { Outlet, type RouteObject } from 'react-router';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { setLogSink } from '@/shared/lib/logger';
+import {
+    type FetchAnswer,
+    fakeFetch,
+    jsonResponse,
+    pendingResponse,
+    problemResponse,
+    type RecordedRequest,
+    unexpectedRequest,
+} from '@/shared/testing/fakeFetch';
+import { renderRoutes } from '@/shared/testing/renderRoutes';
+
+import { AccountOptionsContext } from '../hooks/accountOptions';
+import { planningRoutes } from '../index';
+import type { AccountOptions } from '../types/accountOption';
+
+const SCENARIOS_URL = '/ledger/api/v1/scenarios';
+const COMPARISONS_URL = '/ledger/api/v1/scenario-comparisons';
+
+const DO_NOTHING = {
+    id: 's-base',
+    name: 'Do nothing',
+    currency: 'ILS',
+    flows: [],
+    growthRatePerStep: '0',
+} as const;
+
+const SAVING = {
+    id: 's-save',
+    name: 'Aggressive saving',
+    currency: 'ILS',
+    flows: [],
+    growthRatePerStep: '0.005',
+} as const;
+
+const CAUTIOUS = {
+    id: 's-cautious',
+    name: 'Cautious',
+    currency: 'ILS',
+    flows: [],
+    growthRatePerStep: '0.001',
+} as const;
+
+const ABROAD = {
+    id: 's-abroad',
+    name: 'Move abroad',
+    currency: 'USD',
+    flows: [],
+    growthRatePerStep: '0',
+} as const;
+
+/** Every scenario, in the order the ledger lists them. */
+const SCENARIOS = [DO_NOTHING, SAVING, CAUTIOUS, ABROAD];
+
+/** One ILS account and one USD account, as src/app would adapt them from accounting. */
+const LOADED: AccountOptions = {
+    status: 'loaded',
+    options: [
+        { ref: 'acc-checking', label: 'Checking', currency: 'ILS' },
+        { ref: 'acc-us-checking', label: 'US checking', currency: 'USD' },
+    ],
+    failure: null,
+};
+
+/** A step's amounts on `date`, in ILS exactly as given. */
+function wirePoint(date: string, cash: string, invested: string, total: string) {
+    return {
+        date,
+        cash: { amount: cash, currency: 'ILS' },
+        invested: { amount: invested, currency: 'ILS' },
+        total: { amount: total, currency: 'ILS' },
+    };
+}
+
+/** `SAVING` compared against `DO_NOTHING`, its divergence signed at every step. */
+const COMPARISON = {
+    baseline: DO_NOTHING.id,
+    currency: 'ILS',
+    horizon: { from: '2026-09-01', to: '2026-11-01' },
+    step: 'MONTHLY',
+    scenarios: [
+        {
+            id: DO_NOTHING.id,
+            name: DO_NOTHING.name,
+            points: [wirePoint('2026-11-01', '100.00', '0.00', '100.00')],
+            endState: wirePoint('2026-11-01', '100.00', '0.00', '100.00'),
+            divergence: [],
+        },
+        {
+            id: SAVING.id,
+            name: SAVING.name,
+            points: [wirePoint('2026-11-01', '-50.00', '300.00', '250.00')],
+            endState: wirePoint('2026-11-01', '-50.00', '300.00', '250.00'),
+            divergence: [
+                wirePoint('2026-09-01', '0.00', '0.00', '0.00'),
+                wirePoint('2026-10-01', '-75.50', '100.00', '24.50'),
+                wirePoint('2026-11-01', '-150.00', '300.00', '150.00'),
+            ],
+        },
+    ],
+};
+
+function isComparison(request: RecordedRequest): boolean {
+    return request.url.startsWith(`${COMPARISONS_URL}?`);
+}
+
+/**
+ * A ledger holding `scenarios`, answering every comparison through `comparison`, or refusing it
+ * as unplanned when none is given.
+ */
+function ledger(scenarios: readonly unknown[], comparison?: FetchAnswer): FetchAnswer {
+    return (request) => {
+        if (request.url === SCENARIOS_URL) return jsonResponse(scenarios);
+        if (comparison !== undefined && isComparison(request)) return comparison(request);
+        return unexpectedRequest(request);
+    };
+}
+
+/** Render the comparison page, with `accountOptions` provided as src/app would provide them. */
+function renderComparison(accountOptions: AccountOptions = LOADED) {
+    const routes: RouteObject[] = [
+        {
+            element: (
+                <AccountOptionsContext value={accountOptions}>
+                    <Outlet />
+                </AccountOptionsContext>
+            ),
+            children: planningRoutes,
+        },
+    ];
+    return renderRoutes(routes, '/planning/compare');
+}
+
+/** The Scenarios checkbox labelled `label`. */
+function scenarioCheckbox(label: string): HTMLElement {
+    return within(screen.getByRole('group', { name: 'Scenarios' })).getByLabelText(label);
+}
+
+/** The words of every option the Baseline select offers. */
+function baselineOptions(): (string | null)[] {
+    const select = screen.getByLabelText('Baseline');
+    if (!(select instanceof HTMLSelectElement)) {
+        throw new Error('the Baseline field is not a select');
+    }
+    return [...select.options].map((option) => option.textContent);
+}
+
+/** Check each of `labels`, enter the horizon, and submit. */
+async function compare(user: ReturnType<typeof userEvent.setup>, labels: readonly string[]) {
+    await screen.findByRole('group', { name: 'Scenarios' });
+    for (const label of labels) {
+        await user.click(scenarioCheckbox(label));
+    }
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-11-01' } });
+    await user.click(screen.getByRole('button', { name: 'Compare' }));
+}
+
+let restoreSink: () => void = () => undefined;
+
+beforeEach(() => {
+    // The client logs every failed request; several tests fail requests on purpose.
+    restoreSink = setLogSink(() => undefined);
+});
+
+afterEach(() => {
+    restoreSink();
+});
+
+describe('ComparisonPage', () => {
+    it('Given_the_planning_nav_When_the_comparison_page_renders_Then_Compare_is_marked_current', async () => {
+        fakeFetch(ledger(SCENARIOS));
+
+        renderComparison();
+
+        await screen.findByRole('heading', { level: 2, name: 'Compare scenarios' });
+        expect(
+            screen
+                .getByRole('navigation', { name: 'Planning' })
+                .querySelector('[aria-current="page"]')?.textContent,
+        ).toBe('Compare');
+    });
+
+    it('Given_two_scenarios_and_an_account_chosen_When_compared_Then_it_requests_them_in_list_order_with_the_first_as_baseline', async () => {
+        const requests = fakeFetch(ledger(SCENARIOS, () => pendingResponse()));
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('group', { name: 'Scenarios' });
+        await user.click(scenarioCheckbox('Aggressive saving (ILS)'));
+        await user.click(scenarioCheckbox('Do nothing (ILS)'));
+        await user.click(
+            within(screen.getByRole('group', { name: 'Cash accounts' })).getByLabelText('Checking'),
+        );
+
+        await compare(user, []);
+
+        await waitFor(() => {
+            expect(requests.filter(isComparison).map((request) => request.url)).toEqual([
+                `${COMPARISONS_URL}?scenario=s-base&scenario=s-save&baseline=s-base` +
+                    '&from=2026-09-01&to=2026-11-01&step=MONTHLY&cash=acc-checking',
+            ]);
+        });
+    });
+
+    it('Given_a_baseline_chosen_When_compared_Then_that_baseline_is_requested', async () => {
+        const requests = fakeFetch(ledger(SCENARIOS, () => pendingResponse()));
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('group', { name: 'Scenarios' });
+        await user.click(scenarioCheckbox('Do nothing (ILS)'));
+        await user.click(scenarioCheckbox('Aggressive saving (ILS)'));
+
+        await user.selectOptions(screen.getByLabelText('Baseline'), 'Aggressive saving');
+        await compare(user, []);
+
+        await waitFor(() => {
+            expect(requests.filter(isComparison).map((request) => request.url)).toEqual([
+                `${COMPARISONS_URL}?scenario=s-base&scenario=s-save&baseline=s-save` +
+                    '&from=2026-09-01&to=2026-11-01&step=MONTHLY',
+            ]);
+        });
+    });
+
+    it('Given_one_scenario_chosen_When_compared_Then_a_field_error_asks_for_two_takes_focus_and_nothing_is_sent', async () => {
+        const requests = fakeFetch(ledger(SCENARIOS, () => jsonResponse(COMPARISON)));
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+
+        await compare(user, ['Do nothing (ILS)']);
+
+        const error = await screen.findByText('Choose at least two scenarios to compare.');
+        expect(
+            screen.getByRole('group', { name: 'Scenarios' }).getAttribute('aria-describedby'),
+        ).toBe(error.id);
+        expect(document.activeElement).toBe(scenarioCheckbox('Do nothing (ILS)'));
+        expect(requests.filter(isComparison)).toHaveLength(0);
+    });
+
+    it('Given_a_field_error_shown_When_a_second_scenario_is_chosen_and_compared_Then_the_error_clears_and_the_request_is_sent', async () => {
+        const requests = fakeFetch(ledger(SCENARIOS, () => jsonResponse(COMPARISON)));
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+        await compare(user, ['Do nothing (ILS)']);
+        await screen.findByText('Choose at least two scenarios to compare.');
+
+        await user.click(scenarioCheckbox('Aggressive saving (ILS)'));
+        await user.click(screen.getByRole('button', { name: 'Compare' }));
+
+        await screen.findByRole('table', { name: 'End states' });
+        expect(screen.queryByText('Choose at least two scenarios to compare.')).toBeNull();
+        expect(requests.filter(isComparison)).toHaveLength(1);
+    });
+
+    it('Given_scenarios_checked_and_unchecked_When_the_baseline_is_offered_Then_its_options_follow_them_and_an_unchecked_baseline_is_never_requested', async () => {
+        const requests = fakeFetch(ledger(SCENARIOS, () => pendingResponse()));
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('group', { name: 'Scenarios' });
+
+        expect(baselineOptions()).toEqual(['Choose scenarios first']);
+        expect(screen.getByLabelText('Baseline')).toHaveProperty('disabled', true);
+
+        await user.click(scenarioCheckbox('Do nothing (ILS)'));
+        await user.click(scenarioCheckbox('Aggressive saving (ILS)'));
+        await user.click(scenarioCheckbox('Cautious (ILS)'));
+        expect(baselineOptions()).toEqual(['Do nothing', 'Aggressive saving', 'Cautious']);
+        await user.selectOptions(screen.getByLabelText('Baseline'), 'Cautious');
+
+        await user.click(scenarioCheckbox('Cautious (ILS)'));
+        expect(baselineOptions()).toEqual(['Do nothing', 'Aggressive saving']);
+        // React shows the first option whenever the value matches none, so the select alone cannot
+        // tell a baseline that fell back from one left stale; the request it sends can.
+        await compare(user, []);
+
+        await waitFor(() => {
+            expect(requests.filter(isComparison).map((request) => request.url)).toEqual([
+                `${COMPARISONS_URL}?scenario=s-base&scenario=s-save&baseline=s-base` +
+                    '&from=2026-09-01&to=2026-11-01&step=MONTHLY',
+            ]);
+        });
+    });
+
+    it('Given_a_comparison_When_compared_Then_the_end_state_table_marks_the_baseline_row_only', async () => {
+        fakeFetch(ledger(SCENARIOS, () => jsonResponse(COMPARISON)));
+        renderComparison();
+
+        await compare(userEvent.setup({ delay: null }), [
+            'Do nothing (ILS)',
+            'Aggressive saving (ILS)',
+        ]);
+
+        const table = await screen.findByRole('table', { name: 'End states' });
+        expect(
+            within(table)
+                .getAllByRole('rowheader')
+                .map((cell) => cell.textContent),
+        ).toEqual(['Do nothing (baseline)', 'Aggressive saving']);
+        const savingRow = within(table).getByRole('rowheader', {
+            name: 'Aggressive saving',
+        }).parentElement;
+        expect([...(savingRow?.querySelectorAll('data') ?? [])].map((data) => data.value)).toEqual([
+            '-50.00',
+            '300.00',
+            '250.00',
+        ]);
+    });
+
+    it('Given_a_comparison_When_compared_Then_each_non_baseline_scenario_has_a_divergence_table_with_the_exact_signed_strings', async () => {
+        fakeFetch(ledger(SCENARIOS, () => jsonResponse(COMPARISON)));
+        renderComparison();
+
+        await compare(userEvent.setup({ delay: null }), [
+            'Do nothing (ILS)',
+            'Aggressive saving (ILS)',
+        ]);
+
+        const table = await screen.findByRole('table', {
+            name: 'Aggressive saving versus Do nothing',
+        });
+        expect(screen.queryByRole('table', { name: /^Do nothing versus/ })).toBeNull();
+        const rows = within(table).getAllByRole('row').slice(1);
+        expect(
+            rows.map((row) =>
+                [...row.querySelectorAll('time, data')].map(
+                    (cell) => cell.getAttribute('datetime') ?? cell.getAttribute('value'),
+                ),
+            ),
+        ).toEqual([
+            ['2026-09-01', '0.00', '0.00', '0.00'],
+            ['2026-10-01', '-75.50', '100.00', '24.50'],
+            ['2026-11-01', '-150.00', '300.00', '150.00'],
+        ]);
+        expect(within(table).getByText('-₪150.00')).toBeDefined();
+    });
+
+    it('Given_a_comparison_in_flight_When_compared_Then_pending_is_shown', async () => {
+        fakeFetch(ledger(SCENARIOS, () => pendingResponse()));
+        renderComparison();
+
+        await compare(userEvent.setup({ delay: null }), [
+            'Do nothing (ILS)',
+            'Aggressive saving (ILS)',
+        ]);
+
+        expect(await screen.findByText('Comparing…')).toBeDefined();
+    });
+
+    it('Given_an_unknown_scenario_422_When_compared_Then_the_server_detail_is_shown_and_takes_focus', async () => {
+        fakeFetch(
+            ledger(SCENARIOS, () =>
+                problemResponse({
+                    status: 422,
+                    code: 'UNKNOWN_SCENARIO',
+                    detail: 'No scenario has the id s-save.',
+                }),
+            ),
+        );
+        renderComparison();
+
+        await compare(userEvent.setup({ delay: null }), [
+            'Do nothing (ILS)',
+            'Aggressive saving (ILS)',
+        ]);
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('No scenario has the id s-save.')).toBeDefined();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(alert);
+        });
+    });
+
+    it('Given_a_comparison_that_failed_When_Try_again_is_clicked_Then_it_is_requested_again_and_shown', async () => {
+        let failing = true;
+        const requests = fakeFetch(
+            ledger(SCENARIOS, () =>
+                failing
+                    ? problemResponse({ status: 503, code: 'UNAVAILABLE', detail: 'Try later.' })
+                    : jsonResponse(COMPARISON),
+            ),
+        );
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+        await compare(user, ['Do nothing (ILS)', 'Aggressive saving (ILS)']);
+        const alert = await screen.findByRole('alert');
+
+        failing = false;
+        await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+
+        expect(await screen.findByRole('table', { name: 'End states' })).toBeDefined();
+        expect(requests.filter(isComparison)).toHaveLength(2);
+    });
+
+    it('Given_no_scenario_chosen_When_the_page_renders_Then_no_account_is_offered_and_the_hint_says_why', async () => {
+        fakeFetch(ledger(SCENARIOS));
+        renderComparison();
+
+        expect(
+            await screen.findByText('Choose scenarios to offer the accounts in their currency.'),
+        ).toBeDefined();
+        expect(screen.queryByRole('group', { name: 'Cash accounts' })).toBeNull();
+    });
+
+    it('Given_scenarios_in_two_currencies_chosen_When_the_accounts_are_offered_Then_none_is_and_the_hint_says_a_comparison_covers_one', async () => {
+        fakeFetch(ledger(SCENARIOS));
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('group', { name: 'Scenarios' });
+
+        await user.click(scenarioCheckbox('Do nothing (ILS)'));
+        expect(
+            within(screen.getByRole('group', { name: 'Cash accounts' })).getAllByRole('checkbox'),
+        ).toHaveLength(1);
+        await user.click(scenarioCheckbox('Move abroad (USD)'));
+
+        expect(
+            screen.getByText(
+                'The chosen scenarios are in more than one currency, and a comparison covers one.',
+            ),
+        ).toBeDefined();
+        expect(screen.queryByRole('group', { name: 'Cash accounts' })).toBeNull();
+    });
+
+    it('Given_no_scenarios_When_the_page_renders_Then_the_empty_state_says_to_define_some_first', async () => {
+        fakeFetch(ledger([]));
+
+        renderComparison();
+
+        expect(
+            await screen.findByText(
+                'No scenarios to compare yet — define at least two under Scenarios.',
+            ),
+        ).toBeDefined();
+        expect(screen.queryByRole('button', { name: 'Compare' })).toBeNull();
+    });
+
+    it('Given_the_scenarios_read_fails_When_the_page_renders_Then_a_retry_is_offered_that_refetches', async () => {
+        let failing = true;
+        const requests = fakeFetch((request) => {
+            if (request.url !== SCENARIOS_URL) return unexpectedRequest(request);
+            return failing
+                ? problemResponse({ status: 503, code: 'UNAVAILABLE', detail: 'Try later.' })
+                : jsonResponse(SCENARIOS);
+        });
+        renderComparison();
+
+        const alert = await screen.findByRole('alert');
+        failing = false;
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
+
+        expect(await screen.findByRole('group', { name: 'Scenarios' })).toBeDefined();
+        expect(requests).toHaveLength(2);
+    });
+});
