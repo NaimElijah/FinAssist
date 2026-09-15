@@ -266,6 +266,21 @@ def Given_a_non_positive_quantity_When_a_disposal_is_priced_Then_the_rule_is_vio
     assert response.json()["code"] == "RULE_VIOLATED"
 
 
+def Given_a_quantity_finer_than_28_digits_When_a_disposal_is_priced_Then_nothing_is_rounded(
+    client: TestClient,
+) -> None:
+    """The wire bounds neither the digits nor the scale of a quantity, and exact decimal arithmetic
+    is the domain's promise. Rounded, this sale left the older lot at ten while the response echoed
+    the quantity as sold."""
+    ten_to_the_minus_32 = "0." + "0" * 31 + "1"
+
+    response = client.post(DISPOSAL_URL, json=_disposal(quantity=ten_to_the_minus_32))
+
+    assert response.status_code == 200
+    assert response.json()["quantity"] == ten_to_the_minus_32
+    assert [lot["quantity"] for lot in response.json()["remaining"]] == ["9." + "9" * 32, "5"]
+
+
 def Given_proceeds_finer_than_the_currency_admits_When_priced_Then_they_are_refused_not_rounded(
     client: TestClient,
 ) -> None:
