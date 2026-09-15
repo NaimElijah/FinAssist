@@ -161,6 +161,7 @@ function ProjectionForm({
                 onChange={setSettings}
                 currency={currency}
                 noCurrencyMessage={NO_CURRENCY_MESSAGE}
+                noun="projection"
             />
             <div>
                 <Button type="submit">Project</Button>

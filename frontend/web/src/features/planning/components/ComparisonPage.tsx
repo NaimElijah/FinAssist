@@ -273,6 +273,7 @@ function ComparisonForm({
                 noCurrencyMessage={
                     chosen.length === 0 ? NO_SCENARIO_CHOSEN_MESSAGE : MIXED_CURRENCIES_MESSAGE
                 }
+                noun="comparison"
             />
             <div>
                 <Button type="submit">Compare</Button>

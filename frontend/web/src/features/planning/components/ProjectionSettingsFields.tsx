@@ -96,6 +96,7 @@ function AccountPickers({
     onChange,
     currency,
     noCurrencyMessage,
+    noun,
 }: ProjectionSettingsFieldsProps) {
     const accountOptions = useAccountOptions();
     const hintId = useId();
@@ -123,7 +124,7 @@ function AccountPickers({
         <div className={styles.accounts}>
             {failure}
             <p id={hintId} className={styles.hint}>
-                {`A projection covers one currency, so only accounts in ${currency} are offered.`}
+                {`A ${noun} covers one currency, so only accounts in ${currency} are offered.`}
             </p>
             <div className={styles.groups}>
                 <AccountGroup
@@ -159,14 +160,19 @@ export interface ProjectionSettingsFieldsProps {
     readonly currency: string | undefined;
     /** Shown in place of the account pickers while `currency` is `undefined`, saying why. */
     readonly noCurrencyMessage: string;
+    /**
+     * What the fields are read into, as the hint names it when it says only one currency's
+     * accounts are offered: each covers one currency (ADR-012, ADR-016).
+     */
+    readonly noun: 'projection' | 'comparison';
 }
 
 /**
  * The fields a projection and a comparison share: From, To, Step, and the Cash and Invested
  * account pickers, read from the account choices `src/app` provides (`useAccountOptions`).
  *
- * The pickers offer only accounts in `currency`, with a hint saying a projection covers one
- * currency (ADR-012, ADR-016). While the accounts load they say so; when the accounts cannot be
+ * The pickers offer only accounts in `currency`, with a hint saying the projection or comparison
+ * they open - `noun` names which - covers one currency (ADR-012, ADR-016). While the accounts load they say so; when the accounts cannot be
  * read, the failure and its retry replace the pickers alone, so the rest of the form still works -
  * a projection may open with no accounts at all. From and To are natively required, so the browser
  * refuses to submit without a horizon.

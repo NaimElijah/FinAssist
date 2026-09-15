@@ -474,6 +474,11 @@ describe('ComparisonPage', () => {
         expect(
             within(screen.getByRole('group', { name: 'Cash accounts' })).getAllByRole('checkbox'),
         ).toHaveLength(1);
+        expect(
+            screen.getByText(
+                'A comparison covers one currency, so only accounts in ILS are offered.',
+            ),
+        ).toBeDefined();
         await user.click(scenarioCheckbox('Move abroad (USD)'));
 
         expect(
