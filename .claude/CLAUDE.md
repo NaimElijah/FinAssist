@@ -23,12 +23,18 @@ area**: `AccountsPage` opens an account and lists every one with its derived bal
 `RecordTransactionPage` records a transaction by hand at the static route
 `/accounts/transactions/new`, and `AccountDetailPage` shows one account's transactions and moves
 each through `Clear`, `Reconcile` or `Void`, offering only the transitions its status legally
-admits. It calls the ledger through the dev proxy, mapping generated wire types onto the
-feature's own in `api/`; budgeting, planning and portfolio still render placeholders behind an
-error boundary. Observability is live (ADR-019): the ledger answers Actuator probes and now
-traces its business endpoints too, and the assistant serves `/health` and `/ready` and assembles
-its use cases at start-up. Both services emit structured JSON logs and OTLP traces. Both services
-run under Compose (`docker compose up`) as well as natively.
+admits. **It also has its budgeting area**: `BudgetsPage` lists every budget and defines one for
+a calendar month with a limit per category, `BudgetReviewPage` (`/budgets/:budgetId`) shows spend
+by category — overspent, unbudgeted and uncategorised — taking the budget's own period and
+currency from the cached list rather than a single-item read, and `CategorisationRulesPage`, at
+the static route `/budgets/rules`, lists rules in the order they are tried and adds another;
+`/budgets/rules` outranks the dynamic `/budgets/:budgetId` at the same depth by React Router's
+own static-over-dynamic ranking. Both areas call the ledger through the dev proxy, mapping
+generated wire types onto each feature's own in `api/`; planning and portfolio still render
+placeholders behind an error boundary. Observability is live (ADR-019): the ledger answers
+Actuator probes and now traces its business endpoints too, and the assistant serves `/health`
+and `/ready` and assembles its use cases at start-up. Both services emit structured JSON logs and
+OTLP traces. Both services run under Compose (`docker compose up`) as well as natively.
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
 Proposed today — all 29 are Accepted — and the requirements are still deliberately `TODO` in
@@ -291,3 +297,15 @@ consistent rather than because a test would catch a deviation.
 - **A lifecycle date on the web client defaults to the browser's local today**, built through a
   helper that takes the date as an argument, such as `todayIsoDate(new Date())` — never
   `toISOString()`, which reads UTC and never `now()` called inside the helper itself.
+- **A mutation that can affect an unknown number of cached queries invalidates them by predicate,
+  not by enumeration.** `useAddCategorisationRule` cannot list which budgets exist, so it
+  invalidates every `budgetKeys.review(id)` query with `queryClient.invalidateQueries({ queryKey:
+  budgetKeys.all, predicate: … })` rather than one call per id; a mutation that already knows the
+  affected ids (such as `useRecordTransaction` knowing which accounts an entry set names) still
+  invalidates each key directly. A test proves the scope through the query client's own state
+  (`getQueryState(key)?.isInvalidated`), not just the call's arguments.
+- **A web date helper does calendar-part arithmetic on integers, never `Date` parsed from a
+  string.** `period.ts`'s month-to-period mapping and day-before calculation use plain year/month
+  integers with a leap-year-aware days-in-month table; a `Date` is built only to hand an already
+  computed instant to `Intl.DateTimeFormat`, pinned to `timeZone: 'UTC'` exactly as `DateText`
+  does, so formatting cannot shift the result with the browser's own zone.

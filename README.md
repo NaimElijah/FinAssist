@@ -19,9 +19,10 @@ language, and analyse the portfolio behind it.**
 > `portfolio` under `/api/v1` too, with its own published contract, but its data comes only from
 > an opt-in development seed, off by default — no ledger client and no price feed exist. The web
 > client's accounting area lists and opens accounts, records a transaction by hand, and clears,
-> reconciles or voids one, over the ledger's API; its other areas are still placeholders, and it
-> does not call the assistant. See [Known limitations](#status-and-limitations) for what does not
-> exist yet.
+> reconciles or voids one; its budgeting area lists and defines budgets, reviews spend against
+> one, and adds categorisation rules — both over the ledger's API. Planning and portfolio are
+> still placeholders, and the web client does not call the assistant. See
+> [Known limitations](#status-and-limitations) for what does not exist yet.
 
 ## Contents
 
@@ -49,10 +50,11 @@ moves money — it records and explains, and nothing more. See
 ## Scope
 
 There is no feature list, because most of the confirmed scope below is not built yet — listing
-one here that outruns the code would be a bug report waiting to be filed. One slice of Tracking
-is a working exception: through the web client, an owner can open an account, record a
-transaction by hand, and move it through Clear, Reconcile and Void, end to end against the
-ledger. The confirmed scope is three capability areas:
+one here that outruns the code would be a bug report waiting to be filed. Two slices of Tracking
+are a working exception: through the web client, an owner can open an account, record a
+transaction by hand, and move it through Clear, Reconcile and Void; and can define a budget for a
+month with a limit per category, review spend against it, and add categorisation rules — each end
+to end against the ledger. The confirmed scope is three capability areas:
 
 - **Tracking** — accounts, transactions, categorisation, budgets.
 - **Assistance** — natural-language questions answered over the owner's own ledger data.
@@ -102,8 +104,9 @@ cd backend/assistant && uv run python -m finassist_assistant.adapters
 ```
 
 The web client runs too. Its accounting screens — opening an account, recording a transaction by
-hand, and clearing, reconciling or voiding one — need the ledger running; the other areas are
-still placeholders:
+hand, and clearing, reconciling or voiding one — and its budgeting screens — listing and defining
+budgets, reviewing spend, and adding categorisation rules — need the ledger running; planning and
+portfolio are still placeholders:
 
 ```bash
 cd frontend/web && npm ci && npm run dev   # http://localhost:5173
@@ -159,8 +162,8 @@ flowchart LR
 `DB`, the ledger and the assistant all run under Compose now, and `Ledger --> DB` is real: the
 ledger serves `/api/v1`, with an OpenAPI document to prove it
 ([contracts/ledger-v1.openapi.json](contracts/ledger-v1.openapi.json)). The web client's
-accounting screens call it; the assistant does not yet, having no ledger client. The assistant
-serves its own `portfolio` endpoints under `/api/v1` too, published as
+accounting and budgeting screens call it; the assistant does not yet, having no ledger client.
+The assistant serves its own `portfolio` endpoints under `/api/v1` too, published as
 [contracts/assistant-v1.openapi.json](contracts/assistant-v1.openapi.json), and nothing calls them
 yet.
 
@@ -275,6 +278,7 @@ behaviour they describe.
 | Web architecture | No feature imports another; `shared` imports no feature; `src/app` imports a feature only through its `index.ts`, and no feature imports `src/app` | `make test-web` |
 | Web unit | The HTTP client's failure contracts and `Accept` header, a jsdom render of the app shell, and the shared UI primitives: labelled fields, a pending button, money formatted from its exact decimal string, and dates that never shift with the timezone | `make test-web` |
 | Web accounting | The accounts, account-detail and record-transaction screens end to end against a faked `fetch`: opening an account, recording a transaction by hand — including its two-entry amount mirror and the entry-row mapper's no-arithmetic sign handling — and clearing, reconciling or voiding one, offered only for the states each legally admits | `make test-web` |
+| Web budgeting | The budgets, budget-review and categorisation-rules screens end to end against a faked `fetch`: listing and defining budgets, the month-to-period mapping's calendar arithmetic (including a December rollover and a non-month period), reviewing spend with an overspent status and unbudgeted and uncategorised amounts, not-found by problem code, the static `/budgets/rules` route outranking the dynamic `/budgets/:budgetId` one, and adding a rule invalidating the rules list and every cached budget review, proven through the query client's own state | `make test-web` |
 
 Deliberately absent are running test counts. Every commit that adds a source file changes the
 parametrised architecture case count, so a number here would be wrong by the next pull request
@@ -450,20 +454,23 @@ was confirmed to fail against a planted violation — including dropping the app
 planting a foreign key across a schema boundary. CI gates build, lint, format and dependency audit
 across four jobs, and publishes a coverage report from each.
 
-**The first tracking slice now runs end to end**: the web client's accounting area opens an
-account, records a transaction by hand, and moves one through `Clear`, `Reconcile` and `Void`,
-each against the ledger's live HTTP API. Planned next, in order: resolve the
+**Two tracking slices now run end to end**: the web client's accounting area opens an account,
+records a transaction by hand, and moves one through `Clear`, `Reconcile` and `Void`; its
+budgeting area lists and defines budgets, reviews spend against one — overspent, unbudgeted and
+uncategorised — and adds categorisation rules in order. Both run against the ledger's live HTTP
+API. Planned next, in order: resolve the
 [open questions](docs/requirements/requirements.md#open-questions), give the assistant a ledger
-client behind its own `LedgerPort`, then build the budgeting, planning and portfolio screens
-against each service's published contract.
+client behind its own `LedgerPort`, then build the planning and portfolio screens against each
+service's published contract.
 
 Known limitations:
 
 - **The backend HTTP APIs have one caller so far.** The ledger serves accounting, budgeting and
   planning under `/api/v1`, with an OpenAPI document pinned by `LedgerContractIT`; the assistant
   serves `portfolio` under `/api/v1`, pinned by `tests/test_contract.py`. Only the web client's
-  accounting screens call either. The assistant has no ledger client of its own — `LedgerPort` is
-  still an in-memory stand-in — and nothing calls the assistant's API.
+  accounting and budgeting screens call either, and only the ledger's; planning has no screen
+  yet. The assistant has no ledger client of its own — `LedgerPort` is still an in-memory
+  stand-in — and nothing calls the assistant's API.
 - **The assistant's portfolio data comes only from an opt-in development seed.**
   `ASSISTANT_DEV_SEED`, off by default, loads a small set of fictional lots and quotes from the
   composition root so the endpoints have something to answer by hand; it is a development aid,
