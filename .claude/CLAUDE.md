@@ -18,12 +18,17 @@ problem+json handling in `adapters/problems.py`, with its OpenAPI document gener
 code and committed at `contracts/assistant-v1.openapi.json`, pinned by `tests/test_contract.py`.
 An opt-in, off-by-default development seed (`ASSISTANT_DEV_SEED`, `adapters/seed.py`) loads
 fictional holdings and quotes so those endpoints have something to answer by hand; the assistant
-still has no store, no ledger client and no price feed. The web client is not built yet.
-Observability is live (ADR-019): the ledger answers Actuator probes and now traces its business
-endpoints too, the assistant serves `/health` and `/ready` and assembles its use cases at
-start-up, and the web client renders a placeholder behind an error boundary. Both services emit
-structured JSON logs and OTLP traces. Both services run under Compose (`docker compose up`) as
-well as natively.
+still has no store, no ledger client and no price feed. **The web client has its accounting
+area**: `AccountsPage` opens an account and lists every one with its derived balance,
+`RecordTransactionPage` records a transaction by hand at the static route
+`/accounts/transactions/new`, and `AccountDetailPage` shows one account's transactions and moves
+each through `Clear`, `Reconcile` or `Void`, offering only the transitions its status legally
+admits. It calls the ledger through the dev proxy, mapping generated wire types onto the
+feature's own in `api/`; budgeting, planning and portfolio still render placeholders behind an
+error boundary. Observability is live (ADR-019): the ledger answers Actuator probes and now
+traces its business endpoints too, and the assistant serves `/health` and `/ready` and assembles
+its use cases at start-up. Both services emit structured JSON logs and OTLP traces. Both services
+run under Compose (`docker compose up`) as well as natively.
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
 Proposed today — all 29 are Accepted — and the requirements are still deliberately `TODO` in
@@ -249,6 +254,19 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **The web client's contract types under `src/shared/api/contracts/` are generated, never
   hand-written.** Regenerate them after either service's contract changes (`make
   generate-web-api`), and CI fails the `web` job on a diff it did not expect (ADR-029).
+- **A web feature's `api/` is its anti-corruption layer.** It types each response with the
+  generated wire type and maps it, member by member, onto the feature's own type in `types/`;
+  nothing outside `api/` imports a generated type (ADR-029).
+- **A web feature's query keys come from one factory constant**, such as `accountKeys`, never a
+  key literal spelled at the call site. A mutation invalidates only the keys that can have
+  changed, never a wider prefix that would refetch data nothing touched.
+- **A web mutation's submit control disables itself while the mutation is pending**, and a
+  submit event arriving anyway is ignored by an in-flight `useRef` guard, not the render-time
+  `isPending` — two submit events can arrive before pending has rendered (ADR-028: no double
+  submit).
+- **A lifecycle date on the web client defaults to the browser's local today**, built through a
+  helper that takes the date as an argument, such as `todayIsoDate(new Date())` — never
+  `toISOString()`, which reads UTC and never `now()` called inside the helper itself.
 - **The assistant's development seed is off by default** (`ASSISTANT_DEV_SEED`) and lives only
   in the composition root (`adapters/seed.py`).
 - **The assistant's wire models hide input values in validation errors**

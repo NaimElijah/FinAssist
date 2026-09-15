@@ -4,7 +4,7 @@ What the system must do. *How* it is built is [architecture](../architecture/arc
 *why* a given solution was chosen is [the ADRs](../ADRs/).
 
 > **Status: the domain and application layers are written, the ledger's store is PostgreSQL, and
-> both backend services now have a transport; the web client has its first screen, over the
+> both backend services now have a transport; the web client has its accounting area, over the
 > ledger's.** The store is
 > [ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md) and
 > [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md). The transport's decisions
@@ -16,7 +16,7 @@ What the system must do. *How* it is built is [architecture](../architecture/arc
 > with its generated OpenAPI document pinned by `tests/test_portfolio_api.py` and
 > `tests/test_contract.py`; its portfolio data still comes from nowhere real — an opt-in
 > development seed aside — because neither a ledger client nor a price feed exists. The web
-> client calls the ledger from its accounts screen, and the assistant not at all. Requirements
+> client calls the ledger from its accounting screens, and the assistant not at all. Requirements
 > marked **Enforced** name the class and the test that hold them today, so this document can be
 > checked rather than trusted. Everything still marked `TODO` is a decision waiting on its
 > owner, not an omission to be filled in by inference — behaviour found in code is evidence
@@ -188,10 +188,12 @@ Through the web client, the owner can:
 
 - Open an account, and see every account with its derived balance. `AccountsPage`,
   `OpenAccountForm`; `AccountsPage.test.tsx`, `accountingApi.test.ts`
-- Record a transaction by hand, and see an account's transactions with their lifecycle state.
-  Seeing them is built: `AccountDetailPage`; `AccountDetailPage.test.tsx`, `accountingApi.test.ts`.
-  Recording one by hand has no screen yet.
-- Clear, reconcile or void a transaction.
+- Record a transaction by hand. `RecordTransactionPage`; `RecordTransactionPage.test.tsx`,
+  `accountingApi.test.ts`, `transaction.test.ts`
+- See an account's transactions with their lifecycle state. `AccountDetailPage`;
+  `AccountDetailPage.test.tsx`, `accountingApi.test.ts`
+- Clear, reconcile or void a transaction. `AccountDetailPage`; `AccountDetailPage.test.tsx`,
+  `accountingApi.test.ts`
 - Define a budget for a month with a limit per category, and review spend against it: what is
   overspent, what is unbudgeted, and what is uncategorised.
 - Add categorisation rules, in order.
