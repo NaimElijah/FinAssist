@@ -27,8 +27,10 @@ class Settings(BaseSettings):
 
     :param service_name: identifies this service in emitted telemetry. Fixed per service
         rather than shared with the ledger, which would merge two services into one stream.
-    :param host: interface to bind. Loopback by default — nothing runs the assistant in a
-        container yet, so binding every interface would publish it to the local network.
+    :param host: interface to bind. Loopback by default, so a native run is never published to
+        the local network. Compose sets it to ``0.0.0.0`` inside the container, where loopback
+        would be unreachable through the published port, and publishes that port on
+        ``127.0.0.1`` only (ADR-027).
     :param port: TCP port to serve on.
     :param allowed_hosts: the host names a request's ``Host`` header may name; any other is
         refused with 403 (ADR-027). Comma-separated in the environment, as the ledger's
