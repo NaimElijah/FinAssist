@@ -20,9 +20,9 @@ export type RenderedRoutes = RenderResult & {
  * Mount `routes` under a pathless-layout root at `/`, in an in-memory router starting at `path`,
  * inside a fresh query client.
  *
- * The client retries nothing. The app's own client retries a network failure or a 5xx once,
- * after a backoff, which would make a test of a failure wait out that backoff; the retry policy
- * itself is tested in `src/app/queryClient.test.ts`. A new client per call means no test
+ * The client retries nothing. The app's own client retries a network failure or a 5xx other than a
+ * 503 once, after a backoff, which would make a test of a failure wait out that backoff; the retry
+ * policy itself is tested in `src/app/queryClient.test.ts`. A new client per call means no test
  * inherits another's cache.
  *
  * @param routes - the routes to mount, with paths relative to `/`, as a feature exports them.

@@ -34,11 +34,16 @@ async function attemptsBeforeGivingUp(error: unknown): Promise<number> {
     return queryFn.mock.calls.length;
 }
 
-/** Failures a second attempt would only repeat: an answer from the server, or a bug. */
+/**
+ * Failures a second attempt would only repeat: an answer from the server, or a bug. A 503 is among
+ * them: the assistant answers it as `PRICE_UNAVAILABLE`, a stale feed that no retry's backoff
+ * outlasts.
+ */
 const NOT_RETRIED: readonly { readonly name: string; readonly error: unknown }[] = [
     { name: 'a_400', error: apiError(400) },
     { name: 'a_404', error: apiError(404) },
     { name: 'a_409', error: apiError(409) },
+    { name: 'a_503', error: apiError(503) },
     { name: 'a_2xx_without_its_JSON_body', error: new ApiBodyError(URL, 'Body was not JSON') },
     { name: 'a_plain_Error', error: new Error('mapping failed') },
 ];
@@ -46,7 +51,7 @@ const NOT_RETRIED: readonly { readonly name: string; readonly error: unknown }[]
 /** Failures a second attempt might not meet: the network, or the server failing. */
 const RETRIED_ONCE: readonly { readonly name: string; readonly error: unknown }[] = [
     { name: 'a_500', error: apiError(500) },
-    { name: 'a_503', error: apiError(503) },
+    { name: 'a_502', error: apiError(502) },
     { name: 'a_network_TypeError', error: new TypeError('Failed to fetch') },
 ];
 

@@ -15,6 +15,13 @@ const MAX_QUERY_RETRIES = 1;
 const FIRST_SERVER_ERROR_STATUS = 500;
 
 /**
+ * The one 5xx that is a considered answer rather than a failure: the assistant's
+ * `PRICE_UNAVAILABLE`, a price feed gone stale. A stale feed does not recover within a retry's
+ * backoff, so a retry would only delay showing that no price is usable.
+ */
+const SERVICE_UNAVAILABLE_STATUS = 503;
+
+/**
  * Refetching on window focus suits data other people change. Here the owner is the only writer,
  * and every write invalidates what it affects, so a refetch on focus would only add requests.
  */
@@ -31,11 +38,12 @@ const MUTATION_RETRIES = 0;
  * a different outcome.
  *
  * That means a network failure, which `fetch` reports as a `TypeError` and `requestJson` rethrows,
- * or a 5xx `ApiError`, which a restarting backend answers. A 4xx is the server's considered
+ * or a 5xx `ApiError` other than a 503. A backend restarting refuses the connection, which reaches
+ * here as a `TypeError`, or through the dev proxy as a 502. A 4xx is the server's considered
  * answer - a 404 stays missing and a 409 stays in conflict - so a retry would only delay showing
- * it. Anything else, such as an `ApiBodyError`, is a defect a retry would repeat. A `TypeError`
- * thrown by a defect in a query function is retried once as well; from here the two cannot be
- * told apart.
+ * it, and a 503 is considered too: see `SERVICE_UNAVAILABLE_STATUS`. Anything else, such as an
+ * `ApiBodyError`, is a defect a retry would repeat. A `TypeError` thrown by a defect in a query
+ * function is retried once as well; from here the two cannot be told apart.
  *
  * @param failureCount - retries already made. TanStack Query passes 0 on the first failure.
  * @param error - what the query function threw.
@@ -46,7 +54,9 @@ function shouldRetryQuery(failureCount: number, error: unknown): boolean {
         return false;
     }
     if (error instanceof ApiError) {
-        return error.status >= FIRST_SERVER_ERROR_STATUS;
+        return (
+            error.status >= FIRST_SERVER_ERROR_STATUS && error.status !== SERVICE_UNAVAILABLE_STATUS
+        );
     }
     return error instanceof TypeError;
 }
@@ -57,8 +67,8 @@ function shouldRetryQuery(failureCount: number, error: unknown): boolean {
  * A new client on every call: main.tsx creates one for the page, and each test creates its own,
  * so no test inherits another's cache.
  *
- * @returns a client whose queries retry once after a network failure or a 5xx and never after
- *   anything else, never refetch on window focus, and whose mutations never retry.
+ * @returns a client whose queries retry once after a network failure or a 5xx other than a 503
+ *   and never after anything else, never refetch on window focus, and whose mutations never retry.
  */
 export function createQueryClient(): QueryClient {
     return new QueryClient({
