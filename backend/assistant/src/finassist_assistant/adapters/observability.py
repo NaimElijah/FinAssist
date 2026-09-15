@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from collections.abc import Iterable, MutableMapping
 from contextvars import ContextVar
 from typing import Any, Final, TextIO
@@ -26,6 +27,7 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from starlette.types import Scope
 
 from finassist_assistant.adapters.settings import Settings
 
@@ -63,6 +65,15 @@ _correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=N
 
 TRACEPARENT_HEADER: Final = "traceparent"
 CORRELATION_ID_FIELD: Final = "correlation_id"
+
+REQUEST_EVENT: Final = "request answered"
+"""The event of the one line the assistant writes for every request it answers."""
+
+_MILLISECONDS_PER_SECOND: Final = 1000
+# Microseconds: finer than anything a request's duration is read for, and short on the line.
+_DURATION_DECIMALS: Final = 3
+
+_log = structlog.get_logger(__name__)
 
 # Shortest value worth scrubbing. A two-character secret would match inside ordinary words and
 # turn every message into redaction markers, destroying the logs without protecting anything.
@@ -178,6 +189,29 @@ def add_correlation_id(
     if correlation_id is not None:
         event_dict[CORRELATION_ID_FIELD] = correlation_id
     return event_dict
+
+
+def log_request(scope: Scope, status: int, started: float) -> None:
+    """Write the one line the assistant keeps for a request, at INFO whatever its status.
+
+    Called before the correlation id is unbound, so the line carries it. Uvicorn's own access line
+    is switched off because it is written later, from the protocol layer, with nothing bound. A
+    failure worth acting on already has its own ERROR line from the problem handlers.
+
+    :param scope: the request's ASGI scope. Its ``path`` never holds the query string, which is
+        why the line is built from it: a URL is no place to assume nothing sensitive travels, and
+        no amount is ever logged (ADR-028).
+    :param status: the status the request was answered with.
+    :param started: :func:`time.perf_counter` when the request arrived.
+    """
+    elapsed = time.perf_counter() - started
+    _log.info(
+        REQUEST_EVENT,
+        method=scope["method"],
+        path=scope["path"],
+        status=status,
+        duration_ms=round(elapsed * _MILLISECONDS_PER_SECOND, _DURATION_DECIMALS),
+    )
 
 
 def _processors() -> Iterable[structlog.typing.Processor]:

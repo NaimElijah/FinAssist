@@ -14,11 +14,14 @@ from typing import Any
 
 import pytest
 import structlog
+import uvicorn
+from fastapi import APIRouter
 from fastapi.testclient import TestClient
 from opentelemetry.sdk.trace import TracerProvider
 from pydantic import ValidationError
 from starlette.requests import Request
 
+from finassist_assistant.adapters.__main__ import main
 from finassist_assistant.adapters.app import (
     CORRELATION_ID_HEADER,
     _correlation_id_for,
@@ -39,6 +42,9 @@ from finassist_assistant.adapters.wiring import assemble
 
 SECRET = "sk-ant-000000000000000000000000"
 VALID_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+REQUEST_LINE = "request answered"
+# A recognisable amount, sent in a query string that must never reach a log line.
+AMOUNT = "98765.43"
 
 
 @pytest.fixture(autouse=True)
@@ -79,6 +85,11 @@ def _last_record(captured: str) -> dict[str, Any]:
 def _request_with(headers: dict[str, str]) -> Request:
     raw = [(key.lower().encode(), value.encode()) for key, value in headers.items()]
     return Request({"type": "http", "method": "GET", "path": "/health", "headers": raw})
+
+
+def _request_lines(captured: str) -> list[dict[str, Any]]:
+    records = (json.loads(line) for line in captured.strip().splitlines() if line.startswith("{"))
+    return [record for record in records if record.get("event") == REQUEST_LINE]
 
 
 # --- the endpoints -------------------------------------------------------------------------
@@ -191,6 +202,98 @@ def Given_a_request_When_it_is_logged_Then_the_header_and_the_log_line_agree(
 
     structlog.get_logger("t").info("probe")
     assert response.headers[CORRELATION_ID_HEADER] == VALID_TRACE_ID
+
+
+# --- the request line ----------------------------------------------------------------------
+
+
+def Given_a_traceparent_When_a_request_is_served_Then_one_request_line_carries_its_trace_id(
+    client: TestClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ADR-019's promise at the assistant's edge: the caller's trace id is in a line it wrote.
+
+    The query string carries an amount on purpose. The line names the path alone, because a URL is
+    not a safe place to assume nothing sensitive travels (ADR-028).
+    """
+    capsys.readouterr()
+
+    client.get(
+        "/health",
+        params={"amount": AMOUNT},
+        headers={"traceparent": f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"},
+    )
+
+    [line] = _request_lines(capsys.readouterr().out)
+    assert line["correlation_id"] == VALID_TRACE_ID
+    assert line["method"] == "GET"
+    assert line["path"] == "/health"
+    assert line["status"] == 200
+    assert line["level"] == "info"
+    assert isinstance(line["duration_ms"], float)
+    assert line["duration_ms"] >= 0
+    assert AMOUNT not in json.dumps(line)
+
+
+@pytest.mark.parametrize(
+    ("path", "headers", "status"),
+    [
+        ("/health", {"host": "attacker.example"}, 403),
+        ("/no-such-route", {}, 404),
+        ("/fails", {}, 500),
+    ],
+    ids=["refused-host", "unknown-route", "server-error"],
+)
+def Given_a_refused_unknown_or_failing_request_When_answered_Then_one_info_request_line_is_written(
+    settings: Settings,
+    capsys: pytest.CaptureFixture[str],
+    path: str,
+    headers: dict[str, str],
+    status: int,
+) -> None:
+    """Every request leaves exactly one line, at INFO whatever its status.
+
+    A refusal is the assistant's considered answer, not an incident; an unexpected failure has its
+    own ERROR line from the problem handlers, so the request line need not repeat the alarm.
+    """
+    failing = APIRouter()
+
+    @failing.get("/fails")
+    def fails() -> None:
+        raise RuntimeError("an unexpected failure")
+
+    app = create_app(settings)
+    app.include_router(failing)
+    with TestClient(app) as running:
+        capsys.readouterr()
+        response = running.get(path, headers=headers)
+
+    lines = _request_lines(capsys.readouterr().out)
+    assert response.status_code == status
+    assert [(line["path"], line["status"], line["level"]) for line in lines] == [
+        (path, status, "info")
+    ]
+
+
+def Given_the_entry_point_When_it_starts_the_server_Then_uvicorn_writes_no_access_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The app writes the request line while the correlation id is bound.
+
+    Uvicorn's own access line is written afterwards, from its protocol layer, when nothing is bound,
+    so leaving it on would add a second line per request that no id can join.
+    """
+    started: dict[str, Any] = {}
+
+    def run(_app: Any, **options: Any) -> None:
+        started.update(options)
+
+    monkeypatch.setenv("OTEL_EXPORT_ENABLED", "false")
+    monkeypatch.setattr(uvicorn, "run", run)
+
+    main()
+
+    assert started["access_log"] is False
+    assert started["log_config"] is None
 
 
 # --- redaction -----------------------------------------------------------------------------

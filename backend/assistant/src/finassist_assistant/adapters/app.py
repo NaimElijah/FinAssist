@@ -23,6 +23,7 @@ See ADR-019, ADR-021, ADR-026, ADR-027 and ADR-028.
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import fields
@@ -40,6 +41,7 @@ from finassist_assistant.adapters.observability import (
     TRACEPARENT_HEADER,
     configure_logging,
     configure_tracing,
+    log_request,
     set_correlation_id,
 )
 from finassist_assistant.adapters.openapi import document_problems
@@ -160,26 +162,30 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
     async def correlate(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        """Bind a correlation id for the request and echo it back on the response.
+        """Bind a correlation id for the request, log it, and echo the id back on the response.
 
         An exception nothing inside has handled is answered here rather than left to Starlette's
         outermost handler. That one runs outside this middleware, after the id is unbound, so its
         log line could not be joined to the response, and the response would carry no id to join
-        it with.
+        it with. The request line is written here for the same reason, before the id is unbound
+        (ADR-019).
         """
+        started = time.perf_counter()
         correlation_id = _correlation_id_for(request)
         set_correlation_id(correlation_id)
         try:
-            response = await call_next(request)
-        except Exception as unexpected:
-            response = answer_unexpected(request, unexpected)
+            try:
+                response = await call_next(request)
+            except Exception as unexpected:
+                response = answer_unexpected(request, unexpected)
+            log_request(request.scope, response.status_code, started)
         finally:
             set_correlation_id(None)
         response.headers[CORRELATION_ID_HEADER] = correlation_id
         return response
 
     # Added after the correlation middleware, so it runs before it: a refused request reaches no
-    # handler and is given no correlation id (ADR-027).
+    # handler and is given no correlation id (ADR-027). It writes the refusal's request line itself.
     app.add_middleware(HostAllowList, allowed_hosts=resolved.allowed_hosts)
 
     @app.get("/health", include_in_schema=False)

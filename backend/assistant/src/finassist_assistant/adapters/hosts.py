@@ -8,6 +8,7 @@ change is the name it was loaded from, which every request it makes still carrie
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 from http import HTTPStatus
 from typing import Final
@@ -15,6 +16,7 @@ from typing import Final
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from finassist_assistant.adapters.observability import log_request
 from finassist_assistant.adapters.problems import HOST_NOT_ALLOWED, problem_response
 
 __all__ = ["HostAllowList"]
@@ -47,6 +49,9 @@ class HostAllowList:
     ``send`` that discards everything; the request is then passed on or refused here. The body
     never echoes the header back.
 
+    A refused request never reaches the correlation middleware, so its request line is written
+    here, without a correlation id, exactly as every admitted request has one written there.
+
     Two differences from the ledger's filter come with the stock matching, which compares the text
     before the header's first colon exactly. An IPv6 literal such as ``[::1]`` can never be
     allowed, so ``Settings`` refuses an entry with a colon or a bracket rather than accept one that
@@ -64,9 +69,11 @@ class HostAllowList:
         )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        started = time.perf_counter()
         await self._check(scope, receive, _discard)
         if scope.pop(_ADMITTED, False):
             await self._app(scope, receive, send)
             return
         refusal = problem_response(HTTPStatus.FORBIDDEN, HOST_NOT_ALLOWED, _REFUSAL_DETAIL)
         await refusal(scope, receive, send)
+        log_request(scope, refusal.status_code, started)

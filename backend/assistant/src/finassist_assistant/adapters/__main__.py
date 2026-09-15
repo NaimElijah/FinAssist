@@ -27,6 +27,10 @@ def main() -> None:
         # Logging is configured by create_app; uvicorn's own dictConfig would replace the
         # structured handler with its plain-text one and quietly bypass the redaction boundary.
         log_config=None,
+        # The app writes each request's line while its correlation id is bound. Uvicorn's access
+        # line comes afterwards, from the protocol layer, carrying no id and the query string too
+        # (ADR-019, ADR-028).
+        access_log=False,
     )
 
 
