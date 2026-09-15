@@ -16,6 +16,7 @@ import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +36,11 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
     private static final LocalDate MARCH_1 = LocalDate.of(2026, 3, 1);
     private static final LocalDate MARCH_15 = LocalDate.of(2026, 3, 15);
     private static final LocalDate APRIL_1 = LocalDate.of(2026, 4, 1);
+
+    /** PostgreSQL compares {@code uuid} byte by byte, so these two order the way they read. */
+    private static final UUID SMALLER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
+    private static final UUID LARGER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
     @Autowired
     private AccountRepository accounts;
@@ -208,11 +214,35 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                 .hasMessageContaining("accounting.journal_entry.amount");
     }
 
+    /**
+     * The port's tie-break: two transactions on one date come back by id. They are recorded larger id
+     * first, so a store that returned them in insertion order would fail this.
+     */
+    @Test
+    void Given_two_transactions_on_one_date_recorded_larger_id_first_When_read_Then_the_smaller_id_leads() {
+        Transaction larger = record(LARGER_ID, MARCH_1, "Second by id", "7.50");
+        Transaction smaller = record(SMALLER_ID, MARCH_1, "First by id", "12.50");
+
+        assertThat(transactions.findByAccount(cash.id())).containsExactly(smaller, larger);
+        assertThat(transactions.findBetween(MARCH_1, APRIL_1)).containsExactly(smaller, larger);
+    }
+
     private Transaction record(LocalDate on, String description, String amount) {
         Transaction recorded = Transaction.record(
                 on,
                 description,
                 List.of(new Entry(groceries.id(), ils(amount)), new Entry(cash.id(), ils("-" + amount))));
+        transactions.save(recorded);
+        return recorded;
+    }
+
+    private Transaction record(UUID id, LocalDate on, String description, String amount) {
+        Transaction recorded = new Transaction(
+                new TransactionId(id),
+                on,
+                description,
+                List.of(new Entry(groceries.id(), ils(amount)), new Entry(cash.id(), ils("-" + amount))),
+                new TransactionState.Pending());
         transactions.save(recorded);
         return recorded;
     }

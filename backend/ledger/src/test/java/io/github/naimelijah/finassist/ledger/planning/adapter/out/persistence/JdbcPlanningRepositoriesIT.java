@@ -12,12 +12,14 @@ import io.github.naimelijah.finassist.ledger.planning.domain.forecast.ScenarioId
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Cadence;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Direction;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanId;
+import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanState;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlannedFlow;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Recurrence;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -41,6 +43,11 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
     private static final LocalDate FEB_10 = LocalDate.of(2026, 2, 10);
     private static final LocalDate MARCH_1 = LocalDate.of(2026, 3, 1);
     private static final LocalDate NEXT_YEAR = LocalDate.of(2027, 2, 1);
+
+    /** PostgreSQL compares {@code uuid} byte by byte, so these two order the way they read. */
+    private static final UUID SMALLER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
+    private static final UUID LARGER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
     @Autowired
     private PlannedFlowRepository flows;
@@ -187,6 +194,34 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
         assertThat(flows.all()).containsExactly(earlier, later);
     }
 
+    /**
+     * The port's tie-break: two flows starting on one date come back by id. They are saved larger id
+     * first, so a store that returned them in insertion order would fail this.
+     */
+    @Test
+    void Given_two_flows_starting_on_one_date_saved_larger_id_first_When_all_are_listed_Then_the_smaller_id_leads() {
+        PlannedFlow larger = new PlannedFlow(
+                new PlanId(LARGER_ID),
+                "Second by id",
+                ils("100.00"),
+                Direction.OUTFLOW,
+                FEB_1,
+                new Recurrence.Once(),
+                new PlanState.Planned());
+        PlannedFlow smaller = new PlannedFlow(
+                new PlanId(SMALLER_ID),
+                "First by id",
+                ils("50.00"),
+                Direction.OUTFLOW,
+                FEB_1,
+                new Recurrence.Once(),
+                new PlanState.Planned());
+        flows.save(larger);
+        flows.save(smaller);
+
+        assertThat(flows.all()).containsExactly(smaller, larger);
+    }
+
     /** A cancelled flow is history, not something a listing hides - the port makes no state exception. */
     @Test
     void Given_a_cancelled_flow_When_all_are_listed_Then_it_is_still_returned() {
@@ -215,15 +250,20 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
         assertThat(scenarios.all()).containsExactly(alpha, zeta);
     }
 
-    /** Names are not unique, so id is what keeps two same-named scenarios both in the listing. */
+    /**
+     * Names are not unique, so the port breaks a tie by id. The two are saved larger id first, so a store
+     * that returned them in insertion order would fail this.
+     */
     @Test
-    void Given_two_scenarios_sharing_a_name_When_all_are_listed_Then_both_are_returned() {
-        Scenario first = Scenario.baseline("Plan A", Currency.ILS, GrowthAssumption.none());
-        Scenario second = Scenario.baseline("Plan A", Currency.ILS, GrowthAssumption.none());
-        scenarios.save(first);
-        scenarios.save(second);
+    void Given_two_scenarios_sharing_a_name_saved_larger_id_first_When_all_are_listed_Then_the_smaller_id_leads() {
+        Scenario larger =
+                new Scenario(new ScenarioId(LARGER_ID), "Plan A", Currency.ILS, List.of(), GrowthAssumption.none());
+        Scenario smaller =
+                new Scenario(new ScenarioId(SMALLER_ID), "Plan A", Currency.ILS, List.of(), GrowthAssumption.none());
+        scenarios.save(larger);
+        scenarios.save(smaller);
 
-        assertThat(scenarios.all()).hasSize(2).containsExactlyInAnyOrder(first, second);
+        assertThat(scenarios.all()).containsExactly(smaller, larger);
     }
 
     @Test

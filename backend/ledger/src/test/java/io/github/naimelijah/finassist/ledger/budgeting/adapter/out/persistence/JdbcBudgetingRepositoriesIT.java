@@ -16,6 +16,8 @@ import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -34,6 +36,11 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
     private static final BudgetPeriod MARCH = BudgetPeriod.of(YearMonth.of(2026, 3));
     private static final Category GROCERIES = Category.of("groceries");
     private static final Category RENT = Category.of("rent");
+
+    /** PostgreSQL compares {@code uuid} byte by byte, so these two order the way they read. */
+    private static final UUID SMALLER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
+    private static final UUID LARGER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
     @Autowired
     private BudgetRepository budgets;
@@ -131,6 +138,20 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
         budgets.save(july);
 
         assertThat(budgets.all()).containsExactly(september, august, july);
+    }
+
+    /**
+     * The port's tie-break: two budgets for one period come back by id. They are saved larger id first,
+     * so a store that returned them in insertion order would fail this.
+     */
+    @Test
+    void Given_two_budgets_for_one_period_saved_larger_id_first_When_all_are_listed_Then_the_smaller_id_leads() {
+        Budget larger = new Budget(new BudgetId(LARGER_ID), MARCH, Currency.ILS, Map.of(GROCERIES, ils("1200.00")));
+        Budget smaller = new Budget(new BudgetId(SMALLER_ID), MARCH, Currency.ILS, Map.of(RENT, ils("4000.00")));
+        budgets.save(larger);
+        budgets.save(smaller);
+
+        assertThat(budgets.all()).containsExactly(smaller, larger);
     }
 
     @Test
