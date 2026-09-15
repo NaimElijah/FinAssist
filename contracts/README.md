@@ -6,8 +6,8 @@ here.
 **The wire contracts.** Each service's OpenAPI document is committed here:
 `ledger-v1.openapi.json` for the ledger and `assistant-v1.openapi.json` for the assistant
 ([ADR-028](../docs/ADRs/ADR-028-http-wire-conventions.md)). The web client's types are generated
-from both, and the assistant is checked against the ledger's rather than hand-written against a
-remembered shape.
+from both. The assistant has no ledger client yet, so only its `Problem` schema is checked against
+the ledger's document, as described below.
 
 - `ledger-v1.openapi.json` exists. springdoc generates it from the ledger's code, and
   `LedgerContractIT` pins it. It now carries every accounting, budgeting and planning path
