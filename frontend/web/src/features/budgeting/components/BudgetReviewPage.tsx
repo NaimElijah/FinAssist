@@ -157,7 +157,7 @@ function ReviewSections({ review }: { readonly review: BudgetReview }) {
  * The budget itself - its period and currency - comes from the cached budgets list, because the
  * ledger has no single-item read (ADR-028); the review, derived fresh, is its own query. Not
  * found when the review answers 404 `BUDGET_NOT_FOUND`, or when the loaded list does not hold the
- * id.
+ * id and is not being read again; while it is, the budget may only be newer than the list.
  *
  * The document is titled after the budget's period, such as "September 2026 review", only while
  * the page shows it. While the budget loads, or when it is not found, the route's own title
@@ -194,14 +194,17 @@ function BudgetDetail({ budgetId }: { readonly budgetId: string }) {
             onRetry={retryBudgets}
         />
     );
-    if (budgets.data === undefined) {
+    // A list without the id may only be out of date - the budget was defined since, in another tab
+    // say - so while the list is being read again it cannot yet say the budget does not exist.
+    const listSettling = budget === undefined && budgets.isFetching;
+    if (budgets.data === undefined || listSettling) {
         return (
             <>
                 <p className={styles.back}>
                     <BackToBudgets />
                 </p>
                 <h1>Budget review</h1>
-                {budgets.isPending ? (
+                {budgets.isPending || listSettling ? (
                     <p className={styles.placeholder}>Loading budget…</p>
                 ) : (
                     budgetsFailure

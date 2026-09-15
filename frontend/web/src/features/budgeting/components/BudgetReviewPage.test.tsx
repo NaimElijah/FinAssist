@@ -326,6 +326,30 @@ describe('BudgetReviewPage', () => {
         ).toBeDefined();
     });
 
+    it('Given_a_cached_budgets_list_without_the_id_When_the_list_is_being_read_again_Then_the_review_waits_rather_than_saying_not_found', async () => {
+        // A budget defined since the list was cached - in another tab, say - is missing from it
+        // until the refetch lands, so until then the list cannot say the budget does not exist.
+        const laterId = 'ffffffff-4d8c-4f3a-9a61-2f1c5e0d9b11';
+        let listReads = 0;
+        fakeFetch((request) => {
+            if (request.url === BUDGETS_URL) {
+                listReads += 1;
+                return listReads === 1 ? jsonResponse([SEPTEMBER_BUDGET]) : pendingResponse();
+            }
+            if (request.url === reviewUrl(laterId)) {
+                return jsonResponse({ ...REVIEW, budget: laterId });
+            }
+            return unexpectedRequest(request);
+        });
+        const { router } = renderRoutes(budgetingRoutes, '/budgets');
+        await screen.findByRole('link', { name: 'Review' });
+
+        await act(() => router.navigate(`/budgets/${laterId}`));
+
+        expect(await screen.findByText('Loading budget…')).toBeDefined();
+        expect(screen.queryByRole('heading', { level: 1, name: 'Budget not found' })).toBeNull();
+    });
+
     it('Given_a_404_BUDGET_NOT_FOUND_When_the_page_renders_Then_a_not_found_message_links_back_to_budgets', async () => {
         fakeFetch((request) => {
             if (request.url === BUDGETS_URL) return jsonResponse([SEPTEMBER_BUDGET]);
