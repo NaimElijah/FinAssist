@@ -22,15 +22,16 @@ language, and analyse the portfolio behind it.**
 > reconciles or voids one; its budgeting area lists and defines budgets, reviews spend against
 > one, and adds categorisation rules; its planning area plans flows, defines scenarios, charts a
 > scenario's projection with its first shortfall, and compares scenarios against a baseline — all
-> over the ledger's API. Portfolio is still a placeholder, and the web client does not call the
-> assistant. See [Known limitations](#status-and-limitations) for what does not exist yet.
+> over the ledger's API. Its portfolio area looks up a holding, shows its position and valuation,
+> and prices a disposal without recording it, over the assistant's. See
+> [Known limitations](#status-and-limitations) for what does not exist yet.
 
 ## Contents
 
 [What and why](#what-and-why) · [Scope](#scope) · [Quick start](#quick-start) ·
-[Tech stack](#tech-stack) · [Architecture](#architecture) ·
-[Project structure](#project-structure) · [Development](#development) ·
-[Testing](#testing) · [Configuration](#configuration) ·
+[Using the web client](#using-the-web-client) · [Tech stack](#tech-stack) ·
+[Architecture](#architecture) · [Project structure](#project-structure) ·
+[Development](#development) · [Testing](#testing) · [Configuration](#configuration) ·
 [Design decisions](#design-decisions) · [Status](#status-and-limitations)
 
 This README is ordered for a contributor rather than an evaluator — Quick start comes before
@@ -50,20 +51,24 @@ moves money — it records and explains, and nothing more. See
 
 ## Scope
 
-There is no feature list, because most of the confirmed scope below is not built yet — listing
-one here that outruns the code would be a bug report waiting to be filed. Two slices of Tracking
-are a working exception: through the web client, an owner can open an account, record a
-transaction by hand, and move it through Clear, Reconcile and Void; and can define a budget for a
-month with a limit per category, review spend against it, and add categorisation rules — each end
-to end against the ledger. The confirmed scope is three capability areas:
+There is no feature list, because much of the confirmed scope below is not built yet — listing
+one here that outruns the code would be a bug report waiting to be filed. What does work, end to
+end through the web client: opening an account, recording a transaction by hand and moving it
+through Clear, Reconcile and Void; defining a budget for a month with a limit per category,
+reviewing spend against it and adding categorisation rules; planning flows, defining scenarios,
+and projecting and comparing them — all against the ledger; and looking up a holding, seeing its
+position and valuation, and pricing a disposal, against the assistant, whose figures come only
+from its development seed until a data source exists. The confirmed scope is four capability
+areas:
 
 - **Tracking** — accounts, transactions, categorisation, budgets.
 - **Assistance** — natural-language questions answered over the owner's own ledger data.
 - **Analysis** — portfolio composition and performance over holdings.
+- **Planning** — planned flows, projected balances over time, and comparison of strategies.
 
-The requirements within each are not yet written. See
-[requirements](docs/requirements/requirements.md), and the
-[open questions](docs/requirements/requirements.md#open-questions) that gate them.
+What each must do is stated in [requirements](docs/requirements/requirements.md), still `TODO`
+where a decision waits on its owner; the
+[open questions](docs/requirements/requirements.md#open-questions) are those decisions.
 
 ## Quick start
 
@@ -104,21 +109,39 @@ cd backend/ledger && ./mvnw spring-boot:run
 cd backend/assistant && uv run python -m finassist_assistant.adapters
 ```
 
-The web client runs too. Its accounting screens — opening an account, recording a transaction by
-hand, and clearing, reconciling or voiding one — its budgeting screens — listing and defining
-budgets, reviewing spend, and adding categorisation rules — and its planning screens — planning
-flows, defining scenarios, and projecting and comparing them — need the ledger running; portfolio
-is still a placeholder:
-
-```bash
-cd frontend/web && npm ci && npm run dev   # http://localhost:5173
-```
+The web client runs on top of both services; see [Using the web client](#using-the-web-client).
 
 > [!NOTE]
 > `make` is a convenience here, not a prerequisite, and it is not installed on the author's
 > Windows machine. Every target is a one-line wrapper — the raw command is given alongside
 > it throughout this README, and in the [Makefile](Makefile) itself. See
 > [ADR-005](docs/ADRs/ADR-005-docker-compose-as-the-run-mechanism.md).
+
+## Using the web client
+
+The web client is a Vite dev server that forwards `/ledger/…` and `/assistant/…` to the two
+services on loopback
+([ADR-026](docs/ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)), so start them
+first — `docker compose up --build`, or each service natively, as in
+[Quick start](#quick-start) — then:
+
+```bash
+cd frontend/web && npm ci && npm run dev
+```
+
+and open [http://127.0.0.1:5173](http://127.0.0.1:5173). Accounts, Budgets and Planning read and
+write through the ledger. Portfolio reads through the assistant, which holds no real data yet, so
+every lookup answers that nothing is held until the assistant starts with its development seed.
+Set `ASSISTANT_DEV_SEED=true` in `.env`, or for one run:
+
+```bash
+ASSISTANT_DEV_SEED=true docker compose up --build
+# or, natively:
+cd backend/assistant && ASSISTANT_DEV_SEED=true uv run python -m finassist_assistant.adapters
+```
+
+then look up `VOO` or `DEMO`. The seeded lots and quotes are invented, and no figure on any screen
+is financial advice.
 
 ## Tech stack
 
@@ -165,10 +188,9 @@ flowchart LR
 ledger serves `/api/v1`, with an OpenAPI document to prove it
 ([contracts/ledger-v1.openapi.json](contracts/ledger-v1.openapi.json)). The web client's
 accounting, budgeting and planning screens call it; the assistant does not yet, having no ledger
-client.
-The assistant serves its own `portfolio` endpoints under `/api/v1` too, published as
-[contracts/assistant-v1.openapi.json](contracts/assistant-v1.openapi.json), and nothing calls them
-yet.
+client. The assistant serves its own `portfolio` endpoints under `/api/v1` too, published as
+[contracts/assistant-v1.openapi.json](contracts/assistant-v1.openapi.json), and the web client's
+portfolio screens call them.
 
 **Six bounded contexts**, each owned by exactly one service, each one directory
 ([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md), extended by
@@ -279,9 +301,11 @@ behaviour they describe.
 | Assistant properties | The same Money laws, plus FIFO conservation, via Hypothesis run derandomised | `make test-assistant` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
 | Web architecture | No feature imports another; `shared` imports no feature; `src/app` imports a feature only through its `index.ts`, and no feature imports `src/app` | `make test-web` |
-| Web unit | The HTTP client's failure contracts and `Accept` header, a jsdom render of the app shell, and the shared UI primitives: labelled fields, a pending button, money formatted from its exact decimal string, and dates that never shift with the timezone | `make test-web` |
+| Web unit | The HTTP client's failure contracts and `Accept` header, the query client's retry policy — a read retried once after a network failure or a 5xx other than a 503, a write never — a jsdom render of the app shell, and the shared UI primitives: labelled fields, a pending button, money formatted from its exact decimal string, and dates that never shift with the timezone | `make test-web` |
 | Web accounting | The accounts, account-detail and record-transaction screens end to end against a faked `fetch`: opening an account, recording a transaction by hand — including its two-entry amount mirror and the entry-row mapper's no-arithmetic sign handling — and clearing, reconciling or voiding one, offered only for the states each legally admits | `make test-web` |
 | Web budgeting | The budgets, budget-review and categorisation-rules screens end to end against a faked `fetch`: listing and defining budgets, the month-to-period mapping's calendar arithmetic (including a December rollover) and a non-month period's own display-end arithmetic, reviewing spend with an overspent status and unbudgeted and uncategorised amounts, not-found by problem code, the static `/budgets/rules` route outranking the dynamic `/budgets/:budgetId` one, and adding a rule invalidating the rules list and every cached budget review, proven through the query client's own state | `make test-web` |
+| Web planning | The planned-flows, scenarios, projection and comparison screens end to end against a faked `fetch`: planning a flow and moving it through its lifecycle, defining a scenario, projecting one against chosen accounts with its first shortfall and its chart, comparing scenarios against a baseline, and the account choices `src/app` adapts from accounting | `make test-web` |
+| Web portfolio | The portfolio lookup and holding screens end to end against a faked `fetch`: looking a holding up by symbol, encoded as one path segment; its position and valuation with every figure's exact string, loss wording from a leading minus, and nothing held and no usable price as calm empty states; reading it afresh when its symbol is looked up again; and pricing a disposal — its `POST` body, cost of sale, realised gain and remaining lots, its 400 and 422 failures, one request per submit, no query invalidated, and a calculator that starts afresh on another holding | `make test-web` |
 
 Deliberately absent are running test counts. Every commit that adds a source file changes the
 parametrised architecture case count, so a number here would be wrong by the next pull request
@@ -379,6 +403,7 @@ only build artefact that exists.
 | Dashboards | Grafana, provisioned from `ops/grafana/` | Live under the `monitoring` profile |
 | Audit trail | The append-only journal | Live — the database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states; a lifecycle change appends rather than overwrites ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md), [ADR-024](docs/ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
 | Ledger API | `GET/POST /api/v1/...`; OpenAPI document at `GET /v3/api-docs`, pinned as [`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json) | Live for accounting, budgeting and planning; the web client's screens for all three call it |
+| Assistant API | `GET/POST /api/v1/portfolio/...`; OpenAPI document at `GET /openapi.json`, pinned as [`contracts/assistant-v1.openapi.json`](contracts/assistant-v1.openapi.json) | Live for portfolio, answering from the development seed or from nothing; the web client's portfolio screens call it |
 
 Run the telemetry backend with `docker compose --profile monitoring up`: Grafana on
 [localhost:3000](http://localhost:3000), Prometheus on
@@ -457,29 +482,30 @@ was confirmed to fail against a planted violation — including dropping the app
 planting a foreign key across a schema boundary. CI gates build, lint, format and dependency audit
 across four jobs, and publishes a coverage report from each.
 
-**Three slices now run end to end**: the web client's accounting area opens an account, records a
+**Four slices now run end to end**: the web client's accounting area opens an account, records a
 transaction by hand, and moves one through `Clear`, `Reconcile` and `Void`; its budgeting area
 lists and defines budgets, reviews spend against one — overspent, unbudgeted and uncategorised —
 and adds categorisation rules in order; its planning area plans flows and moves them through their
 lifecycle, defines scenarios, charts a scenario's projection against chosen accounts with its
-first shortfall, and compares scenarios against a baseline. All three run against the ledger's
-live HTTP API. Planned next, in order: resolve the
-[open questions](docs/requirements/requirements.md#open-questions), give the assistant a ledger
-client behind its own `LedgerPort`, then build the portfolio screens against the assistant's
-published contract.
+first shortfall, and compares scenarios against a baseline — these three against the ledger's live
+HTTP API; and its portfolio area looks up a holding, shows its position and valuation, and prices a
+disposal without recording it, against the assistant's. Planned next, in order: resolve the
+[open questions](docs/requirements/requirements.md#open-questions), then give the assistant a
+ledger client behind its own `LedgerPort`.
 
 Known limitations:
 
-- **The backend HTTP APIs have one caller so far.** The ledger serves accounting, budgeting and
-  planning under `/api/v1`, with an OpenAPI document pinned by `LedgerContractIT`; the assistant
-  serves `portfolio` under `/api/v1`, pinned by `tests/test_contract.py`. Only the web client's
-  accounting, budgeting and planning screens call either, and only the ledger's. The assistant
-  has no ledger client of its own — `LedgerPort` is still an in-memory
-  stand-in — and nothing calls the assistant's API.
+- **The backend HTTP APIs have one caller so far: the web client.** The ledger serves accounting,
+  budgeting and planning under `/api/v1`, with an OpenAPI document pinned by `LedgerContractIT`;
+  the assistant serves `portfolio` under `/api/v1`, pinned by `tests/test_contract.py`. The web
+  client's accounting, budgeting and planning screens call the ledger's, and its portfolio screens
+  the assistant's. The assistant has no ledger client of its own — `LedgerPort` is still an
+  in-memory stand-in.
 - **The assistant's portfolio data comes only from an opt-in development seed.**
   `ASSISTANT_DEV_SEED`, off by default, loads a small set of fictional lots and quotes from the
   composition root so the endpoints have something to answer by hand; it is a development aid,
-  not a data source, and no ledger client or price feed exists yet.
+  not a data source, and no ledger client or price feed exists yet. Without it, the web client's
+  portfolio screens answer every lookup with nothing held.
 - **The audit trail cannot say who.** The journal records what changed, when and — for a voided
   transaction — why, and the database refuses to let any of it be rewritten. It records no actor,
   because there is no authentication to name one. That gap is

@@ -5,7 +5,7 @@ What the system must do. *How* it is built is [architecture](../architecture/arc
 
 > **Status: the domain and application layers are written, the ledger's store is PostgreSQL, and
 > both backend services now have a transport; the web client has its accounting, budgeting and
-> planning areas, over the ledger's.** The store is
+> planning areas over the ledger's, and its portfolio area over the assistant's.** The store is
 > [ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md) and
 > [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md). The transport's decisions
 > are recorded in [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md),
@@ -17,10 +17,10 @@ What the system must do. *How* it is built is [architecture](../architecture/arc
 > `tests/test_contract.py`; its portfolio data still comes from nowhere real — an opt-in
 > development seed aside — because neither a ledger client nor a price feed exists. The web
 > client calls the ledger from its accounting, budgeting and planning screens, and the assistant
-> not at all. Requirements marked **Enforced** name the class and the test that hold them today, so
-> this document can be checked rather than trusted. Everything still marked `TODO` is a decision
-> waiting on its owner, not an omission to be filled in by inference — behaviour found in code is
-> evidence of a requirement, never proof of one.
+> from its portfolio screens. Requirements marked **Enforced** name the class and the test that
+> hold them today, so this document can be checked rather than trusted. Everything still marked
+> `TODO` is a decision waiting on its owner, not an omission to be filled in by inference —
+> behaviour found in code is evidence of a requirement, never proof of one.
 
 ## Purpose and scope
 
@@ -178,12 +178,11 @@ practice.
 
 ### Web client
 
-The owner enumerated the web client on 2026-09-14. **Its accounting, budgeting and planning screens
-are implemented; its portfolio screens are not yet.** A requirement below names its enforcing test
-once a screen implements it, in the commit that builds that screen; a requirement naming no test
-has no screen yet. How the client reaches the two
-services is [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), and
-what it is built with is [ADR-029](../ADRs/ADR-029-web-client-stack.md).
+The owner enumerated the web client on 2026-09-14. **Every capability listed below is
+implemented**, each naming the screen that implements it and the tests that enforce it; only "ask a
+question" stays excluded, as stated below. How the client reaches the two services is
+[ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), and what it is
+built with is [ADR-029](../ADRs/ADR-029-web-client-stack.md).
 
 Through the web client, the owner can:
 
@@ -212,8 +211,16 @@ Through the web client, the owner can:
   `PlanningAccountsBridge.test.tsx`, `accountOptions.test.tsx`, `planningApi.test.ts`
 - Compare scenarios against a baseline. `ComparisonPage`; `ComparisonPage.test.tsx`,
   `planningApi.test.ts`
-- Look up a holding by symbol, see its position and valuation, and price a disposal as a
-  calculation that records nothing.
+- Look up a holding by symbol. `PortfolioPage`, `SymbolLookup`; `PortfolioPage.test.tsx`,
+  `HoldingPage.test.tsx`
+- See a holding's position — its quantity and total cost — or that nothing is held under the
+  symbol. `HoldingPage`; `HoldingPage.test.tsx`, `portfolioApi.test.ts`
+- See a holding's valuation — its unit price, market value and unrealised gain or loss — or that no
+  usable price exists right now, while the position still shows. `HoldingPage`;
+  `HoldingPage.test.tsx`, `portfolioApi.test.ts`
+- Price a disposal as a calculation that records nothing: its cost of sale, its realised gain or
+  loss, and the lots that would remain, oldest first. `DisposalSection`;
+  `DisposalSection.test.tsx`, `portfolioApi.test.ts`
 
 **One screen area per user-facing context**: accounts and transactions, budgets, planning, and
 portfolio. `marketdata` has no surface of its own and is visible only through portfolio figures.
@@ -223,7 +230,10 @@ portfolio. `marketdata` has no surface of its own and is visible only through po
 and wiring one would answer that question by implication.
 
 **The portfolio screens have no real data source yet.** No service records a lot, and no price feed
-exists; where prices come from is an [open question](#open-questions).
+exists; where prices come from is an [open question](#open-questions). Until then, nothing held and
+no usable price are the ordinary answers, so the screens show both as calm states rather than as
+errors. The assistant's opt-in development seed ([Analysis](#analysis)) is the only way to see
+figures by hand.
 
 ## Business rules and invariants
 

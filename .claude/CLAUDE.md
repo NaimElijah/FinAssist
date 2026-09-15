@@ -36,7 +36,11 @@ cash and invested accounts the owner chooses, and `ComparisonPage` (`/planning/c
 two or more scenarios against a baseline in tables. Planning's account choices come from
 accounting through `PlanningAccountsBridge` in `src/app`, the web client's one cross-feature
 translation. All three areas call the ledger through the dev proxy, mapping generated wire types
-onto each feature's own in `api/`; portfolio still renders a placeholder behind an error boundary.
+onto each feature's own in `api/`. **It also has its portfolio area**, calling the assistant
+through the same proxy (ADR-026): `PortfolioPage` looks a holding up by symbol, and `HoldingPage`
+(`/portfolio/:symbol`) shows its position and valuation — nothing held and no usable price as calm
+empty states rather than errors — and prices a disposal as a calculation that records nothing. All
+four screen areas now exist; only "ask a question" is deliberately left out.
 Observability is live (ADR-019): the ledger answers Actuator probes and now traces its business
 endpoints too, and the assistant serves `/health` and `/ready` and assembles its use cases at
 start-up. Both services emit structured JSON logs and OTLP traces. Both services run under
