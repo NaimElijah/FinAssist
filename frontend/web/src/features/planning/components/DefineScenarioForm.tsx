@@ -1,6 +1,7 @@
 import { type Ref, type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import {
     Button,
     ErrorState,
@@ -195,7 +196,8 @@ export interface DefineScenarioFormProps {
  * (ADR-028: no double submit). On success the form resets and `onDefined` is called. A failure is
  * shown where it can be acted on: a 400's top-level field errors on their fields, and anything
  * else - a 422 `UNKNOWN_PLAN` or `RULE_VIOLATED` - in an `ErrorState` above the form. Focus
- * follows the failure there, the rule every form in the app keeps.
+ * follows the failure there, the rule every form in the app keeps. Editing any field, or choosing
+ * a flow, clears a failure that has settled, since it answered the scenario as it was sent.
  *
  * @param props - see `DefineScenarioFormProps`.
  */
@@ -235,10 +237,12 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
     }, [failure]);
 
     function toggleFlow(flowId: string) {
+        clearSettledOutcome(defineScenario);
         setSelectedFlowIds((previous) => toggled(previous, flowId));
     }
 
     function changeCurrency(nextCurrency: Currency) {
+        clearSettledOutcome(defineScenario);
         setCurrency(nextCurrency);
         // Every currently selected flow was offered under the currency just left, and a scenario
         // admits no flow in another currency, so the whole selection is cleared.
@@ -302,6 +306,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                         value={name}
                         error={errors.fields.name}
                         onChange={(event) => {
+                            clearSettledOutcome(defineScenario);
                             setName(event.target.value);
                         }}
                     />
@@ -323,6 +328,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                         value={growthRatePerStep}
                         error={errors.fields.growthRatePerStep}
                         onChange={(event) => {
+                            clearSettledOutcome(defineScenario);
                             setGrowthRatePerStep(event.target.value);
                         }}
                     />

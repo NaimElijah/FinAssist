@@ -444,6 +444,34 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         });
     });
 
+    it('Given_a_refused_cancel_shown_in_its_panel_When_its_reason_is_edited_Then_the_refusal_clears', async () => {
+        // The refusal answered the cancel as it was sent; once the owner changes it, the message no
+        // longer describes anything in the panel.
+        fakeFetch(
+            ledger([RENT], (request) => {
+                if (request.url === `${FLOWS_URL}/${RENT_ID}/cancel` && request.method === 'POST') {
+                    return problemResponse({
+                        status: 422,
+                        code: 'RULE_VIOLATED',
+                        detail: 'A flow cannot be cancelled before it starts.',
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+        await user.click(within(rowOf('Rent')).getByRole('button', { name: 'Cancel' }));
+        await user.type(screen.getByLabelText('Reason'), 'No longer needed');
+        await user.click(screen.getByRole('button', { name: 'Cancel flow' }));
+        await screen.findByRole('alert');
+
+        await user.type(screen.getByLabelText('Reason'), ' at all');
+
+        expect(screen.queryByRole('alert')).toBeNull();
+    });
+
     it('Given_a_panel_open_on_a_planned_row_When_cancelled_Then_focus_returns_to_the_button_that_opened_it', async () => {
         fakeFetch(ledger([RENT]));
         renderFlows();
@@ -882,6 +910,34 @@ describe('PlannedFlowsPage plan-flow form', () => {
         expect((post?.body as { amount?: { amount?: string } } | undefined)?.amount?.amount).toBe(
             '-250.00',
         );
+    });
+
+    it('Given_a_422_refusal_shown_When_the_amount_is_edited_Then_the_refusal_clears', async () => {
+        // The refusal answered the amount that was sent; kept on screen, it would describe an
+        // amount the owner has since corrected.
+        fakeFetch(
+            ledger([], (request) => {
+                if (request.url === FLOWS_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 422,
+                        code: 'RULE_VIOLATED',
+                        detail: 'The amount must be positive.',
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+        await user.type(screen.getByLabelText('Description'), 'Rent');
+        await user.type(screen.getByLabelText('Amount'), '-250.00');
+        await user.click(screen.getByRole('button', { name: 'Plan flow' }));
+        await screen.findByRole('alert');
+
+        await user.clear(screen.getByLabelText('Amount'));
+
+        expect(screen.queryByRole('alert')).toBeNull();
     });
 
     it('Given_a_flow_planned_successfully_When_the_list_shows_it_Then_the_form_is_reset_focus_is_on_its_description_and_only_flows_is_invalidated', async () => {

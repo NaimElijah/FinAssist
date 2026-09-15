@@ -1,6 +1,7 @@
 import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { todayIsoDate } from '@/shared/lib/today';
 import {
     Button,
@@ -191,7 +192,8 @@ export interface PlanFlowFormProps {
  * (ADR-028: no double submit). On success the form resets and `onPlanned` is called. A failure is
  * shown where it can be acted on: a 400's field errors on their fields, and anything else in an
  * `ErrorState` above the form. Focus follows the failure there, the rule every form in the app
- * keeps.
+ * keeps. Editing any field clears a failure that has settled, since it answered the flow as it
+ * was sent.
  *
  * @param props - see `PlanFlowFormProps`.
  */
@@ -301,6 +303,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         value={description}
                         error={errors.fields.description}
                         onChange={(event) => {
+                            clearSettledOutcome(planFlow);
                             setDescription(event.target.value);
                         }}
                     />
@@ -312,6 +315,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         value={amount}
                         error={errors.fields.amount}
                         onChange={(event) => {
+                            clearSettledOutcome(planFlow);
                             setAmount(event.target.value);
                         }}
                     />
@@ -320,6 +324,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         options={CURRENCY_OPTIONS}
                         value={currency}
                         onChange={(event) => {
+                            clearSettledOutcome(planFlow);
                             setCurrency(oneOf(CURRENCIES, event.target.value));
                         }}
                     />
@@ -329,6 +334,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         value={direction}
                         error={errors.fields.direction}
                         onChange={(event) => {
+                            clearSettledOutcome(planFlow);
                             setDirection(oneOf(DIRECTIONS, event.target.value));
                         }}
                     />
@@ -338,6 +344,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         value={startsOn}
                         error={errors.fields.startsOn}
                         onChange={(event) => {
+                            clearSettledOutcome(planFlow);
                             setStartsOn(event.target.value);
                         }}
                     />
@@ -346,6 +353,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         options={REPEATS_OPTIONS}
                         value={recurrenceKind}
                         onChange={(event) => {
+                            clearSettledOutcome(planFlow);
                             setRecurrenceKind(oneOf(RECURRENCE_KINDS, event.target.value));
                         }}
                     />
@@ -356,6 +364,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                                 options={CADENCE_OPTIONS}
                                 value={cadence}
                                 onChange={(event) => {
+                                    clearSettledOutcome(planFlow);
                                     setCadence(oneOf(CADENCES, event.target.value));
                                 }}
                             />
@@ -367,6 +376,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                                 autoComplete="off"
                                 value={everyValue}
                                 onChange={(event) => {
+                                    clearSettledOutcome(planFlow);
                                     setEveryValue(event.target.value);
                                 }}
                             />
@@ -378,6 +388,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                             required
                             value={until}
                             onChange={(event) => {
+                                clearSettledOutcome(planFlow);
                                 setUntil(event.target.value);
                             }}
                         />
@@ -391,6 +402,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                             autoComplete="off"
                             value={count}
                             onChange={(event) => {
+                                clearSettledOutcome(planFlow);
                                 setCount(event.target.value);
                             }}
                         />

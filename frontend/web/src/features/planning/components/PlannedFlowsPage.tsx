@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { todayIsoDate } from '@/shared/lib/today';
 import {
     ActionPanel,
@@ -153,7 +154,8 @@ function LifecycleButtons({
  *
  * On success it invalidates the flows and scenarios lists and closes. On failure - including a
  * 409 `ILLEGAL_TRANSITION` when the server no longer agrees this row's action is legal - it shows
- * the server's detail and stays open, so the owner can see why and try something else.
+ * the server's detail and stays open, so the owner can see why and try something else. Editing
+ * the date or the reason clears that failure, since it answered the action as it was sent.
  *
  * The Reason field's own `required` is the whole of its client-side validation: the browser
  * refuses to fire the form's submit event while it is empty, so no duplicate check is needed here.
@@ -231,6 +233,7 @@ function LifecycleActionPanel({
                     required
                     value={on}
                     onChange={(event) => {
+                        clearSettledOutcome(mutation);
                         setOn(event.target.value);
                     }}
                 />
@@ -240,6 +243,7 @@ function LifecycleActionPanel({
                         required
                         value={reason}
                         onChange={(event) => {
+                            clearSettledOutcome(mutation);
                             setReason(event.target.value);
                         }}
                     />

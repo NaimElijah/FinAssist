@@ -406,6 +406,33 @@ describe('ScenariosPage define-scenario form', () => {
         expect(within(alert).getByText('A flow is listed twice.')).toBeDefined();
     });
 
+    it('Given_a_refusal_shown_When_the_name_is_edited_Then_the_refusal_clears', async () => {
+        // The refusal answered the scenario as it was sent; once the owner changes it, the message
+        // no longer describes anything in the form.
+        fakeFetch(
+            ledger([], [], (request) => {
+                if (request.url === SCENARIOS_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 422,
+                        code: 'RULE_VIOLATED',
+                        detail: 'A flow is listed twice.',
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderScenarios();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Define a scenario' });
+        await user.type(screen.getByLabelText('Name'), 'Aggressive saving');
+        await user.click(screen.getByRole('button', { name: 'Define scenario' }));
+        await screen.findByRole('alert');
+
+        await user.type(screen.getByLabelText('Name'), ' again');
+
+        expect(screen.queryByRole('alert')).toBeNull();
+    });
+
     it('Given_a_400_listing_a_name_error_When_defined_Then_the_message_is_on_the_Name_field', async () => {
         fakeFetch(
             ledger([], [], (request) => {
