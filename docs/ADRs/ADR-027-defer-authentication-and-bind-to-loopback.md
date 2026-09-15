@@ -21,9 +21,9 @@ authentication, not on persistence"* and names "authentication is decided" as it
 [ADR-024](ADR-024-jdbc-persistence-and-append-only-schema.md) repeats that trigger for the journal's
 actor column.
 
-**What binds where today is uneven.** The assistant's `ASSISTANT_HOST` already defaults to
-`127.0.0.1`. The ledger sets only `server.port`, so it listens on every interface, and
-`docker-compose.yml` publishes the database and the `monitoring` profile's ports on every interface
+**What bound where was uneven when this was decided.** The assistant's `ASSISTANT_HOST` already
+defaulted to `127.0.0.1`. The ledger set only `server.port`, so it listened on every interface, and
+`docker-compose.yml` published the database and the `monitoring` profile's ports on every interface
 too.
 
 **Loopback is not the whole threat.** The owner's own browser runs pages from anywhere, and a hostile
