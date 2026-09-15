@@ -369,4 +369,78 @@ describe('HoldingPage', () => {
             false,
         );
     });
+
+    it('Given_a_position_shown_When_its_read_again_fails_otherwise_Then_its_figures_stay_beside_the_error', async () => {
+        // TanStack Query keeps a query's data when a later read fails, and the owner keeps seeing
+        // what was there rather than having it replaced by the failure.
+        let failing = false;
+        fakeFetch(
+            assistant({
+                position: () =>
+                    failing
+                        ? problemResponse({
+                              status: 500,
+                              code: 'INTERNAL_ERROR',
+                              detail: 'The assistant failed to handle this request.',
+                          })
+                        : jsonResponse(POSITION),
+                valuation: () => jsonResponse(VALUATION),
+            }),
+        );
+        const { queryClient } = renderHolding();
+        await screen.findByText('1234.125');
+        await screen.findByText('US$5,187.44');
+
+        failing = true;
+        const user = userEvent.setup({ delay: null });
+        await user.type(screen.getByLabelText('Symbol'), 'VOO');
+        await user.click(screen.getByRole('button', { name: 'Look up' }));
+
+        const position = screen.getByRole('region', { name: 'Position' });
+        const alert = await within(position).findByRole('alert');
+        expect(
+            within(alert).getByText('The assistant failed to handle this request.'),
+        ).toBeDefined();
+        expect(figure('Position', 'Quantity')).toBe('1234.125');
+        expect(figure('Position', 'Cost')).toBe('US$4,321.50');
+        await waitFor(() => {
+            expect(queryClient.isFetching()).toBe(0);
+        });
+    });
+
+    it('Given_a_valuation_shown_When_its_read_again_finds_no_usable_price_Then_it_hides_and_the_no_price_state_shows', async () => {
+        // A valuation kept from before the price went stale is what the 503 refuses to give.
+        let priced = true;
+        fakeFetch(
+            assistant({
+                position: () => jsonResponse(POSITION),
+                valuation: () =>
+                    priced
+                        ? jsonResponse(VALUATION)
+                        : problemResponse({
+                              status: 503,
+                              code: 'PRICE_UNAVAILABLE',
+                              detail: 'No price recent enough to value this holding is available.',
+                          }),
+            }),
+        );
+        const { queryClient } = renderHolding();
+        await screen.findByText('1234.125');
+        await screen.findByText('US$5,187.44');
+
+        priced = false;
+        const user = userEvent.setup({ delay: null });
+        await user.type(screen.getByLabelText('Symbol'), 'VOO');
+        await user.click(screen.getByRole('button', { name: 'Look up' }));
+
+        const valuation = screen.getByRole('region', { name: 'Valuation' });
+        expect(await within(valuation).findByText(NO_PRICE_MESSAGE)).toBeDefined();
+        expect(within(valuation).queryByText('Market value')).toBeNull();
+        expect(within(valuation).queryByText('US$5,187.44')).toBeNull();
+        expect(screen.queryByRole('alert')).toBeNull();
+        expect(figure('Position', 'Quantity')).toBe('1234.125');
+        await waitFor(() => {
+            expect(queryClient.isFetching()).toBe(0);
+        });
+    });
 });
