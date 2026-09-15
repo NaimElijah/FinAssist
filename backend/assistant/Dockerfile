@@ -10,6 +10,11 @@ WORKDIR /build
 
 COPY --from=ghcr.io/astral-sh/uv:0.12.7 /uv /uvx /usr/local/bin/
 
+# The runtime user cannot write to the installed packages (see the runtime stage), so Python can
+# never cache their bytecode at start-up. Compiled here once instead, rather than in memory on
+# every start.
+ENV UV_COMPILE_BYTECODE=1
+
 # The lockfile is synced before the source is copied, so only editing pyproject.toml or uv.lock
 # busts this layer. --no-install-project defers installing the local package itself to the second
 # sync, once its source exists; syncing it here would fail with nothing under src/ yet.
@@ -29,8 +34,10 @@ RUN uv sync --locked --no-dev --no-editable
 FROM python:3.13.8-slim-trixie
 RUN groupadd --system assistant && useradd --system --gid assistant --no-create-home assistant
 WORKDIR /app
+# Left owned by root, as COPY creates it, and not handed to the service user. Nothing the assistant
+# runs writes to its own code or dependencies, and a user that could would let code execution in
+# the process rewrite installed packages for the life of the container.
 COPY --from=build /build/.venv .venv
-RUN chown -R assistant:assistant /app
 USER assistant
 
 ENV PATH="/app/.venv/bin:${PATH}"
