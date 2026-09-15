@@ -210,6 +210,34 @@ describe('CategorisationRulesPage adding a rule', () => {
         });
     });
 
+    it('Given_a_400_naming_the_category_field_When_added_Then_its_message_is_the_Category_fields_error', async () => {
+        fakeFetch((request) => {
+            if (request.url === RULES_URL && request.method === 'POST') {
+                return problemResponse({
+                    status: 400,
+                    code: 'MALFORMED_REQUEST',
+                    detail: 'Invalid request content.',
+                    errors: [{ field: 'category', message: 'must not be blank' }],
+                });
+            }
+            if (request.url === RULES_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderRules();
+        const user = userEvent.setup();
+
+        await user.type(await screen.findByLabelText('Fragment'), 'coffee');
+        await user.type(screen.getByLabelText('Category'), ' ');
+        await user.click(screen.getByRole('button', { name: 'Add rule' }));
+
+        const error = await screen.findByText('must not be blank');
+        expect(screen.getByLabelText('Category').getAttribute('aria-describedby')).toBe(error.id);
+        expect(screen.queryByRole('alert')).toBeNull();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(screen.getByLabelText('Category'));
+        });
+    });
+
     it('Given_a_400_with_nothing_to_place_on_a_field_When_added_Then_focus_moves_to_the_error_state', async () => {
         fakeFetch((request) => {
             if (request.url === RULES_URL && request.method === 'POST') {

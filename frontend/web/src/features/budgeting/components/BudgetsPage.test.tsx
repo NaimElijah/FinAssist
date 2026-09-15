@@ -4,7 +4,7 @@
 
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import {
@@ -16,6 +16,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
+import { budgetKeys } from '../hooks/budgetQueries';
 import { budgetingRoutes } from '../index';
 
 const BUDGETS_URL = '/ledger/api/v1/budgets';
@@ -192,6 +193,39 @@ describe('BudgetsPage defining a budget', () => {
         expect(
             requests.filter((request) => request.method === 'GET' && request.url === BUDGETS_URL),
         ).toHaveLength(2);
+    });
+
+    it('Given_a_cached_budget_review_When_a_budget_is_defined_Then_the_list_is_invalidated_and_the_review_is_not', async () => {
+        const served: unknown[] = [];
+        fakeFetch((request) => {
+            if (request.url === BUDGETS_URL && request.method === 'POST') {
+                served.push(SEPTEMBER_BUDGET);
+                return jsonResponse(SEPTEMBER_BUDGET, 201);
+            }
+            if (request.url === BUDGETS_URL) return jsonResponse([...served]);
+            return unexpectedRequest(request);
+        });
+        const { queryClient } = renderBudgets();
+        await screen.findByText('No budgets yet — define one below');
+        // Seeded rather than read through the page, which renders no review of its own; a
+        // defined budget cannot be the one this review is for (its id does not exist yet), so
+        // this stands in for any budget already reviewed elsewhere.
+        queryClient.setQueryData(budgetKeys.review(CUSTOM_PERIOD_BUDGET.id), {});
+        // The list is actively rendered on this very page, so its own `isInvalidated` flag
+        // resets the moment its refetch settles - a state check on it would race that reset.
+        // The spy instead records every call `invalidateQueries` ever received.
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        const user = userEvent.setup();
+
+        await defineSeptemberGroceries(user);
+
+        await screen.findByRole('link', { name: 'Review' });
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toEqual([budgetKeys.list]);
+        // Never actively observed on this page, so nothing refetches it and the flag stays put.
+        expect(
+            queryClient.getQueryState(budgetKeys.review(CUSTOM_PERIOD_BUDGET.id))?.isInvalidated,
+        ).toBe(false);
     });
 
     it('Given_a_defined_budget_When_the_list_shows_it_Then_the_form_is_reset_and_focus_is_on_its_review_link', async () => {
