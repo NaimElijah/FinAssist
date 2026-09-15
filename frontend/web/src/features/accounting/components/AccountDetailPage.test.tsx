@@ -97,15 +97,24 @@ function rowOf(description: string): HTMLElement {
     return row;
 }
 
+/** The pinned instant a lifecycle panel's Date field defaults from, and the ISO date it maps to. */
+const FAKE_NOW = new Date(2026, 8, 15, 12, 0);
+const TODAY = todayIsoDate(FAKE_NOW);
+
 let restoreSink: () => void = () => undefined;
 
 beforeEach(() => {
     // The client logs every failed request; several tests fail requests on purpose.
     restoreSink = setLogSink(() => undefined);
+    // Pins Date so a run crossing local midnight cannot flake the default-to-today assertions.
+    // Only Date is faked - user-event's own delays still run on real timers.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(FAKE_NOW);
 });
 
 afterEach(() => {
     restoreSink();
+    vi.useRealTimers();
 });
 
 describe('AccountDetailPage', () => {
@@ -384,7 +393,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
     });
 
     it('Given_a_pending_transaction_When_cleared_Then_it_posts_on_and_the_row_shows_the_Cleared_badge', async () => {
-        const today = todayIsoDate(new Date());
+        const today = TODAY;
         let transactions: readonly unknown[] = [PENDING_TX];
         const requests = fakeFetch(
             lifecycleLedger(
@@ -429,7 +438,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
     });
 
     it('Given_a_cleared_transaction_When_reconciled_Then_it_posts_on_and_the_row_shows_the_Reconciled_badge', async () => {
-        const today = todayIsoDate(new Date());
+        const today = TODAY;
         let transactions: readonly unknown[] = [CLEARED_TX];
         fakeFetch(
             lifecycleLedger(
@@ -490,7 +499,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
     });
 
     it('Given_a_pending_transaction_When_voided_with_a_reason_Then_it_posts_on_and_reason_and_shows_the_Voided_badge', async () => {
-        const today = todayIsoDate(new Date());
+        const today = TODAY;
         let transactions: readonly unknown[] = [PENDING_TX];
         const requests = fakeFetch(
             lifecycleLedger(
@@ -603,7 +612,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
     });
 
     it('Given_a_panel_open_on_a_pending_row_When_cleared_successfully_Then_focus_moves_to_the_rows_new_state_since_Clear_is_gone', async () => {
-        const today = todayIsoDate(new Date());
+        const today = TODAY;
         let transactions: readonly unknown[] = [PENDING_TX];
         fakeFetch(
             lifecycleLedger(

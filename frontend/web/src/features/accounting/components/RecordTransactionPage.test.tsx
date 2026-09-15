@@ -88,15 +88,24 @@ const RECORDED_TRANSACTION = {
     state: { status: 'PENDING' },
 };
 
+/** The pinned instant the form's Date field defaults from, and the ISO date it maps to. */
+const FAKE_NOW = new Date(2026, 8, 15, 12, 0);
+const TODAY = todayIsoDate(FAKE_NOW);
+
 let restoreSink: () => void = () => undefined;
 
 beforeEach(() => {
     // The client logs every failed request; several tests fail requests on purpose.
     restoreSink = setLogSink(() => undefined);
+    // Pins Date so a run crossing local midnight cannot flake the default-to-today assertions.
+    // Only Date is faked - user-event's own delays still run on real timers.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(FAKE_NOW);
 });
 
 afterEach(() => {
     restoreSink();
+    vi.useRealTimers();
 });
 
 describe('RecordTransactionPage routing', () => {
@@ -226,11 +235,10 @@ describe('RecordTransactionPage entry rows', () => {
 
 describe('RecordTransactionPage submission', () => {
     it('Given_a_filled_form_When_submitted_Then_it_posts_the_mapped_entries_with_each_accounts_own_currency', async () => {
-        const today = todayIsoDate(new Date());
         const requests = fakeFetch(
             ledgerWithChecking((request) => {
                 if (request.url === RECORD_URL && request.method === 'POST') {
-                    return jsonResponse({ ...RECORDED_TRANSACTION, occurredOn: today }, 201);
+                    return jsonResponse({ ...RECORDED_TRANSACTION, occurredOn: TODAY }, 201);
                 }
                 return unexpectedRequest(request);
             }),
@@ -248,7 +256,7 @@ describe('RecordTransactionPage submission', () => {
                 method: 'POST',
                 url: RECORD_URL,
                 body: {
-                    occurredOn: today,
+                    occurredOn: TODAY,
                     description: 'Rent',
                     entries: [
                         // Checking is ILS, Rent is USD: each entry carries its own account's
