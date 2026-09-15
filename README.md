@@ -132,12 +132,15 @@ cd frontend/web && npm ci && npm run dev
 and open [http://127.0.0.1:5173](http://127.0.0.1:5173). Accounts, Budgets and Planning read and
 write through the ledger. Portfolio reads through the assistant, which holds no real data yet, so
 every lookup answers that nothing is held until the assistant starts with its development seed.
-Set `ASSISTANT_DEV_SEED=true` in `.env`, or for one run:
+Under Compose, set `ASSISTANT_DEV_SEED=true` in `.env`, which Compose reads to fill in
+`docker-compose.yml`, or pass it for one run. The natively run assistant never reads `.env` — its
+settings come from the environment alone — so export the variable in the shell that starts it:
 
 ```bash
-ASSISTANT_DEV_SEED=true docker compose up --build
-# or, natively:
-cd backend/assistant && ASSISTANT_DEV_SEED=true uv run python -m finassist_assistant.adapters
+ASSISTANT_DEV_SEED=true docker compose up --build    # under Compose, for one run
+
+export ASSISTANT_DEV_SEED=true                       # natively, in the shell that runs it
+cd backend/assistant && uv run python -m finassist_assistant.adapters
 ```
 
 then look up `VOO` or `DEMO`. The seeded lots and quotes are invented, and no figure on any screen
