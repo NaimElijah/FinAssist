@@ -189,6 +189,28 @@ describe('HoldingPage', () => {
         expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
     });
 
+    it('Given_nothing_held_and_the_valuation_answering_before_the_position_When_the_page_renders_Then_no_error_or_retry_is_shown', async () => {
+        // Without the development seed both reads answer 404, and either may land first. A
+        // valuation finding nothing held is a considered answer, not a failure to retry.
+        fakeFetch(
+            assistant({
+                position: pendingResponse,
+                valuation: () => problemResponse(NOTHING_HELD),
+            }),
+        );
+
+        renderHolding();
+
+        const valuation = await screen.findByRole('region', { name: 'Valuation' });
+        await waitFor(() => {
+            expect(within(valuation).queryByText('Loading valuation…')).toBeNull();
+        });
+        expect(screen.queryByRole('alert')).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+        expect(within(valuation).getByText('Nothing is held under VOO')).toBeDefined();
+        expect(screen.getByText('Loading position…')).toBeDefined();
+    });
+
     it('Given_no_usable_price_When_the_page_renders_Then_the_no_price_state_shows_while_the_position_still_renders', async () => {
         fakeFetch(
             assistant({

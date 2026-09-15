@@ -21,6 +21,11 @@ import { SymbolLookup } from './SymbolLookup';
 const NO_PRICE_MESSAGE =
     'No usable price right now — a valuation needs a quote no more than an hour old';
 
+/** The calm answer for a symbol under which nothing is held. */
+function nothingHeldMessage(symbol: string): string {
+    return `Nothing is held under ${symbol}`;
+}
+
 /** Whether a read failed with the problem `code`, rather than for any other reason. */
 function failedWith(error: Error | null, code: string): boolean {
     return error instanceof ApiError && error.problem?.code === code;
@@ -53,12 +58,23 @@ function PositionSection({ query }: { readonly query: UseQueryResult<Position> }
     );
 }
 
-function ValuationSection({ query }: { readonly query: UseQueryResult<Valuation> }) {
+function ValuationSection({
+    symbol,
+    query,
+}: {
+    readonly symbol: string;
+    readonly query: UseQueryResult<Valuation>;
+}) {
     const headingId = useId();
     const noPrice = failedWith(query.error, PRICE_UNAVAILABLE);
-    // A valuation kept from before the price went stale is exactly what the 503 refuses to give,
-    // so it is not shown beside the no-price state.
-    const valuation = noPrice ? undefined : query.data;
+    // Both reads answer 404 when nothing is held, and either can land first. The position's 404
+    // replaces the page once it lands; until then the valuation's is the same considered answer,
+    // not a failure to offer a retry for.
+    const nothingHeld = failedWith(query.error, HOLDING_NOT_FOUND);
+    const considered = noPrice || nothingHeld;
+    // A valuation kept from an earlier read is exactly what either answer says cannot be given now,
+    // so it is not shown beside them.
+    const valuation = considered ? undefined : query.data;
     return (
         <section aria-labelledby={headingId} className={styles.section}>
             <h2 id={headingId} className={styles.heading}>
@@ -66,7 +82,8 @@ function ValuationSection({ query }: { readonly query: UseQueryResult<Valuation>
             </h2>
             {query.isPending ? <p className={styles.pending}>Loading valuation…</p> : null}
             {noPrice ? <EmptyState message={NO_PRICE_MESSAGE} /> : null}
-            {query.isError && !noPrice ? <ReadFailure query={query} /> : null}
+            {nothingHeld ? <EmptyState message={nothingHeldMessage(symbol)} /> : null}
+            {query.isError && !considered ? <ReadFailure query={query} /> : null}
             {valuation === undefined ? null : (
                 <Figures>
                     <Figure term="Unit price">
@@ -99,9 +116,10 @@ function ValuationSection({ query }: { readonly query: UseQueryResult<Valuation>
  * The position and the valuation are read side by side, and each section shows its own state.
  * Nothing held (404 `HOLDING_NOT_FOUND` on the position) is a calm empty state in place of the
  * position, the valuation and the disposal calculator, rather than a second error from the
- * valuation and a calculator with nothing to price. No usable price (503 `PRICE_UNAVAILABLE`) is
- * an empty state in the valuation's section alone, and the position still shows. Any other failure
- * is an error state offering a retry.
+ * valuation and a calculator with nothing to price; should the valuation's own 404 land first, its
+ * section shows the same calm state until then. No usable price (503 `PRICE_UNAVAILABLE`) is an
+ * empty state in the valuation's section alone, and the position still shows. Any other failure is
+ * an error state offering a retry.
  *
  * The disposal calculator is keyed by symbol, so moving to another holding starts it afresh rather
  * than showing one holding's calculation under another's name.
@@ -120,11 +138,11 @@ function Holding({ symbol }: { readonly symbol: string }) {
             <h1>{symbol}</h1>
             <AdviceNote />
             {nothingHeld ? (
-                <EmptyState message={`Nothing is held under ${symbol}`} />
+                <EmptyState message={nothingHeldMessage(symbol)} />
             ) : (
                 <>
                     <PositionSection query={position} />
-                    <ValuationSection query={valuation} />
+                    <ValuationSection symbol={symbol} query={valuation} />
                     <DisposalSection key={symbol} symbol={symbol} />
                 </>
             )}
