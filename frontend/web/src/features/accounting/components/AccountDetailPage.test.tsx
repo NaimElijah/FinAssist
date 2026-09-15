@@ -2,7 +2,7 @@
 // Renders an account's page through the feature's own routes, so it needs a DOM. fetch is faked,
 // so the feature's real api/ module and its mapping run under test.
 
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -418,7 +418,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         ).toEqual([
             { method: 'POST', url: `${RECORD_URL}/${PENDING_TX.id}/clear`, body: { on: today } },
         ]);
-        // I3d: the balance is invalidated too, not only the transactions list.
+        // The balance is invalidated too, not only the transactions list the badge already proves.
         const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
         expect(invalidatedKeys).toEqual(
             expect.arrayContaining([
@@ -572,5 +572,71 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         // The panel stays open: its submit button, and the Date field, are still on screen.
         expect(screen.getByRole('button', { name: 'Clear' })).toBeDefined();
         expect(screen.getByLabelText('On')).toBeDefined();
+        // On failure, focus moves to the alert - never to the state cell or the original button,
+        // both of which belong to the success/cancel path.
+        await waitFor(() => {
+            expect(document.activeElement).toBe(alert);
+        });
+    });
+
+    it('Given_a_panel_open_on_a_pending_row_When_cancelled_Then_focus_returns_to_the_button_that_opened_it', async () => {
+        fakeFetch(lifecycleLedger(() => [PENDING_TX], unexpectedRequest));
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup();
+        await screen.findByRole('table', { name: 'Transactions' });
+        const clearButton = within(rowOf('Pending purchase')).getByRole('button', {
+            name: 'Clear',
+        });
+
+        await user.click(clearButton);
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        // Cancelling changes nothing about the transaction, so PENDING still offers Clear: the
+        // same action is back, and focus returns to it.
+        const restoredButton = within(rowOf('Pending purchase')).getByRole('button', {
+            name: 'Clear',
+        });
+        expect(restoredButton).toBeDefined();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(restoredButton);
+        });
+    });
+
+    it('Given_a_panel_open_on_a_pending_row_When_cleared_successfully_Then_focus_moves_to_the_rows_new_state_since_Clear_is_gone', async () => {
+        const today = todayIsoDate(new Date());
+        let transactions: readonly unknown[] = [PENDING_TX];
+        fakeFetch(
+            lifecycleLedger(
+                () => transactions,
+                (request) => {
+                    if (
+                        request.url === `${RECORD_URL}/${PENDING_TX.id}/clear` &&
+                        request.method === 'POST'
+                    ) {
+                        const cleared = { ...PENDING_TX, state: { status: 'CLEARED', on: today } };
+                        transactions = [cleared];
+                        return jsonResponse(cleared);
+                    }
+                    return unexpectedRequest(request);
+                },
+            ),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup();
+        await screen.findByRole('table', { name: 'Transactions' });
+
+        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Clear' }));
+        await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+        const clearedText = await within(rowOf('Pending purchase')).findByText('Cleared');
+        // The row no longer offers Clear - CLEARED offers Reconcile and Void - so focus falls
+        // back to the row's own state cell rather than a button that no longer exists.
+        await waitFor(() => {
+            expect(document.activeElement?.id).toBe(`transaction-state-${PENDING_TX.id}`);
+        });
+        expect(
+            within(rowOf('Pending purchase')).queryByRole('button', { name: 'Clear' }),
+        ).toBeNull();
+        expect(clearedText).toBeDefined();
     });
 });

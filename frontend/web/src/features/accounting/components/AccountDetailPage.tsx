@@ -63,6 +63,17 @@ interface ActiveAction {
 }
 
 /**
+ * A just-closed panel's action, for restoring focus once it closes.
+ *
+ * `newStatus` is the transaction's status straight from the mutation's own response - known the
+ * instant it succeeds, unlike the separate transactions-list query, whose refetch can still be in
+ * flight when the panel closes. `undefined` means nothing changed: a cancel.
+ */
+interface ClosedAction extends ActiveAction {
+    readonly newStatus?: TransactionStatus | undefined;
+}
+
+/**
  * The lifecycle actions each status legally admits, mirroring the ledger's own sealed
  * `TransactionState` transitions: `PENDING` clears or voids, `CLEARED` reconciles or voids, and a
  * `RECONCILED` or `VOIDED` transaction admits none. The server stays authoritative regardless: a
@@ -87,6 +98,16 @@ const ACTION_TITLES: Readonly<Record<LifecycleKind, string>> = {
     VOID: 'Void transaction',
 };
 
+/** The id of one transaction's actions cell, so focus can be restored to it after its panel closes. */
+function actionsCellId(transactionId: string): string {
+    return `transaction-actions-${transactionId}`;
+}
+
+/** The id of one transaction's state cell, the fallback focus target when its own action is gone. */
+function stateCellId(transactionId: string): string {
+    return `transaction-state-${transactionId}`;
+}
+
 /** The buttons offering this status's legal actions, or nothing for a frozen transaction. */
 function LifecycleButtons({
     status,
@@ -104,6 +125,7 @@ function LifecycleButtons({
             {actions.map((kind) => (
                 <Button
                     key={kind}
+                    data-action={kind}
                     variant={kind === 'VOID' ? 'danger' : 'secondary'}
                     onClick={() => {
                         onOpen(kind);
@@ -136,7 +158,8 @@ function LifecycleActionPanel({
 }: {
     readonly kind: LifecycleKind;
     readonly transactionId: string;
-    readonly onClose: () => void;
+    /** Called with the transaction's new status on success, or with none on cancel. */
+    readonly onClose: (newStatus?: TransactionStatus) => void;
 }) {
     const clear = useClearTransaction();
     const reconcile = useReconcileTransaction();
@@ -163,18 +186,20 @@ function LifecycleActionPanel({
             return;
         }
         submitting.current = true;
+        // The mutation's own response carries the transaction's new status; passed to onClose so
+        // it can decide where focus goes without waiting on the separate transactions query.
+        const onSuccess = (transaction: Transaction) => {
+            onClose(transaction.state.status);
+        };
         const onSettled = () => {
             submitting.current = false;
         };
         if (kind === 'CLEAR') {
-            clear.mutate({ transactionId, on }, { onSuccess: onClose, onSettled });
+            clear.mutate({ transactionId, on }, { onSuccess, onSettled });
         } else if (kind === 'RECONCILE') {
-            reconcile.mutate({ transactionId, on }, { onSuccess: onClose, onSettled });
+            reconcile.mutate({ transactionId, on }, { onSuccess, onSettled });
         } else {
-            voidTransaction.mutate(
-                { transactionId, on, reason },
-                { onSuccess: onClose, onSettled },
-            );
+            voidTransaction.mutate({ transactionId, on, reason }, { onSuccess, onSettled });
         }
     }
 
@@ -184,7 +209,12 @@ function LifecycleActionPanel({
             headingLevel={2}
             submitLabel={ACTION_LABELS[kind]}
             onSubmit={submit}
-            onCancel={onClose}
+            onCancel={() => {
+                // Never onClose directly: ActionPanel's Cancel button calls this as a click
+                // handler, and passing onClose straight through would read the click event as
+                // the newStatus parameter.
+                onClose();
+            }}
             pending={mutation.isPending}
         >
             <div className={styles.panelFields}>
@@ -222,24 +252,25 @@ function TransactionActionsCell({
     readonly transaction: Transaction;
     readonly active: ActiveAction | undefined;
     readonly onOpen: (transactionId: string, kind: LifecycleKind) => void;
-    readonly onClose: () => void;
+    readonly onClose: (newStatus?: TransactionStatus) => void;
 }) {
-    if (active?.transactionId === transaction.id) {
-        return (
-            <LifecycleActionPanel
-                kind={active.kind}
-                transactionId={transaction.id}
-                onClose={onClose}
-            />
-        );
-    }
     return (
-        <LifecycleButtons
-            status={transaction.state.status}
-            onOpen={(kind) => {
-                onOpen(transaction.id, kind);
-            }}
-        />
+        <div id={actionsCellId(transaction.id)}>
+            {active?.transactionId === transaction.id ? (
+                <LifecycleActionPanel
+                    kind={active.kind}
+                    transactionId={transaction.id}
+                    onClose={onClose}
+                />
+            ) : (
+                <LifecycleButtons
+                    status={transaction.state.status}
+                    onOpen={(kind) => {
+                        onOpen(transaction.id, kind);
+                    }}
+                />
+            )}
+        </div>
     );
 }
 
@@ -314,10 +345,15 @@ function EntryAmounts({
     );
 }
 
-/** A status badge, followed by the reason when the transaction was voided. */
-function StateCell({ state }: { readonly state: TransactionState }) {
+/**
+ * A status badge, followed by the reason when the transaction was voided.
+ *
+ * `id` and `tabIndex={-1}` let a lifecycle panel that closed after changing this row's status
+ * move focus here: a script can focus an off-Tab-order element, but never a plain `<span>`.
+ */
+function StateCell({ state, id }: { readonly state: TransactionState; readonly id: string }) {
     return (
-        <span className={styles.state}>
+        <span id={id} tabIndex={-1} className={styles.state}>
             <StateBadge
                 status={state.status}
                 tones={STATUS_TONES}
@@ -335,7 +371,7 @@ function transactionColumns(
     accountId: string,
     active: ActiveAction | undefined,
     onOpen: (transactionId: string, kind: LifecycleKind) => void,
-    onClose: () => void,
+    onClose: (newStatus?: TransactionStatus) => void,
 ): readonly Column<Transaction>[] {
     return [
         {
@@ -365,7 +401,9 @@ function transactionColumns(
         {
             key: 'state',
             header: 'State',
-            render: (transaction) => <StateCell state={transaction.state} />,
+            render: (transaction) => (
+                <StateCell state={transaction.state} id={stateCellId(transaction.id)} />
+            ),
         },
         {
             key: 'actions',
@@ -423,6 +461,48 @@ function Transactions({
     // At most one row's panel is open at a time, across the whole table. Declared before any
     // early return below, as every hook must be.
     const [active, setActive] = useState<ActiveAction | undefined>(undefined);
+    // Which row and action a just-closed panel was for, so focus can return there once the DOM
+    // reflects the close; state, not a ref, so it is never read or written during render.
+    const [closedAction, setClosedAction] = useState<ClosedAction | undefined>(undefined);
+
+    // Runs after a panel closes, whether by cancel or by success - both go through closeAction
+    // below, and a failure never does (the panel stays open and keeps its own focus). Prefers
+    // the button for the acted-on action, still present after a cancel because the status has
+    // not changed; falls back to the row's state cell, which is what actually changed after a
+    // successful transition removed that action from the row.
+    //
+    // Never resets closedAction back to undefined: closeAction always sets a freshly built
+    // object, so a later close - even of the same row and kind - is a new reference and reruns
+    // this effect regardless of what is still held from the one before.
+    useEffect(() => {
+        if (closedAction === undefined) {
+            return;
+        }
+        // A cancel changes nothing, so the acted-on action is still legal and its button is what
+        // to focus; a success is told apart by the new status it carried (closedAction.newStatus),
+        // never by re-reading the DOM - the transactions query's own refetch can still be in
+        // flight at this point, so a row's buttons may not yet reflect its new status here.
+        const stillOffered =
+            closedAction.newStatus === undefined ||
+            LEGAL_ACTIONS[closedAction.newStatus].includes(closedAction.kind);
+        const target = stillOffered
+            ? document
+                  .getElementById(actionsCellId(closedAction.transactionId))
+                  ?.querySelector<HTMLElement>(`[data-action="${closedAction.kind}"]`)
+            : document.getElementById(stateCellId(closedAction.transactionId));
+        target?.focus();
+    }, [closedAction]);
+
+    function openAction(transactionId: string, kind: LifecycleKind) {
+        setActive({ transactionId, kind });
+    }
+
+    function closeAction(newStatus?: TransactionStatus) {
+        if (active !== undefined) {
+            setClosedAction({ ...active, newStatus });
+        }
+        setActive(undefined);
+    }
 
     if (transactions.isPending) {
         return <p className={styles.placeholder}>Loading transactions…</p>;
@@ -439,16 +519,7 @@ function Transactions({
             ) : (
                 <DataTable
                     caption="Transactions"
-                    columns={transactionColumns(
-                        accountId,
-                        active,
-                        (transactionId, kind) => {
-                            setActive({ transactionId, kind });
-                        },
-                        () => {
-                            setActive(undefined);
-                        },
-                    )}
+                    columns={transactionColumns(accountId, active, openAction, closeAction)}
                     rows={transactions.data}
                     rowKey={(transaction) => transaction.id}
                 />
