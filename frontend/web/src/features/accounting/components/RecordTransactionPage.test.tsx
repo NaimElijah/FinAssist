@@ -97,7 +97,7 @@ afterEach(() => {
 });
 
 describe('RecordTransactionPage routing', () => {
-    it('Given_the_static_record_transaction_path_When_matched_Then_it_ranks_above_the_dynamic_account_route', async () => {
+    it('Given_the_two_segment_record_transaction_path_When_matched_Then_it_does_not_collide_with_the_single_segment_account_route', async () => {
         fakeFetch(ledger());
 
         renderForm();
@@ -188,6 +188,36 @@ describe('RecordTransactionPage entry rows', () => {
             'disabled',
             false,
         );
+    });
+
+    it('Given_a_row_added_then_a_different_one_removed_When_row_1_is_typed_into_again_Then_the_remaining_rows_typed_amount_survives', async () => {
+        // Repro: Add entry -> type Credit 3 = 70 -> Remove entry 2 -> type Debit 1. Before the
+        // fix, the mirror wrote to whatever sat at position 1 after the removal (formerly row 3),
+        // clobbering its typed '70.00'.
+        fakeFetch(ledger());
+        renderForm();
+        const user = userEvent.setup();
+        await screen.findByLabelText('Account 1');
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+
+        await user.type(screen.getByLabelText('Credit 3'), '70.00');
+        await user.click(screen.getByRole('button', { name: 'Remove entry 2' }));
+        await user.type(screen.getByLabelText('Debit 1'), '10.00');
+
+        expect(screen.getByLabelText('Credit 2')).toHaveProperty('value', '70.00');
+    });
+
+    it('Given_a_row_was_added_and_then_removed_back_to_two_When_row_1_is_typed_into_Then_the_mirror_does_not_resume', async () => {
+        fakeFetch(ledger());
+        renderForm();
+        const user = userEvent.setup();
+        await screen.findByLabelText('Account 1');
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+
+        await user.click(screen.getByRole('button', { name: 'Remove entry 3' }));
+        await user.type(screen.getByLabelText('Debit 1'), '10.00');
+
+        expect(screen.getByLabelText('Credit 2')).toHaveProperty('value', '');
     });
 });
 
@@ -309,5 +339,38 @@ describe('RecordTransactionPage submission', () => {
         // Both sides of row 2 carry the same message, since either one could be the fix.
         expect(await screen.findAllByText('Enter a debit or a credit')).toHaveLength(2);
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(0);
+    });
+
+    it('Given_a_row_removed_from_the_middle_When_another_rows_error_is_shown_Then_it_stays_on_its_own_row', async () => {
+        // Reproduces the bug a position-keyed error would have: removing row 1 shifts row 2 into
+        // row 1's slot, which must not carry row 2's error along with it if errors are keyed by
+        // the row's stable id rather than by array position.
+        fakeFetch(ledger());
+        renderForm();
+        const user = userEvent.setup();
+        await user.type(await screen.findByLabelText('Description'), 'Rent');
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+        await user.selectOptions(screen.getByLabelText('Account 1'), CHECKING.id);
+        await user.selectOptions(screen.getByLabelText('Account 2'), RENT.id);
+        await user.selectOptions(screen.getByLabelText('Account 3'), CHECKING.id);
+        await user.type(screen.getByLabelText('Debit 1'), '100.00');
+        // Row 2 carries both sides filled - its own field error - while row 3 stays valid.
+        await user.clear(screen.getByLabelText('Credit 2'));
+        await user.type(screen.getByLabelText('Credit 2'), '50.00');
+        await user.type(screen.getByLabelText('Debit 2'), '50.00');
+        await user.type(screen.getByLabelText('Debit 3'), '25.00');
+        await user.click(screen.getByRole('button', { name: 'Record transaction' }));
+        await screen.findAllByText('Enter a debit or a credit');
+
+        await user.click(screen.getByRole('button', { name: 'Remove entry 1' }));
+
+        // What was row 2 (Rent) is now shown first, and still carries its own error; what was
+        // row 3 (Checking, valid) is now shown second, and carries none.
+        expect(screen.getByLabelText('Debit 1')).toHaveProperty('value', '50.00');
+        expect(screen.getByLabelText('Debit 1').getAttribute('aria-invalid')).toBe('true');
+        expect(screen.getByLabelText('Credit 1').getAttribute('aria-invalid')).toBe('true');
+        expect(screen.getByLabelText('Debit 2')).toHaveProperty('value', '25.00');
+        expect(screen.getByLabelText('Debit 2').getAttribute('aria-invalid')).toBeNull();
+        expect(screen.getByLabelText('Credit 2').getAttribute('aria-invalid')).toBeNull();
     });
 });

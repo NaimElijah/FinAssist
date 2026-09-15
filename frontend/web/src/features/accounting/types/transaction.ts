@@ -2,6 +2,7 @@
  * A transaction as the accounting screens show it: what happened, the entries it posted, and
  * where it has got to in its lifecycle.
  */
+import type { Account } from './account';
 import type { Money } from './money';
 
 /**
@@ -50,13 +51,20 @@ export interface EntryRowError {
     readonly message: string;
 }
 
+/** `value` with one leading `-` removed, or `value` unchanged when it carries none. */
+function unsignedMagnitude(value: string): string {
+    return value.startsWith('-') ? value.slice(1) : value;
+}
+
 /**
  * Map one entry row's debit and credit strings to the signed amount ADR-011's `Entry` carries: a
  * positive amount is a debit, so a credit is sent negative.
  *
- * No arithmetic ever touches the digits (ADR-029): a credit's amount is the debit string with a
- * leading `-` added, after any leading `-` the owner already typed is stripped first, so a credit
- * typed with its own sign is never doubled into `"--250.00"`.
+ * Both columns take an unsigned magnitude - the column alone carries the sign, never a sign the
+ * owner happens to type. No arithmetic ever touches the digits (ADR-029): whichever side is
+ * filled has any leading `-` stripped first, so a stray sign is corrected rather than doubled or,
+ * under Debit, silently flipping the entry into a credit; a credit's magnitude then gets its
+ * leading `-` added back.
  *
  * @param debit - the debit field's string, or `''` when left empty.
  * @param credit - the credit field's string, or `''` when left empty.
@@ -69,7 +77,61 @@ export function entryRowAmount(debit: string, credit: string): string | EntryRow
         return { message: 'Enter a debit or a credit' };
     }
     if (hasDebit) {
-        return debit;
+        return unsignedMagnitude(debit);
     }
-    return `-${credit.startsWith('-') ? credit.slice(1) : credit}`;
+    return `-${unsignedMagnitude(credit)}`;
+}
+
+/** One entry row's form state, before it is mapped to the wire by `buildEntries`. */
+export interface EntryRowState {
+    /** Stable across add and remove, so a row's own errors stay attached to it (M6). */
+    readonly key: number;
+    readonly accountId: string;
+    readonly debit: string;
+    readonly credit: string;
+}
+
+/**
+ * Map every row of a record-transaction form to a wire entry, or collect the amount-field
+ * problem each invalid row has instead, keyed by the row's stable `key` rather than its position,
+ * so removing one row never shifts another's error onto the wrong one (M6).
+ *
+ * No arithmetic and no balance check happens here (ADR-029): a row's amount is mapped by
+ * `entryRowAmount` alone, and whether the whole set sums to zero is the ledger's own check, as
+ * 422 `RULE_VIOLATED`.
+ *
+ * A row naming an account not among `accounts` is never a field to correct: the caller's Account
+ * `SelectField` is `required` and offers only accounts from this same list, so the browser
+ * refuses to submit the form before such a row can reach here (I1). Reaching this function with
+ * one anyway is a bug in the caller, not the owner's mistake, so it throws rather than rendering
+ * a message no real submission could ever trigger.
+ *
+ * @throws Error - when a row's `accountId` matches none of `accounts`.
+ */
+export function buildEntries(
+    rows: readonly EntryRowState[],
+    accounts: readonly Account[],
+): { readonly entries: readonly Entry[] } | { readonly rowErrors: ReadonlyMap<number, string> } {
+    const rowErrors = new Map<number, string>();
+    const entries: Entry[] = [];
+
+    for (const row of rows) {
+        const account = accounts.find((candidate) => candidate.id === row.accountId);
+        if (account === undefined) {
+            throw new Error(
+                'buildEntries: a row names an account that is not among the accounts offered',
+            );
+        }
+        const amountResult = entryRowAmount(row.debit, row.credit);
+        if (typeof amountResult === 'string') {
+            entries.push({
+                account: account.id,
+                amount: { amount: amountResult, currency: account.currency },
+            });
+        } else {
+            rowErrors.set(row.key, amountResult.message);
+        }
+    }
+
+    return rowErrors.size === 0 ? { entries } : { rowErrors };
 }

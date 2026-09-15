@@ -14,7 +14,7 @@ import {
 
 import { useAccounts, useRecordTransaction } from '../hooks/accountQueries';
 import type { Account } from '../types/account';
-import { entryRowAmount, type Entry } from '../types/transaction';
+import { buildEntries, type EntryRowState } from '../types/transaction';
 import styles from './RecordTransactionPage.module.css';
 import { accountPath } from './paths';
 
@@ -95,21 +95,6 @@ function submissionErrors(error: Error | null): SubmissionErrors {
     return { fields: {}, unplaced: error };
 }
 
-/** One entry row's form state, before it is mapped to the wire. */
-interface EntryRowState {
-    /** Stable across add and remove, so React keys the row rather than its position. */
-    readonly key: number;
-    readonly accountId: string;
-    readonly debit: string;
-    readonly credit: string;
-}
-
-/** One row's client-side validation failure, if any. */
-interface RowError {
-    readonly account?: string;
-    readonly amount?: string;
-}
-
 const NEW_ROW: Omit<EntryRowState, 'key'> = { accountId: '', debit: '', credit: '' };
 
 /** The two rows the form starts with. */
@@ -129,42 +114,6 @@ function accountOptions(accounts: readonly Account[]): SelectOption[] {
             label: `${account.name} (${account.currency})`,
         })),
     ];
-}
-
-/**
- * Map every row to a wire entry, or collect what is wrong with each row instead.
- *
- * No arithmetic and no balance check happens here (ADR-029): a row's amount is mapped by
- * `entryRowAmount` alone, and whether the whole set sums to zero is the ledger's own check, as
- * 422 `RULE_VIOLATED`.
- */
-function buildEntries(
-    rows: readonly EntryRowState[],
-    accounts: readonly Account[],
-): { readonly entries: readonly Entry[] } | { readonly rowErrors: readonly RowError[] } {
-    const rowErrors: RowError[] = [];
-    const entries: Entry[] = [];
-    let allValid = true;
-
-    for (const row of rows) {
-        const account = accounts.find((candidate) => candidate.id === row.accountId);
-        const amountResult = entryRowAmount(row.debit, row.credit);
-        const rowError: RowError = {
-            ...(account === undefined ? { account: 'Choose an account' } : {}),
-            ...(typeof amountResult === 'string' ? {} : { amount: amountResult.message }),
-        };
-        rowErrors.push(rowError);
-        if (rowError.account !== undefined || rowError.amount !== undefined) {
-            allValid = false;
-        } else if (account !== undefined && typeof amountResult === 'string') {
-            entries.push({
-                account: account.id,
-                amount: { amount: amountResult, currency: account.currency },
-            });
-        }
-    }
-
-    return allValid ? { entries } : { rowErrors };
 }
 
 /** A retry for the accounts read, busy while the retry is in flight. */
@@ -187,7 +136,8 @@ interface EntryRowFieldsProps {
     readonly index: number;
     readonly row: EntryRowState;
     readonly accounts: readonly Account[];
-    readonly error: RowError | undefined;
+    /** The row's amount-field error, if any - an account error is never possible (see `buildEntries`). */
+    readonly error: string | undefined;
     readonly removable: boolean;
     readonly onAccountChange: (accountId: string) => void;
     readonly onDebitChange: (value: string) => void;
@@ -215,7 +165,6 @@ function EntryRowFields({
                 required
                 options={accountOptions(accounts)}
                 value={row.accountId}
-                error={error?.account}
                 onChange={(event) => {
                     onAccountChange(event.target.value);
                 }}
@@ -225,7 +174,7 @@ function EntryRowFields({
                 inputMode="decimal"
                 autoComplete="off"
                 value={row.debit}
-                error={error?.amount}
+                error={error}
                 onChange={(event) => {
                     onDebitChange(event.target.value);
                 }}
@@ -235,7 +184,7 @@ function EntryRowFields({
                 inputMode="decimal"
                 autoComplete="off"
                 value={row.credit}
-                error={error?.amount}
+                error={error}
                 onChange={(event) => {
                     onCreditChange(event.target.value);
                 }}
@@ -251,12 +200,12 @@ function EntryRowFields({
  * The form that records a transaction by hand: a date, a description, and at least two entry
  * rows, each an account with a debit or a credit.
  *
- * **The two-entry mirror** (ADR-029): while there are exactly two rows and the owner has not
- * edited row 2's amounts directly, typing a debit on row 1 copies that string into row 2's
- * credit, and typing a credit on row 1 copies it into row 2's debit - a plain double entry
- * balances itself without arithmetic. Editing row 2 directly, in either field, stops the mirror
- * for good; adding a third row stops it as long as there are more than two, but does not clear
- * the flag, so removing back down to two without having touched row 2 resumes it.
+ * **The two-entry mirror** (ADR-029): while it is still active, typing a debit on row 1 copies
+ * that string into row 2's credit, and typing a credit on row 1 copies it into row 2's debit - a
+ * plain double entry balances itself without arithmetic. It stops for good, never to resume, the
+ * moment any of the following happens: the owner adds a row, removes a row, or directly edits an
+ * amount on any row other than row 1 - the one it mirrors from. Row 1 stays mirrorable only until
+ * one of those happens once; there is no scenario in which it comes back.
  *
  * Submit is disabled while the request is pending, and a submit event arriving anyway is ignored
  * (ADR-028: no double submit). On success every account named in the entries gains its own
@@ -277,14 +226,12 @@ function RecordTransactionForm({ accounts }: { readonly accounts: readonly Accou
     const [description, setDescription] = useState('');
     const [rows, setRows] = useState<EntryRowState[]>(initialRows);
     const [mirrorActive, setMirrorActive] = useState(true);
-    const [rowErrors, setRowErrors] = useState<readonly RowError[]>([]);
+    const [rowErrors, setRowErrors] = useState<ReadonlyMap<number, string>>(new Map());
 
     const record = useRecordTransaction();
     const failure = record.error;
     const errors = submissionErrors(failure);
-    const hasRowError = rowErrors.some(
-        (error) => error.account !== undefined || error.amount !== undefined,
-    );
+    const hasRowError = rowErrors.size > 0;
 
     // Runs after the render that shows the failure, so the invalid controls and the error state
     // are already on the page.
@@ -309,7 +256,7 @@ function RecordTransactionForm({ accounts }: { readonly accounts: readonly Accou
     function updateDebit(index: number, value: string) {
         setRows((previous) => {
             const next = previous.map((row, i) => (i === index ? { ...row, debit: value } : row));
-            if (index === 0 && mirrorActive && next.length === MINIMUM_ROWS) {
+            if (index === 0 && mirrorActive) {
                 const partner = next[1];
                 if (partner !== undefined) {
                     next[1] = { ...partner, credit: value };
@@ -317,7 +264,9 @@ function RecordTransactionForm({ accounts }: { readonly accounts: readonly Accou
             }
             return next;
         });
-        if (index === 1) {
+        // Row 1 is the mirror source and never disables it; any other row's amount being edited
+        // directly is the owner overriding the mirror, which then stops for good (I2).
+        if (index !== 0) {
             setMirrorActive(false);
         }
     }
@@ -325,7 +274,7 @@ function RecordTransactionForm({ accounts }: { readonly accounts: readonly Accou
     function updateCredit(index: number, value: string) {
         setRows((previous) => {
             const next = previous.map((row, i) => (i === index ? { ...row, credit: value } : row));
-            if (index === 0 && mirrorActive && next.length === MINIMUM_ROWS) {
+            if (index === 0 && mirrorActive) {
                 const partner = next[1];
                 if (partner !== undefined) {
                     next[1] = { ...partner, debit: value };
@@ -333,12 +282,16 @@ function RecordTransactionForm({ accounts }: { readonly accounts: readonly Accou
             }
             return next;
         });
-        if (index === 1) {
+        if (index !== 0) {
             setMirrorActive(false);
         }
     }
 
     function addRow() {
+        // Adding a row stops the mirror for good (I2): there is no longer a single "row 2" the
+        // owner unambiguously means, so guessing which row to write into would be as likely to
+        // surprise as to help.
+        setMirrorActive(false);
         setRows((previous) => {
             const key = nextKey.current;
             nextKey.current += 1;
@@ -347,6 +300,10 @@ function RecordTransactionForm({ accounts }: { readonly accounts: readonly Accou
     }
 
     function removeRow(key: number) {
+        // Removing a row stops the mirror for good too (I2): whichever row now sits at position 1
+        // may hold an amount the owner already typed there on purpose, and the mirror must never
+        // overwrite it.
+        setMirrorActive(false);
         setRows((previous) =>
             previous.length <= MINIMUM_ROWS ? previous : previous.filter((row) => row.key !== key),
         );
@@ -363,7 +320,7 @@ function RecordTransactionForm({ accounts }: { readonly accounts: readonly Accou
             setRowErrors(built.rowErrors);
             return;
         }
-        setRowErrors([]);
+        setRowErrors(new Map());
 
         submitting.current = true;
         record.mutate(
@@ -417,7 +374,7 @@ function RecordTransactionForm({ accounts }: { readonly accounts: readonly Accou
                             index={index}
                             row={row}
                             accounts={accounts}
-                            error={rowErrors[index]}
+                            error={rowErrors.get(row.key)}
                             removable={rows.length > MINIMUM_ROWS}
                             onAccountChange={(accountId) => {
                                 updateAccount(index, accountId);
