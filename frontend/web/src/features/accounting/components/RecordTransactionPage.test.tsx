@@ -2,7 +2,7 @@
 // Renders the record-transaction screen through the feature's own routes, so it needs a DOM.
 // fetch is faked, so the feature's real api/ module and its mapping run under test.
 
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -442,5 +442,162 @@ describe('RecordTransactionPage submission', () => {
         expect(screen.getByLabelText('Debit 2')).toHaveProperty('value', '25.00');
         expect(screen.getByLabelText('Debit 2').getAttribute('aria-invalid')).toBeNull();
         expect(screen.getByLabelText('Credit 2').getAttribute('aria-invalid')).toBeNull();
+    });
+});
+
+describe('RecordTransactionPage accounts read', () => {
+    it('Given_the_accounts_read_is_pending_When_rendered_Then_a_loading_message_is_shown_and_the_form_is_not', async () => {
+        fakeFetch((request) =>
+            request.url === ACCOUNTS_URL ? pendingResponse() : unexpectedRequest(request),
+        );
+
+        renderForm();
+
+        expect(await screen.findByText('Loading accounts…')).toBeDefined();
+        expect(screen.queryByLabelText('Description')).toBeNull();
+    });
+
+    it('Given_the_accounts_read_fails_When_rendered_Then_an_error_state_offers_a_retry_that_loads_the_form', async () => {
+        let failing = true;
+        fakeFetch((request) => {
+            if (request.url !== ACCOUNTS_URL) return unexpectedRequest(request);
+            return failing
+                ? problemResponse({
+                      status: 503,
+                      code: 'UNAVAILABLE',
+                      detail: 'The ledger is restarting.',
+                  })
+                : jsonResponse([CHECKING, RENT]);
+        });
+
+        renderForm();
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('The ledger is restarting.')).toBeDefined();
+        expect(screen.queryByLabelText('Description')).toBeNull();
+        failing = false;
+        await userEvent.setup().click(within(alert).getByRole('button', { name: 'Try again' }));
+
+        expect(await screen.findByLabelText('Description')).toBeDefined();
+    });
+
+    it('Given_the_form_already_on_screen_When_a_background_refetch_of_accounts_fails_Then_a_non_blocking_error_state_appears_and_the_form_stays_usable', async () => {
+        let listReads = 0;
+        fakeFetch((request) => {
+            if (request.url !== ACCOUNTS_URL) return unexpectedRequest(request);
+            listReads += 1;
+            return listReads === 1
+                ? jsonResponse([CHECKING, RENT])
+                : problemResponse({
+                      status: 503,
+                      code: 'UNAVAILABLE',
+                      detail: 'The ledger is restarting.',
+                  });
+        });
+        const { queryClient } = renderForm();
+        await screen.findByLabelText('Description');
+
+        // Ruling 33: a failed background refetch never hides data already on screen.
+        await act(() => queryClient.invalidateQueries({ queryKey: accountKeys.list }));
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('The ledger is restarting.')).toBeDefined();
+        expect(screen.getByLabelText('Description')).toBeDefined();
+        expect(screen.getByLabelText('Account 1')).toBeDefined();
+    });
+});
+
+describe('RecordTransactionPage 400 field-error routing', () => {
+    it('Given_a_400_naming_description_When_submitted_Then_the_message_lands_on_the_Description_field_and_it_is_focused', async () => {
+        fakeFetch(
+            ledger((request) => {
+                if (request.url === RECORD_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: [{ field: 'description', message: 'must not be blank' }],
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderForm();
+        const user = userEvent.setup();
+
+        await fillValidTransaction(user);
+        await user.click(screen.getByRole('button', { name: 'Record transaction' }));
+
+        const error = await screen.findByText('must not be blank');
+        const description = screen.getByLabelText('Description');
+        expect(description.getAttribute('aria-invalid')).toBe('true');
+        expect(description.getAttribute('aria-describedby')?.split(' ')).toContain(error.id);
+        expect(screen.queryByRole('alert')).toBeNull();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(description);
+        });
+    });
+
+    it('Given_a_400_naming_occurredOn_When_submitted_Then_the_message_lands_on_the_Date_field_and_it_is_focused', async () => {
+        fakeFetch(
+            ledger((request) => {
+                if (request.url === RECORD_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: [{ field: 'occurredOn', message: 'must not be in the future' }],
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderForm();
+        const user = userEvent.setup();
+
+        await fillValidTransaction(user);
+        await user.click(screen.getByRole('button', { name: 'Record transaction' }));
+
+        const error = await screen.findByText('must not be in the future');
+        const date = screen.getByLabelText('Date');
+        expect(date.getAttribute('aria-invalid')).toBe('true');
+        expect(date.getAttribute('aria-describedby')?.split(' ')).toContain(error.id);
+        expect(screen.queryByRole('alert')).toBeNull();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(date);
+        });
+    });
+
+    it('Given_a_400_naming_an_entries_path_When_submitted_Then_the_whole_problem_falls_back_to_an_error_state_and_it_is_focused', async () => {
+        fakeFetch(
+            ledger((request) => {
+                if (request.url === RECORD_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: [{ field: 'entries[0].amount', message: 'must not be negative' }],
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderForm();
+        const user = userEvent.setup();
+
+        await fillValidTransaction(user);
+        await user.click(screen.getByRole('button', { name: 'Record transaction' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(within(alert).getByText('Invalid request content.')).toBeDefined();
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['entries[0].amount: must not be negative']);
+        expect(screen.getByLabelText('Description').getAttribute('aria-invalid')).toBeNull();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(alert);
+        });
     });
 });

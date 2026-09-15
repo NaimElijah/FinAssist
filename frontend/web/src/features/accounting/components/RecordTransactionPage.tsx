@@ -1,4 +1,4 @@
-import { type SubmitEvent, useEffect, useRef, useState } from 'react';
+import { type ReactNode, type SubmitEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
@@ -209,13 +209,21 @@ function EntryRowFields({
  *
  * Submit is disabled while the request is pending, and a submit event arriving anyway is ignored
  * (ADR-028: no double submit). On success every account named in the entries gains its own
- * refetched balance and transaction list, the accounts list is refetched too, and the browser
- * moves on to the first entry's account. A failure is shown where it can be acted on: a client-side
- * row problem on that row, a 400's top-level field errors on their fields, and anything else -
- * including a 422 `RULE_VIOLATED` - in an `ErrorState` above the form. Focus follows the failure
- * there, the same rule every form in the app keeps.
+ * refetched balance and transaction list, and the browser moves on to the first entry's account;
+ * the accounts list itself is never refetched, since no account's own fields can change from a
+ * transaction. A failure is shown where it can be acted on: a client-side row problem on that
+ * row, a 400's top-level field errors on their fields, and anything else - including a 422
+ * `RULE_VIOLATED` - in an `ErrorState` above the form. Focus follows the failure there, the same
+ * rule every form in the app keeps.
  */
-function RecordTransactionForm({ accounts }: { readonly accounts: readonly Account[] }) {
+function RecordTransactionForm({
+    accounts,
+    accountsFailure,
+}: {
+    readonly accounts: readonly Account[];
+    /** A failed background refetch of the accounts list, shown above the form; `null` otherwise. */
+    readonly accountsFailure: ReactNode;
+}) {
     const navigate = useNavigate();
     const formRef = useRef<HTMLFormElement>(null);
     const errorStateRef = useRef<HTMLDivElement>(null);
@@ -342,6 +350,7 @@ function RecordTransactionForm({ accounts }: { readonly accounts: readonly Accou
     return (
         <>
             <h1>Record a transaction</h1>
+            {accountsFailure}
             {errors.unplaced === null ? null : (
                 <ErrorState ref={errorStateRef} error={errors.unplaced} />
             )}
@@ -423,23 +432,28 @@ export function RecordTransactionPage() {
             </>
         );
     }
+    const accountsFailure = accounts.isError ? (
+        <ErrorState
+            error={accounts.error}
+            action={
+                <AccountsRetryButton
+                    isFetching={accounts.isFetching}
+                    onRetry={() => {
+                        void accounts.refetch();
+                    }}
+                />
+            }
+        />
+    ) : null;
     if (accounts.data === undefined) {
         return (
             <>
                 <h1>Record a transaction</h1>
-                <ErrorState
-                    error={accounts.error}
-                    action={
-                        <AccountsRetryButton
-                            isFetching={accounts.isFetching}
-                            onRetry={() => {
-                                void accounts.refetch();
-                            }}
-                        />
-                    }
-                />
+                {accountsFailure}
             </>
         );
     }
-    return <RecordTransactionForm accounts={accounts.data} />;
+    // A failed background refetch never hides the form already on screen: TanStack Query keeps
+    // the data it holds, so the failure is shown above the form rather than in its place.
+    return <RecordTransactionForm accounts={accounts.data} accountsFailure={accountsFailure} />;
 }
