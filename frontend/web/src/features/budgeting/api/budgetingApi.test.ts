@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError } from '@/shared/api/client';
+import { ApiBodyError, ApiError } from '@/shared/api/client';
 import { setLogSink } from '@/shared/lib/logger';
 
 import {
@@ -322,5 +322,59 @@ describe('addCategorisationRule', () => {
 
         expect(failure).toBeInstanceOf(ApiError);
         expect(failure).toMatchObject({ status: 400, problem: { code: 'MALFORMED_REQUEST' } });
+    });
+});
+
+describe('a response the contract does not describe', () => {
+    // The generated types promise five currencies, but a body is unvalidated JSON. Planning and
+    // portfolio already refuse a currency they cannot name, and budgeting now agrees with them.
+
+    it('Given_a_budget_whose_currency_the_contract_does_not_name_When_listed_Then_it_rejects_with_an_ApiBodyError', async () => {
+        stubFetch(
+            jsonResponse([
+                {
+                    id: 'b1',
+                    period: { start: '2026-09-01', end: '2026-10-01' },
+                    currency: 'XYZ',
+                    limits: [],
+                    total: { amount: '0.00', currency: 'ILS' },
+                },
+            ]),
+        );
+
+        await expect(listBudgets()).rejects.toBeInstanceOf(ApiBodyError);
+    });
+
+    it('Given_a_limit_whose_currency_the_contract_does_not_name_When_listed_Then_it_rejects_with_an_ApiBodyError', async () => {
+        stubFetch(
+            jsonResponse([
+                {
+                    id: 'b1',
+                    period: { start: '2026-09-01', end: '2026-10-01' },
+                    currency: 'ILS',
+                    limits: [
+                        { category: 'groceries', limit: { amount: '1000.00', currency: 'XYZ' } },
+                    ],
+                    total: { amount: '1000.00', currency: 'ILS' },
+                },
+            ]),
+        );
+
+        await expect(listBudgets()).rejects.toBeInstanceOf(ApiBodyError);
+    });
+
+    it('Given_a_review_whose_currency_the_contract_does_not_name_When_read_Then_it_rejects_with_an_ApiBodyError', async () => {
+        stubFetch(
+            jsonResponse({
+                budget: 'b1',
+                period: { start: '2026-09-01', end: '2026-10-01' },
+                currency: 'XYZ',
+                categories: [],
+                unbudgeted: [],
+                uncategorised: { amount: '0.00', currency: 'ILS' },
+            }),
+        );
+
+        await expect(reviewBudget('b1')).rejects.toBeInstanceOf(ApiBodyError);
     });
 });

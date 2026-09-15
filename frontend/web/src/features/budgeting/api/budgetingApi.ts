@@ -4,9 +4,10 @@
  *
  * Each function types the response with the generated wire type and maps it, member by member,
  * onto the feature's own type. A generated type stops here: components and hooks see only
- * `types/`. Decimal amounts stay the strings the ledger sent (ADR-028).
+ * `types/`. Decimal amounts stay the strings the ledger sent (ADR-028). A currency the contract
+ * does not name is refused here with `ApiBodyError`, as the other features refuse theirs.
  */
-import { LEDGER_API, requestJson, sendJson } from '@/shared/api/client';
+import { ApiBodyError, LEDGER_API, requestJson, sendJson } from '@/shared/api/client';
 import type {
     AddCategorisationRuleRequest,
     BudgetPeriodDto,
@@ -19,9 +20,10 @@ import type {
     MoneyDto,
     UnbudgetedSpendResponse,
 } from '@/shared/api/contracts/ledger/types.gen';
+import { log } from '@/shared/lib/logger';
 
 import type { Budget, CategoryLimit, DefineBudgetInput } from '../types/budget';
-import type { Money } from '../types/money';
+import { CURRENCIES, type Currency, type Money } from '../types/money';
 import type { BudgetPeriod } from '../types/period';
 import type { BudgetReview, CategorySpend, UnbudgetedSpend } from '../types/review';
 import type { CategorisationRule } from '../types/rule';
@@ -37,54 +39,72 @@ function budgetUrl(budgetId: string, subResource: string): string {
     return `${BUDGETS_URL}/${encodeURIComponent(budgetId)}/${subResource}`;
 }
 
-function toMoney(wire: MoneyDto): Money {
-    return { amount: wire.amount, currency: wire.currency };
+/**
+ * A currency the contract does not name.
+ *
+ * The generated type promises one of five codes, but the body is unvalidated JSON, so this keeps
+ * a runtime default rather than trusting it blindly. The code itself is left out of the log line,
+ * since it arrived unvalidated.
+ *
+ * @throws ApiBodyError - always.
+ */
+function unknownCurrency(url: string): never {
+    log.error('ledger response has a currency the contract does not name', { url });
+    throw new ApiBodyError(url, 'A response arrived with a currency the contract does not name');
+}
+
+function knownCurrency(value: Currency, url: string): Currency {
+    return CURRENCIES.includes(value) ? value : unknownCurrency(url);
+}
+
+function toMoney(wire: MoneyDto, url: string): Money {
+    return { amount: wire.amount, currency: knownCurrency(wire.currency, url) };
 }
 
 function toPeriod(wire: BudgetPeriodDto): BudgetPeriod {
     return { start: wire.start, end: wire.end };
 }
 
-function toCategoryLimit(wire: CategoryLimitDto): CategoryLimit {
-    return { category: wire.category, limit: toMoney(wire.limit) };
+function toCategoryLimit(wire: CategoryLimitDto, url: string): CategoryLimit {
+    return { category: wire.category, limit: toMoney(wire.limit, url) };
 }
 
-function toBudget(wire: BudgetResponse): Budget {
+function toBudget(wire: BudgetResponse, url: string): Budget {
     return {
         id: wire.id,
         period: toPeriod(wire.period),
-        currency: wire.currency,
-        limits: wire.limits.map(toCategoryLimit),
-        total: toMoney(wire.total),
+        currency: knownCurrency(wire.currency, url),
+        limits: wire.limits.map((limit) => toCategoryLimit(limit, url)),
+        total: toMoney(wire.total, url),
     };
 }
 
-function toCategorySpend(wire: CategorySpendResponse): CategorySpend {
+function toCategorySpend(wire: CategorySpendResponse, url: string): CategorySpend {
     return {
         category: wire.category,
-        limit: toMoney(wire.limit),
-        spent: toMoney(wire.spent),
-        remaining: toMoney(wire.remaining),
+        limit: toMoney(wire.limit, url),
+        spent: toMoney(wire.spent, url),
+        remaining: toMoney(wire.remaining, url),
         overspent: wire.overspent,
     };
 }
 
-function toUnbudgetedSpend(wire: UnbudgetedSpendResponse): UnbudgetedSpend {
-    return { category: wire.category, spent: toMoney(wire.spent) };
+function toUnbudgetedSpend(wire: UnbudgetedSpendResponse, url: string): UnbudgetedSpend {
+    return { category: wire.category, spent: toMoney(wire.spent, url) };
 }
 
 function toCategorisationRule(wire: CategorisationRuleResponse): CategorisationRule {
     return { fragment: wire.fragment, category: wire.category };
 }
 
-function toBudgetReview(wire: BudgetReviewResponse): BudgetReview {
+function toBudgetReview(wire: BudgetReviewResponse, url: string): BudgetReview {
     return {
         budget: wire.budget,
         period: toPeriod(wire.period),
-        currency: wire.currency,
-        categories: wire.categories.map(toCategorySpend),
-        unbudgeted: wire.unbudgeted.map(toUnbudgetedSpend),
-        uncategorised: toMoney(wire.uncategorised),
+        currency: knownCurrency(wire.currency, url),
+        categories: wire.categories.map((category) => toCategorySpend(category, url)),
+        unbudgeted: wire.unbudgeted.map((spend) => toUnbudgetedSpend(spend, url)),
+        uncategorised: toMoney(wire.uncategorised, url),
     };
 }
 
@@ -93,11 +113,12 @@ function toBudgetReview(wire: BudgetReviewResponse): BudgetReview {
  *
  * @returns the budgets, in the ledger's order.
  * @throws ApiError - on a non-2xx response.
- * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws ApiBodyError - when the response carries no JSON body, or a currency the contract does
+ *   not name.
  */
 export async function listBudgets(): Promise<Budget[]> {
     const wire = await requestJson<BudgetResponse[]>(BUDGETS_URL);
-    return wire.map(toBudget);
+    return wire.map((budget) => toBudget(budget, BUDGETS_URL));
 }
 
 /**
@@ -110,7 +131,8 @@ export async function listBudgets(): Promise<Budget[]> {
  *   no limits, a duplicate category, a non-positive limit, a limit in another currency, or a
  *   period that does not start before it ends - 400 `MALFORMED_REQUEST`, possibly listing field
  *   `errors`, for a request the ledger cannot read.
- * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws ApiBodyError - when the response carries no JSON body, or a currency the contract does
+ *   not name.
  */
 export async function defineBudget(input: DefineBudgetInput): Promise<Budget> {
     const body: DefineBudgetRequest = {
@@ -122,7 +144,7 @@ export async function defineBudget(input: DefineBudgetInput): Promise<Budget> {
         })),
     };
     const wire = await sendJson<BudgetResponse>(BUDGETS_URL, 'POST', body);
-    return toBudget(wire);
+    return toBudget(wire, BUDGETS_URL);
 }
 
 /**
@@ -132,11 +154,13 @@ export async function defineBudget(input: DefineBudgetInput): Promise<Budget> {
  * @returns the review: every budgeted category's limit, spend and remaining, spend unbudgeted
  *   for a category with no limit, and spend that matched no rule at all.
  * @throws ApiError - on a non-2xx response: 404 `BUDGET_NOT_FOUND` for an unknown budget.
- * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws ApiBodyError - when the response carries no JSON body, or a currency the contract does
+ *   not name.
  */
 export async function reviewBudget(budgetId: string): Promise<BudgetReview> {
-    const wire = await requestJson<BudgetReviewResponse>(budgetUrl(budgetId, 'review'));
-    return toBudgetReview(wire);
+    const url = budgetUrl(budgetId, 'review');
+    const wire = await requestJson<BudgetReviewResponse>(url);
+    return toBudgetReview(wire, url);
 }
 
 /**
