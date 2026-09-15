@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 
-import { Button, type Column, DataTable, EmptyState, ErrorState, MoneyText } from '@/shared/ui';
+import { type Column, DataTable, EmptyState, MoneyText, QueryErrorState } from '@/shared/ui';
 
 import { useAccountBalance, useAccounts } from '../hooks/accountQueries';
 import { ACCOUNT_TYPE_LABELS, type Account } from '../types/account';
@@ -101,22 +101,15 @@ function AccountsList({
     if (accounts.isPending) {
         return <p className={styles.loading}>Loading accounts…</p>;
     }
-    const failure = accounts.isError ? (
-        <ErrorState
+    const failure = (
+        <QueryErrorState
             error={accounts.error}
-            action={
-                <Button
-                    variant="secondary"
-                    pending={accounts.isFetching}
-                    onClick={() => {
-                        void accounts.refetch();
-                    }}
-                >
-                    Try again
-                </Button>
-            }
+            retrying={accounts.isFetching}
+            onRetry={() => {
+                void accounts.refetch();
+            }}
         />
-    ) : null;
+    );
     if (accounts.data === undefined) {
         return failure;
     }

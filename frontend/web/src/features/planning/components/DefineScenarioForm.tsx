@@ -5,6 +5,7 @@ import {
     Button,
     ErrorState,
     MoneyText,
+    QueryErrorState,
     SelectField,
     type SelectOption,
     TextField,
@@ -16,7 +17,6 @@ import { CURRENCIES, type Currency } from '../types/money';
 import type { Scenario } from '../types/scenario';
 import groupStyles from './checkboxGroup.module.css';
 import styles from './DefineScenarioForm.module.css';
-import { QueryFailure } from './QueryFailure';
 import { toggled } from './toggled';
 
 const CURRENCY_OPTIONS: readonly SelectOption[] = CURRENCIES.map((currency) => ({
@@ -266,6 +266,16 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
         );
     }
 
+    const flowsFailure = (
+        <QueryErrorState
+            error={flowsQuery.error}
+            retrying={flowsQuery.isFetching}
+            onRetry={() => {
+                void flowsQuery.refetch();
+            }}
+        />
+    );
+
     return (
         <section aria-labelledby={headingId} className={styles.section}>
             <h2 id={headingId} className={styles.heading}>
@@ -311,13 +321,13 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                 {flowsQuery.isPending ? (
                     <p>Loading planned flows…</p>
                 ) : flowsQuery.data === undefined ? (
-                    <QueryFailure query={flowsQuery} />
+                    flowsFailure
                 ) : (
                     <>
                         {/* A failed background refetch never hides the checkboxes already on
                             screen: TanStack Query keeps the data it holds, so the failure is
                             shown above them rather than in their place. */}
-                        <QueryFailure query={flowsQuery} />
+                        {flowsFailure}
                         <FlowsFieldset
                             flows={flowsQuery.data}
                             currency={currency}

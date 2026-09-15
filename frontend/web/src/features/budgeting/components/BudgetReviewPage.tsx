@@ -2,7 +2,15 @@ import { Link, useParams } from 'react-router';
 
 import { hasProblemCode } from '@/shared/api/client';
 import { useDocumentTitle } from '@/shared/lib/documentTitle';
-import { type Column, DataTable, EmptyState, MoneyText, StateBadge, type Tone } from '@/shared/ui';
+import {
+    type Column,
+    DataTable,
+    EmptyState,
+    MoneyText,
+    QueryErrorState,
+    StateBadge,
+    type Tone,
+} from '@/shared/ui';
 
 import { BUDGET_NOT_FOUND } from '../api/budgetingApi';
 import { useBudgetReview, useBudgets } from '../hooks/budgetQueries';
@@ -12,7 +20,6 @@ import type { BudgetReview, CategorySpend, UnbudgetedSpend } from '../types/revi
 import styles from './BudgetReviewPage.module.css';
 import { BUDGETS_PATH } from './paths';
 import { PeriodLabel } from './PeriodLabel';
-import { QueryFailure } from './QueryFailure';
 
 const NO_UNBUDGETED_MESSAGE = 'No unbudgeted spend';
 
@@ -168,7 +175,15 @@ function BudgetDetail({ budgetId }: { readonly budgetId: string }) {
     if (notFound) {
         return <BudgetNotFound />;
     }
-    const budgetsFailure = budgets.isPending ? null : <QueryFailure query={budgets} />;
+    const budgetsFailure = (
+        <QueryErrorState
+            error={budgets.error}
+            retrying={budgets.isFetching}
+            onRetry={() => {
+                void budgets.refetch();
+            }}
+        />
+    );
     if (budgets.data === undefined) {
         return (
             <>
@@ -204,7 +219,13 @@ function BudgetDetail({ budgetId }: { readonly budgetId: string }) {
                 <p className={styles.placeholder}>Loading review…</p>
             ) : (
                 <div className={styles.stack}>
-                    <QueryFailure query={review} />
+                    <QueryErrorState
+                        error={review.error}
+                        retrying={review.isFetching}
+                        onRetry={() => {
+                            void review.refetch();
+                        }}
+                    />
                     {review.data === undefined ? null : <ReviewSections review={review.data} />}
                 </div>
             )}

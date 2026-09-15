@@ -7,6 +7,7 @@ import {
     Button,
     DateField,
     ErrorState,
+    QueryErrorState,
     SelectField,
     type SelectOption,
     TextField,
@@ -114,21 +115,6 @@ function accountOptions(accounts: readonly Account[]): SelectOption[] {
             label: `${account.name} (${account.currency})`,
         })),
     ];
-}
-
-/** A retry for the accounts read, busy while the retry is in flight. */
-function AccountsRetryButton({
-    isFetching,
-    onRetry,
-}: {
-    readonly isFetching: boolean;
-    readonly onRetry: () => void;
-}) {
-    return (
-        <Button variant="secondary" pending={isFetching} onClick={onRetry}>
-            Try again
-        </Button>
-    );
 }
 
 /** What one entry row's fields need: its position, its state, and how to change it. */
@@ -432,19 +418,15 @@ export function RecordTransactionPage() {
             </>
         );
     }
-    const accountsFailure = accounts.isError ? (
-        <ErrorState
+    const accountsFailure = (
+        <QueryErrorState
             error={accounts.error}
-            action={
-                <AccountsRetryButton
-                    isFetching={accounts.isFetching}
-                    onRetry={() => {
-                        void accounts.refetch();
-                    }}
-                />
-            }
+            retrying={accounts.isFetching}
+            onRetry={() => {
+                void accounts.refetch();
+            }}
         />
-    ) : null;
+    );
     if (accounts.data === undefined) {
         return (
             <>

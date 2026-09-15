@@ -11,6 +11,7 @@ import {
     EmptyState,
     ErrorState,
     MoneyText,
+    QueryErrorState,
     StateBadge,
     TextField,
     type Tone,
@@ -31,7 +32,6 @@ import {
 import { recurrenceSummary } from '../types/recurrence';
 import { PlanFlowForm } from './PlanFlowForm';
 import styles from './PlannedFlowsPage.module.css';
-import { QueryFailure } from './QueryFailure';
 
 const EMPTY_MESSAGE = 'No planned flows yet';
 
@@ -448,7 +448,15 @@ function PlannedFlowsList({
     if (flows.isPending) {
         return <p className={styles.loading}>Loading planned flows…</p>;
     }
-    const failure = <QueryFailure query={flows} />;
+    const failure = (
+        <QueryErrorState
+            error={flows.error}
+            retrying={flows.isFetching}
+            onRetry={() => {
+                void flows.refetch();
+            }}
+        />
+    );
     if (flows.data === undefined) {
         return failure;
     }

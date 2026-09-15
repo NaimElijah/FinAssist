@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router';
 
 import { hasProblemCode } from '@/shared/api/client';
 import { useDocumentTitle } from '@/shared/lib/documentTitle';
-import { EmptyState, MoneyText } from '@/shared/ui';
+import { EmptyState, MoneyText, QueryErrorState } from '@/shared/ui';
 
 import { HOLDING_NOT_FOUND, PRICE_UNAVAILABLE } from '../api/portfolioApi';
 import { usePosition, useValuation } from '../hooks/portfolioQueries';
@@ -15,7 +15,6 @@ import { DisposalSection } from './DisposalSection';
 import { Figure, Figures } from './Figures';
 import styles from './HoldingPage.module.css';
 import { PORTFOLIO_PATH } from './paths';
-import { ReadFailure } from './ReadFailure';
 import { SymbolLookup } from './SymbolLookup';
 
 const NO_PRICE_MESSAGE =
@@ -36,7 +35,13 @@ function PositionSection({ query }: { readonly query: UseQueryResult<Position> }
             </h2>
             {query.isPending ? <p className={styles.pending}>Loading position…</p> : null}
             {/* A failed refetch sits above the figures it failed to refresh, which stay. */}
-            {query.isError ? <ReadFailure query={query} /> : null}
+            <QueryErrorState
+                error={query.error}
+                retrying={query.isFetching}
+                onRetry={() => {
+                    void query.refetch();
+                }}
+            />
             {position === undefined ? null : (
                 <Figures>
                     {/* A number of units, not money: shown exactly as received, never formatted. */}
@@ -78,7 +83,15 @@ function ValuationSection({
             {query.isPending ? <p className={styles.pending}>Loading valuation…</p> : null}
             {noPrice ? <EmptyState message={NO_PRICE_MESSAGE} /> : null}
             {nothingHeld ? <EmptyState message={nothingHeldMessage(symbol)} /> : null}
-            {query.isError && !considered ? <ReadFailure query={query} /> : null}
+            {considered ? null : (
+                <QueryErrorState
+                    error={query.error}
+                    retrying={query.isFetching}
+                    onRetry={() => {
+                        void query.refetch();
+                    }}
+                />
+            )}
             {valuation === undefined ? null : (
                 <Figures>
                     <Figure term="Unit price">

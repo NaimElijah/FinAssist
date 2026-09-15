@@ -21,7 +21,7 @@ export interface ErrorStateProps {
      * with nothing to show on any one field. React 19 hands a function component its `ref` as a
      * prop, so no `forwardRef` is needed.
      */
-    readonly ref?: Ref<HTMLDivElement>;
+    readonly ref?: Ref<HTMLDivElement> | undefined;
 }
 
 /**

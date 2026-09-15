@@ -1,9 +1,8 @@
 import type { UseQueryResult } from '@tanstack/react-query';
 import { type ReactNode, useEffect, useId, useRef } from 'react';
 
-import { ErrorState } from '@/shared/ui';
+import { QueryErrorState } from '@/shared/ui';
 
-import { RetryButton } from './QueryFailure';
 import styles from './ReadResult.module.css';
 
 /** A read's result: what its section is called, what it says while waiting, and its answer. */
@@ -52,20 +51,14 @@ export function ReadResult<Data>({
                 {heading}
             </h2>
             {query.isPending ? <p className={styles.pending}>{pendingMessage}</p> : null}
-            {failure === null ? null : (
-                <ErrorState
-                    ref={failureRef}
-                    error={failure}
-                    action={
-                        <RetryButton
-                            retrying={query.isFetching}
-                            onRetry={() => {
-                                void query.refetch();
-                            }}
-                        />
-                    }
-                />
-            )}
+            <QueryErrorState
+                ref={failureRef}
+                error={failure}
+                retrying={query.isFetching}
+                onRetry={() => {
+                    void query.refetch();
+                }}
+            />
             {query.data === undefined ? null : children(query.data)}
         </section>
     );

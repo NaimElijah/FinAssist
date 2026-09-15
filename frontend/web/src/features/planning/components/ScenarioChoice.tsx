@@ -1,10 +1,9 @@
 import type { ReactNode } from 'react';
 
-import { EmptyState } from '@/shared/ui';
+import { EmptyState, QueryErrorState } from '@/shared/ui';
 
 import { useScenarios } from '../hooks/planQueries';
 import type { Scenario } from '../types/scenario';
-import { QueryFailure } from './QueryFailure';
 import styles from './ScenarioChoice.module.css';
 
 /** What to say while no scenario is defined, and the form to show over them once they load. */
@@ -30,7 +29,15 @@ export function ScenarioChoice({ emptyMessage, children }: ScenarioChoiceProps) 
     if (scenarios.isPending) {
         return <p className={styles.loading}>Loading scenarios…</p>;
     }
-    const failure = <QueryFailure query={scenarios} />;
+    const failure = (
+        <QueryErrorState
+            error={scenarios.error}
+            retrying={scenarios.isFetching}
+            onRetry={() => {
+                void scenarios.refetch();
+            }}
+        />
+    );
     if (scenarios.data === undefined) {
         return failure;
     }

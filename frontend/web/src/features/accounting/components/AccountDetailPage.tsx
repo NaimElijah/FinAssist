@@ -15,6 +15,7 @@ import {
     EmptyState,
     ErrorState,
     MoneyText,
+    QueryErrorState,
     StateBadge,
     TextField,
     type Tone,
@@ -278,25 +279,6 @@ function BackToAccounts() {
     return <Link to={ACCOUNTS_PATH}>Back to Accounts</Link>;
 }
 
-/** A retry for a failed query, busy while the retry is in flight. */
-function RetryButton({
-    query,
-}: {
-    readonly query: Pick<UseQueryResult, 'isFetching' | 'refetch'>;
-}) {
-    return (
-        <Button
-            variant="secondary"
-            pending={query.isFetching}
-            onClick={() => {
-                void query.refetch();
-            }}
-        >
-            Try again
-        </Button>
-    );
-}
-
 function AccountNotFound() {
     return (
         <>
@@ -422,9 +404,15 @@ function transactionColumns(
  * when a later refetch fails, so the failure never replaces what the owner was reading.
  */
 function failureOf(query: UseQueryResult) {
-    return query.isError ? (
-        <ErrorState error={query.error} action={<RetryButton query={query} />} />
-    ) : null;
+    return (
+        <QueryErrorState
+            error={query.error}
+            retrying={query.isFetching}
+            onRetry={() => {
+                void query.refetch();
+            }}
+        />
+    );
 }
 
 function Balance({ balance }: { readonly balance: UseQueryResult<Money> }) {

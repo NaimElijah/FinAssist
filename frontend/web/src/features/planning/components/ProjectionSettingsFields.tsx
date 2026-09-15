@@ -1,6 +1,6 @@
 import { useId } from 'react';
 
-import { DateField, ErrorState, SelectField, type SelectOption } from '@/shared/ui';
+import { DateField, QueryErrorState, SelectField, type SelectOption } from '@/shared/ui';
 
 import { useAccountOptions } from '../hooks/accountOptions';
 import type { AccountOption, AccountOptionsFailure } from '../types/accountOption';
@@ -8,7 +8,6 @@ import type { ProjectionSettingsForm } from '../types/projectionSettings';
 import { CADENCE_LABELS, CADENCES } from '../types/recurrence';
 import groupStyles from './checkboxGroup.module.css';
 import styles from './ProjectionSettingsFields.module.css';
-import { RetryButton } from './QueryFailure';
 import { toggled } from './toggled';
 
 const STEP_OPTIONS: readonly SelectOption[] = CADENCES.map((cadence) => ({
@@ -32,9 +31,10 @@ function oneOf<Value extends string>(allowed: readonly Value[], value: string): 
 /** The accounts could not be read: the failure, with a retry, in place of the pickers alone. */
 function AccountsFailure({ failure }: { readonly failure: AccountOptionsFailure }) {
     return (
-        <ErrorState
+        <QueryErrorState
             error={failure.error}
-            action={<RetryButton retrying={failure.retrying} onRetry={failure.retry} />}
+            retrying={failure.retrying}
+            onRetry={failure.retry}
         />
     );
 }

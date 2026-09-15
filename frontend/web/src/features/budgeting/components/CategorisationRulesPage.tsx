@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { EmptyState } from '@/shared/ui';
+import { EmptyState, QueryErrorState } from '@/shared/ui';
 
 import { useCategorisationRules } from '../hooks/budgetQueries';
 import styles from './CategorisationRulesPage.module.css';
 import { AddCategorisationRuleForm } from './AddCategorisationRuleForm';
-import { QueryFailure } from './QueryFailure';
 
 const HINT = 'Rules are tried in the order they were added; the first match wins.';
 
@@ -53,7 +52,15 @@ function RulesList({
     if (rules.isPending) {
         return <p className={styles.loading}>Loading rules…</p>;
     }
-    const failure = <QueryFailure query={rules} />;
+    const failure = (
+        <QueryErrorState
+            error={rules.error}
+            retrying={rules.isFetching}
+            onRetry={() => {
+                void rules.refetch();
+            }}
+        />
+    );
     if (rules.data === undefined) {
         return failure;
     }
