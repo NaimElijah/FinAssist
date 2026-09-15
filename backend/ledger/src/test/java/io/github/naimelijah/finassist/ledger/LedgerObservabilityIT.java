@@ -115,7 +115,7 @@ class LedgerObservabilityIT extends PostgresFixture {
     /**
      * Widening the exposure list is the likeliest way to leak configuration, and adding
      * {@code prometheus} to it is exactly the kind of edit that invites a careless {@code "*"}.
-     * {@code LedgerApplicationTest} makes the same assertion; it is repeated here because this is
+     * {@code LedgerApplicationIT} makes the same assertion; it is repeated here because this is
      * the class whose change would break it.
      */
     @Test

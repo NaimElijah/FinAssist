@@ -38,8 +38,8 @@ spring:
     name: finassist-ledger
 
   datasource:
-    # Defaults target the Compose database on localhost, because the ledger runs natively on the
-    # host; the variables move to the service name the day it joins docker-compose.yml. No
+    # Defaults serve the native run: a ledger on the host reaching the Compose database through its
+    # published port on localhost. The Compose ledger overrides them with the service name, db. No
     # password default — an unset one should fail to connect, not silently try an empty string.
     url: ${LEDGER_DB_URL:jdbc:postgresql://localhost:5432/finassist}
     username: ${LEDGER_DB_USERNAME:finassist}
