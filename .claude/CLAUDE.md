@@ -44,11 +44,14 @@ four screen areas now exist; only "ask a question" is deliberately left out.
 Observability is live (ADR-019): the ledger answers Actuator probes and now traces its business
 endpoints too, and the assistant serves `/health` and `/ready` and assembles its use cases at
 start-up. Both services emit structured JSON logs and OTLP traces. Both services run under
-Compose (`docker compose up`) as well as natively.
+Compose (`docker compose up`) as well as natively. **Authentication and authorisation are decided
+and not yet built**: OIDC through a backend-for-frontend gateway (ADR-030), Keycloak (ADR-031),
+and role-based permissions owned by each service (ADR-032). ADR-030 supersedes ADR-027, and until
+enforcement lands neither service checks a token.
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
-Proposed today — all 29 are Accepted — and the requirements are still deliberately `TODO` in
-places rather than inferred from code.
+Proposed today. Of all 32, ADR-027 is Superseded by ADR-030 and the other 31 are Accepted. The
+requirements are still deliberately `TODO` in places rather than inferred from code.
 
 ## Commands
 
@@ -59,7 +62,7 @@ is **not installed** on the development machine, so the raw command is given for
   `cd backend/ledger && ./mvnw -B -q dependency:go-offline`;
   `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci`
 - Run: `make run` — `docker compose up --build` (starts PostgreSQL, the ledger and the
-  assistant; every published port binds `127.0.0.1` only, per ADR-027). For the native inner loop:
+  assistant; every published port binds `127.0.0.1` only, per ADR-030). For the native inner loop:
   `cd backend/ledger && ./mvnw spring-boot:run` — it needs the database up first
   (`docker compose up -d db`) and applies its Flyway migrations at start-up;
   `cd backend/assistant && uv run python -m finassist_assistant.adapters`; the web client with
@@ -248,10 +251,10 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **A create answers `201` with the created representation and no `Location` header** — there is
   no single-item read for one to name (ADR-028).
 - **Every POST `consumes` `application/json`.** A form post from a cross-site page is refused 415
-  before a handler runs (ADR-027).
+  before a handler runs (ADR-030).
 - **The Host allow-list lives in `composition`.** `HostAllowListFilter`, at the highest filter
   precedence, refuses a `Host` outside `LEDGER_ALLOWED_HOSTS` with 403 — before Actuator, and
-  before any controller (ADR-027).
+  before any controller (ADR-030).
 - **A web DTO's simple name is unique across every context** — `MoneyDto` alone is exempt, one
   identical copy per context on purpose. `web_dto_names_are_unique_across_contexts`;
   `MoneyDtoShapesTest` keeps the copies identical.

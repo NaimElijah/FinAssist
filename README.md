@@ -480,6 +480,20 @@ languages talking over a versioned contract.
 database would be the cheapest thing to build and the most expensive to own. Cost: JSON over
 HTTP carries no runtime schema, and contract drift is silent until CI compares the documents.
 
+**Sign-in through a gateway, permissions decided by each service**
+([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md),
+[ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md),
+[ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)) — decided, and not yet
+built. None of the triggers that had deferred authentication had fired; the owner chose to build
+it to a professional standard anyway. The browser signs in with OIDC at a backend-for-frontend
+gateway that keeps access and refresh tokens on the server, a self-hosted Keycloak with its realm
+committed as code issues the tokens, and the ledger and the assistant each validate a bearer
+token and decide from their own role table what it may do, denying anything unlisted. Tokens held
+in the browser were rejected because any script on the page could read them, and authorising at
+the gateway because the assistant will call the ledger without passing through it. Cost: a third
+deployable and two more containers in the inner loop, sessions that end when the gateway
+restarts, and no TLS while everything stays on loopback.
+
 ## Status and limitations
 
 **Pre-alpha.** Shipped: the repository baseline and architecture, plus the **domain and
@@ -492,7 +506,7 @@ the database itself refuses to rewrite. **The ledger now serves accounting, budg
 planning over HTTP** under `/api/v1`, behind a Host allow-list and problem+json error handling,
 with its generated OpenAPI document pinned by `LedgerContractIT` and published as
 [`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json); it runs under Compose as
-well as natively. Twenty-nine ADRs. Every architecture rule is live rather than dormant, and each
+well as natively. Thirty-two ADRs. Every architecture rule is live rather than dormant, and each
 was confirmed to fail against a planted violation — including dropping the append-only trigger and
 planting a foreign key across a schema boundary. CI gates build, lint, format and dependency audit
 across four jobs, and publishes a coverage report from each.

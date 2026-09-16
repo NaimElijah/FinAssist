@@ -31,10 +31,13 @@ append-only history: to change course, add a new record and mark the old one
 | [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted |
 | [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted |
 | [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted |
-| [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted |
-| [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Accepted |
-| [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted |
-| [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted |
+| [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted, extended by 030 |
+| [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
+| [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030 |
+| [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030 |
+| [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted |
+| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted |
+| [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -47,3 +50,8 @@ tested.
 and the ledger's first controllers both need a settled contract to be built against. 026
 records how the web client uses the contracts, and 028 the wire conventions both services
 follow.
+
+030 superseded 027 on 2026-09-16, although none of 027's revisit triggers had fired: the owner
+chose to build authentication to a professional standard before the threat model asked for it.
+030 keeps 027's loopback binding, Host allow-lists and JSON-only writes as defence in depth. 031
+records the identity provider it relies on, and 032 the authorisation model.

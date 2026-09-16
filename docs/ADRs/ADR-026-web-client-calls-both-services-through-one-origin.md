@@ -1,6 +1,6 @@
 # ADR-026: The web client calls both services directly, through one origin
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by [ADR-030](ADR-030-oidc-authentication-through-a-bff-gateway.md)
 - **Date:** 2026-09-14
 
 ## Context

@@ -17,10 +17,15 @@ What the system must do. *How* it is built is [architecture](../architecture/arc
 > `tests/test_contract.py`; its portfolio data still comes from nowhere real — an opt-in
 > development seed aside — because neither a ledger client nor a price feed exists. The web
 > client calls the ledger from its accounting, budgeting and planning screens, and the assistant
-> from its portfolio screens. Requirements marked **Enforced** name the class and the test that
-> hold them today, so this document can be checked rather than trusted. Everything still marked
-> `TODO` is a decision waiting on its owner, not an omission to be filled in by inference —
-> behaviour found in code is evidence of a requirement, never proof of one.
+> from its portfolio screens. Authentication and authorisation are decided, and not yet enforced:
+> [ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md),
+> [ADR-031](../ADRs/ADR-031-keycloak-as-the-identity-provider.md) and
+> [ADR-032](../ADRs/ADR-032-role-based-authorization-per-service.md) supersede ADR-027. Until each
+> service validates tokens, it still behaves as ADR-027 describes. Requirements marked
+> **Enforced** name the class and the test that hold them today, so this document can be checked
+> rather than trusted. Everything still marked `TODO` is a decision waiting on its owner, not an
+> omission to be filled in by inference — behaviour found in code is evidence of a requirement,
+> never proof of one.
 
 ## Purpose and scope
 
@@ -273,14 +278,15 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 | A recorded journal entry is never updated or deleted | `V1_1__accounting_schema.sql` — a `BEFORE UPDATE OR DELETE` trigger on all three journal tables; `JournalIsAppendOnlyIT` | **Enforced by the database.** The port still exposes no delete, but the guarantee no longer depends on that: the trigger refuses the statement whoever issues it, and a lifecycle change is an `INSERT` into `journal_transaction_state` ([ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
 | A domain function is given the current time rather than reading it | `test_architecture.py::…Then_it_reads_no_clock`, which matches an uncalled `datetime.now` reference too; `is_stale`, `Projection.of`, `Transaction.clear` all take a date | **Enforced** on the Python side; a convention in the ledger |
 | The currency table is the same in both languages | `CurrencyTest`, `test_currency.py` | **Enforced** |
-| The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md); the ledger's published contract is `contracts/ledger-v1.openapi.json`, pinned by `LedgerContractIT` | Accepted; the ledger's side is built and its contract published, but the assistant has no ledger client yet, so nothing holds it to the API |
+| The ledger is the sole writer of ledger data; the assistant reads only through its API | [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md); the ledger's published contract is `contracts/ledger-v1.openapi.json`, pinned by `LedgerContractIT` | Accepted; the ledger's side is built and its contract published, but the assistant has no ledger client yet, so nothing holds it to the API. [ADR-032](../ADRs/ADR-032-role-based-authorization-per-service.md) decides that the assistant's principal may only read the ledger, so the ledger itself will refuse the assistant's writes once it validates tokens |
 | An account name is unique within the chart of accounts, ignoring surrounding whitespace and case | `account_normalised_name_key` (atomically); `AccountService.open` (for the message); `DuplicateAccountNameException`; `JdbcAccountRepositoryIT`, `AccountServiceTest` | **Enforced** — the repository claims the normalised name, because a check followed by a write is not a rule: two callers can pass the check together. The typed form is what is stored and displayed |
 
 ## Non-functional requirements
 
 | Concern | Requirement | Status |
 |---|---|---|
-| Authentication | None while FinAssist runs only on the owner's machine. Every service binds loopback by default, a request whose `Host` is not allow-listed is refused, and ledger writes accept only `application/json`, which together keep a hostile page in the owner's own browser out. Assistant-to-ledger authentication is deferred by the same record. Revisit when anything other than the owner's machine can reach a port, a deployment target is chosen, the journal needs an actor, or a second person uses FinAssist ([ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | **Enforced on both services** — each binds `127.0.0.1` by default. The ledger's `HostAllowListFilter` refuses an un-allow-listed `Host` with 403 ahead of every other filter, and every write `consumes` only `application/json`; `HostAllowListFilterTest`, `LedgerApplicationIT`. The assistant's `HostAllowList` does the same ahead of every route, and its one write, pricing a disposal, accepts only `application/json`; `test_portfolio_api.py` |
+| Authentication | Every request that reaches business data is authenticated, and no switch turns that off. The browser signs in with OIDC at a backend-for-frontend gateway, which keeps access and refresh tokens on the server and gives the browser only an `HttpOnly` session cookie and a CSRF token. The ledger and the assistant each accept only a bearer JWT that Keycloak issued for their own audience, checked against an injected clock, and refuse a missing or invalid token with 401. The assistant authenticates to the ledger with client credentials, as the `assistant` role, which may only read; the client that does so is [#62](https://github.com/NaimElijah/FinAssist/issues/62). As defence in depth, every service still binds loopback by default, refuses a `Host` that is not allow-listed, and accepts writes only as `application/json` ([ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), [ADR-031](../ADRs/ADR-031-keycloak-as-the-identity-provider.md)) | **Decided; enforcement lands per service.** Neither service checks a token yet, and neither the gateway nor Keycloak exists yet. The defence in depth already holds: each service binds `127.0.0.1` by default. The ledger's `HostAllowListFilter` refuses an un-allow-listed `Host` with 403 ahead of every other filter, and every write `consumes` only `application/json`; `HostAllowListFilterTest`, `LedgerApplicationIT`. The assistant's `HostAllowList` does the same ahead of every route, and its one write, pricing a disposal, accepts only `application/json`; `test_portfolio_api.py` |
+| Authorization | Each service decides what a caller may do from its own table of roles and permissions, and denies anything no rule admits. `owner` reads and writes. `viewer` only reads. `assistant`, the assistant's service principal, only reads the ledger and has no access to the assistant. A caller without the permission a request needs is refused with 403. An endpoint that no rule classifies fails the build rather than shipping open ([ADR-032](../ADRs/ADR-032-role-based-authorization-per-service.md)) | **Decided; enforcement lands per service.** No endpoint checks a permission yet |
 | Secrets | Never in the repository, logs or error messages. `.env` is git-ignored; `.env.example` carries keys with no secret values — every secret is blank, and only non-secret defaults are filled in | Holds |
 | Data handling | The owner's financial data and `ANTHROPIC_API_KEY` are redacted at the logging boundary, not at each call site | **Enforced** for secrets — `observability.redact_secrets`, `logger.ts`; `test_observability.py`, `logger.test.ts`. Financial data is redacted only where a field name marks it, and no code logs a record yet ([ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 | Persistence | Ledger data survives restart; migrations are append-only once released | **Enforced** — PostgreSQL 18, one schema per bounded context with no foreign key crossing one, Flyway migrations in a directory per context. Hand-written SQL over `JdbcClient`; the in-memory adapters are gone rather than kept behind a profile. `JdbcAccountRepositoryIT`, `JdbcTransactionRepositoryIT`, `JdbcBudgetingRepositoriesIT`, `JdbcPlanningRepositoriesIT`, `SchemaBoundariesIT` ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md), [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
@@ -294,8 +300,8 @@ Two hold already as engineering commitments and are recorded in ADRs; the rest a
 
 Stated so they are not re-proposed:
 
-- **Not a multi-tenant product.** One owner, one dataset. Anything implying user accounts,
-  sharing or per-tenant isolation is out of scope.
+- **Not multi-tenant.** One owner, one dataset. Sign-in accounts exist only to grant a role over
+  that dataset; sharing and per-tenant isolation stay out of scope.
 - **Not financial advice.** The assistant reports on and explains the owner's own data. It
   is not a recommendation engine, and nothing it produces should be treated as advice.
 - **Not a broker or payment system.** FinAssist never moves money, holds funds, or executes
@@ -312,7 +318,11 @@ Stated so they are not re-proposed:
 | Where does market data come from, and does its licence permit this use? The `marketdata` context exists with an anti-corruption layer and no client behind it, waiting on this | @NaimElijah |
 | Does the assistant send the owner's financial data to a third-party LLM API, and is that acceptable? This is the project's central privacy decision and it needs an ADR | @NaimElijah |
 | Is the ledger single-currency or multi-currency? Multi-currency changes the domain model fundamentally and is far cheaper to decide now than later | @NaimElijah |
-| What authenticates the assistant to the ledger? Deferred by [ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md) while every service binds loopback; its revisit triggers say when this needs an answer | @NaimElijah |
 | Should a projection open at the start of its horizon rather than at today's balance, and should a flow dated on a step boundary count in that step? | @NaimElijah |
 | Should a recurring planned flow be allowed to have no end? Today every recurrence ends on a date or after a number of occurrences (`Recurrence`) | @NaimElijah |
 | After a transaction is recorded, which account's page should open? Today the web client moves to the first entry's account (`RecordTransactionPage`) | @NaimElijah |
+
+*What authenticates the assistant to the ledger?* was answered on 2026-09-16: the client
+credentials grant, as the `assistant` role, which may only read the ledger
+([ADR-032](../ADRs/ADR-032-role-based-authorization-per-service.md)). The client that uses it is
+still to be built ([#62](https://github.com/NaimElijah/FinAssist/issues/62)).

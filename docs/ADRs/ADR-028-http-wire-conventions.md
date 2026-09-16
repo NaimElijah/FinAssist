@@ -1,6 +1,6 @@
 # ADR-028: HTTP wire conventions, for both services
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by [ADR-030](ADR-030-oidc-authentication-through-a-bff-gateway.md)
 - **Date:** 2026-09-14
 
 ## Context
