@@ -18,10 +18,10 @@ What the system must do. *How* it is built is [architecture](../architecture/arc
 > development seed aside — because neither a ledger client nor a price feed exists. The web
 > client calls the ledger from its accounting, budgeting and planning screens, and the assistant
 > from its portfolio screens. Authentication and authorisation are decided, and not yet enforced:
-> [ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md),
+> [ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md) supersedes ADR-027, while
 > [ADR-031](../ADRs/ADR-031-keycloak-as-the-identity-provider.md) and
-> [ADR-032](../ADRs/ADR-032-role-based-authorization-per-service.md) supersede ADR-027. Until each
-> service validates tokens, it still behaves as ADR-027 describes. Requirements marked
+> [ADR-032](../ADRs/ADR-032-role-based-authorization-per-service.md) extend it. Until each service
+> validates tokens, it still behaves as ADR-027 describes. Requirements marked
 > **Enforced** name the class and the test that hold them today, so this document can be checked
 > rather than trusted. Everything still marked `TODO` is a decision waiting on its owner, not an
 > omission to be filled in by inference — behaviour found in code is evidence of a requirement,

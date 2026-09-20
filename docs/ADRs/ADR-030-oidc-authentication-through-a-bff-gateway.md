@@ -164,9 +164,8 @@ with a relayed path.
 
 **A request that needs a session and has none gets a 401 problem, never a 302.** If a `fetch`
 followed a redirect to a login page, it would receive HTML, or a CORS failure, instead of a status
-it can act on. Login
-starts only when the browser navigates to the login entry. No login page is generated, and the
-gateway does not remember which request needed a login.
+it can act on. Login starts only when the browser navigates to the login entry. No login page is
+generated, and the gateway does not remember which request needed a login.
 
 **Redirects:**
 
