@@ -119,9 +119,11 @@ so it can be extracted by moving it (ADR-010).
   `adapter/{in/web,out/persistence,out/event}/`, plus a top-level `shared/` kernel, a
   `composition/` root and `LedgerApplication`.
 - `backend/gateway/` — Java 21, Spring Boot, Spring Cloud Gateway (Server Web MVC). The
-  backend-for-frontend that will keep the browser's tokens server-side. Today it is a single
-  `GatewayApplication` with no route, no OIDC and no composition root of its own — those arrive
-  with the tasks that need them; its own Maven wrapper, so it builds standalone like the ledger.
+  backend-for-frontend that will keep the browser's tokens server-side. It now has a
+  `composition/` root — `GatewayConfiguration`, `HostAllowListFilter` (a deliberate copy of the
+  ledger's, configured by `GATEWAY_ALLOWED_HOSTS`) and `GatewayProblems` — but still no route and
+  no OIDC; those arrive with the tasks that need them. Its own Maven wrapper, so it builds
+  standalone like the ledger.
 - `backend/assistant/` — Python 3.13, FastAPI. Contexts `portfolio/`, `assistance/`,
   `marketdata/`, each with `domain/`, `application/{port,usecase}/`, `adapters/`, plus
   `shared/` and the composition root `adapters/` (`app.py`, `wiring.py`, `settings.py`,

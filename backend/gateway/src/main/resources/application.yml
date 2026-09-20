@@ -1,12 +1,20 @@
-# Only what this task requires: a configurable port, a health endpoint with probes, and the
-# observability wiring ADR-019 records. No route and no security configuration exist yet - see
-# GatewayApplication's Javadoc for what is deliberately still missing.
+# Only what this task requires: a configurable port, a health endpoint with probes, the Host
+# allow-list and the observability wiring ADR-019 records. No route and no OIDC login exist yet -
+# see GatewayApplication's Javadoc for what is deliberately still missing.
 server:
   port: ${GATEWAY_PORT:8090}
   # Loopback by default, matching the ledger and the assistant while none of the three services
   # enforces authentication yet. A container overrides this with 0.0.0.0, because its own
   # loopback is unreachable from the host.
   address: ${GATEWAY_ADDRESS:127.0.0.1}
+
+finassist:
+  http:
+    # Host names the gateway answers to, compared without the port. Loopback alone does not stop
+    # DNS rebinding: a hostile page whose name has been repointed at 127.0.0.1 is same-origin with
+    # the gateway, yet every request it sends still names the page's own host. HostAllowListFilter
+    # refuses those with 403, Actuator included (ADR-030, carrying ADR-027 forward).
+    allowed-hosts: ${GATEWAY_ALLOWED_HOSTS:localhost,127.0.0.1}
 
 springdoc:
   api-docs:
