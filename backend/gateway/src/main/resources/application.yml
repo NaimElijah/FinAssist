@@ -1,0 +1,78 @@
+# Only what this task requires: a configurable port, a health endpoint with probes, and the
+# observability wiring ADR-019 records. No route and no security configuration exist yet - see
+# GatewayApplication's Javadoc for what is deliberately still missing.
+server:
+  port: ${GATEWAY_PORT:8090}
+  # Loopback by default, matching the ledger and the assistant while none of the three services
+  # enforces authentication yet. A container overrides this with 0.0.0.0, because its own
+  # loopback is unreachable from the host.
+  address: ${GATEWAY_ADDRESS:127.0.0.1}
+
+springdoc:
+  api-docs:
+    # Serving the document is a deliberate choice, not springdoc's default, matching the ledger
+    # (ADR-028's pattern). Left unset, springdoc 3.1.1 serves it anyway and warns at every
+    # start-up that the endpoint "is enabled by default"; set, that warning is gone. The document
+    # is presently near-empty: no controller exists in this task.
+    enabled: true
+
+spring:
+  application:
+    # Becomes OpenTelemetry's service.name. Fixed per service on purpose: one shared name across
+    # every service would merge their telemetry into one stream (ADR-019).
+    name: finassist-gateway
+
+logging:
+  structured:
+    format:
+      # JSON on stdout, never a log file. Rotation and shipping belong to whatever runs the
+      # container (ADR-019). ECS carries MDC entries, which is how the trace id reaches a line.
+      console: ecs
+  pattern:
+    # Only used when the structured format is turned off; kept so a plain-text run still
+    # correlates rather than silently losing the ids.
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-}] "
+  include-application-name: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # An explicit allow-list, never "*". Only health today: no route exists yet for a metric
+        # or a trace to be worth exposing over HTTP.
+        include: health
+  endpoint:
+    health:
+      # Splits health into /actuator/health/liveness and /actuator/health/readiness. Both report
+      # UP from Boot's own liveness/readiness state - there is no downstream dependency yet whose
+      # outage should turn readiness down, the way the ledger's does for its database.
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      # Single-owner system with no traffic: sampling would trade a resource nobody is short
+      # of for gaps in the only traces that exist.
+      probability: 1.0
+    export:
+      otlp:
+        # The OTLP exporter's own switch, deliberately not management.tracing.export.enabled.
+        # Spring Boot documents that global one as "export and propagate": off, it removes both
+        # W3C propagators and leaves a no-op one, so every request would start a new trace
+        # instead of continuing the caller's traceparent. Correlation holds with export off
+        # (ADR-019); only export is opt-in.
+        enabled: ${OTEL_EXPORT_ENABLED:false}
+  otlp:
+    metrics:
+      export:
+        enabled: ${OTEL_EXPORT_ENABLED:false}
+  logging:
+    export:
+      otlp:
+        # Nothing feeds this until an OpenTelemetry log appender is added; this keeps log export
+        # opt-in for the day one is, matching the ledger.
+        enabled: ${OTEL_EXPORT_ENABLED:false}
+
+# The OTLP endpoint is deliberately not set here. Spring Boot 4.1 registers
+# OpenTelemetryEnvironmentVariableEnvironmentPostProcessor, which maps the standard
+# OTEL_EXPORTER_OTLP_ENDPOINT onto these properties itself, with addFirst. A hand-built value
+# here would be discarded whenever the variable is set.

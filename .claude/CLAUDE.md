@@ -60,30 +60,36 @@ is **not installed** on the development machine, so the raw command is given for
 
 - Build / setup: `make setup` — `test -f .env || cp .env.example .env`;
   `cd backend/ledger && ./mvnw -B -q dependency:go-offline`;
+  `cd backend/gateway && ./mvnw -B -q dependency:go-offline`;
   `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci`
 - Run: `make run` — `docker compose up --build` (starts PostgreSQL, the ledger and the
-  assistant; every published port binds `127.0.0.1` only, per ADR-030). For the native inner loop:
-  `cd backend/ledger && ./mvnw spring-boot:run` — it needs the database up first
-  (`docker compose up -d db`) and applies its Flyway migrations at start-up;
+  assistant; every published port binds `127.0.0.1` only, per ADR-030). The gateway is not part
+  of Compose yet — it builds and boots (`GatewayApplicationIT`) but has no service entry until a
+  later task wires it in. For the native inner loop: `cd backend/ledger && ./mvnw spring-boot:run`
+  — it needs the database up first (`docker compose up -d db`) and applies its Flyway migrations
+  at start-up; `cd backend/gateway && ./mvnw spring-boot:run` — no database and no route yet;
   `cd backend/assistant && uv run python -m finassist_assistant.adapters`; the web client with
   `cd frontend/web && npm run dev`
 - Test (all): `make test`
 - Test (ledger): `cd backend/ledger && ./mvnw -B verify`
+- Test (gateway): `cd backend/gateway && ./mvnw -B verify`
 - Test (assistant): `cd backend/assistant && uv run pytest --cov --cov-report=term-missing
   --cov-report=xml`
 - Test (web): `cd frontend/web && npm run test:coverage`
 - Test (single, ledger): `cd backend/ledger && ./mvnw -B test -Dtest=LedgerArchitectureTest`
 - **Docker must be running for `make test-ledger`.** `*IT` tests drive the store against a real
   PostgreSQL in Testcontainers and fail rather than skip without it (ADR-025). Surefire (the
-  unit suite) needs no Docker; failsafe does.
+  unit suite) needs no Docker; failsafe does. `make test-gateway` needs no Docker today —
+  `GatewayApplicationIT` boots the context alone and touches no container — but keeps the same
+  surefire/failsafe split so it costs nothing to add one later.
 - Test (single, assistant): `cd backend/assistant && uv run pytest tests/test_architecture.py -k <name>`
 - Test (single, web): `cd frontend/web && npx vitest run -t <name>`
 - Mutation testing (ledger): `make mutation-ledger` — `cd backend/ledger && ./mvnw -B -Pmutation
   test-compile org.pitest:pitest-maven:mutationCoverage`. A diagnostic, gated on nothing (ADR-017)
-- Lint / types: `make lint` — `./mvnw -B spotless:check`; `uv run ruff check .`,
-  `uv run ruff format --check .`, `uv run mypy src tests`; `npm run lint`,
+- Lint / types: `make lint` — `./mvnw -B spotless:check` (ledger and gateway);
+  `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src tests`; `npm run lint`,
   `npm run format:check`, `npm run typecheck`
-- Format: `make format` — `./mvnw -B spotless:apply`; `uv run ruff format .`,
+- Format: `make format` — `./mvnw -B spotless:apply` (ledger and gateway); `uv run ruff format .`,
   `uv run ruff check --fix .`; `npm run format`
 - Audit: `make audit` — `uv run pip-audit`; `npm audit --audit-level=high`
 - Re-lock Python deps: `make lock` — `cd backend/assistant && uv lock` (required after any
@@ -112,6 +118,10 @@ so it can be extracted by moving it (ADR-010).
   `planning/`, each with `domain/`, `application/{port/in,port/out,service}/`,
   `adapter/{in/web,out/persistence,out/event}/`, plus a top-level `shared/` kernel, a
   `composition/` root and `LedgerApplication`.
+- `backend/gateway/` — Java 21, Spring Boot, Spring Cloud Gateway (Server Web MVC). The
+  backend-for-frontend that will keep the browser's tokens server-side. Today it is a single
+  `GatewayApplication` with no route, no OIDC and no composition root of its own — those arrive
+  with the tasks that need them; its own Maven wrapper, so it builds standalone like the ledger.
 - `backend/assistant/` — Python 3.13, FastAPI. Contexts `portfolio/`, `assistance/`,
   `marketdata/`, each with `domain/`, `application/{port,usecase}/`, `adapters/`, plus
   `shared/` and the composition root `adapters/` (`app.py`, `wiring.py`, `settings.py`,

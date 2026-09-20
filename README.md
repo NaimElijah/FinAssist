@@ -268,18 +268,19 @@ pipeline and the local commands cannot drift.
 
 | Task | Make target | Raw command |
 |---|---|---|
-| Set up | `make setup` | `test -f .env \|\| cp .env.example .env`; `cd backend/ledger && ./mvnw -B -q dependency:go-offline`; `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci` |
+| Set up | `make setup` | `test -f .env \|\| cp .env.example .env`; `cd backend/ledger && ./mvnw -B -q dependency:go-offline`; `cd backend/gateway && ./mvnw -B -q dependency:go-offline`; `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci` |
 | Run | `make run` | `docker compose up --build` |
 | Run with monitoring | `make run-monitoring` | `docker compose --profile monitoring up --build` |
-| Test everything | `make test` | the three test rows below; all three measure coverage |
+| Test everything | `make test` | the four test rows below; all four measure coverage |
 | Test the ledger | `make test-ledger` | `cd backend/ledger && ./mvnw -B verify` |
+| Test the gateway | `make test-gateway` | `cd backend/gateway && ./mvnw -B verify` |
 | Test the assistant | `make test-assistant` | `cd backend/assistant && uv run pytest --cov --cov-report=term-missing --cov-report=xml` |
 | Test the web client | `make test-web` | `cd frontend/web && npm run test:coverage` |
 | Build the web bundle | `make build-web` | `cd frontend/web && npm run build` |
 | Regenerate the web client's contract types | `make generate-web-api` | `cd frontend/web && npm run generate:api` |
 | Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
-| Lint and types | `make lint` | `./mvnw -B spotless:check`; `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; `npm run lint`, `format:check`, `typecheck` |
-| Format | `make format` | `./mvnw -B spotless:apply`; `uv run ruff format .`, `uv run ruff check --fix .`; `npm run format` |
+| Lint and types | `make lint` | `./mvnw -B spotless:check` (ledger and gateway); `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; `npm run lint`, `format:check`, `typecheck` |
+| Format | `make format` | `./mvnw -B spotless:apply` (ledger and gateway); `uv run ruff format .`, `uv run ruff check --fix .`; `npm run format` |
 | Audit | `make audit` | `cd backend/assistant && uv run pip-audit`; `cd frontend/web && npm audit --audit-level=high` |
 | Re-lock Python deps | `make lock` | `cd backend/assistant && uv lock` |
 | Regenerate the ledger's OpenAPI contract | — | `cd backend/ledger && ./mvnw -B verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running); on a mismatch, copy `target/contracts/ledger-v1.openapi.json` over `contracts/ledger-v1.openapi.json` |
@@ -306,6 +307,7 @@ behaviour they describe.
 | Ledger schema boundaries | No foreign key crosses a schema, so context isolation holds in the database as well as in the bytecode | `make test-ledger` |
 | Ledger smoke | The context loads and the Actuator health, liveness and readiness probes answer `UP` | `make test-ledger` |
 | Ledger HTTP | Each controller in a `@WebMvcTest` slice — `AccountControllerTest`, `TransactionControllerTest`, `BudgetControllerTest`, `CategorisationRuleControllerTest`, `PlannedFlowControllerTest`, `ScenarioControllerTest`, `ProjectionControllerTest` and `ComparisonControllerTest` — for its request validation, including a JSON number refused where the contract requires a decimal string, and each refusal's status and problem `code`; `HostAllowListFilterTest` and `LedgerProblemHandlerTest` for the Host allow-list and the problem+json fallback; `AccountingHttpIT`, `BudgetingHttpIT` and `PlanningHttpIT`, which boot the ledger and drive it over HTTP against a real PostgreSQL; and `LedgerContractIT`, which pins the generated OpenAPI document to `contracts/ledger-v1.openapi.json` | `make test-ledger` |
+| Gateway smoke | `GatewayApplicationIT` boots the backend-for-frontend and asserts its Actuator health endpoint reports `UP`. No route, OIDC login or security chain exist yet — this is scaffolding, proven to build and boot, for the tasks that add them | `make test-gateway` |
 | Assistant architecture | Every source file is parsed: no inward module imports a framework or the adapters, no module imports another context, no domain module names `float` or reads the wall clock. The scanner itself is unit-tested | `make test-assistant` |
 | Assistant domain | FIFO cost basis, the grounding rule, quote staleness, Money and Currency | `make test-assistant` |
 | Assistant properties | The same Money laws, plus FIFO conservation, via Hypothesis run derandomised | `make test-assistant` |
@@ -338,11 +340,12 @@ review caught it, and the fix is in this repository's history rather than in a c
 Tests are named `Given<scenario>_When<action>_Then<result>` — the reason Ruff's `N802` is
 disabled for `tests/**`, with the justification recorded in `backend/assistant/pyproject.toml`.
 
-**What CI gates on:** every push and pull request to `main` and `dev` must pass four jobs —
-the ledger's format check, build and tests; the assistant's lint, format check, `mypy --strict`,
-tests and `pip-audit`; the web client's contract types, regenerated from `contracts/` with no
-changed or new file, then lint, format check, typecheck, tests, production build and
-`npm audit`; and a `docker compose config` validation, `monitoring` profile included.
+**What CI gates on:** every push and pull request to `main` and `dev` must pass five jobs —
+the ledger's format check, build and tests; the gateway's format check, build and tests; the
+assistant's lint, format check, `mypy --strict`, tests and `pip-audit`; the web client's
+contract types, regenerated from `contracts/` with no changed or new file, then lint, format
+check, typecheck, tests, production build and `npm audit`; and a `docker compose config`
+validation, `monitoring` profile included.
 
 **Coverage is measured everywhere and gates nothing.** JaCoCo, `pytest-cov` and
 `@vitest/coverage-v8` run as part of the test targets, and each CI job publishes its report as
@@ -385,6 +388,8 @@ in the repository, the logs or an error message.
 | `LEDGER_ALLOWED_HOSTS` | Comma-separated host names the ledger answers to. An entry containing a `:`, a `[` or a `]`, which covers a port and every IPv6 literal, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)) | `localhost,127.0.0.1` |
 | `LEDGER_DB_URL` | JDBC URL. Compose sets this itself, to the service name `db`, for the `ledger` container; this default targets a native `./mvnw spring-boot:run` at the Compose `db` service's published port | `jdbc:postgresql://localhost:5432/finassist` |
 | `LEDGER_DB_USERNAME` | Ledger database user | `finassist` |
+| `GATEWAY_PORT` | Gateway HTTP port | `8090` |
+| `GATEWAY_ADDRESS` | Interface the gateway binds. Loopback by default, matching the ledger and the assistant while none of the three services enforces authentication yet; `0.0.0.0` only inside a container | `127.0.0.1` |
 | `ASSISTANT_PORT` | Assistant HTTP port | `8000` |
 | `LEDGER_BASE_URL` | Where the assistant reaches the ledger | `http://ledger:8080` |
 | `POSTGRES_PORT` | Host port mapped to Postgres. Change it, and `LEDGER_DB_URL` with it, if something already owns 5432 — a natively installed PostgreSQL will otherwise answer instead of the container | `5432` |

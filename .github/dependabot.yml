@@ -1,10 +1,10 @@
 # Java has no `pip-audit` equivalent wired into CI; Dependabot is what keeps the Maven
 # tree, the Python tree and the workflows themselves current.
 #
-# The ledger's and the assistant's Dockerfile base images are covered below. The image tags in
-# docker-compose.yml (postgres, the monitoring services) are NOT: Dependabot's `docker`
-# ecosystem fetches Dockerfiles, Containerfiles and Kubernetes manifests only, and there is no
-# `docker-compose` ecosystem. Bump those tags by hand.
+# The ledger's, the gateway's and the assistant's Dockerfile base images are covered below. The
+# image tags in docker-compose.yml (postgres, the monitoring services) are NOT: Dependabot's
+# `docker` ecosystem fetches Dockerfiles, Containerfiles and Kubernetes manifests only, and there
+# is no `docker-compose` ecosystem. Bump those tags by hand.
 version: 2
 
 # Every update targets `dev`, not the default branch. Dependabot defaults to `main`, which
@@ -23,6 +23,24 @@ updates:
 
   - package-ecosystem: docker
     directory: /backend/ledger
+    schedule:
+      interval: weekly
+    target-branch: dev
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: maven
+    directory: /backend/gateway
+    schedule:
+      interval: weekly
+    target-branch: dev
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: docker
+    directory: /backend/gateway
     schedule:
       interval: weekly
     target-branch: dev
