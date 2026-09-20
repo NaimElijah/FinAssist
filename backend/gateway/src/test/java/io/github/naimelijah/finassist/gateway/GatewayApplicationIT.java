@@ -3,33 +3,41 @@ package io.github.naimelijah.finassist.gateway;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.naimelijah.finassist.gateway.composition.HostAllowListFilter;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Map;
+import java.util.Arrays;
+import java.util.List;
+import org.apache.catalina.Context;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.web.servlet.AbstractFilterRegistrationBean;
-import org.springframework.context.ApplicationContext;
-import org.springframework.core.Ordered;
+import org.springframework.boot.tomcat.TomcatWebServer;
+import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
 
 /**
  * The gateway as a running server: it boots, answers its own health probe, refuses a foreign
- * {@code Host} header, and registers that refusal ahead of every other filter — the same way
- * {@code LedgerApplicationIT} proves the health probe for the ledger.
+ * {@code Host} header, and runs that refusal ahead of every other filter in the chain the server
+ * actually built — the same three claims {@code LedgerApplicationIT} proves for the ledger, using
+ * the same techniques.
  *
  * <p>Nothing here exercises a route, OIDC or a session, because none of them exist yet - see
  * {@code GatewayApplication}'s Javadoc. This is the smoke test a later task's routing and
- * security work builds on, not a stand-in for it. The filter-order assertion below checks only
- * that {@code HostAllowListFilter} runs first: once Spring Security registers {@code
- * springSecurityFilterChain} as a filter of its own, that task extends the same assertion with
- * one more comparison against the value already read here, rather than writing a new test.
+ * security work builds on, not a stand-in for it. The filter-chain assertion below checks only
+ * that {@code HostAllowListFilter} is first: once the task that adds Spring Security registers
+ * {@code springSecurityFilterChain} as a filter of its own, that task extends the same list with
+ * one more position to check, rather than writing a new test.
  *
  * <p>Uses the JDK's {@link HttpClient} rather than {@code TestRestTemplate}, which Spring Boot 4
  * moved out of {@code spring-boot-starter-test} into a separate artefact the ledger also declined
@@ -40,26 +48,11 @@ class GatewayApplicationIT {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
 
-    private static final String FOREIGN_HOST = "evil.example";
-
-    /**
-     * The JDK's {@link HttpClient} refuses to set the {@code Host} header explicitly, since it is
-     * normally derived from the request URI, unless this property names it. Verified against the
-     * JDK this project is pinned to (21.0.9): with it set, {@code .header("Host", ...)} overrides
-     * the header the server receives while the connection itself still goes to {@code port}, which
-     * is exactly what proving the allow-list needs — a request that reaches the gateway under a
-     * foreign name. It must be set before {@link HttpClient} is first touched by any test in this
-     * module, so it happens in this class's static initialiser, ahead of {@link #CLIENT}.
-     */
-    static {
-        System.setProperty("jdk.httpclient.allowRestrictedHeaders", "host");
-    }
-
     @LocalServerPort
     private int port;
 
     @Autowired
-    private ApplicationContext context;
+    private ServletWebServerApplicationContext context;
 
     /**
      * One client for the class, closed afterwards. {@link HttpClient} owns a selector thread and
@@ -74,17 +67,30 @@ class GatewayApplicationIT {
     }
 
     private HttpResponse<String> get(String path) throws IOException, InterruptedException {
-        return get(path, "localhost");
-    }
-
-    private HttpResponse<String> get(String path, String host) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + path))
-                .header("Host", host)
                 .timeout(TIMEOUT)
                 .GET()
                 .build();
         return CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    /**
+     * The status line of a {@code GET} naming a {@code Host} of the caller's choosing.
+     *
+     * <p>Written by hand over a socket because {@link HttpClient} treats {@code Host} as a restricted
+     * header and derives it from the URI, which is exactly what a rebound page's browser does not do.
+     */
+    private String statusLineFor(String path, String host) throws IOException {
+        try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), port)) {
+            socket.setSoTimeout((int) TIMEOUT.toMillis());
+            OutputStream out = socket.getOutputStream();
+            out.write(("GET " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\n\r\n")
+                    .getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+            return new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII))
+                    .readLine();
+        }
     }
 
     @Test
@@ -95,35 +101,33 @@ class GatewayApplicationIT {
         assertThat(response.body()).contains("\"status\":\"UP\"");
     }
 
+    /**
+     * DNS rebinding as the gateway sees it: a request that arrives on its loopback port while
+     * naming another host (ADR-030, carrying ADR-027 forward). Actuator is the target because it
+     * is served whatever else exists, and the allow-list covers it too.
+     */
     @Test
-    void Given_a_foreign_host_header_When_requested_Then_it_is_refused_with_a_403_problem() throws Exception {
-        HttpResponse<String> response = get("/actuator/health", FOREIGN_HOST);
-
-        assertThat(response.statusCode()).isEqualTo(403);
-        assertThat(response.headers().firstValue("content-type")).hasValue("application/problem+json");
-        assertThat(response.body()).contains("\"code\":\"HOST_NOT_ALLOWED\"").doesNotContain(FOREIGN_HOST);
+    void Given_a_request_naming_a_foreign_host_When_it_reaches_the_gateway_Then_it_is_refused_with_403()
+            throws Exception {
+        assertThat(statusLineFor("/actuator/health", "evil.example")).startsWith("HTTP/1.1 403");
     }
 
     /**
-     * Every registered filter's order, {@code HostAllowListFilter}'s included, rather than only
-     * asserting the filter's own value against the {@link Ordered} constant: comparing against
-     * the whole set is what lets a later task extend this test with one more filter — Spring
-     * Security's — instead of writing a second one next to it.
+     * The Host allow-list must see a request before any other filter does (ADR-030), and its
+     * registration alone does not guarantee that: Spring's character-encoding filter can share the
+     * same {@code Integer.MIN_VALUE} order, and a tie is broken only by registration order, which a
+     * Boot upgrade or a new filter could change silently. This reads the chain the running server
+     * actually built, exactly as the ledger's equivalent test does.
      */
     @Test
-    void Given_the_gateways_registered_filters_When_compared_Then_the_host_allow_list_filter_runs_first() {
-        Map<String, AbstractFilterRegistrationBean> registrations =
-                context.getBeansOfType(AbstractFilterRegistrationBean.class);
+    void Given_the_running_gateway_When_its_filter_chain_is_read_Then_the_host_allow_list_is_first() {
+        TomcatWebServer server = (TomcatWebServer) context.getWebServer();
+        List<String> chain = Arrays.stream(server.getTomcat().getHost().findChildren())
+                .map(Context.class::cast)
+                .flatMap(web -> Arrays.stream(web.findFilterMaps())
+                        .map(map -> web.findFilterDef(map.getFilterName()).getFilterClass()))
+                .toList();
 
-        int hostAllowListOrder = registrations.values().stream()
-                .filter(registration -> registration.getFilter() instanceof HostAllowListFilter)
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("no HostAllowListFilter registration was found"))
-                .getOrder();
-
-        assertThat(hostAllowListOrder).isEqualTo(Ordered.HIGHEST_PRECEDENCE);
-        assertThat(registrations.values())
-                .allSatisfy(
-                        registration -> assertThat(registration.getOrder()).isGreaterThanOrEqualTo(hostAllowListOrder));
+        assertThat(chain).first().isEqualTo(HostAllowListFilter.class.getName());
     }
 }
