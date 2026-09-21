@@ -5,6 +5,7 @@ import { QueryErrorState } from '@/shared/ui';
 
 import { SessionContext } from './sessionContext';
 import { useSession } from './sessionQueries';
+import styles from './SessionGate.module.css';
 import { SignIn } from './SignIn';
 
 /** ADR-030's problem code for "no session", answered by every one of the three services. */
@@ -28,13 +29,17 @@ export interface SessionGateProps {
  * provided once, through `SessionContext`, to every page under it (`UserMenu` included), so
  * nothing re-fetches what this component already resolved.
  *
+ * While the check is in flight, a plain loading paragraph shows - the same pattern every other
+ * pending query in this app uses (`AccountsPage`'s "Loading accounts…", for one), rather than a
+ * blank screen or a bespoke spinner.
+ *
  * @param props - see `SessionGateProps`.
  */
 export function SessionGate({ children }: SessionGateProps) {
     const session = useSession();
 
     if (session.status === 'pending') {
-        return null;
+        return <p className={styles.loading}>Checking your session…</p>;
     }
 
     if (session.status === 'error') {

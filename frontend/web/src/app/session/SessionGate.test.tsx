@@ -43,6 +43,12 @@ function renderGate(answer: FetchAnswer) {
 }
 
 describe('SessionGate', () => {
+    it('Given_the_session_is_still_loading_When_rendered_Then_a_loading_message_shows', () => {
+        renderGate(() => pendingResponse());
+
+        expect(screen.getByText(/checking your session/i)).toBeDefined();
+    });
+
     it('Given_the_session_is_still_loading_When_rendered_Then_neither_the_sign_in_link_nor_the_children_show', () => {
         renderGate(() => pendingResponse());
 

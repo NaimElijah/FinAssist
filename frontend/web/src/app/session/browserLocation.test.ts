@@ -66,6 +66,35 @@ describe('browserLocation', () => {
         expect(assign).not.toHaveBeenCalled();
     });
 
+    // The `URL` constructor normalises a protocol to lowercase and strips leading whitespace and
+    // tab/newline characters before comparing it, so these three are still `javascript:` under
+    // `new URL(url).protocol` and must be refused exactly like the plain lower-case form above.
+    // A naive check such as `url.startsWith('http')` would let every one of these through, which
+    // is exactly the regression these three exist to catch.
+    it('Given_a_mixed_case_javascript_url_When_assign_is_called_Then_the_browser_does_not_navigate', () => {
+        const assign = spyOnAssign();
+
+        browserLocation.assign('JavaScript:alert(1)');
+
+        expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('Given_a_javascript_url_with_leading_whitespace_When_assign_is_called_Then_the_browser_does_not_navigate', () => {
+        const assign = spyOnAssign();
+
+        browserLocation.assign(' javascript:alert(1)');
+
+        expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('Given_a_javascript_url_with_a_tab_injected_into_the_scheme_When_assign_is_called_Then_the_browser_does_not_navigate', () => {
+        const assign = spyOnAssign();
+
+        browserLocation.assign('java\tscript:alert(1)');
+
+        expect(assign).not.toHaveBeenCalled();
+    });
+
     it('Given_a_data_url_When_assign_is_called_Then_the_browser_does_not_navigate', () => {
         const assign = spyOnAssign();
 
