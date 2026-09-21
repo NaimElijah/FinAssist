@@ -104,6 +104,10 @@ is **not installed** on the development machine, so the raw command is given for
   tests/test_contract.py` (no container needed); on a mismatch, copy
   `.contract-drift/assistant-v1.openapi.json` over `contracts/assistant-v1.openapi.json`. Run
   this after every endpoint change
+- Regenerate the gateway's OpenAPI contract: `cd backend/gateway && ./mvnw -B verify -Dtest=NONE
+  -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=GatewayContractIT` (no container needed); on
+  a mismatch, copy `target/contracts/gateway-v1.openapi.json` over
+  `contracts/gateway-v1.openapi.json`. Run this after every endpoint change
 - Regenerate the web client's contract types: `make generate-web-api` —
   `cd frontend/web && npm run generate:api`
 

@@ -1,0 +1,174 @@
+{
+  "components": {
+    "schemas": {
+      "LogoutResponse": {
+        "properties": {
+          "logoutUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "logoutUrl"
+        ]
+      },
+      "Problem": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "format": "uri-reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
+      "SessionResponse": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "roles",
+          "subject"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "sessionCookie": {
+        "description": "The HttpOnly, SameSite=Lax session cookie the gateway sets once a sign-in through Keycloak completes (ADR-030). It carries no readable claim; the browser cannot read it and sends it automatically.",
+        "in": "cookie",
+        "name": "FINASSIST_SESSION",
+        "type": "apiKey"
+      },
+      "xsrfToken": {
+        "description": "The CSRF token every write must send back in this header. Its value is read by the browser's own script from the FINASSIST-XSRF-TOKEN cookie, which the session cookie above does not protect on its own (ADR-030).",
+        "in": "header",
+        "name": "X-FINASSIST-XSRF-TOKEN",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "title": "FinAssist gateway",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/bff/logout": {
+      "post": {
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutResponse"
+                }
+              }
+            },
+            "description": "Ends the gateway's session and answers the URL that ends Keycloak's"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": [],
+            "xsrfToken": []
+          }
+        ],
+        "summary": "Ends the gateway's session and answers the URL that ends Keycloak's"
+      }
+    },
+    "/bff/me": {
+      "get": {
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "A problem (RFC 9457)"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "session-controller"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ]
+}

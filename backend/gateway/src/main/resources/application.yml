@@ -63,9 +63,18 @@ springdoc:
   api-docs:
     # Serving the document is a deliberate choice, not springdoc's default, matching the ledger
     # (ADR-028's pattern). Left unset, springdoc 3.1.1 serves it anyway and warns at every
-    # start-up that the endpoint "is enabled by default"; set, that warning is gone. The document
-    # is presently near-empty: no controller exists in this task.
+    # start-up that the endpoint "is enabled by default"; set, that warning is gone. The switch
+    # only controls whether the endpoint exists; GatewayContractIT never calls it over HTTP, and
+    # the security chain still denies it (GatewayOpenApiConfiguration explains why).
     enabled: true
+  # GatewayContractIT compares the generated document with contracts/gateway-v1.openapi.json, so
+  # it must be deterministic and hold only the gateway's own contract (ADR-028, ADR-029). Sorted
+  # keys keep a regenerated file's diff down to what actually changed.
+  writer-with-order-by-keys: true
+  # Everything the gateway serves itself lives under /bff (BffRoutes); the relay routes are a
+  # transparent proxy to services that publish their own contracts and must never be described
+  # here too (GatewayOpenApiConfiguration's javadoc says why).
+  paths-to-match: /bff/**
 
 spring:
   application:
