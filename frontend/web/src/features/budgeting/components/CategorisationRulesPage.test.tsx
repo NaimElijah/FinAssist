@@ -156,7 +156,9 @@ describe('CategorisationRulesPage adding a rule', () => {
 
         expect(await screen.findByText('"coffee" → dining')).toBeDefined();
         const posts = requests.filter((request) => request.method === 'POST');
-        expect(posts).toEqual([
+        // toMatchObject, not toEqual: RecordedRequest also carries headers, which this
+        // assertion is not about - it still requires exactly one POST with this body.
+        expect(posts).toMatchObject([
             { method: 'POST', url: RULES_URL, body: { fragment: 'coffee', category: 'dining' } },
         ]);
         expect(

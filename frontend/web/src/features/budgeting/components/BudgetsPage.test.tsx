@@ -185,7 +185,9 @@ describe('BudgetsPage defining a budget', () => {
 
         expect(await screen.findByRole('link', { name: 'Review' })).toBeDefined();
         const posts = requests.filter((request) => request.method === 'POST');
-        expect(posts).toEqual([
+        // toMatchObject, not toEqual: RecordedRequest also carries headers, which this
+        // assertion is not about - it still requires exactly one POST with this body.
+        expect(posts).toMatchObject([
             {
                 method: 'POST',
                 url: BUDGETS_URL,

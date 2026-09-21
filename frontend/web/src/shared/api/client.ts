@@ -23,6 +23,16 @@ import { log } from '../lib/logger';
 /** W3C trace context. Named here so a caller overriding it is doing so deliberately. */
 export const TRACEPARENT_HEADER = 'traceparent';
 
+/**
+ * The gateway's CSRF cookie, script-readable so this client can echo its value back (ADR-030).
+ * Renamed from Spring Security's default: cookies ignore ports, and the default name would
+ * collide with another app on localhost.
+ */
+const CSRF_COOKIE_NAME = 'FINASSIST-XSRF-TOKEN';
+
+/** The header a state-changing request must echo the CSRF cookie's value into (ADR-030). */
+export const CSRF_HEADER = 'X-FINASSIST-XSRF-TOKEN';
+
 /** The ledger's base path, reached through the dev/preview proxy (ADR-026). */
 export const LEDGER_API = `${LEDGER_BACKEND.prefix}/api/v1`;
 
@@ -259,12 +269,51 @@ export async function requestJson<T>(url: string, init?: RequestInit): Promise<T
 }
 
 /**
+ * Find the gateway's CSRF cookie in a raw cookie string and decode its value.
+ *
+ * Pure so it can be tested without a browser: the caller passes `document.cookie` in, the same
+ * way the rest of this codebase passes a clock in rather than a function reading `now()` itself.
+ *
+ * `document.cookie` is `name=value` pairs separated by `; `. Each pair is split on its *first*
+ * `=` only, since the value itself may contain one, and the name is matched exactly - a cookie
+ * such as `FINASSIST-XSRF-TOKEN2` or `MY-FINASSIST-XSRF-TOKEN` is a different cookie, not this
+ * one under a prefix or suffix match.
+ *
+ * The gateway only ever writes a token that needs no percent-encoding, so a value that fails to
+ * decode can only mean a tampered or corrupted cookie, never a legitimate one this client wrote
+ * itself. `decodeURIComponent` is left to throw here rather than caught: swallowing it would
+ * silently send a corrupted token as though it were valid, and the repository's rule is to fail
+ * loudly rather than return a sentinel in its place.
+ *
+ * @param cookieString - the raw cookie header, in practice always `document.cookie`.
+ * @returns the decoded token, or `undefined` when the cookie is not present.
+ * @throws URIError - when the cookie is present but its value is not valid percent-encoding.
+ */
+export function xsrfTokenFrom(cookieString: string): string | undefined {
+    for (const pair of cookieString.split('; ')) {
+        const separator = pair.indexOf('=');
+        if (separator === -1) {
+            continue;
+        }
+        if (pair.slice(0, separator) === CSRF_COOKIE_NAME) {
+            return decodeURIComponent(pair.slice(separator + 1));
+        }
+    }
+    return undefined;
+}
+
+/**
  * `requestJson` for a request carrying a JSON body.
  *
  * Both services refuse a write whose body is not `application/json`, answering 415 (ADR-030),
  * so this is the only path that writes: it sets `Content-Type: application/json` and
  * stringifies `body`, and otherwise behaves exactly like `requestJson` - the same `Accept`
  * header, the same `traceparent` propagation, the same error handling.
+ *
+ * It is also the only path that sends `CSRF_HEADER`: the gateway's CSRF protection only guards
+ * state-changing requests, so a read carrying the same header would widen its exposure for no
+ * gain. When the cookie is absent - signed out, or talking to a backend with no gateway in
+ * front of it - no header is sent at all, and the gateway's own filter is what answers that.
  *
  * @param url - the request URL, typically built from `LEDGER_API` or `ASSISTANT_API`.
  * @param method - `POST`. Every write ADR-028 defines - a create, a lifecycle command, a
@@ -275,6 +324,8 @@ export async function requestJson<T>(url: string, init?: RequestInit): Promise<T
  * @returns the parsed JSON response body, including a `201`'s created representation.
  * @throws ApiError - on a non-2xx response.
  * @throws ApiBodyError - when the response carries no parseable JSON body.
+ * @throws URIError - propagated from `xsrfTokenFrom` when the CSRF cookie is present but
+ *   corrupted.
  */
 export async function sendJson<T>(
     url: string,
@@ -284,5 +335,9 @@ export async function sendJson<T>(
 ): Promise<T> {
     const headers = new Headers(init?.headers);
     headers.set('Content-Type', 'application/json');
+    const csrfToken = xsrfTokenFrom(document.cookie);
+    if (csrfToken !== undefined) {
+        headers.set(CSRF_HEADER, csrfToken);
+    }
     return requestJson<T>(url, { ...init, method, headers, body: JSON.stringify(body) });
 }

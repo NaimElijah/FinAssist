@@ -1,7 +1,9 @@
 // @vitest-environment node
 // No DOM is needed: fetch, Headers and Response are Node globals, and requestJson touches
-// neither document nor window. Keeping this out of jsdom keeps the suite honest about what
-// the code under test actually depends on.
+// neither document nor window. sendJson does read document.cookie, for the CSRF header, but
+// that is one global property access - stubbed per test with vi.stubGlobal below rather than
+// pulling in jsdom for the whole file. Keeping this out of jsdom keeps the suite honest about
+// what the code under test actually depends on.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -12,15 +14,22 @@ import {
     ApiError,
     ASSISTANT_API,
     BFF_API,
+    CSRF_HEADER,
     hasProblemCode,
     LEDGER_API,
     type Problem,
     requestJson,
     sendJson,
     TRACEPARENT_HEADER,
+    xsrfTokenFrom,
 } from './client';
 
 const URL = 'https://ledger.test/api/v1/accounts';
+
+/** Stubs `document` itself, not just `.cookie`: node has no `document` global to extend. */
+function stubDocumentCookie(cookie: string): void {
+    vi.stubGlobal('document', { cookie });
+}
 
 /**
  * Installs a stubbed global fetch and hands back the spy, typed as the real thing.
@@ -446,6 +455,7 @@ describe('problem field errors', () => {
 
 describe('sendJson', () => {
     it('Given_a_body_When_sent_Then_it_posts_json_with_a_content_type_and_a_traceparent', async () => {
+        stubDocumentCookie('');
         const stub = stubFetch(jsonResponse({ id: 'txn-1' }, 201));
 
         await sendJson(URL, 'POST', { amount: '12.50' });
@@ -459,6 +469,7 @@ describe('sendJson', () => {
     });
 
     it('Given_a_201_response_When_sent_Then_the_created_body_is_resolved', async () => {
+        stubDocumentCookie('');
         stubFetch(jsonResponse({ id: 'txn-1' }, 201));
 
         await expect(sendJson(URL, 'POST', { amount: '12.50' })).resolves.toEqual({
@@ -495,6 +506,75 @@ describe('hasProblemCode', () => {
 
     it('Given_no_error_When_checked_Then_it_does_not_match', () => {
         expect(hasProblemCode(null, NOT_FOUND)).toBe(false);
+    });
+});
+
+describe('xsrfTokenFrom', () => {
+    it('Given_the_cookie_is_present_When_parsed_Then_its_decoded_value_is_returned', () => {
+        expect(xsrfTokenFrom('FINASSIST-XSRF-TOKEN=abc%3Ddef')).toBe('abc=def');
+    });
+
+    it('Given_the_cookie_is_absent_When_parsed_Then_nothing_is_returned', () => {
+        expect(xsrfTokenFrom('')).toBeUndefined();
+    });
+
+    it('Given_other_cookies_are_present_too_When_parsed_Then_the_right_one_is_found', () => {
+        expect(xsrfTokenFrom('other=1; FINASSIST-XSRF-TOKEN=the-token; another=2')).toBe(
+            'the-token',
+        );
+    });
+
+    it.each(['XFINASSIST-XSRF-TOKEN', 'FINASSIST-XSRF-TOKEN2', 'MY-FINASSIST-XSRF-TOKEN'])(
+        'Given_a_lookalike_cookie_named_%s_When_parsed_Then_it_is_not_matched',
+        (name) => {
+            // Exact name match only: a substring, prefix or suffix match would leak a
+            // different app's cookie of the same shape on shared localhost ports.
+            expect(xsrfTokenFrom(`${name}=not-the-real-token`)).toBeUndefined();
+        },
+    );
+
+    it('Given_a_value_containing_an_equals_sign_When_parsed_Then_only_the_first_one_splits_it', () => {
+        expect(xsrfTokenFrom('FINASSIST-XSRF-TOKEN=abc=def')).toBe('abc=def');
+    });
+
+    it('Given_malformed_percent_encoding_When_parsed_Then_it_throws_rather_than_returning_a_sentinel', () => {
+        // The gateway only ever writes a token that needs no encoding, so a value that fails to
+        // decode means a tampered or corrupted cookie - not a case to swallow into `undefined`
+        // or an empty string, either of which would silently send a bad token as a good one.
+        expect(() => xsrfTokenFrom('FINASSIST-XSRF-TOKEN=%')).toThrow(URIError);
+    });
+});
+
+describe('the CSRF header', () => {
+    it('Given_the_csrf_cookie_When_a_write_is_sent_Then_the_header_carries_its_decoded_value', async () => {
+        stubDocumentCookie('FINASSIST-XSRF-TOKEN=abc%3Ddef');
+        const stub = stubFetch(jsonResponse({}, 201));
+
+        await sendJson(URL, 'POST', {});
+
+        const [, sent] = stub.mock.calls[0] ?? [];
+        expect(new Headers(sent?.headers).get(CSRF_HEADER)).toBe('abc=def');
+    });
+
+    it('Given_no_csrf_cookie_When_a_write_is_sent_Then_no_header_is_sent', async () => {
+        stubDocumentCookie('');
+        const stub = stubFetch(jsonResponse({}, 201));
+
+        await sendJson(URL, 'POST', {});
+
+        const [, sent] = stub.mock.calls[0] ?? [];
+        expect(new Headers(sent?.headers).has(CSRF_HEADER)).toBe(false);
+    });
+
+    it('Given_a_read_When_requested_Then_no_csrf_header_is_sent', async () => {
+        // Reads never need CSRF protection; sending the token on one only widens its exposure.
+        stubDocumentCookie('FINASSIST-XSRF-TOKEN=abc');
+        const stub = stubFetch(jsonResponse({}));
+
+        await requestJson(URL);
+
+        const [, sent] = stub.mock.calls[0] ?? [];
+        expect(new Headers(sent?.headers).has(CSRF_HEADER)).toBe(false);
     });
 });
 

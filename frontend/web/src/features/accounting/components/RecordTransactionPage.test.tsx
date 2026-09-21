@@ -253,7 +253,9 @@ describe('RecordTransactionPage submission', () => {
 
         await screen.findByRole('heading', { level: 1, name: 'Checking' });
         const posts = requests.filter((request) => request.method === 'POST');
-        expect(posts).toEqual([
+        // toMatchObject, not toEqual: RecordedRequest also carries headers, which this
+        // assertion is not about - it still requires exactly one POST with this body.
+        expect(posts).toMatchObject([
             {
                 method: 'POST',
                 url: RECORD_URL,

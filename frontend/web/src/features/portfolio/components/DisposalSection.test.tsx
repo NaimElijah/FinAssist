@@ -167,7 +167,9 @@ describe('DisposalSection', () => {
         await price(userEvent.setup({ delay: null }));
 
         const table = await screen.findByRole('table', { name: LOTS_CAPTION });
-        expect(requests.filter(isDisposal)).toEqual([
+        // toMatchObject, not toEqual: RecordedRequest also carries headers, which this
+        // assertion is not about - it still requires exactly one POST with this body.
+        expect(requests.filter(isDisposal)).toMatchObject([
             {
                 method: 'POST',
                 url: VOO_DISPOSAL_URL,

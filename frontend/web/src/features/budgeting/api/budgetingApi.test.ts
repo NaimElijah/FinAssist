@@ -56,6 +56,9 @@ let restoreSink: () => void = () => undefined;
 beforeEach(() => {
     // A failing request is logged by the client; that record is not what is under test here.
     restoreSink = setLogSink(() => undefined);
+    // sendJson reads document.cookie for the CSRF header; node has no document at all, and
+    // this suite is not exercising that header, so an absent cookie is the right stand-in.
+    vi.stubGlobal('document', { cookie: '' });
 });
 
 afterEach(() => {
