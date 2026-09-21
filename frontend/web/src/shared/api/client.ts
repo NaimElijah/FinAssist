@@ -16,7 +16,7 @@
  * than reparsing the response itself. See ADR-028.
  */
 
-import { ASSISTANT_BACKEND, LEDGER_BACKEND } from './backends';
+import { ASSISTANT_BACKEND, BFF_PREFIX, LEDGER_BACKEND } from './backends';
 import { newTraceparent, traceIdOf } from '../lib/correlation';
 import { log } from '../lib/logger';
 
@@ -28,6 +28,13 @@ export const LEDGER_API = `${LEDGER_BACKEND.prefix}/api/v1`;
 
 /** The assistant's base path, reached through the dev/preview proxy (ADR-026). */
 export const ASSISTANT_API = `${ASSISTANT_BACKEND.prefix}/api/v1`;
+
+/**
+ * The gateway's own base path - sign-in, callback, `/bff/me` and `/bff/logout` - reached through
+ * the same dev/preview proxy (ADR-026, ADR-030). Unlike `LEDGER_API` and `ASSISTANT_API`, nothing
+ * under it carries a versioned segment, so this is `BFF_PREFIX` itself rather than a suffix of it.
+ */
+export const BFF_API = BFF_PREFIX;
 
 /**
  * One field-level validation failure inside `Problem.errors` (ADR-028: populated only for a 400).
@@ -254,7 +261,7 @@ export async function requestJson<T>(url: string, init?: RequestInit): Promise<T
 /**
  * `requestJson` for a request carrying a JSON body.
  *
- * Both services refuse a write whose body is not `application/json`, answering 415 (ADR-027),
+ * Both services refuse a write whose body is not `application/json`, answering 415 (ADR-030),
  * so this is the only path that writes: it sets `Content-Type: application/json` and
  * stringifies `body`, and otherwise behaves exactly like `requestJson` - the same `Accept`
  * header, the same `traceparent` propagation, the same error handling.

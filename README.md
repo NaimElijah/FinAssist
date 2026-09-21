@@ -152,9 +152,9 @@ cd backend/assistant && uv run python -m finassist_assistant.adapters
 cd backend/gateway && ./mvnw spring-boot:run
 ```
 
-The web client runs on top of both backend services; see
-[Using the web client](#using-the-web-client) — it does not yet go through the gateway or
-Keycloak (a later task wires that up).
+The web client now reaches both backend services only through the gateway; see
+[Using the web client](#using-the-web-client) — every call needs a signed-in gateway session, and
+the web client has no sign-in screen of its own yet (a later task).
 
 > [!NOTE]
 > `make` is a convenience here, not a prerequisite, and it is not installed on the author's
@@ -164,22 +164,36 @@ Keycloak (a later task wires that up).
 
 ## Using the web client
 
-The web client is a Vite dev server that forwards `/ledger/…` and `/assistant/…` to the two
-services on loopback
-([ADR-026](docs/ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)), so start them
-first — `docker compose up --build`, or each service natively, as in
+The web client is a Vite dev server that forwards `/ledger/…`, `/assistant/…` and `/bff/…` to the
+gateway, path intact — never straight to the ledger or the assistant — and the gateway's own
+routes strip the prefix and relay each call once it authenticates
+([ADR-026](docs/ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), extended by
+[ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)). Start the whole stack
+first — `docker compose up --build`, or the ledger, the assistant and the gateway natively, as in
 [Quick start](#quick-start) — then:
 
 ```bash
 cd frontend/web && npm ci && npm run dev
 ```
 
-and open [http://127.0.0.1:5173](http://127.0.0.1:5173). Accounts, Budgets and Planning read and
-write through the ledger. Portfolio reads through the assistant, which holds no real data yet, so
-every lookup answers that nothing is held until the assistant starts with its development seed.
-Under Compose, set `ASSISTANT_DEV_SEED=true` in `.env`, which Compose reads to fill in
-`docker-compose.yml`, or pass it for one run. The natively run assistant never reads `.env` — its
-settings come from the environment alone — so export the variable in the shell that starts it:
+and open [http://localhost:5173](http://localhost:5173) — `localhost`, never `127.0.0.1`: the
+gateway's session cookie is keyed to the host name `GATEWAY_PUBLIC_URL` names, which defaults to
+`localhost`, so opening the other address signs in against a different, cookie-less origin.
+
+**A signed-in gateway session is required for every ledger or assistant call at this commit** —
+the web client's own sign-in screen and session gate are a later task, so nothing in the running
+pages starts one for you. Sign in by hand first, by opening
+[http://localhost:5173/bff/oauth2/authorization/keycloak](http://localhost:5173/bff/oauth2/authorization/keycloak)
+directly and completing the Keycloak login described in [First sign-in](#first-sign-in) above.
+Until then, every Accounts, Budgets, Planning or Portfolio screen answers 401 on its first
+request.
+
+Once signed in, Accounts, Budgets and Planning read and write through the ledger. Portfolio reads
+through the assistant, which holds no real data yet, so every lookup answers that nothing is held
+until the assistant starts with its development seed. Under Compose, set `ASSISTANT_DEV_SEED=true`
+in `.env`, which Compose reads to fill in `docker-compose.yml`, or pass it for one run. The
+natively run assistant never reads `.env` — its settings come from the environment alone — so
+export the variable in the shell that starts it:
 
 ```bash
 ASSISTANT_DEV_SEED=true docker compose up --build    # under Compose, for one run

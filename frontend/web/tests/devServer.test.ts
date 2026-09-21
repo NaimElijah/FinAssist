@@ -2,13 +2,19 @@
 // Reads the exported Vite config directly, so a regression in the proxy map or the loopback
 // bind is a failing test here rather than something noticed only at `npm run dev` time.
 /**
- * Proves the dev/preview server is bound to loopback and proxies both backends through one
- * origin, per ADR-026 (one origin via proxy) and ADR-027 (loopback bind, Host allow-list).
+ * Proves the dev/preview server is bound to loopback and proxies every backend call - ledger,
+ * assistant and the gateway's own `/bff` endpoints - through one origin to the gateway, per
+ * ADR-026 (one origin via proxy) and ADR-030 (BFF gateway, loopback bind, Host allow-list).
  */
 import type { ProxyOptions } from 'vite';
 import { describe, expect, it } from 'vitest';
 
-import { ASSISTANT_BACKEND, LEDGER_BACKEND } from '../src/shared/api/backends';
+import {
+    ASSISTANT_BACKEND,
+    BFF_BACKEND,
+    GATEWAY_TARGET,
+    LEDGER_BACKEND,
+} from '../src/shared/api/backends';
 import viteConfig from '../vite.config';
 
 /**
@@ -53,7 +59,8 @@ describe('the dev/preview server', () => {
 
     it('Given_the_vite_config_When_read_Then_allowedHosts_is_never_set_to_true', () => {
         // Vite 8's default already refuses any Host but localhost, its subdomains and IP
-        // literals (ADR-027's DNS-rebinding control); `true` would remove that protection.
+        // literals (ADR-030's DNS-rebinding control, carried forward from ADR-027); `true` would
+        // remove that protection.
         expect(viteConfig.server?.allowedHosts).not.toBe(true);
         expect(viteConfig.preview?.allowedHosts).not.toBe(true);
     });
@@ -62,32 +69,40 @@ describe('the dev/preview server', () => {
         expect(viteConfig.preview?.proxy).toBe(viteConfig.server?.proxy);
     });
 
-    it('Given_the_ledger_proxy_entry_When_read_Then_it_targets_8080_with_changeOrigin', () => {
+    it('Given_the_vite_config_When_read_Then_exactly_the_three_backend_prefixes_are_proxied', () => {
+        // Every backend call goes through the gateway now (ADR-030): a fourth entry here would
+        // be a path the gateway was never told to expect, and a missing one would leave a whole
+        // prefix unproxied.
+        expect(Object.keys(viteConfig.server?.proxy ?? {})).toHaveLength(3);
+    });
+
+    it('Given_the_ledger_proxy_entry_When_read_Then_it_targets_the_gateway_and_keeps_its_path', () => {
         const ledger = proxyOptionsFor(viteConfig.server?.proxy, LEDGER_BACKEND.prefix);
 
-        expect(ledger.target).toBe('http://127.0.0.1:8080');
+        expect(ledger.target).toBe(GATEWAY_TARGET);
         expect(ledger.changeOrigin).toBe(true);
+        // No `rewrite`: Vite forwards the path unchanged only when this is entirely absent, not
+        // merely an identity function. The gateway's own route matches the full
+        // `/ledger/api/v1/**` path and strips the prefix itself (`StripPrefix=1`); stripping it
+        // here too would leave the gateway nothing to match, and its deny-by-default security
+        // chain would refuse every call.
+        expect(ledger.rewrite).toBeUndefined();
     });
 
-    it('Given_the_assistant_proxy_entry_When_read_Then_it_targets_8000_with_changeOrigin', () => {
+    it('Given_the_assistant_proxy_entry_When_read_Then_it_targets_the_gateway_and_keeps_its_path', () => {
         const assistant = proxyOptionsFor(viteConfig.server?.proxy, ASSISTANT_BACKEND.prefix);
 
-        expect(assistant.target).toBe('http://127.0.0.1:8000');
+        expect(assistant.target).toBe(GATEWAY_TARGET);
         expect(assistant.changeOrigin).toBe(true);
+        expect(assistant.rewrite).toBeUndefined();
     });
 
-    it('Given_a_ledger_prefixed_path_When_rewritten_Then_the_prefix_is_stripped', () => {
-        const ledger = proxyOptionsFor(viteConfig.server?.proxy, LEDGER_BACKEND.prefix);
+    it('Given_the_bff_proxy_entry_When_read_Then_it_targets_the_gateway_and_keeps_its_path', () => {
+        const bff = proxyOptionsFor(viteConfig.server?.proxy, BFF_BACKEND.prefix);
 
-        expect(ledger.rewrite?.('/ledger/api/v1/accounts')).toBe('/api/v1/accounts');
-    });
-
-    it('Given_an_assistant_prefixed_path_When_rewritten_Then_the_prefix_is_stripped', () => {
-        const assistant = proxyOptionsFor(viteConfig.server?.proxy, ASSISTANT_BACKEND.prefix);
-
-        expect(assistant.rewrite?.('/assistant/api/v1/portfolio/holdings/VOO/position')).toBe(
-            '/api/v1/portfolio/holdings/VOO/position',
-        );
+        expect(bff.target).toBe(GATEWAY_TARGET);
+        expect(bff.changeOrigin).toBe(true);
+        expect(bff.rewrite).toBeUndefined();
     });
 
     it('Given_the_ledger_proxy_key_When_tested_as_a_RegExp_Then_it_matches_the_prefix_and_its_subpaths', () => {
@@ -121,5 +136,23 @@ describe('the dev/preview server', () => {
 
         expect(assistantKey.test('/assistantx')).toBe(false);
         expect(assistantKey.test('/assistants/api')).toBe(false);
+    });
+
+    it('Given_the_bff_proxy_key_When_tested_as_a_RegExp_Then_it_matches_the_prefix_and_its_subpaths', () => {
+        const bffKey = regexKeyFor(viteConfig.server?.proxy, BFF_BACKEND.prefix);
+
+        expect(bffKey.test('/bff')).toBe(true);
+        expect(bffKey.test('/bff/')).toBe(true);
+        expect(bffKey.test('/bff/oauth2/authorization/keycloak')).toBe(true);
+    });
+
+    it('Given_the_bff_proxy_key_When_tested_as_a_RegExp_Then_it_does_not_match_a_lookalike_path', () => {
+        // The same closed vulnerability as the ledger and assistant keys above: `/bffx` and
+        // `/bff-evil` both start with characters that resemble the prefix without naming it, and
+        // a plain-string key would proxy both of them to the gateway's own endpoints.
+        const bffKey = regexKeyFor(viteConfig.server?.proxy, BFF_BACKEND.prefix);
+
+        expect(bffKey.test('/bffx')).toBe(false);
+        expect(bffKey.test('/bff-evil')).toBe(false);
     });
 });

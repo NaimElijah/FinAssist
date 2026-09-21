@@ -190,8 +190,11 @@ the identity provider and the `finassist` realm it imports at start-up (ADR-031)
 ## Communication
 
 - **Owner to web** — HTTP, from the owner's browser to the Vite dev server on
-  `http://127.0.0.1:5173`. Nothing terminates TLS: the server binds loopback only (ADR-027), so
-  the connection never leaves the machine.
+  `http://localhost:5173` — `localhost`, not `127.0.0.1`: the gateway's session cookie is keyed
+  to the host name `GATEWAY_PUBLIC_URL` names, so opening the other one signs in against a
+  different, cookie-less origin. Nothing terminates TLS: the server binds loopback only
+  (ADR-030, carrying [ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)'s
+  rule forward), so the connection never leaves the machine.
 - **Web to ledger** — HTTP, for the accounting, budgeting and planning screens. **Implemented on
   both sides for all three.** The ledger serves `/api/v1/accounts`, `/api/v1/transactions`,
   `/api/v1/budgets`, `/api/v1/categorisation-rules`, `/api/v1/planned-flows`, `/api/v1/scenarios`
@@ -208,8 +211,10 @@ the identity provider and the `finassist` realm it imports at start-up (ADR-031)
   `GET /api/v1/scenario-comparisons` — the last two carrying only ids, dates and the step in their
   query, one repeated `scenario`, `cash` or `invested` parameter per value, never an amount
   (ADR-028). In development the browser calls `/ledger/…` on the Vite origin, and the dev proxy
-  forwards to the ledger on loopback so no call crosses an origin
-  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)).
+  forwards it, path intact, to the gateway on loopback, whose own route strips the prefix and
+  relays to the ledger once the session is authenticated — one origin throughout
+  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), extended by
+  [ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)).
 - **Web to assistant** — HTTP, for the portfolio screens, through the same proxy under
   `/assistant/…`. **Implemented on both sides.** The assistant serves
   `/api/v1/portfolio/holdings/{symbol}/position` (`GET`),
@@ -219,9 +224,10 @@ the identity provider and the `finassist` realm it imports at start-up (ADR-031)
   refusal a problem. The web client's holding page calls the position and the valuation side by
   side for the symbol it shows, and the disposal when the owner prices one, the symbol
   percent-encoded as one path segment. In development the browser calls `/assistant/…` on the Vite
-  origin, and the dev proxy forwards to the assistant on loopback
-  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md),
-  `tests/devServer.test.ts`).
+  origin, and the dev proxy forwards it, path intact, to the gateway on loopback, whose own route
+  strips the prefix and relays to the assistant once the session is authenticated
+  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), extended by
+  [ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), `tests/devServer.test.ts`).
 - **Assistant to ledger** — HTTP, described by the ledger's OpenAPI document under `contracts/`
   and versioned in the URL path ([ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md),
   Accepted). **The ledger side exists and is published as a contract; the assistant's client
@@ -236,10 +242,16 @@ the identity provider and the `finassist` realm it imports at start-up (ADR-031)
   `GET /bff/me` and `POST /bff/logout` — and, once authenticated, `GET`/`POST` under
   `/ledger/api/v1/**` and `/assistant/api/v1/**`. **`HostAllowListFilter` runs first, ahead of
   the session and every route** ([ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)).
-  **No caller reaches it yet**: the web client's dev proxy still forwards `/ledger/…` and
-  `/assistant/…` straight to the ledger and the assistant, unchanged from the bullets above,
-  which is why every gateway test drives this edge by hand with a JDK `HttpClient` rather than
-  through the running web client.
+  **The web client's dev proxy now forwards `/ledger/…`, `/assistant/…` and `/bff/…` here, each
+  path kept whole** — no prefix is stripped in `vite.config.ts` — so the gateway's own
+  `StripPrefix=1` route match still sees the full `/ledger/api/v1/**` or `/assistant/api/v1/**`
+  path it expects, and `/bff/**` arrives unchanged for its own routes
+  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)). Every relay
+  route still requires an authenticated session, and the web client has no sign-in screen of its
+  own yet (a later task), so a developer running `npm run dev` gets a 401 problem on every ledger
+  or assistant call until they open `/bff/oauth2/authorization/keycloak` by hand first. Gateway
+  tests still drive this edge with a JDK `HttpClient` directly, rather than through the running
+  web client.
 - **Gateway to Keycloak** — HTTP, the authorization-code-plus-PKCE login and the `refresh_token`
   grant `TokenRelay=` uses to renew an expired access token, against a `ClientRegistration` built
   by hand in `KeycloakRegistration` rather than discovered. **Keycloak itself is not yet part of
@@ -301,8 +313,11 @@ described where its own valuation path appears below.
 mapper, `entryRowAmount`, turns each row's debit/credit pair into the signed amount `Entry`
 carries, with no arithmetic anywhere in the browser (ADR-029) → `accountingApi.recordTransaction`
 maps the feature's `RecordTransactionInput` onto the generated `RecordTransactionRequest` and
-calls `sendJson` → the Vite dev proxy forwards `POST /ledger/api/v1/transactions` to the ledger on
-loopback with its prefix stripped ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md))
+calls `sendJson` → the Vite dev proxy forwards `POST /ledger/api/v1/transactions`, path intact, to
+the gateway on loopback, whose own route strips `/ledger` and relays to the ledger once the
+session is authenticated
+([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), extended by
+[ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md))
 → the ledger's own path, below, runs unchanged and answers 201 with the recorded transaction, or a
 problem. A 422 `RULE_VIOLATED`, `UNKNOWN_ACCOUNT` or `CURRENCY_MISMATCH`, or a 400 listing field
 `errors`, comes back as `application/problem+json` and is parsed onto `ApiError.problem` by the
@@ -329,8 +344,10 @@ earlier states stay readable, which is what makes the journal the audit record
 currency from `useBudgets()`'s own cache rather than a request of its own, since the ledger has
 no single-item read (ADR-028), and calls `useBudgetReview(budgetId)` for the rest →
 `budgetingApi.reviewBudget` calls `requestJson` against `/budgets/{id}/review` → the Vite dev
-proxy forwards it to the ledger on loopback
-([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)) → the ledger's
+proxy forwards it, path intact, to the gateway on loopback, whose own route strips `/ledger` and
+relays to the ledger once the session is authenticated
+([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), extended by
+[ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) → the ledger's
 own path, below, runs unchanged and answers 200 with the review, or a problem → the response maps
 onto the feature's `BudgetReview`, `unbudgeted` kept as the ordered array the wire sends (ADR-028)
 rather than turned into a map. A 404 `BUDGET_NOT_FOUND` - or the budget's id being absent from the
@@ -356,8 +373,10 @@ offered (ADR-012) → submitting sets the parameters `useProjection` is keyed by
 `planKeys.projection(params)` → `planningApi.projectScenario` builds the query with
 `URLSearchParams.append` — `from`, `to`, `step`, then one `cash` and one `invested` per account,
 never an amount (ADR-028) — and calls `requestJson` → the Vite dev proxy forwards
-`GET /ledger/api/v1/scenarios/{id}/projection` to the ledger on loopback
-([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)) → the ledger's
+`GET /ledger/api/v1/scenarios/{id}/projection`, path intact, to the gateway on loopback, whose
+own route strips `/ledger` and relays to the ledger once the session is authenticated
+([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), extended by
+[ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) → the ledger's
 own path, below, answers 200 with the projection, or a problem → the response maps onto the
 feature's `Projection`, refusing one with no points or with a step or currency the contract does
 not name → the callout states the first shortfall, or that there is none at that cadence, with the
@@ -379,9 +398,11 @@ invalidates its `portfolioKeys.holding(symbol)` prefix, so looking up the symbol
 reads it afresh, and navigates to `/portfolio/:symbol` → `HoldingPage` calls `usePosition` and
 `useValuation` side by side → `portfolioApi.readPosition` and `valueHolding` call `requestJson`
 against `/assistant/api/v1/portfolio/holdings/{symbol}/position` and `.../valuation`, the symbol
-encoded with `encodeURIComponent` → the Vite dev proxy forwards each to the assistant on loopback
-with its prefix stripped
-([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)) → the assistant
+encoded with `encodeURIComponent` → the Vite dev proxy forwards each, path intact, to the gateway
+on loopback, whose own route strips `/assistant` and relays to the assistant once the session is
+authenticated
+([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), extended by
+[ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) → the assistant
 answers 200 or a problem, its valuation by the path below → each response maps onto the feature's
 `Position` or `Valuation`, refusing a currency the contract does not name. A 404
 `HOLDING_NOT_FOUND` on the position is a calm empty state in place of every section, and on the
@@ -396,8 +417,9 @@ holds a quantity and proceeds exactly as typed, the proceeds' currency starting 
 cost currency → `usePriceDisposal`, a mutation because it runs on submit and nothing should
 cache it → `portfolioApi.priceDisposal` sends `{quantity, proceeds}` with `sendJson` as
 `POST /assistant/api/v1/portfolio/holdings/{symbol}/disposal`, never a query string (ADR-028) →
-the dev proxy forwards it to the assistant, which prices the lots oldest first and records nothing
-([ADR-013](../ADRs/ADR-013-fifo-lot-based-cost-basis.md)) → the `DispositionModel` maps onto a
+the dev proxy forwards it, path intact, to the gateway on loopback, which relays to the assistant
+once the session is authenticated, and the assistant prices the lots oldest first and records
+nothing ([ADR-013](../ADRs/ADR-013-fifo-lot-based-cost-basis.md)) → the `DispositionModel` maps onto a
 `Disposition`, its remaining lots in the order received, shown beside the quantity and proceeds it
 priced. The mutation invalidates nothing, since nothing has changed, and editing any input clears
 the result. A 400's field errors land on Quantity or Proceeds amount; a 422

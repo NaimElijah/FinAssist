@@ -11,6 +11,7 @@ import {
     ApiBodyError,
     ApiError,
     ASSISTANT_API,
+    BFF_API,
     hasProblemCode,
     LEDGER_API,
     type Problem,
@@ -501,5 +502,9 @@ describe('base paths', () => {
     it('Given_the_module_When_read_Then_LEDGER_API_and_ASSISTANT_API_are_the_proxied_v1_paths', () => {
         expect(LEDGER_API).toBe('/ledger/api/v1');
         expect(ASSISTANT_API).toBe('/assistant/api/v1');
+    });
+
+    it('Given_the_module_When_read_Then_BFF_API_is_the_proxied_gateway_prefix', () => {
+        expect(BFF_API).toBe('/bff');
     });
 });

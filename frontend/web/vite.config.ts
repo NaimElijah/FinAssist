@@ -12,6 +12,7 @@ import { coverageConfigDefaults, defineConfig } from 'vitest/config';
 // set, so a future move to the native loader stays a decision rather than a muted surprise.
 import {
     ASSISTANT_BACKEND,
+    BFF_BACKEND,
     LEDGER_BACKEND,
     LOOPBACK_HOST,
     type ProxiedBackend,
@@ -32,15 +33,19 @@ function proxyKey(backend: ProxiedBackend): string {
 }
 
 /**
- * Build one backend's proxy entry: forward its prefix to its real origin with the prefix
- * stripped, and `changeOrigin` so the backend's own Host allow-list sees its own host rather
- * than the dev server's (ADR-027) — each backend then needs only its own name on its list.
+ * Build one prefix's proxy entry: forward it to the gateway, with `changeOrigin` so the
+ * gateway's own Host allow-list sees its own address rather than the dev server's (ADR-030), and
+ * deliberately no `rewrite`.
+ *
+ * All three prefixes now go to the gateway rather than straight to a service. Its own routes
+ * carry `StripPrefix=1` and match on the full `/ledger/api/v1/**` or `/assistant/api/v1/**`
+ * path, and `/bff/**` is matched whole too, so stripping the prefix here as well would leave the
+ * gateway nothing to match — its deny-by-default security chain would then refuse every call.
  */
 function proxyEntry(backend: ProxiedBackend): ProxyOptions {
     return {
         target: backend.target,
         changeOrigin: true,
-        rewrite: (path) => path.slice(backend.prefix.length),
     };
 }
 
@@ -49,6 +54,7 @@ function proxyEntry(backend: ProxiedBackend): ProxyOptions {
 const proxy: Record<string, ProxyOptions> = {
     [proxyKey(LEDGER_BACKEND)]: proxyEntry(LEDGER_BACKEND),
     [proxyKey(ASSISTANT_BACKEND)]: proxyEntry(ASSISTANT_BACKEND),
+    [proxyKey(BFF_BACKEND)]: proxyEntry(BFF_BACKEND),
 };
 
 export default defineConfig({
@@ -61,11 +67,11 @@ export default defineConfig({
         },
     },
     server: {
-        // Loopback only, never a wildcard interface (ADR-027).
+        // Loopback only, never a wildcard interface (ADR-030).
         host: LOOPBACK_HOST,
         // `allowedHosts` is left at Vite 8's default rather than set here: `localhost`, its
         // subdomains and every IP literal are allowed already, and any other Host is refused —
-        // that refusal is the DNS-rebinding protection ADR-027 relies on. Do not set this to
+        // that refusal is the DNS-rebinding protection ADR-030 relies on. Do not set this to
         // `true`; that would accept every Host and remove the protection entirely.
         proxy,
     },
