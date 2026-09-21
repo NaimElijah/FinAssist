@@ -31,6 +31,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.JsonNode;
@@ -93,6 +94,7 @@ class LedgerObservabilityIT extends PostgresFixture {
     private HttpResponse<String> get(String path) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + path))
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
                 .timeout(TIMEOUT)
                 .GET()
                 .build();
@@ -117,11 +119,25 @@ class LedgerObservabilityIT extends PostgresFixture {
      * {@code prometheus} to it is exactly the kind of edit that invites a careless {@code "*"}.
      * {@code LedgerApplicationIT} makes the same assertion; it is repeated here because this is
      * the class whose change would break it.
+     *
+     * <p>{@code /actuator/env} matches no {@code permitAll} rule, so it is denied regardless of
+     * whether a token was sent — 401 with none, 403 with one that simply names no matching route
+     * (ADR-030). Neither answer is Actuator's own 404 any more; the security chain refuses the
+     * request before the dispatcher, let alone Actuator's endpoint mapping, ever sees it.
      */
     @Test
     void Given_the_prometheus_endpoint_is_exposed_When_an_unexposed_one_is_requested_Then_it_is_still_not_served()
             throws Exception {
-        assertThat(get("/actuator/env").statusCode()).isEqualTo(404);
+        HttpRequest withoutToken = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + port + "/actuator/env"))
+                .timeout(TIMEOUT)
+                .GET()
+                .build();
+
+        assertThat(CLIENT.send(withoutToken, HttpResponse.BodyHandlers.ofString())
+                        .statusCode())
+                .isEqualTo(401);
+        assertThat(get("/actuator/env").statusCode()).isEqualTo(403);
     }
 
     /**
@@ -166,6 +182,7 @@ class LedgerObservabilityIT extends PostgresFixture {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/api/v1/accounts"))
                 .header("traceparent", CALLER_TRACEPARENT)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
                 .timeout(TIMEOUT)
                 .GET()
                 .build();

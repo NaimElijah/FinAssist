@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.naimelijah.finassist.ledger.WebSliceSecurity;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.BudgetNotFoundException;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.BudgetReview;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.CategorySpend;
@@ -49,7 +50,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * {@code AccountControllerTest} gives.
  */
 @WebMvcTest(controllers = BudgetController.class)
-@Import(StrictTextCoercion.class)
+@Import({WebSliceSecurity.class, StrictTextCoercion.class})
 class BudgetControllerTest {
 
     private static final String BUDGETS = "/api/v1/budgets";
@@ -181,7 +182,7 @@ class BudgetControllerTest {
                 .andExpect(jsonPath("$.code").value("RULE_VIOLATED"));
     }
 
-    /** A cross-site page can post a form without a preflight, so a write refuses anything but JSON (ADR-027). */
+    /** A cross-site page can post a form without a preflight, so a write refuses anything but JSON (ADR-030). */
     @Test
     void Given_a_form_encoded_body_When_defining_a_budget_Then_it_is_a_415_problem() throws Exception {
         mvc.perform(post(BUDGETS)

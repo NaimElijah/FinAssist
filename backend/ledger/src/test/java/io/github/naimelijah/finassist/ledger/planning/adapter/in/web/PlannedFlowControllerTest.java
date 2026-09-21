@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.naimelijah.finassist.ledger.WebSliceSecurity;
 import io.github.naimelijah.finassist.ledger.composition.StrictTextCoercion;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.ListPlannedFlowsUseCase;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanFlowCommand;
@@ -55,7 +56,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * {@code AccountControllerTest} gives.
  */
 @WebMvcTest(controllers = PlannedFlowController.class)
-@Import(StrictTextCoercion.class)
+@Import({WebSliceSecurity.class, StrictTextCoercion.class})
 class PlannedFlowControllerTest {
 
     private static final String PLANNED_FLOWS = "/api/v1/planned-flows";
@@ -535,7 +536,7 @@ class PlannedFlowControllerTest {
         verifyNoInteractions(lifecycle);
     }
 
-    /** Every write refuses a form post, which a cross-site page can send without a preflight (ADR-027). */
+    /** Every write refuses a form post, which a cross-site page can send without a preflight (ADR-030). */
     @ParameterizedTest
     @ValueSource(strings = {"", "/%s/commit", "/%s/realise", "/%s/cancel"})
     void Given_a_form_encoded_body_When_any_planned_flow_write_is_posted_Then_it_is_a_415_problem(String route)

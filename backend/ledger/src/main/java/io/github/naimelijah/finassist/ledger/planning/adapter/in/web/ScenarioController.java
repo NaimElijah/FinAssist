@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>It calls in-ports only and is component-scanned, for the reasons {@link PlannedFlowController} gives.
  * A define answers 201 with the scenario and no {@code Location} header, and accepts {@code
- * application/json} only (ADR-027).
+ * application/json} only (ADR-030).
  *
  * <p>A flow named in the body is part of what the request asks for, not the resource it is about, so one
  * that does not exist is 422 {@code UNKNOWN_PLAN} rather than the 404 {@link PlanningProblemAdvice} gives a

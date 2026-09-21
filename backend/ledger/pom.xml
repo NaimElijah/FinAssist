@@ -46,6 +46,18 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
+    <!--
+      Makes the ledger a resource server: validates the bearer token itself and denies by default
+      (ADR-030). This single starter is also what switches on Boot's authenticate-everything default
+      chain, which is why it arrives together with LedgerSecurityConfiguration, which states the real
+      rules, in the same commit. Nimbus (com.nimbusds:nimbus-jose-jwt) arrives transitively through
+      spring-security-oauth2-jose, which this starter pulls in; it is deliberately not declared here,
+      because a test-scoped declaration would override the compile-scope one this starter needs.
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-validation</artifactId>
@@ -96,6 +108,17 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-webmvc-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      SecurityMockMvcRequestPostProcessors.jwt(), and the MockMvcBuilderCustomizer
+      (SecurityMockMvcAutoConfiguration) that applies Spring Security to every @WebMvcTest slice's
+      MockMvc automatically. Also where TestTokens gets Nimbus's RSAKeyGenerator, PlainJWT and
+      MACSigner from, transitively, to mint real signed tokens for LedgerAuthorizationIT.
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security-test</artifactId>
       <scope>test</scope>
     </dependency>
     <!-- InMemorySpanExporter, so a test can assert a span was recorded without a collector. -->
@@ -278,6 +301,10 @@
                 <!-- Boots Tomcat once per mutant for wiring that holds no logic. -->
                 <param>io.github.naimelijah.finassist.ledger.LedgerObservabilityIT</param>
                 <param>io.github.naimelijah.finassist.ledger.composition.LedgerCompositionIT</param>
+                <!-- Boots the full context (and, for the outage case, a JWKS HTTP server) to prove
+                     wiring, not domain logic; PIT would rerun both per mutant for nothing gained. -->
+                <param>io.github.naimelijah.finassist.ledger.LedgerAuthorizationIT</param>
+                <param>io.github.naimelijah.finassist.ledger.LedgerKeySourceOutageIT</param>
               </excludedTestClasses>
               <excludedClasses>
                 <!-- Excluded because LedgerCompositionIT, the test that exists to cover it, is excluded above.

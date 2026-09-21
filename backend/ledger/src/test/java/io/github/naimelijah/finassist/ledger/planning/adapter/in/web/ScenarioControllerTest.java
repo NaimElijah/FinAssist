@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.naimelijah.finassist.ledger.WebSliceSecurity;
 import io.github.naimelijah.finassist.ledger.composition.StrictTextCoercion;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.DefineScenarioCommand;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.DefineScenarioUseCase;
@@ -49,7 +50,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * {@code AccountControllerTest} gives.
  */
 @WebMvcTest(controllers = ScenarioController.class)
-@Import(StrictTextCoercion.class)
+@Import({WebSliceSecurity.class, StrictTextCoercion.class})
 class ScenarioControllerTest {
 
     private static final String SCENARIOS = "/api/v1/scenarios";
@@ -265,7 +266,7 @@ class ScenarioControllerTest {
         verifyNoInteractions(definer);
     }
 
-    /** A cross-site page can post a form without a preflight, so a write refuses anything but JSON (ADR-027). */
+    /** A cross-site page can post a form without a preflight, so a write refuses anything but JSON (ADR-030). */
     @Test
     void Given_a_form_encoded_body_When_defining_a_scenario_Then_it_is_a_415_problem() throws Exception {
         mvc.perform(post(SCENARIOS)

@@ -3,6 +3,7 @@ package io.github.naimelijah.finassist.ledger.accounting.adapter.in.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
+import io.github.naimelijah.finassist.ledger.TestTokens;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -287,7 +288,11 @@ class AccountingHttpIT extends PostgresFixture {
     }
 
     private HttpResponse<String> send(HttpRequest.Builder request) throws IOException, InterruptedException {
-        return CLIENT.send(request.timeout(TIMEOUT).build(), HttpResponse.BodyHandlers.ofString());
+        return CLIENT.send(
+                request.header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
+                        .timeout(TIMEOUT)
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
     }
 
     private URI uri(String path) {

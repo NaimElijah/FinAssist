@@ -18,7 +18,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * The Host allow-list that keeps a DNS-rebound page away from the books (ADR-027).
+ * The Host allow-list that keeps a DNS-rebound page away from the books (ADR-030).
  *
  * <p>Plain JUnit over spring-test's servlet mocks: the filter either hands a request on or refuses
  * it, and neither outcome needs a container to observe. Mutation testing covers {@code composition},
@@ -116,7 +116,7 @@ class HostAllowListFilterTest {
 
     /**
      * A refusal is answered before any filter that traces or logs, so this line is the only sign of it, and
-     * without it a mistyped name looks like an outage (ADR-027). The header is chosen by the sender, so the
+     * without it a mistyped name looks like an outage (ADR-030). The header is chosen by the sender, so the
      * line never quotes it.
      */
     @Test
@@ -185,7 +185,7 @@ class HostAllowListFilterTest {
     /**
      * A request's host is compared with its port dropped, so an entry holding a port, a colon or a bracket
      * could never match, and a ledger started with one would refuse every request under that name. Refused
-     * at start-up instead, with the entry named, as the assistant refuses one (ADR-027).
+     * at start-up instead, with the entry named, as the assistant refuses one (ADR-030).
      */
     @ParameterizedTest
     @ValueSource(strings = {"localhost:8080", "::1", "[::1]", "[::1]:8080", "local]host"})

@@ -320,6 +320,21 @@ These are enforced by the build, not by review. Breaking one fails CI.
   `HostAllowListFilter` refuses a `:`, a `[` or a `]` in `LEDGER_ALLOWED_HOSTS`.
 - **Neither service serves a `/docs` or `/redoc` UI.** `/openapi.json` (and the ledger's own
   OpenAPI route) stays.
+- **The ledger validates a bearer token and denies by default on every request** (ADR-030).
+  `LedgerAuthorizationIT` checks this against an explicit, named inventory of every endpoint the
+  running server answers to — plus springdoc's own and the container's error forward — so an
+  endpoint added without a matching URL rule fails the build rather than shipping open.
+- **Security lives in `composition`, never in a top-level `security` package.** A new context-shaped
+  package would be treated as a bounded context by the slice rule and fail
+  `contexts_do_not_depend_on_each_other`. `LedgerSecurityConfiguration`, `LedgerPermissions`,
+  `ProblemAuthenticationEntryPoint` and `ProblemAccessDeniedHandler` all live there; a controller
+  still touches only `java.security.Principal`.
+- **Every `@WebMvcTest` slice imports `WebSliceSecurity`.** A slice loads no scanned configuration
+  (ADR-028's convention, extended to ADR-030), so without it a slice would boot with no security at
+  all — every request admitted, which is a false pass, not a fast one.
+- **References to ADR-027 in the ledger's code and docs point to ADR-030.** ADR-027 is Superseded;
+  ADR-030 keeps its loopback binding, Host allow-list and JSON-only writes as defence in depth, and
+  is the record to cite for them going forward.
 
 The ledger's ten ArchUnit rules are **live**. The `archRule.failOnEmptyShould=false` escape
 hatch was deleted with the first domain class, so a rule matching nothing now fails rather than

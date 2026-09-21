@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>It calls in-ports only and is component-scanned, for the reasons {@link AccountController} gives.
  * A record answers 201 with the transaction and no {@code Location} header. A lifecycle change is a
  * {@code POST} to a sub-resource carrying its date in the body, because no server reads a clock, and
- * answers the updated transaction. Every write accepts {@code application/json} only (ADR-027).
+ * answers the updated transaction. Every write accepts {@code application/json} only (ADR-030).
  *
  * <p>{@link AccountingProblemAdvice} maps the lifecycle's failures: an unknown transaction in the path is
  * 404 {@code TRANSACTION_NOT_FOUND}, and a change the current state does not allow is 409 {@code

@@ -11,6 +11,8 @@ import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.responses.ApiResponses;
+import io.swagger.v3.oas.models.security.SecurityRequirement;
+import io.swagger.v3.oas.models.security.SecurityScheme;
 import io.swagger.v3.oas.models.servers.Server;
 import java.util.List;
 import java.util.Set;
@@ -58,12 +60,27 @@ public class OpenApiConfiguration {
     private static final String ARRAY = "array";
     private static final String URI_REFERENCE = "uri-reference";
 
-    /** The document's identity and the one server it names. */
+    private static final String BEARER_AUTH_SCHEME = "bearerAuth";
+
+    /**
+     * The document's identity, the one server it names, and the {@code bearerAuth} scheme every
+     * operation requires (ADR-030). A global {@link SecurityRequirement} rather than one per
+     * operation: every endpoint the ledger serves under {@code /api/v1} needs a bearer token, and a
+     * generated client should not have to be told that 23 times.
+     */
     @Bean
     OpenAPI ledgerOpenApi() {
         return new OpenAPI()
                 .info(new Info().title(TITLE).version(VERSION))
-                .servers(List.of(new Server().url(SERVER_URL)));
+                .servers(List.of(new Server().url(SERVER_URL)))
+                .components(new Components()
+                        .addSecuritySchemes(
+                                BEARER_AUTH_SCHEME,
+                                new SecurityScheme()
+                                        .type(SecurityScheme.Type.HTTP)
+                                        .scheme("bearer")
+                                        .bearerFormat("JWT")))
+                .addSecurityItem(new SecurityRequirement().addList(BEARER_AUTH_SCHEME));
     }
 
     /**

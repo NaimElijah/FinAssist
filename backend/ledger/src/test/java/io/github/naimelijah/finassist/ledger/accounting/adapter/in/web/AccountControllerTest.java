@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.naimelijah.finassist.ledger.WebSliceSecurity;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.AccountNotFoundException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.DuplicateAccountNameException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.ListAccountsUseCase;
@@ -35,6 +36,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -51,6 +53,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * <p>Wire values are spelled out rather than borrowed from the adapter's constants, because they are the
  * contract and a test that borrowed them would pass through a change to it.
  */
+@Import(WebSliceSecurity.class)
 @WebMvcTest(controllers = AccountController.class)
 class AccountControllerTest {
 
@@ -138,7 +141,7 @@ class AccountControllerTest {
         verifyNoInteractions(opener);
     }
 
-    /** A cross-site page can post a form without a preflight, so a write refuses anything but JSON (ADR-027). */
+    /** A cross-site page can post a form without a preflight, so a write refuses anything but JSON (ADR-030). */
     @Test
     void Given_a_form_encoded_body_When_opening_an_account_Then_it_is_a_415_problem() throws Exception {
         mvc.perform(post(ACCOUNTS)

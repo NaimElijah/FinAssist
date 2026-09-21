@@ -3,9 +3,9 @@
 # code that needs it.
 server:
   port: ${LEDGER_PORT:8080}
-  # Loopback by default. The ledger has no authentication, which is safe only while nothing but
-  # this machine can reach it; a container overrides this with 0.0.0.0, because its own loopback
-  # is unreachable from the host (ADR-027).
+  # Loopback by default, kept as defence in depth now that every business request also needs a
+  # bearer token (ADR-030); a container overrides this with 0.0.0.0, because its own loopback is
+  # unreachable from the host.
   address: ${LEDGER_ADDRESS:127.0.0.1}
 
 finassist:
@@ -13,8 +13,19 @@ finassist:
     # Host names the ledger answers to, compared without the port. Loopback alone does not stop
     # DNS rebinding: a hostile page whose name has been repointed at 127.0.0.1 is same-origin with
     # the ledger, yet every request it sends still names the page's own host. HostAllowListFilter
-    # refuses those with 403, Actuator included (ADR-027).
+    # refuses those with 403, Actuator included (ADR-030).
     allowed-hosts: ${LEDGER_ALLOWED_HOSTS:localhost,127.0.0.1}
+  security:
+    # The issuer a token's iss claim must name. Always the public URL, never the internal one a
+    # container reaches Keycloak by, because a token's iss can only name one and the browser is
+    # the one that signed in (ADR-030, ADR-031).
+    issuer: ${LEDGER_OIDC_ISSUER:http://localhost:8081/realms/finassist}
+    # The internal JWKS URI: fetched service-to-service, so the Compose default is the
+    # container-to-container address, never the browser-facing one.
+    jwks-uri: ${LEDGER_OIDC_JWKS_URI:http://localhost:8081/realms/finassist/protocol/openid-connect/certs}
+    # Fixed by ADR-030's Vocabulary, not an environment variable: every ledger token names this
+    # audience or is refused, regardless of which environment issued it.
+    audience: finassist-ledger
 
 springdoc:
   api-docs:

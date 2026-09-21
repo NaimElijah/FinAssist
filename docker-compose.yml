@@ -42,21 +42,28 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Loopback only, per ADR-027 — the ledger has no authentication, so the published port must
-    # not be reachable from outside this machine even though the container itself binds every
-    # interface (see LEDGER_ADDRESS below).
+      keycloak:
+        condition: service_healthy
+    # Loopback only, kept as defence in depth now that every business request also needs a
+    # bearer token (ADR-030) — the published port must not be reachable from outside this
+    # machine even though the container itself binds every interface (see LEDGER_ADDRESS below).
     ports:
       - "127.0.0.1:${LEDGER_PORT:-8080}:8080"
     environment:
       # The container's own loopback is unreachable from outside the container, so the interface
       # it binds has to be every one of them; the host-side port mapping above is what stays on
-      # 127.0.0.1 (ADR-027).
+      # 127.0.0.1 (ADR-030).
       LEDGER_ADDRESS: 0.0.0.0
       # `ledger` — this service's own Compose DNS name — lets Prometheus scrape it below.
       LEDGER_ALLOWED_HOSTS: localhost,127.0.0.1,ledger
       LEDGER_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-finassist}
       LEDGER_DB_USERNAME: ${LEDGER_DB_USERNAME:-finassist}
       LEDGER_DB_PASSWORD: ${LEDGER_DB_PASSWORD:?set LEDGER_DB_PASSWORD in .env}
+      # A token's iss is always the public URL a browser signed in against (ADR-030, ADR-031).
+      LEDGER_OIDC_ISSUER: http://localhost:${KEYCLOAK_PORT:-8081}/realms/finassist
+      # Fetched service-to-service, so this is the container-to-container address, never the
+      # published port — "localhost" inside a container means the container itself.
+      LEDGER_OIDC_JWKS_URI: http://keycloak:8080/realms/finassist/protocol/openid-connect/certs
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_EXPORT_ENABLED: ${OTEL_EXPORT_ENABLED:-false}
     healthcheck:

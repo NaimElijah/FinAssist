@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.naimelijah.finassist.ledger.WebSliceSecurity;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.CompareScenariosCommand;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.CompareScenariosUseCase;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.ListScenariosUseCase;
@@ -41,6 +42,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -56,6 +58,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * <p>Two scenarios open the first quarter of 2026 with 20000.00 cash: "Do nothing", and "Buy the car",
  * where 60000.00 leaves on 15 February, in the step that closes on 1 March.
  */
+@Import(WebSliceSecurity.class)
 @WebMvcTest(controllers = ComparisonController.class)
 @ExtendWith(OutputCaptureExtension.class)
 class ComparisonControllerTest {
