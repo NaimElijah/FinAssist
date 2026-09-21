@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -25,6 +26,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizedClientRepository;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -72,6 +75,10 @@ class GatewaySecurityTest {
     @Autowired
     private MockMvc mvc;
 
+    /** Where the access and refresh tokens are kept. Asserted, not assumed — see the test below. */
+    @Autowired
+    private OAuth2AuthorizedClientRepository authorizedClients;
+
     /** The {@code Host} every request names, so the allow-list in front of the chain lets it by. */
     private static MockHttpServletRequestBuilder named(MockHttpServletRequestBuilder request) {
         return request.header(HttpHeaders.HOST, ALLOWED_HOST);
@@ -117,7 +124,14 @@ class GatewaySecurityTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.subject").value(SUBJECT))
                 .andExpect(jsonPath("$.name").value(USERNAME))
-                .andExpect(jsonPath("$.roles", contains("owner")));
+                .andExpect(jsonPath("$.roles", contains("owner")))
+                // The member set, not just the members: three and no more, so a fourth carrying a
+                // token could not be added and still pass. The named absence says which mistake
+                // this is guarding against, since a count alone would not.
+                .andExpect(jsonPath("$.*", hasSize(3)))
+                .andExpect(jsonPath("$.accessToken").doesNotExist())
+                .andExpect(jsonPath("$.idToken").doesNotExist())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist());
     }
 
     /**
@@ -149,18 +163,36 @@ class GatewaySecurityTest {
      * The CSRF token is the one thing a script on the page is meant to read, which is what makes
      * the defence work: a cross-site page can cause a request carrying the session cookie, but it
      * cannot read a cookie belonging to another origin to copy into a header.
+     *
+     * <p>The whole cookie set is enumerated rather than one cookie read by name, because the claim
+     * is "this and nothing else". Reading by name would pass just as happily beside a second cookie
+     * carrying a token. Here that set is exactly one: MockMvc is not a servlet container, so no
+     * session cookie is written on this response — {@code GatewayApplicationIT} holds that one
+     * against a real Tomcat.
      */
     @Test
-    void Given_a_signed_in_session_When_the_session_endpoint_is_called_Then_a_script_readable_xsrf_cookie_is_set()
+    void Given_a_signed_in_session_When_the_session_endpoint_is_called_Then_only_a_script_readable_xsrf_cookie_is_set()
             throws Exception {
         MvcResult result = mvc.perform(named(get(ME)).with(oidcLogin().idToken(ownerToken(List.of("owner")))))
                 .andExpect(status().isOk())
                 .andReturn();
 
-        Cookie csrf = result.getResponse().getCookie(XSRF_COOKIE);
-        assertThat(csrf).isNotNull();
+        List<Cookie> cookies = List.of(result.getResponse().getCookies());
+        assertThat(cookies).extracting(Cookie::getName).containsExactly(XSRF_COOKIE);
+        Cookie csrf = cookies.getFirst();
         assertThat(csrf.getValue()).isNotBlank();
         assertThat(csrf.isHttpOnly()).isFalse();
+    }
+
+    /**
+     * The bean that actually delivers "no token ever reaches the browser". Everything else in this
+     * class tests what the browser is handed; this tests where the tokens are kept instead. Swapping
+     * it for a cookie-backed store is the one change that would put a refresh token in the browser,
+     * and it is the change every other assertion here would sail past.
+     */
+    @Test
+    void Given_the_gateway_When_its_token_store_is_read_Then_the_tokens_live_in_the_server_side_session() {
+        assertThat(authorizedClients).isInstanceOf(HttpSessionOAuth2AuthorizedClientRepository.class);
     }
 
     @Test
@@ -240,6 +272,21 @@ class GatewaySecurityTest {
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    /**
+     * The chain permits {@code DispatcherType.ERROR} so that a genuine 500, which the container
+     * forwards to {@code /error}, is not answered 403 by {@code denyAll} instead. That permit is by
+     * dispatcher type and not by path, and this is the half of it that a comment alone would leave
+     * unproven: a request a client makes to {@code /error} itself arrives as
+     * {@code DispatcherType.REQUEST} and is refused like any other unrouted path.
+     */
+    @Test
+    void Given_no_session_When_the_error_path_is_requested_directly_Then_it_is_refused() throws Exception {
+        mvc.perform(named(get("/error")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     /**

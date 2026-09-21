@@ -18,14 +18,15 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import org.apache.catalina.Context;
+import org.apache.tomcat.util.descriptor.web.FilterMap;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.tomcat.TomcatWebServer;
 import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
-import org.springframework.boot.web.servlet.DelegatingFilterProxyRegistrationBean;
 
 /**
  * The gateway as a running server: it boots, answers its own health probe, refuses a foreign
@@ -51,6 +52,14 @@ import org.springframework.boot.web.servlet.DelegatingFilterProxyRegistrationBea
 class GatewayApplicationIT {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
+
+    /** The name Spring Boot registers the security chain under, and the one Tomcat knows it by. */
+    private static final String SECURITY_FILTER_NAME = "springSecurityFilterChain";
+
+    private static final String SESSION_COOKIE = "FINASSIST_SESSION";
+
+    /** Creates a session without a sign-in: Spring saves the authorization request in one. */
+    private static final String LOGIN_ENTRY = "/bff/oauth2/authorization/keycloak";
 
     @LocalServerPort
     private int port;
@@ -97,6 +106,17 @@ class GatewayApplicationIT {
         }
     }
 
+    /**
+     * The one {@code Set-Cookie} header naming the given cookie, as the server actually wrote it.
+     * Read raw rather than through a cookie parser, because the attributes are the assertion.
+     */
+    private static String setCookie(HttpResponse<String> response, String name) {
+        return response.headers().allValues("set-cookie").stream()
+                .filter(header -> header.startsWith(name + "="))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no Set-Cookie header named " + name));
+    }
+
     @Test
     void Given_the_gateway_When_it_boots_Then_health_reports_up() throws Exception {
         HttpResponse<String> response = get("/actuator/health");
@@ -135,19 +155,26 @@ class GatewayApplicationIT {
     @Test
     void Given_the_running_gateway_When_its_filter_chain_is_read_Then_the_host_allow_list_runs_before_security() {
         TomcatWebServer server = (TomcatWebServer) context.getWebServer();
-        List<String> chain = Arrays.stream(server.getTomcat().getHost().findChildren())
+        List<Context> webApps = Arrays.stream(server.getTomcat().getHost().findChildren())
                 .map(Context.class::cast)
+                .toList();
+        List<String> chain = webApps.stream()
                 .flatMap(web -> Arrays.stream(web.findFilterMaps())
                         .map(map -> web.findFilterDef(map.getFilterName()).getFilterClass()))
                 .toList();
+        // The same maps in the same order, by the name the container knows each filter as. Boot
+        // registers the security chain as an anonymous subclass of
+        // DelegatingFilterProxyRegistrationBean, so its class name identifies the registration
+        // mechanism and not the filter; its name is exactly springSecurityFilterChain.
+        List<String> names = webApps.stream()
+                .flatMap(web -> Arrays.stream(web.findFilterMaps()).map(FilterMap::getFilterName))
+                .toList();
 
         assertThat(chain).first().isEqualTo(HostAllowListFilter.class.getName());
-        // Everything after position 0, so "present here" is already "after the allow-list". Matched
-        // by prefix because Boot registers the security chain as an anonymous subclass of
-        // DelegatingFilterProxyRegistrationBean, whose name carries a trailing $1.
-        assertThat(chain.subList(1, chain.size()))
+        // Everything after position 0, so "present here" is already "after the allow-list".
+        assertThat(names.subList(1, names.size()))
                 .withFailMessage("springSecurityFilterChain must run, and must run after the Host allow-list")
-                .anyMatch(filter -> filter.startsWith(DelegatingFilterProxyRegistrationBean.class.getName()));
+                .contains(SECURITY_FILTER_NAME);
     }
 
     /**
@@ -163,12 +190,46 @@ class GatewayApplicationIT {
     @Test
     void Given_a_request_that_starts_a_session_When_the_cookie_is_written_Then_it_is_httponly_and_same_site_lax()
             throws Exception {
-        HttpResponse<String> response = get("/bff/oauth2/authorization/keycloak");
+        HttpResponse<String> response = get(LOGIN_ENTRY);
 
-        String sessionCookie = response.headers().allValues("set-cookie").stream()
-                .filter(header -> header.startsWith("FINASSIST_SESSION="))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("the login entry set no session cookie"));
-        assertThat(sessionCookie).contains("HttpOnly").contains("SameSite=Lax").doesNotContain("Secure");
+        assertThat(setCookie(response, SESSION_COOKIE))
+                .contains("HttpOnly")
+                .contains("SameSite=Lax")
+                .doesNotContain("Secure");
+    }
+
+    /**
+     * The direction of {@code GATEWAY_COOKIE_SECURE} that matters in production. The default of
+     * {@code false} is asserted above by the absence of {@code Secure}, and an absence passes just
+     * as well when a property is ignored altogether — so the setting is only shown to be honoured
+     * by turning it on and watching the attribute appear.
+     *
+     * <p>Both cookies, because they are set by different machinery that could disagree: the session
+     * cookie by Tomcat from {@code server.servlet.session.cookie.secure}, and the CSRF cookie by
+     * {@code CookieCsrfTokenRepository}'s customiser in {@code GatewaySecurityConfiguration}. Both
+     * read {@code finassist.http.cookie-secure}, which is the point of there being one property.
+     */
+    @Nested
+    @SpringBootTest(
+            webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+            properties = {"finassist.oidc.client-secret=a-test-client-secret", "finassist.http.cookie-secure=true"})
+    class BehindTls {
+
+        @LocalServerPort
+        private int tlsPort;
+
+        @Test
+        void Given_cookie_secure_is_on_When_the_cookies_are_written_Then_both_carry_the_secure_attribute()
+                throws Exception {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("http://localhost:" + tlsPort + LOGIN_ENTRY))
+                    .timeout(TIMEOUT)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertThat(setCookie(response, SESSION_COOKIE)).contains("Secure");
+            assertThat(setCookie(response, "FINASSIST-XSRF-TOKEN")).contains("Secure");
+        }
     }
 }

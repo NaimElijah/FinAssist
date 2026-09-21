@@ -43,16 +43,36 @@ final class SpaLogoutSuccessHandler implements LogoutSuccessHandler {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
-    private final ClientRegistration registration;
+    private final String endSessionEndpoint;
+    private final String clientId;
     private final String postLogoutRedirectUri;
 
     /**
-     * @param registrations the repository holding the {@code keycloak} registration, read once at
-     *     construction because it never changes
+     * Everything the end-session URL is built from is fixed, so all of it is resolved here rather
+     * than per sign-out. A registration that is missing, or that declares no end-session endpoint,
+     * would otherwise fail at every sign-out with a null URI instead of at start-up, which is the
+     * slowest possible way to find out.
+     *
+     * @param registrations the repository holding the {@code keycloak} registration
      * @param webOrigin where the browser lands after Keycloak has ended its session
+     * @throws IllegalStateException if the registration or its {@code end_session_endpoint} is
+     *     absent, so the context never finishes refreshing
      */
     SpaLogoutSuccessHandler(ClientRegistrationRepository registrations, Origin webOrigin) {
-        this.registration = registrations.findByRegistrationId(KeycloakRegistration.REGISTRATION_ID);
+        ClientRegistration keycloak = registrations.findByRegistrationId(KeycloakRegistration.REGISTRATION_ID);
+        if (keycloak == null) {
+            throw new IllegalStateException("no client registration is named '" + KeycloakRegistration.REGISTRATION_ID
+                    + "', so no sign-out could tell the browser where to end its Keycloak session");
+        }
+        Object declared =
+                keycloak.getProviderDetails().getConfigurationMetadata().get(KeycloakRegistration.END_SESSION_ENDPOINT);
+        if (!(declared instanceof String endpoint) || endpoint.isBlank()) {
+            throw new IllegalStateException("the '" + KeycloakRegistration.REGISTRATION_ID
+                    + "' registration declares no " + KeycloakRegistration.END_SESSION_ENDPOINT
+                    + ", so no sign-out could ever complete");
+        }
+        this.endSessionEndpoint = endpoint;
+        this.clientId = keycloak.getClientId();
         this.postLogoutRedirectUri = webOrigin.root();
     }
 
@@ -67,19 +87,12 @@ final class SpaLogoutSuccessHandler implements LogoutSuccessHandler {
     }
 
     private String endSessionUrl(Authentication commenced) {
-        UriComponentsBuilder url = UriComponentsBuilder.fromUriString(endSessionEndpoint())
-                .queryParam(OAuth2ParameterNames.CLIENT_ID, registration.getClientId())
+        UriComponentsBuilder url = UriComponentsBuilder.fromUriString(endSessionEndpoint)
+                .queryParam(OAuth2ParameterNames.CLIENT_ID, clientId)
                 .queryParam(POST_LOGOUT_REDIRECT_URI, postLogoutRedirectUri);
         if (commenced != null && commenced.getPrincipal() instanceof OidcUser user) {
             url.queryParam(ID_TOKEN_HINT, user.getIdToken().getTokenValue());
         }
         return url.encode().build().toUriString();
-    }
-
-    private String endSessionEndpoint() {
-        return (String) registration
-                .getProviderDetails()
-                .getConfigurationMetadata()
-                .get(KeycloakRegistration.END_SESSION_ENDPOINT);
     }
 }
