@@ -18,7 +18,7 @@ import org.springframework.web.client.ResourceAccessException;
  * problem, so the browser sees a status it can act on rather than a bare {@code 500} or a
  * container error page (ADR-030).
  *
- * <p><b>Why an advice sees these at all (⚠V7).</b> Server Web MVC's routes are ordinary
+ * <p><b>Why an advice sees these at all.</b> Server Web MVC's routes are ordinary
  * {@code RouterFunction} beans dispatched through the same {@code DispatcherServlet} as a
  * {@code @RestController} would be: a route's {@code HandlerFunction} runs inside {@code
  * DispatcherServlet#doDispatch}'s try block, so an exception it throws — building the proxied

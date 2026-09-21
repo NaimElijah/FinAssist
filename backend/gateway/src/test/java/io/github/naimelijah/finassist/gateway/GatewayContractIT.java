@@ -126,6 +126,29 @@ class GatewayContractIT {
         assertThat(requiredMembers(schemas, "LogoutResponse")).containsExactly("logoutUrl");
     }
 
+    /**
+     * springdoc makes each handler method's name an {@code operationId}, and silently appends
+     * {@code _1} on a collision rather than failing — so a name that is not unique gateway-wide
+     * would reach the committed contract looking legitimate. {@code POST /bff/logout}'s id is
+     * hand-set by {@code GatewayOpenApiConfiguration} rather than derived from a method name, and
+     * this covers it exactly as it covers {@code GET /bff/me}'s springdoc-derived one, since both
+     * end up in the same {@code paths} map.
+     */
+    @Test
+    void Given_the_generated_document_When_operation_ids_are_read_Then_none_carries_a_springdoc_collision_suffix()
+            throws Exception {
+        JsonNode paths = JSON.readTree(generatedDocument()).path("paths");
+        List<String> operationIds = paths.valueStream()
+                .flatMap(JsonNode::valueStream)
+                .map(operation -> operation.path("operationId"))
+                .filter(JsonNode::isString)
+                .map(JsonNode::asString)
+                .toList();
+
+        assertThat(operationIds).isNotEmpty();
+        assertThat(operationIds).noneMatch(id -> id.matches(".*_\\d+$"));
+    }
+
     private static List<String> requiredMembers(JsonNode schemas, String schema) {
         return schemas.path(schema)
                 .path("required")

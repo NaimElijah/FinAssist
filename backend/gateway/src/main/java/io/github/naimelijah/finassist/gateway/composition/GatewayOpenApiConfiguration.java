@@ -52,12 +52,10 @@ import org.springframework.context.annotation.Configuration;
  *   <li>{@code POST /bff/logout} is added by hand. It answers no controller method — {@code
  *       GatewaySecurityConfiguration}'s {@code logout()} is a Spring Security filter, invoked from
  *       {@code LogoutFilter}, never dispatched through {@code RequestMappingHandlerMapping} — so
- *       nothing in springdoc's request-mapping scan ever names it (⚠V10 confirmed the same is true
- *       of {@code Principal} parameters, for the same underlying reason: springdoc only reads what
- *       the handler-mapping registry exposes). Its response schema is resolved from {@link
- *       LogoutResponse} itself with swagger-core's own {@link ModelConverters}, the same resolver
- *       springdoc uses internally for a real controller's return type, so the hand-added path and a
- *       real endpoint's cannot describe that record two different ways.
+ *       nothing in springdoc's request-mapping scan ever names it. Its response schema is resolved
+ *       from {@link LogoutResponse} itself with swagger-core's own {@link ModelConverters}, the
+ *       same resolver springdoc uses internally for a real controller's return type, so the
+ *       hand-added path and a real endpoint's cannot describe that record two different ways.
  * </ul>
  *
  * <p><b>{@code /v3/api-docs} stays denied.</b> {@code GatewayContractIT} generates this document by
