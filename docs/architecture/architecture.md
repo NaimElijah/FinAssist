@@ -59,6 +59,9 @@ flowchart LR
     Assistant -->|HTTPS| Claude[Anthropic API]
     Assistant -->|HTTPS| Feed[Price feed - not chosen]
     Ledger --> DB[(PostgreSQL 18)]
+    Gateway[backend/gateway - Java, Spring Cloud Gateway] -->|HTTP, bearer token| Ledger
+    Gateway -->|HTTP, bearer token| Assistant
+    Gateway -->|HTTP, OIDC| Keycloak[Keycloak - not yet in this repository]
 ```
 
 `DB`, `Ledger` and `Assistant` all run under Compose now (`docker compose up`); `Ledger` reaches
@@ -68,7 +71,15 @@ against the Compose `DB` still work for the native inner loop. `Web -> Ledger` a
 planning screens call the ledger, and its portfolio screens call the assistant, both through one
 origin ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)). The
 ledger also serves its side of `Assistant -> Ledger`, which has no caller yet: the assistant has no
-ledger client.
+ledger client. **`Gateway` is a fourth, independently deployable service.** It signs the browser
+in through OIDC, keeps every token server-side, and relays an authenticated request under
+`/ledger/api/v1/**` or `/assistant/api/v1/**` to `Ledger` or `Assistant` with a bearer token
+attached — both edges drawn above are real and exercised by `GatewayLoginFlowIT` against fakes,
+never against the real services in a test. **`Owner -> Gateway` has no caller yet**: the web
+client still reaches `Ledger` and `Assistant` directly through its own dev proxy, and `Gateway ->
+Keycloak` names a service this repository does not yet build or run — see
+[ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md) and
+[ADR-031](../ADRs/ADR-031-keycloak-as-the-identity-provider.md).
 
 ## Bounded contexts
 
@@ -122,6 +133,7 @@ had been: `times_rounded` raised on a large product in Python where Java returne
 | `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain and application layers complete, with unit, seeded-property and shared-vector tests, **live architecture rules** (layering, context isolation, both framework-free layers, the two web-adapter direction rules, and DTO name uniqueness), and Spring tests covering the Actuator probes, the observability wiring, the Host allow-list, the problem+json fallback and the assembled composition root; structured logs, OTLP traces and Prometheus metrics. Every repository port is backed by PostgreSQL; the in-memory ones are gone. The only remaining in-memory adapters are the two event publishers, which nothing subscribes to yet. **It now has an inbound adapter**: a component-scanned `@RestController` per context under `/api/v1`, calling in-ports only, with its generated OpenAPI document pinned by `LedgerContractIT`. Runs under Compose (`build: ./backend/ledger`) as well as natively |
 | `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain and application layers complete, with unit, Hypothesis-property and shared-vector tests, and 7 architecture rules parametrised over every source file (those that do not apply to a given file skip; one now forbids an inbound adapter reaching an outbound one). **It now has an inbound adapter**: `portfolio_router` under `/api/v1`, a `HostAllowList` middleware, and problem+json handling from the composition root, with its generated OpenAPI document pinned by `tests/test_contract.py`. Also serves `/health` and `/ready`. A development seed (`ASSISTANT_DEV_SEED`, off by default) loads fictional holdings and quotes from `adapters/seed.py` alone. `AnswerQuestion` is written and deliberately unwired — an LLM adapter would settle the privacy question by implication. Runs under Compose (`build: ./backend/assistant`) as well as natively |
 | `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and routes between four areas — accounting, budgets, planning and portfolio — each a feature under `src/features/` importing no other, composed in `src/app` inside a shared layout, under an error boundary per area and a TanStack Query client that retries a read once after a network failure or a 5xx other than a 503, and never retries a write. That rule is `isRetryable`, in `src/shared/api/retry.ts`, and it also decides whether a failed read's error state offers "Try again": every feature renders a failed read through `QueryErrorState` from `src/shared/ui`, which renders its `RetryButton`, and `useRetryFocus` moves focus to what a successful retry restores. Editing any field of a form whose mutation has settled clears its error or result (`clearSettledOutcome`, in `src/shared/lib`). **The accounting area is implemented**: `AccountsPage` lists accounts, reading each balance by its own request, and opens one through `OpenAccountForm`; `RecordTransactionPage`, at the static route `/accounts/transactions/new`, records a transaction by hand, mirroring a two-entry transaction's amount by string (ADR-029) and mapping each row to a signed `Entry` with no arithmetic; `AccountDetailPage` shows one account's balance and the transactions touching it, taking the account itself from the cached list because the ledger has no single-item read, and offers `Clear`, `Reconcile` and `Void` on each transaction's row, only for the states its `TransactionState` legally admits. **The budgeting area is implemented too**: `BudgetsPage` lists every budget with its period, currency and total, and defines one for a calendar month through `DefineBudgetForm`, whose month-to-period mapping (`monthInputToPeriod`) and period label (`periodMonthLabel`, `periodDisplayEnd`) are pure calendar-part arithmetic on year, month and day integers, never a `Date` parsed from a string; `BudgetReviewPage`, at `/budgets/:budgetId`, takes the budget's period and currency from the cached list and shows its review's spend by category (with an `Overspent`/`Within limit` status badge, text carrying the meaning rather than colour), its unbudgeted spend and its uncategorised amount, shown even when zero; `CategorisationRulesPage`, at the static route `/budgets/rules` — ranked above the dynamic `:budgetId` route at the same depth by React Router's own matching, not by array order — lists every rule in the order it was added and adds another through `AddCategorisationRuleForm`. The accounting, budgeting and planning screens call the ledger, and the portfolio screens the assistant, through the dev proxy, with wire types generated from `contracts/` into `src/shared/api/contracts/` and mapped, member by member, onto each feature's own types in `api/accountingApi.ts`, `api/budgetingApi.ts`, `api/planningApi.ts` and `api/portfolioApi.ts` — the anti-corruption layer ADR-029 requires; query keys come from the `accountKeys`, `budgetKeys`/`categorisationRuleKeys`, `planKeys` and `portfolioKeys` factories, so a mutation invalidates exactly what it can have changed: recording a transaction or moving one through its lifecycle invalidates the balance and transaction-list queries of the accounts it touches and never the accounts list; defining a budget invalidates the budgets list alone; adding a categorisation rule invalidates the rules list and every cached budget-review query, since a new rule can change how any budget's spend categorises, and never the budgets list, which a rule cannot change. **The planning area is implemented too**: `PlannedFlowsPage` plans a flow through `PlanFlowForm` and moves each through `Commit`, `Realise` or `Cancel`, offering only what its `PlanState` legally admits; `ScenariosPage` lists scenarios and defines one through `DefineScenarioForm`, offering only flows in the scenario's currency; `ProjectionPage`, at `/planning/projection`, projects a scenario against the cash and invested accounts the owner chooses and shows whether cash ever falls below zero, with the within-step caveat, a hand-rolled SVG `ProjectionChart`, and a table of every step; `ComparisonPage`, at `/planning/compare`, compares two or more scenarios against a baseline in tables of end states and of each scenario's divergence, and draws no chart. Both offer accounts only in the currency being projected, and take them from accounting through `PlanningAccountsBridge` in `src/app` (see [Cross-cutting concerns](#cross-cutting-concerns)). Realising or cancelling a flow invalidates the flows list and every cached projection and comparison, by the `planKeys.projections` and `planKeys.comparisons` prefixes, since the ledger projects only planned and committed flows; planning a flow, committing one and defining a scenario each invalidate their own list alone. **The portfolio area is implemented too**, the one area the assistant serves: `PortfolioPage` looks a holding up by symbol through `SymbolLookup`, which trims the symbol and otherwise keeps it as typed, percent-encoded as one path segment; `HoldingPage`, at `/portfolio/:symbol`, reads the position and the valuation side by side, shows nothing held (404 `HOLDING_NOT_FOUND`) in place of every section — or in the valuation's section, when the valuation's 404 lands before the position's — and no usable price (503 `PRICE_UNAVAILABLE`) in the valuation's alone, each a calm empty state offering no retry, words an unrealised gain or loss from the amount's leading minus and nothing else, and reads both afresh when the symbol already shown is looked up again, by invalidating the `portfolioKeys.holding(symbol)` prefix; `DisposalSection`, offered once the position has loaded and starting its proceeds in the holding's own currency, the only one the assistant prices them in, prices a disposal by `POST` as a calculation that records nothing, and so invalidates no query, shows the quantity and proceeds it priced, the cost of sale, the realised gain or loss and the lots that would remain, oldest first, and is keyed by symbol, so another holding starts it afresh. Every portfolio page says its figures are not financial advice. Design tokens and the shared UI primitives every screen is built from, in `src/shared/ui`; test helpers in `src/shared/testing` that render routes with their providers and fake `fetch`; architecture rules, HTTP-client tests, jsdom tests of the shell, of each primitive and of every accounting, budgeting, planning and portfolio screen, and a structured logger that generates the `traceparent` every request carries |
+| `backend/gateway` | Backend-for-frontend: terminates the browser's session, signs it in through OIDC and keeps every token server-side, and relays an authenticated request to the ledger or the assistant. Java 21, Spring Boot 4.1.1, Spring Cloud Gateway Server Web MVC 5.0.3, Maven wrapper 3.9.6 | `HostAllowListFilter` refuses an un-allow-listed `Host` before anything else, Actuator's health probes included. `GatewaySecurityConfiguration` runs the OIDC authorization-code-plus-PKCE login against a `ClientRegistration` built by hand in `KeycloakRegistration` (no discovery, so the browser-facing and backchannel Keycloak addresses can differ under Compose); the session — held only in this process's memory — carries the access and refresh tokens through an `HttpSessionOAuth2AuthorizedClientRepository`, and the browser is left with an `HttpOnly` session cookie and a script-readable CSRF cookie, never a token. `GET /bff/me` and `POST /bff/logout` are the only endpoints the gateway serves itself; every other permitted path — `/ledger/api/v1/**` and `/assistant/api/v1/**`, `GET` and `POST` — is a Spring Cloud Gateway MVC route matched by `Path=`/`Method=`, with `StripPrefix=1` removing the gateway's own prefix, `RemoveRequestHeader=` removing the browser's `Cookie` and CSRF header, and `TokenRelay=` attaching the session's access token, refreshing it first if it has expired. `GatewayRelayProblems`, a `@RestControllerAdvice`, turns a refused refresh into an invalidated session and a 401, a refused connection into a 502 `UPSTREAM_UNAVAILABLE`, and anything else into a logged 500 — logged by exception class name alone, never a message or a token — while a downstream problem+json response passes through unchanged. Every failure the gateway raises itself is the same RFC 9457 shape, written by `GatewayProblems`. Proven by `GatewayApplicationIT`, `GatewaySecurityTest`, `KeycloakRegistrationTest`, `HostAllowListFilterTest`, `SignInFailureHandlerTest`, `SpaLogoutSuccessHandlerTest` and `GatewayLoginFlowIT` — the last driving a real code-plus-PKCE login against a fake OpenID provider and relaying to two fake downstream services, never a mock. No authentication yet reaches the ledger or the assistant: both still answer whatever the gateway relays, unchecked. Runs under Compose (`build: ./backend/gateway`) as well as natively (`./mvnw spring-boot:run`) |
 | `contracts/` | The versioned wire contract, and the cross-language `Money` conformance vectors | `money-vectors.v1.json`, the README, `ledger-v1.openapi.json` — generated by springdoc, pinned by `LedgerContractIT` — and `assistant-v1.openapi.json` — generated by FastAPI, pinned by `tests/test_contract.py` |
 | PostgreSQL 18 | The ledger's store | Runs via Compose. Three schemas — `accounting`, `budgeting`, `planning` — with no foreign key crossing one; migrated by Flyway from a directory per context. The journal is append-only in the database, enforced by triggers |
 
@@ -214,6 +226,28 @@ that the `monitoring` Compose profile mounts.
   running the migrations at start-up ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md),
   [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)). No ORM: an entity is
   not an aggregate, and every statement the ledger issues is readable in one place.
+- **Browser to gateway** — HTTP, everything under `/bff/` — the OIDC login entry and callback,
+  `GET /bff/me` and `POST /bff/logout` — and, once authenticated, `GET`/`POST` under
+  `/ledger/api/v1/**` and `/assistant/api/v1/**`. **`HostAllowListFilter` runs first, ahead of
+  the session and every route** ([ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)).
+  **No caller reaches it yet**: the web client's dev proxy still forwards `/ledger/…` and
+  `/assistant/…` straight to the ledger and the assistant, unchanged from the bullets above,
+  which is why every gateway test drives this edge by hand with a JDK `HttpClient` rather than
+  through the running web client.
+- **Gateway to Keycloak** — HTTP, the authorization-code-plus-PKCE login and the `refresh_token`
+  grant `TokenRelay=` uses to renew an expired access token, against a `ClientRegistration` built
+  by hand in `KeycloakRegistration` rather than discovered. **Keycloak itself is not yet part of
+  this repository** ([ADR-031](../ADRs/ADR-031-keycloak-as-the-identity-provider.md)); every
+  gateway test stands a real, fake OpenID provider up instead —
+  `composition.support.FakeOpenIdProvider`, a JDK `HttpServer` signing genuine RSA JWTs — so the
+  login and refresh paths are proven against real HTTP and a real signature check, never a mock.
+- **Gateway to ledger, and gateway to assistant** — HTTP, relaying `GET`/`POST
+  /ledger/api/v1/**` and `/assistant/api/v1/**` once each request is authenticated. A Spring
+  Cloud Gateway Server Web MVC route strips the gateway's own path prefix, removes the browser's
+  `Cookie` and `X-FINASSIST-XSRF-TOKEN` headers, and attaches the session's access token —
+  refreshed first if it had expired. **Neither the ledger nor the assistant checks that token
+  yet**: both still answer whatever a request carries, exactly as they do for the web client's
+  own direct calls above; a later task adds the resource-server side (ADR-032).
 
 The ledger never calls the assistant, and the assistant never calls the web client.
 
@@ -380,6 +414,25 @@ domain's own, wherever one is not given a more specific handler — is answered 
 by the same catch-all the ledger's fallback uses for `IllegalArgumentException`, so a bug that
 happens to raise `ValueError` reads as a refusal rather than a 500 (ADR-028's accepted
 trade-off, mirrored here rather than narrowed to a smaller exception type).
+
+**Relaying a request, from a signed-in session.** `HostAllowListFilter` runs first, exactly as it
+does on the ledger, and refuses a foreign `Host` before a session or a route is even looked at →
+Spring Security requires an authenticated session for `GET`/`POST /ledger/api/v1/**` and
+`/assistant/api/v1/**` → a Spring Cloud Gateway Server Web MVC route matches the path and method →
+`StripPrefix=1` removes the gateway's own segment → `RemoveRequestHeader=` removes the browser's
+`Cookie` and `X-FINASSIST-XSRF-TOKEN`, so neither ever leaves this process → `TokenRelay=` asks
+`OAuth2AuthorizedClientManager` for the session's access token, which refreshes it against
+Keycloak first if it has expired, and attaches it as `Authorization: Bearer` → `RestClient`
+proxies the request to `GATEWAY_LEDGER_URI` or `GATEWAY_ASSISTANT_URI`. **A downstream
+`application/problem+json` response passes back through unchanged** — the gateway's `RestClient`
+call applies no status handler of its own, so the browser sees the ledger's or the assistant's own
+refusal, not a gateway rewrite. **A failure in this path becomes a gateway problem instead**:
+`GatewayRelayProblems`, a `@RestControllerAdvice`, catches an `OAuth2AuthorizationException` —
+Keycloak refusing the refresh — by invalidating the session and answering 401, a
+`ResourceAccessException` — the ledger or the assistant unreachable — with 502
+`UPSTREAM_UNAVAILABLE`, and anything else with a 500 logged by exception class name alone, never a
+message or a token. `GatewayLoginFlowIT` drives every step of this against fake, real HTTP
+services rather than mocks.
 
 The telemetry path is real end to end and is described below.
 

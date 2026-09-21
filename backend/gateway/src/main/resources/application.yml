@@ -1,6 +1,5 @@
-# A configurable port, a health endpoint with probes, the Host allow-list, the OIDC sign-in and
-# the observability wiring ADR-019 records. No route to the ledger or the assistant exists yet -
-# see GatewayApplication's Javadoc for what is deliberately still missing.
+# A configurable port, a health endpoint with probes, the Host allow-list, the OIDC sign-in, the
+# relay to the ledger and the assistant, and the observability wiring ADR-019 records.
 server:
   port: ${GATEWAY_PORT:8090}
   # Loopback by default, matching the ledger and the assistant while neither of them enforces
@@ -53,6 +52,12 @@ finassist:
     # Deliberately no default: an unset GATEWAY_CLIENT_SECRET is an unresolvable placeholder, so
     # the gateway refuses to start rather than failing at the owner's first sign-in.
     client-secret: ${GATEWAY_CLIENT_SECRET}
+  relay:
+    # Where the relay routes below send a request whose path they matched. Native defaults; a
+    # container overrides both with the service names Compose gives the ledger and the assistant,
+    # because "localhost" inside a container means the container itself, not another one.
+    ledger-uri: ${GATEWAY_LEDGER_URI:http://localhost:8080}
+    assistant-uri: ${GATEWAY_ASSISTANT_URI:http://localhost:8000}
 
 springdoc:
   api-docs:
@@ -67,6 +72,55 @@ spring:
     # Becomes OpenTelemetry's service.name. Fixed per service on purpose: one shared name across
     # every service would merge their telemetry into one stream (ADR-019).
     name: finassist-gateway
+  cloud:
+    gateway:
+      server:
+        webmvc:
+          # Spring Cloud Gateway *Server Web MVC* 5.0.3 - the servlet-stack flavour, not the
+          # reactive one most examples online describe. Its property path, predicates and
+          # filters were confirmed against the installed jar's sources before use: `Path=` and
+          # `Method=` (org.springframework.cloud.gateway.server.mvc.predicate.GatewayRequestPredicates),
+          # `StripPrefix=` and `RemoveRequestHeader=`
+          # (org.springframework.cloud.gateway.server.mvc.filter.BeforeFilterFunctions), and
+          # `TokenRelay=` (org.springframework.cloud.gateway.server.mvc.filter.TokenRelayFilterFunctions),
+          # registered under this exact prefix
+          # (org.springframework.cloud.gateway.server.mvc.config.GatewayMvcProperties.PREFIX).
+          routes:
+            - id: ledger
+              uri: ${finassist.relay.ledger-uri}
+              predicates:
+                - Path=/ledger/api/v1/**
+                - Method=GET,POST
+              filters:
+                # Order matters: the prefix is gone before the relay call is authorised or made,
+                # and the browser's own headers are gone before either.
+                - StripPrefix=1
+                - RemoveRequestHeader=Cookie
+                - RemoveRequestHeader=X-FINASSIST-XSRF-TOKEN
+                # No client-registration id: TokenRelayFilterFunctions reads it from the
+                # signed-in OAuth2AuthenticationToken, which is the only kind of principal that
+                # ever reaches this route - the security chain requires authentication first.
+                - TokenRelay=
+            - id: assistant
+              uri: ${finassist.relay.assistant-uri}
+              predicates:
+                - Path=/assistant/api/v1/**
+                - Method=GET,POST
+              filters:
+                - StripPrefix=1
+                - RemoveRequestHeader=Cookie
+                - RemoveRequestHeader=X-FINASSIST-XSRF-TOKEN
+                - TokenRelay=
+  http:
+    clients:
+      # Server MVC's proxy has no timeout property of its own (⚠V13 - confirmed absent from
+      # org.springframework.cloud.gateway.server.mvc.config.GatewayMvcProperties by reading the
+      # installed sources jar): its RestClient is Boot's own auto-configured one, so these are
+      # the only lever. They bound both a relayed call and the gateway's own calls to Keycloak -
+      # one outbound budget for every HTTP call this process makes, which is what "the underlying
+      # client" means when no gateway-specific property exists.
+      connect-timeout: 5s
+      read-timeout: 10s
 
 logging:
   structured:
