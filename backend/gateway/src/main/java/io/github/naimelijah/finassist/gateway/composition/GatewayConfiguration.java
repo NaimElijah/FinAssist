@@ -13,9 +13,10 @@ import org.springframework.core.Ordered;
  *
  * <p>Mirrors the ledger's {@code LedgerConfiguration}: the one place in this service, beyond
  * {@code GatewayApplication} itself, that knows Spring exists. The gateway has no bounded
- * context of its own to compose yet — {@code GatewayApplication}'s Javadoc says why — so this
- * package holds only what every request must pass through first, the same role {@code
- * composition} plays in the ledger.
+ * context of its own to compose — {@code GatewayApplication}'s Javadoc says why — so this package
+ * holds only what every request must pass through, the same role {@code composition} plays in the
+ * ledger. {@link GatewaySecurityConfiguration} assembles the rest of it: the sign-in, the session
+ * and the security chain that runs behind this filter.
  */
 @Configuration
 public class GatewayConfiguration {
@@ -26,8 +27,10 @@ public class GatewayConfiguration {
     /**
      * The Host allow-list, registered at the highest filter precedence (ADR-030). A refused
      * request is answered before any filter that traces, logs or dispatches has handled it, and
-     * — once the task that adds Spring Security registers its filter chain — before that chain
-     * too.
+     * before {@code springSecurityFilterChain}, which Boot registers at order {@code -100} — so a
+     * request under a foreign {@code Host} never reaches an authentication or a session lookup.
+     * {@code GatewayApplicationIT} reads the chain the server actually built rather than trusting
+     * those two numbers.
      */
     @Bean
     FilterRegistrationBean<HostAllowListFilter> hostAllowListFilter(

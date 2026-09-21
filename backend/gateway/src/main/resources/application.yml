@@ -1,12 +1,31 @@
-# Only what this task requires: a configurable port, a health endpoint with probes, the Host
-# allow-list and the observability wiring ADR-019 records. No route and no OIDC login exist yet -
+# A configurable port, a health endpoint with probes, the Host allow-list, the OIDC sign-in and
+# the observability wiring ADR-019 records. No route to the ledger or the assistant exists yet -
 # see GatewayApplication's Javadoc for what is deliberately still missing.
 server:
   port: ${GATEWAY_PORT:8090}
-  # Loopback by default, matching the ledger and the assistant while none of the three services
-  # enforces authentication yet. A container overrides this with 0.0.0.0, because its own
-  # loopback is unreachable from the host.
+  # Loopback by default, matching the ledger and the assistant while neither of them enforces
+  # authentication yet. A container overrides this with 0.0.0.0, because its own loopback is
+  # unreachable from the host.
   address: ${GATEWAY_ADDRESS:127.0.0.1}
+  servlet:
+    session:
+      # An idle session, not an absolute lifetime: 30 minutes without a request signs the owner
+      # out (ADR-030). Sessions live in this process's memory, so a restart signs them out too.
+      timeout: 30m
+      cookie:
+        # Renamed from JSESSIONID for the same reason as the CSRF cookie: cookies ignore ports, so
+        # every application on localhost shares one jar and the default name would collide with
+        # another local application's (ADR-030).
+        name: FINASSIST_SESSION
+        # Unreadable by script. This cookie is the only thing standing between a page and the
+        # owner's tokens, which never leave this process.
+        http-only: true
+        # Lax, not None: the cookie rides a top-level navigation, which is what the return from
+        # Keycloak is, and not a cross-site request a hostile page made.
+        same-site: lax
+        # False by default because development is plain HTTP on loopback and Safari refuses a
+        # Secure cookie over it. Must be true behind TLS.
+        secure: ${finassist.http.cookie-secure}
 
 finassist:
   http:
@@ -15,6 +34,25 @@ finassist:
     # the gateway, yet every request it sends still names the page's own host. HostAllowListFilter
     # refuses those with 403, Actuator included (ADR-030, carrying ADR-027 forward).
     allowed-hosts: ${GATEWAY_ALLOWED_HOSTS:localhost,127.0.0.1}
+    # Read twice - by the session cookie above, and by the CSRF cookie in
+    # GatewaySecurityConfiguration - so the two can never disagree about whether TLS is in front.
+    cookie-secure: ${GATEWAY_COOKIE_SECURE:false}
+  web:
+    # The origin the browser reaches FinAssist through: the Vite dev server, which proxies /bff to
+    # this gateway. Every redirect the gateway issues is absolute and built from this, never from a
+    # forwarded header, which says only what its sender claims (ADR-030).
+    public-url: ${GATEWAY_PUBLIC_URL:http://localhost:5173}
+  oidc:
+    # Keycloak as the browser sees it. The authorization and end-session URIs are built from this,
+    # and so is the issuer every token's `iss` claim must name (ADR-031).
+    public-url: ${GATEWAY_OIDC_PUBLIC_URL:http://localhost:8081}
+    # Keycloak as this gateway reaches it. The token and JWK set URIs are built from this. Running
+    # natively the two are the same; under Compose this becomes the container name, which the
+    # browser cannot resolve - which is exactly why they are separate.
+    internal-url: ${GATEWAY_OIDC_INTERNAL_URL:http://localhost:8081}
+    # Deliberately no default: an unset GATEWAY_CLIENT_SECRET is an unresolvable placeholder, so
+    # the gateway refuses to start rather than failing at the owner's first sign-in.
+    client-secret: ${GATEWAY_CLIENT_SECRET}
 
 springdoc:
   api-docs:

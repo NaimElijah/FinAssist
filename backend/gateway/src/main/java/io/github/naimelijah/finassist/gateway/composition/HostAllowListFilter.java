@@ -16,7 +16,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -50,8 +49,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * miss it is.
  *
  * <p>{@link GatewayConfiguration} registers it at the highest filter precedence, for every path,
- * Actuator included — and, from the task that adds Spring Security, ahead of the security chain
- * too (ADR-030).
+ * Actuator included, and ahead of the security chain (ADR-030).
  */
 public class HostAllowListFilter extends OncePerRequestFilter {
 
@@ -77,8 +75,9 @@ public class HostAllowListFilter extends OncePerRequestFilter {
 
     /**
      * Serialised once, because nothing in it varies. {@link GatewayProblems} applies the same
-     * mix-in Spring MVC's own JSON converter would, so this refusal has the same shape as every
-     * problem the gateway answers.
+     * mix-in Spring MVC's own JSON converter would, and writes it the same way every other
+     * pre-dispatcher refusal is written, so this refusal has the same shape as every problem the
+     * gateway answers.
      */
     private static final byte[] REFUSAL =
             GatewayProblems.write(HttpStatus.FORBIDDEN, REFUSAL_DETAIL, GatewayProblems.HOST_NOT_ALLOWED);
@@ -116,10 +115,7 @@ public class HostAllowListFilter extends OncePerRequestFilter {
             return;
         }
         LOG.warn("Refused a request whose Host header names no host on the allow-list");
-        response.setStatus(HttpStatus.FORBIDDEN.value());
-        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        response.setContentLength(REFUSAL.length);
-        response.getOutputStream().write(REFUSAL);
+        GatewayProblems.send(response, HttpStatus.FORBIDDEN, REFUSAL);
     }
 
     private static Optional<String> hostnameOf(String header) {

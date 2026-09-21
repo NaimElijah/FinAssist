@@ -1,7 +1,10 @@
 package io.github.naimelijah.finassist.gateway.composition;
 
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.net.URI;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.json.ProblemDetailJacksonMixin;
 import tools.jackson.databind.json.JsonMapper;
@@ -87,5 +90,25 @@ final class GatewayProblems {
         problem.setType(BLANK_TYPE);
         problem.setProperty(CODE_MEMBER, code);
         return JSON.writeValueAsBytes(problem);
+    }
+
+    /**
+     * Writes an already serialised problem as the whole response.
+     *
+     * <p>Every caller refuses a request before the dispatcher, so each has to set the status, the
+     * content type and the length itself; doing it here rather than at each of them is what stops
+     * one of them forgetting the {@code application/problem+json} content type and answering a
+     * body a client would read as something else.
+     *
+     * @param response the response to write, which no filter later in the chain may then write to
+     * @param status the HTTP status, which must be the one {@code body} was built with
+     * @param body the bytes from {@link #write(HttpStatus, String, String)}
+     * @throws IOException if the response cannot be written
+     */
+    static void send(HttpServletResponse response, HttpStatus status, byte[] body) throws IOException {
+        response.setStatus(status.value());
+        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        response.setContentLength(body.length);
+        response.getOutputStream().write(body);
     }
 }

@@ -25,25 +25,29 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.tomcat.TomcatWebServer;
 import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
+import org.springframework.boot.web.servlet.DelegatingFilterProxyRegistrationBean;
 
 /**
  * The gateway as a running server: it boots, answers its own health probe, refuses a foreign
  * {@code Host} header, and runs that refusal ahead of every other filter in the chain the server
- * actually built — the same three claims {@code LedgerApplicationIT} proves for the ledger, using
- * the same techniques.
+ * actually built — the three claims {@code LedgerApplicationIT} proves for the ledger, using the
+ * same techniques.
  *
- * <p>Nothing here exercises a route, OIDC or a session, because none of them exist yet - see
- * {@code GatewayApplication}'s Javadoc. This is the smoke test a later task's routing and
- * security work builds on, not a stand-in for it. The filter-chain assertion below checks only
- * that {@code HostAllowListFilter} is first: once the task that adds Spring Security registers
- * {@code springSecurityFilterChain} as a filter of its own, that task extends the same list with
- * one more position to check, rather than writing a new test.
+ * <p>It also reads the session cookie a real Tomcat writes. That cannot be done anywhere else:
+ * {@code SameSite} never reaches {@code SessionCookieConfig}, because Boot turns
+ * {@code server.servlet.session.cookie.same-site} into a {@code CookieSameSiteSupplier} that
+ * Tomcat's cookie processor applies as the header is written, so only a real {@code Set-Cookie}
+ * proves it. {@code GatewaySecurityTest} covers the chain's own rules with MockMvc, which never
+ * builds one. Nothing here exercises a route, because none exists yet - see {@code
+ * GatewayApplication}'s Javadoc.
  *
  * <p>Uses the JDK's {@link HttpClient} rather than {@code TestRestTemplate}, which Spring Boot 4
  * moved out of {@code spring-boot-starter-test} into a separate artefact the ledger also declined
  * to add for the same reason.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "finassist.oidc.client-secret=a-test-client-secret")
 class GatewayApplicationIT {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
@@ -114,13 +118,22 @@ class GatewayApplicationIT {
 
     /**
      * The Host allow-list must see a request before any other filter does (ADR-030), and its
-     * registration alone does not guarantee that: Spring's character-encoding filter can share the
-     * same {@code Integer.MIN_VALUE} order, and a tie is broken only by registration order, which a
-     * Boot upgrade or a new filter could change silently. This reads the chain the running server
-     * actually built, exactly as the ledger's equivalent test does.
+     * registration alone does not guarantee that. Boot adapts several of its own filters -
+     * {@code OrderedCharacterEncodingFilter} among them - into the servlet context straight from a
+     * plain {@code Filter} bean, never through an {@code AbstractFilterRegistrationBean}, so their
+     * position is decided by Boot's own registration order and not by a number this project sets.
+     * That one in fact runs second, immediately behind this filter. Spring Security's is a
+     * {@code DelegatingFilterProxyRegistrationBean} that Boot orders at {@code -100}, which is a
+     * number a property can change. So this reads the chain the running server actually built,
+     * exactly as the ledger's equivalent test does, rather than the numbers it was asked to build
+     * it from.
+     *
+     * <p>Security running after the allow-list is what makes the allow-list a defence rather than
+     * a formality: a request under a foreign {@code Host} is refused before any authentication,
+     * session lookup or CSRF check has touched it.
      */
     @Test
-    void Given_the_running_gateway_When_its_filter_chain_is_read_Then_the_host_allow_list_is_first() {
+    void Given_the_running_gateway_When_its_filter_chain_is_read_Then_the_host_allow_list_runs_before_security() {
         TomcatWebServer server = (TomcatWebServer) context.getWebServer();
         List<String> chain = Arrays.stream(server.getTomcat().getHost().findChildren())
                 .map(Context.class::cast)
@@ -129,5 +142,33 @@ class GatewayApplicationIT {
                 .toList();
 
         assertThat(chain).first().isEqualTo(HostAllowListFilter.class.getName());
+        // Everything after position 0, so "present here" is already "after the allow-list". Matched
+        // by prefix because Boot registers the security chain as an anonymous subclass of
+        // DelegatingFilterProxyRegistrationBean, whose name carries a trailing $1.
+        assertThat(chain.subList(1, chain.size()))
+                .withFailMessage("springSecurityFilterChain must run, and must run after the Host allow-list")
+                .anyMatch(filter -> filter.startsWith(DelegatingFilterProxyRegistrationBean.class.getName()));
+    }
+
+    /**
+     * The one cookie the browser holds that is worth stealing, as Tomcat actually writes it. The
+     * login entry is the request that creates a session, because Spring saves the authorization
+     * request in it before redirecting to Keycloak - so this needs no sign-in and no Keycloak.
+     *
+     * <p>{@code HttpOnly} keeps it out of reach of any script on the page, {@code SameSite=Lax}
+     * keeps a cross-site page from sending it on anything but a top-level navigation, and
+     * {@code Secure} is absent because development is plain HTTP and {@code GATEWAY_COOKIE_SECURE}
+     * defaults to false; behind TLS it must be set (ADR-030).
+     */
+    @Test
+    void Given_a_request_that_starts_a_session_When_the_cookie_is_written_Then_it_is_httponly_and_same_site_lax()
+            throws Exception {
+        HttpResponse<String> response = get("/bff/oauth2/authorization/keycloak");
+
+        String sessionCookie = response.headers().allValues("set-cookie").stream()
+                .filter(header -> header.startsWith("FINASSIST_SESSION="))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("the login entry set no session cookie"));
+        assertThat(sessionCookie).contains("HttpOnly").contains("SameSite=Lax").doesNotContain("Secure");
     }
 }

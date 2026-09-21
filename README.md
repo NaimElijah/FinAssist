@@ -307,7 +307,8 @@ behaviour they describe.
 | Ledger schema boundaries | No foreign key crosses a schema, so context isolation holds in the database as well as in the bytecode | `make test-ledger` |
 | Ledger smoke | The context loads and the Actuator health, liveness and readiness probes answer `UP` | `make test-ledger` |
 | Ledger HTTP | Each controller in a `@WebMvcTest` slice — `AccountControllerTest`, `TransactionControllerTest`, `BudgetControllerTest`, `CategorisationRuleControllerTest`, `PlannedFlowControllerTest`, `ScenarioControllerTest`, `ProjectionControllerTest` and `ComparisonControllerTest` — for its request validation, including a JSON number refused where the contract requires a decimal string, and each refusal's status and problem `code`; `HostAllowListFilterTest` and `LedgerProblemHandlerTest` for the Host allow-list and the problem+json fallback; `AccountingHttpIT`, `BudgetingHttpIT` and `PlanningHttpIT`, which boot the ledger and drive it over HTTP against a real PostgreSQL; and `LedgerContractIT`, which pins the generated OpenAPI document to `contracts/ledger-v1.openapi.json` | `make test-ledger` |
-| Gateway smoke | `GatewayApplicationIT` boots the backend-for-frontend, asserts its Actuator health endpoint reports `UP`, refuses a foreign `Host` header with a 403 problem, and confirms the Host allow-list filter is registered to run before every other filter. `HostAllowListFilterTest`, ported from the ledger, pins the allow-list's refusal, its problem shape and its start-up validation of a configured entry holding a port or an IPv6 literal. No route, OIDC login or Spring Security chain exist yet — this is scaffolding, proven to build, boot and refuse a foreign host, for the tasks that add them | `make test-gateway` |
+| Gateway smoke | `GatewayApplicationIT` boots the backend-for-frontend, asserts its Actuator health endpoint reports `UP`, refuses a foreign `Host` header with a 403 problem, confirms the Host allow-list filter runs first in the chain the server actually built and `springSecurityFilterChain` after it, and reads the real `Set-Cookie` to hold the session cookie `HttpOnly` and `SameSite=Lax`. `HostAllowListFilterTest`, ported from the ledger, pins the allow-list's refusal, its problem shape and its start-up validation of a configured entry holding a port or an IPv6 literal | `make test-gateway` |
+| Gateway sign-in | `GatewaySecurityTest` drives the security chain: an unauthenticated request answers 401 problem+json and never a 302 to Keycloak, no `/login` page is generated, `GET /bff/me` reports the subject, name and only the roles FinAssist knows, a write without the `X-FINASSIST-XSRF-TOKEN` header is refused 403 `CSRF_TOKEN_INVALID`, sign-out ends the session and names the public post-logout URI, the login entry redirects to the public authorization URI with PKCE `S256`, and an unrouted path is denied. `KeycloakRegistrationTest` pins the split between the browser-facing and backchannel URLs, the public issuer, and the gateway's refusal to start without `GATEWAY_CLIENT_SECRET` ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `make test-gateway` |
 | Assistant architecture | Every source file is parsed: no inward module imports a framework or the adapters, no module imports another context, no domain module names `float` or reads the wall clock. The scanner itself is unit-tested | `make test-assistant` |
 | Assistant domain | FIFO cost basis, the grounding rule, quote staleness, Money and Currency | `make test-assistant` |
 | Assistant properties | The same Money laws, plus FIFO conservation, via Hypothesis run derandomised | `make test-assistant` |
@@ -376,6 +377,7 @@ in the repository, the logs or an error message.
 | `LEDGER_DB_PASSWORD` | Ledger database password. The ledger connects as the role Compose creates, so this must match `POSTGRES_PASSWORD` until it gets its own role | none | **Yes** — the ledger refuses to start without it |
 | `ANTHROPIC_API_KEY` | The LLM behind the assistant | none | No — the assistant only registers it for redaction, and nothing uses it until an LLM adapter is wired, which waits on the privacy question |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana admin password | none | **Yes** when using the `monitoring` profile |
+| `GATEWAY_CLIENT_SECRET` | The gateway's Keycloak client secret, taken from the realm. It never leaves the gateway: the browser holds a session cookie and a CSRF token, never a token ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | none | **Yes** — the gateway refuses to start without it |
 
 <details>
 
@@ -389,8 +391,12 @@ in the repository, the logs or an error message.
 | `LEDGER_DB_URL` | JDBC URL. Compose sets this itself, to the service name `db`, for the `ledger` container; this default targets a native `./mvnw spring-boot:run` at the Compose `db` service's published port | `jdbc:postgresql://localhost:5432/finassist` |
 | `LEDGER_DB_USERNAME` | Ledger database user | `finassist` |
 | `GATEWAY_PORT` | Gateway HTTP port | `8090` |
-| `GATEWAY_ADDRESS` | Interface the gateway binds. Loopback by default, matching the ledger and the assistant while none of the three services enforces authentication yet; `0.0.0.0` only inside a container | `127.0.0.1` |
+| `GATEWAY_ADDRESS` | Interface the gateway binds. Loopback by default, matching the ledger and the assistant while neither of them enforces authentication yet; `0.0.0.0` only inside a container | `127.0.0.1` |
 | `GATEWAY_ALLOWED_HOSTS` | Comma-separated host names the gateway answers to. An entry containing a `:`, a `[` or a `]`, which covers a port and every IPv6 literal, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), carrying [ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)'s defence forward) | `localhost,127.0.0.1` |
+| `GATEWAY_PUBLIC_URL` | The origin the browser reaches FinAssist through — the Vite dev server, which proxies `/bff` to the gateway. Every redirect the gateway issues is absolute and built from this, never from a forwarded header. Open `localhost`, not `127.0.0.1`: cookies are keyed by host name, so the other one cannot find the sign-in's own session | `http://localhost:5173` |
+| `GATEWAY_OIDC_PUBLIC_URL` | Keycloak as the browser sees it. The sign-in and sign-out URLs handed to the browser are built from this, and so is the issuer every token must name | `http://localhost:8081` |
+| `GATEWAY_OIDC_INTERNAL_URL` | Keycloak as the gateway itself reaches it. The same value when running natively; under Compose it is the container name, which the browser cannot resolve — which is why the two are separate | `http://localhost:8081` |
+| `GATEWAY_COOKIE_SECURE` | Whether the session and CSRF cookies carry `Secure`. `false` for development, which is plain HTTP on loopback; must be `true` behind TLS | `false` |
 | `ASSISTANT_PORT` | Assistant HTTP port | `8000` |
 | `LEDGER_BASE_URL` | Where the assistant reaches the ledger | `http://ledger:8080` |
 | `POSTGRES_PORT` | Host port mapped to Postgres. Change it, and `LEDGER_DB_URL` with it, if something already owns 5432 — a natively installed PostgreSQL will otherwise answer instead of the container | `5432` |
@@ -489,9 +495,9 @@ HTTP carries no runtime schema, and contract drift is silent until CI compares t
 **Sign-in through a gateway, permissions decided by each service**
 ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md),
 [ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md),
-[ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)) — decided, and not yet
-built. None of the triggers that had deferred authentication had fired; the owner chose to build
-it to a professional standard anyway. The browser signs in with OIDC at a backend-for-frontend
+[ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)) — decided; the gateway's
+sign-in is built, the rest is not. None of the triggers that had deferred authentication had
+fired; the owner chose to build it to a professional standard anyway. The browser signs in with OIDC at a backend-for-frontend
 gateway that keeps access and refresh tokens on the server, a self-hosted Keycloak with its realm
 committed as code issues the tokens, and the ledger and the assistant each validate a bearer
 token and decide from their own role table what it may do, denying anything unlisted. Tokens held

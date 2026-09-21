@@ -50,6 +50,16 @@
       <groupId>org.springframework.cloud</groupId>
       <artifactId>spring-cloud-starter-gateway-server-webmvc</artifactId>
     </dependency>
+    <!--
+      Spring Security's OAuth2 client: the OIDC authorization-code login, the session that holds
+      the tokens, and the CSRF filter. Deliberately absent until now - this starter alone turns on
+      Boot's authenticate-everything default chain, which would have refused the health probe, so
+      it arrives together with GatewaySecurityConfiguration, which states the real rules.
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security-oauth2-client</artifactId>
+    </dependency>
     <!-- Health and readiness endpoints are a baseline requirement, not a later addition. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -72,6 +82,18 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- MockMvc; spring-boot-starter-test alone does not provide it on Boot 4, as on the ledger. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- SecurityMockMvcRequestPostProcessors.oidcLogin(): a signed-in session with no Keycloak. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security-test</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
