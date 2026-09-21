@@ -15,12 +15,14 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>Every code the gateway will ever answer was declared here up front, before every task that
  * would come to return one: {@link HostAllowListFilter} answers {@code HOST_NOT_ALLOWED};
- * {@code GatewaySecurityConfiguration}'s entry point, access-denied handler and failure handler
- * answer {@code UNAUTHENTICATED}, {@code FORBIDDEN} and {@code CSRF_TOKEN_INVALID}; and {@code
- * GatewayRelayProblems} answers {@code UPSTREAM_UNAVAILABLE} and {@code INTERNAL_ERROR} for a
- * relay's own failures. Declaring the whole vocabulary up front, rather than letting each task
- * add its own constant, is what kept every later task from inventing a second name for a code
- * this one already fixed.
+ * {@code GatewaySecurityConfiguration}'s entry point answers {@code UNAUTHENTICATED} alone, and
+ * its access-denied handler answers both {@code FORBIDDEN} and {@code CSRF_TOKEN_INVALID},
+ * branching on whether the denial was a CSRF failure — its sign-in failure handler answers
+ * neither, since a failed sign-in redirects the browser rather than answering a problem; and
+ * {@code GatewayRelayProblems} answers {@code UPSTREAM_UNAVAILABLE} and {@code INTERNAL_ERROR}
+ * for a relay's own failures. Declaring the whole vocabulary up front, rather than letting each
+ * task add its own constant, is what kept every later task from inventing a second name for a
+ * code this one already fixed.
  *
  * <p>{@code title} and {@code detail} are prose for a person and may be reworded; {@code code} is
  * what a client branches on and does not change once served.

@@ -16,7 +16,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * /assistant/api/v1/**} with its prefix stripped, the browser's {@code Cookie} and CSRF header
  * removed, and the session's access token attached, refreshing it first if it had expired; and
  * {@code composition.GatewayProblems} and {@code composition.GatewayRelayProblems} answer every
- * failure as an RFC 9457 problem, never a redirect.
+ * failure they see as an RFC 9457 problem, never a redirect — the one exception is a failed
+ * sign-in itself, which {@code composition.SignInFailureHandler} sends back to the web client as
+ * a redirect instead.
  *
  * <p>What it does not do yet: a sign-in cannot actually complete outside a test, because the
  * Keycloak realm this gateway is configured against does not exist in this repository until the
