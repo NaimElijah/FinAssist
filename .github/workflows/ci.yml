@@ -171,6 +171,11 @@ jobs:
           sed -i 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=ci-only/' .env
           sed -i 's/^LEDGER_DB_PASSWORD=$/LEDGER_DB_PASSWORD=ci-only/' .env
           sed -i 's/^GRAFANA_ADMIN_PASSWORD=$/GRAFANA_ADMIN_PASSWORD=ci-only/' .env
+          sed -i 's/^KEYCLOAK_ADMIN_PASSWORD=$/KEYCLOAK_ADMIN_PASSWORD=ci-only/' .env
+          sed -i 's/^KEYCLOAK_DB_PASSWORD=$/KEYCLOAK_DB_PASSWORD=ci-only/' .env
+          sed -i 's/^FINASSIST_OWNER_INITIAL_PASSWORD=$/FINASSIST_OWNER_INITIAL_PASSWORD=ci-only-12-chars/' .env
+          sed -i 's/^GATEWAY_CLIENT_SECRET=$/GATEWAY_CLIENT_SECRET=ci-only/' .env
+          sed -i 's/^ASSISTANT_CLIENT_SECRET=$/ASSISTANT_CLIENT_SECRET=ci-only/' .env
           # --profile monitoring, or the three monitoring services are never interpolated and
           # a broken reference among them validates green.
           docker compose --profile monitoring config --quiet

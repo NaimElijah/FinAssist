@@ -61,25 +61,30 @@ flowchart LR
     Ledger --> DB[(PostgreSQL 18)]
     Gateway[backend/gateway - Java, Spring Cloud Gateway] -->|HTTP, bearer token| Ledger
     Gateway -->|HTTP, bearer token| Assistant
-    Gateway -->|HTTP, OIDC| Keycloak[Keycloak - not yet in this repository]
+    Gateway -->|HTTP, OIDC| Keycloak[Keycloak - ops/keycloak]
 ```
 
-`DB`, `Ledger` and `Assistant` all run under Compose now (`docker compose up`); `Ledger` reaches
-`DB` over JDBC, and `./mvnw spring-boot:run` / `uv run python -m finassist_assistant.adapters`
-against the Compose `DB` still work for the native inner loop. `Web -> Ledger` and
-`Web -> Assistant` are the two edges with a caller: the web client's accounting, budgeting and
-planning screens call the ledger, and its portfolio screens call the assistant, both through one
-origin ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)). The
-ledger also serves its side of `Assistant -> Ledger`, which has no caller yet: the assistant has no
+`DB`, `Ledger`, `Assistant`, `Gateway` and `Keycloak` (with its own database, not drawn) all run
+under Compose now (`docker compose up`); `Ledger` reaches `DB` over JDBC, and
+`./mvnw spring-boot:run` / `uv run python -m finassist_assistant.adapters` against the Compose
+`DB` still work for the native inner loop. `Web -> Ledger` and `Web -> Assistant` are the two
+edges with a caller: the web client's accounting, budgeting and planning screens call the
+ledger, and its portfolio screens call the assistant, both through one origin
+([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)). The ledger
+also serves its side of `Assistant -> Ledger`, which has no caller yet: the assistant has no
 ledger client. **`Gateway` is a fourth, independently deployable service.** It signs the browser
 in through OIDC, keeps every token server-side, and relays an authenticated request under
 `/ledger/api/v1/**` or `/assistant/api/v1/**` to `Ledger` or `Assistant` with a bearer token
 attached — both edges drawn above are real and exercised by `GatewayLoginFlowIT` against fakes,
 never against the real services in a test. **`Owner -> Gateway` has no caller yet**: the web
-client still reaches `Ledger` and `Assistant` directly through its own dev proxy, and `Gateway ->
-Keycloak` names a service this repository does not yet build or run — see
+client still reaches `Ledger` and `Assistant` directly through its own dev proxy. **`Gateway ->
+Keycloak` is real now too**: `Keycloak` is built as code, from `ops/keycloak/Dockerfile` and the
+`finassist` realm committed alongside it, and runs under Compose as `keycloak`, with its own
+database, `keycloak-db` — see
 [ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md) and
-[ADR-031](../ADRs/ADR-031-keycloak-as-the-identity-provider.md).
+[ADR-031](../ADRs/ADR-031-keycloak-as-the-identity-provider.md). `KeycloakRealmIT` proves this
+edge against the real image, in Testcontainers, rather than against a fake — the one place this
+document's fakes-not-reals caveat for `Gateway`'s own tests does not apply.
 
 ## Bounded contexts
 
@@ -179,7 +184,8 @@ and it is named `adapters` because that is what it is: the architecture rules ke
 segment, so the exemption it needs is one it already earns rather than a special case.
 
 Operational configuration lives in `ops/` — the collector, Prometheus and Grafana provisioning
-that the `monitoring` Compose profile mounts.
+that the `monitoring` Compose profile mounts, and `ops/keycloak/`: the `Dockerfile` that builds
+the identity provider and the `finassist` realm it imports at start-up (ADR-031).
 
 ## Communication
 
@@ -521,6 +527,8 @@ the journal's half of it in the database too, where a trigger refuses an `UPDATE
 | Dependency | Used for | Pinned in |
 |---|---|---|
 | PostgreSQL 18.6 | Ledger store | `docker-compose.yml` (by hand — Dependabot covers no Compose file) |
+| Keycloak 26.7.4 | The identity provider (ADR-031): issues the tokens the gateway's OIDC login and the future assistant-to-ledger call both use. The gateway reaches it at a public URL the browser also uses for sign-in and sign-out, and at a separate backchannel URL — its own Compose service name — for the token and JWK-set requests only it makes; the issuer is always the public one | `ops/keycloak/Dockerfile` (Dependabot); `ops/keycloak/finassist-realm.json`, pinned by `KeycloakRealmTest` and proved against the real image by `KeycloakRealmIT` |
+| PostgreSQL 17.11 | Keycloak's own store, `keycloak-db` — a separate database, role, volume and failure domain from the ledger's (ADR-031) | `docker-compose.yml` (by hand) |
 | Anthropic API | The LLM behind `assistance` | `backend/assistant/pyproject.toml`, `uv.lock` |
 | Price feed | `marketdata` | **Not chosen** — see the open questions |
 | Maven Central / PyPI / npm | Dependencies | `pom.xml`, `uv.lock`, `package-lock.json` |

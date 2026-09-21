@@ -10,7 +10,7 @@ WEB       := frontend/web
 MVNW      := ./mvnw -B
 UV        := uv
 
-.PHONY: help setup lock run run-monitoring stop stop-monitoring \
+.PHONY: help setup lock run run-monitoring run-identity stop stop-monitoring \
         test test-ledger test-gateway test-assistant test-web mutation-ledger \
         lint lint-ledger lint-gateway lint-assistant lint-web \
         build-web generate-web-api format audit audit-assistant audit-web clean
@@ -34,6 +34,9 @@ run: ## Start the stack
 
 run-monitoring: ## Start the stack plus the collector, Prometheus and Grafana
 	docker compose --profile monitoring up --build
+
+run-identity: ## Start only Keycloak and its database, for signing in or testing without the rest
+	docker compose up -d keycloak-db keycloak
 
 stop: ## Stop the stack, keeping volumes
 	docker compose down

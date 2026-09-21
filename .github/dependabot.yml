@@ -48,6 +48,18 @@ updates:
     commit-message:
       prefix: "chore(deps)"
 
+  # Bumps the quay.io/keycloak/keycloak tag in ops/keycloak/Dockerfile. The keycloak-db tag in
+  # docker-compose.yml is a plain image reference, which this ecosystem does not fetch (see the
+  # header comment above), so it is bumped by hand (#80).
+  - package-ecosystem: docker
+    directory: /ops/keycloak
+    schedule:
+      interval: weekly
+    target-branch: dev
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
   - package-ecosystem: uv
     directory: /backend/assistant
     schedule:

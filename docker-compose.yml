@@ -1,20 +1,21 @@
 # The one entry point for running FinAssist locally and in CI (see docs/ADRs/ADR-005).
-# Both backend services run here now that each has something to serve. `./mvnw spring-boot:run`
-# and `uv run python -m finassist_assistant.adapters` against the Compose `db` still work, for
-# the faster native inner loop.
+# The ledger, the gateway and the assistant all run here now, plus Keycloak and its own
+# database. `./mvnw spring-boot:run` and `uv run python -m finassist_assistant.adapters` against
+# the Compose `db` still work, for the faster native inner loop.
 #
-# Every published port binds the host's loopback only, as `127.0.0.1:<port>` (ADR-027). The
-# ledger, the assistant, the collector and Prometheus authenticate no caller, and PostgreSQL and
-# Grafana stand behind a password alone, so no port may be reachable from another machine.
-# Containers still reach one another by service name on the Compose network, which this leaves
-# untouched.
+# Every published port binds the host's loopback only, as `127.0.0.1:<port>` (ADR-030, carrying
+# ADR-027's loopback rule forward now that the services authenticate). PostgreSQL and Grafana
+# stand behind a password alone, `keycloak-db` publishes no port at all, and the ledger and the
+# assistant still bind loopback in front of a bearer-token check rather than none, so no port may
+# be reachable from another machine either way. Containers still reach one another by service
+# name on the Compose network, which this leaves untouched.
 #
 # The monitoring services sit behind a `monitoring` profile, so `docker compose up` stays
-# database-and-both-services-only and `docker compose --profile monitoring up` adds the
-# telemetry backend (ADR-019). Both services push OTLP; the ledger is also scraped directly by
-# Prometheus, by its Compose service name — a natively-run ledger bound to loopback (ADR-027) is
-# not reachable that way. The assistant exposes no metrics endpoint yet, so only its OTLP push
-# is collected.
+# database-and-every-service-only and `docker compose --profile monitoring up` adds the
+# telemetry backend (ADR-019). Both backend services push OTLP; the ledger is also scraped
+# directly by Prometheus, by its Compose service name — a natively-run ledger bound to loopback
+# (ADR-030) is not reachable that way. The assistant exposes no metrics endpoint yet, so only its
+# OTLP push is collected.
 name: finassist
 
 services:
@@ -107,6 +108,115 @@ services:
       retries: 10
       start_period: 5s
 
+  # --- Identity (ADR-030, ADR-031) ----------------------------------------------------------
+  keycloak-db:
+    # A PostgreSQL major Keycloak 26.7 supports (confirmed tested up to 17 on
+    # keycloak.org/server/supported-configurations); the ledger's own `db` is on 18, which
+    # Keycloak has not been tested against, so the two intentionally run different majors
+    # rather than share one image tag by coincidence.
+    image: postgres:17.11-trixie
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
+    # No published port: nothing outside this network ever calls it directly, and it shares no
+    # role, no backup and no failure domain with the ledger's own database (ADR-031). No init
+    # script either, so the owner's existing `db-data` volume is never touched by this service —
+    # `keycloak-db-data` is its own, separate volume.
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    build: ./ops/keycloak
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    environment:
+      # The browser reaches Keycloak here; every token's `iss` names this address, never the
+      # backchannel one (ADR-031). `KC_HOSTNAME_BACKCHANNEL_DYNAMIC` is confirmed in Keycloak's
+      # own hostname documentation: it lets a container reach the same realm at its own service
+      # name, `http://keycloak:8080`, without moving the issuer.
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8081}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      # Plain HTTP: everything here stays on loopback, exactly like the ledger and the assistant
+      # (ADR-030). sslRequired: external in the realm itself still refuses a non-loopback caller
+      # without TLS.
+      KC_HTTP_ENABLED: "true"
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
+      # Every placeholder ops/keycloak/finassist-realm.json names, required through `:?` here —
+      # Keycloak itself imports a missing one as the literal, unresolved placeholder text rather
+      # than refusing to start (confirmed while drafting this file; see the task report), so this
+      # `:?` is the control that actually stops that happening, not the realm file.
+      GATEWAY_CLIENT_SECRET: ${GATEWAY_CLIENT_SECRET:?set GATEWAY_CLIENT_SECRET in .env}
+      ASSISTANT_CLIENT_SECRET: ${ASSISTANT_CLIENT_SECRET:?set ASSISTANT_CLIENT_SECRET in .env}
+      GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-http://localhost:5173}
+      FINASSIST_OWNER_USERNAME: ${FINASSIST_OWNER_USERNAME:-owner}
+      FINASSIST_OWNER_INITIAL_PASSWORD: ${FINASSIST_OWNER_INITIAL_PASSWORD:?set FINASSIST_OWNER_INITIAL_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:-8081}:8080"
+    healthcheck:
+      # The image carries no curl, but it does carry bash (confirmed against the built image),
+      # so the management port's readiness probe is read with bash's own `/dev/tcp`, the same
+      # technique the ledger's own tests use to write a request by hand.
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"status": "UP"' <&3
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 60s
+
+  gateway:
+    build: ./backend/gateway
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    # Loopback only (ADR-030) — the gateway is what the browser talks to directly, so its
+    # published port carries exactly the same defence as the ledger's and the assistant's.
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-8090}:8090"
+    environment:
+      # The container's own loopback is unreachable from the host, so the interface it binds has
+      # to be every one of them; the host-side port mapping above is what stays on 127.0.0.1.
+      GATEWAY_ADDRESS: 0.0.0.0
+      # `gateway` — this service's own Compose DNS name — so a relayed call the ledger or the
+      # assistant logs by Host still resolves, and so the web client's own dev proxy can add it
+      # once it reaches the gateway that way.
+      GATEWAY_ALLOWED_HOSTS: localhost,127.0.0.1,gateway
+      GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-http://localhost:5173}
+      GATEWAY_OIDC_PUBLIC_URL: http://localhost:${KEYCLOAK_PORT:-8081}
+      # The gateway's own HTTP client reaches Keycloak by its Compose service name, never the
+      # published port — "localhost" inside a container means the container itself (ADR-031).
+      GATEWAY_OIDC_INTERNAL_URL: http://keycloak:8080
+      GATEWAY_CLIENT_SECRET: ${GATEWAY_CLIENT_SECRET:?set GATEWAY_CLIENT_SECRET in .env}
+      GATEWAY_COOKIE_SECURE: ${GATEWAY_COOKIE_SECURE:-false}
+      GATEWAY_LEDGER_URI: http://ledger:8080
+      GATEWAY_ASSISTANT_URI: http://assistant:8000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORT_ENABLED: ${OTEL_EXPORT_ENABLED:-false}
+    healthcheck:
+      # The runtime image is eclipse-temurin's Ubuntu Noble base, which carries curl already.
+      test: ["CMD", "curl", "-f", "http://localhost:8090/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
   # --- Monitoring (profile: monitoring) ---------------------------------------------------
   # Receives OTLP from both services and re-exposes metrics for Prometheus to scrape. The
   # services talk OTLP and nothing else, so replacing this backend never touches their code.
@@ -151,5 +261,6 @@ services:
 
 volumes:
   db-data:
+  keycloak-db-data:
   prometheus-data:
   grafana-data:

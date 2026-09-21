@@ -96,6 +96,19 @@
       <artifactId>spring-boot-starter-security-test</artifactId>
       <scope>test</scope>
     </dependency>
+    <!--
+      The same Testcontainers already justified for the ledger's real-PostgreSQL suites
+      (ADR-025), used here for a real Keycloak: `KeycloakRealmIT` builds `ops/keycloak/Dockerfile`
+      with `ImageFromDockerfile` and runs it, plus a plain PostgreSQL container on the same
+      network, so the realm file is proved against the real image rather than assumed. No Boot
+      or JUnit5 integration module is needed - the container's lifecycle is managed by hand,
+      exactly as the ledger's own `PostgresFixture` does, so only the core artifact is added.
+    -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
