@@ -186,11 +186,17 @@ practice.
 The owner enumerated the web client on 2026-09-14. **Every capability listed below is
 implemented**, each naming the screen that implements it and the tests that enforce it; only "ask a
 question" stays excluded, as stated below. How the client reaches the two services is
-[ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), and what it is
-built with is [ADR-029](../ADRs/ADR-029-web-client-stack.md).
+[ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), what it is
+built with is [ADR-029](../ADRs/ADR-029-web-client-stack.md), and how it signs in is
+[ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md).
 
 Through the web client, the owner can:
 
+- Sign in, see who is signed in - their name, and a "Read-only" badge for a `viewer` - and sign
+  out. Every screen requires a session; a 401 from any other read or write is what notices the
+  gateway's own session ending mid-visit, not a poll of its own. `SessionGate`, `SignIn`,
+  `UserMenu`; `SessionGate.test.tsx`, `SignIn.test.tsx`, `UserMenu.test.tsx`,
+  `sessionApi.test.ts`, `browserLocation.test.ts`, `queryClient.test.ts`
 - Open an account, and see every account with its derived balance. `AccountsPage`,
   `OpenAccountForm`; `AccountsPage.test.tsx`, `accountingApi.test.ts`
 - Record a transaction by hand. `RecordTransactionPage`; `RecordTransactionPage.test.tsx`,

@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApiBodyError, ApiError } from '@/shared/api/client';
 
 import { createQueryClient } from './queryClient';
+import { sessionKeys } from './session/sessionQueries';
 
 const URL = '/ledger/api/v1/accounts';
 
@@ -90,5 +91,50 @@ describe('createQueryClient', () => {
     it('Given_two_calls_When_a_client_is_created_each_time_Then_they_share_no_cache', () => {
         // A fresh client per call is what lets each test render the app with an empty cache.
         expect(createQueryClient()).not.toBe(createQueryClient());
+    });
+
+    it('Given_a_401_from_a_query_other_than_the_session_check_When_it_fails_Then_the_session_is_invalidated_once', async () => {
+        const queryClient = createQueryClient();
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        const queryFn = vi.fn<() => Promise<never>>().mockRejectedValue(apiError(401));
+
+        await expect(
+            queryClient.query({ queryKey: ['under-test'], queryFn, retryDelay: 0 }),
+        ).rejects.toBeInstanceOf(ApiError);
+
+        await vi.waitFor(() => {
+            expect(invalidateSpy).toHaveBeenCalledExactlyOnceWith({ queryKey: sessionKeys.me });
+        });
+    });
+
+    it('Given_the_session_checks_own_401_When_it_fails_Then_the_session_is_not_invalidated_again', async () => {
+        // Invalidating here would refetch the session, which would 401 again, which would
+        // invalidate again - forever. This is the one case the recheck above must exclude.
+        const queryClient = createQueryClient();
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        const queryFn = vi.fn<() => Promise<never>>().mockRejectedValue(apiError(401));
+
+        await expect(
+            queryClient.query({ queryKey: sessionKeys.me, queryFn, retryDelay: 0 }),
+        ).rejects.toBeInstanceOf(ApiError);
+
+        // There is no success condition to await for "nothing happens", so this gives any
+        // queued microtask a turn before asserting the negative.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(invalidateSpy).not.toHaveBeenCalled();
+    });
+
+    it('Given_a_401_from_a_failed_mutation_When_it_fails_Then_the_session_is_invalidated_once', async () => {
+        const queryClient = createQueryClient();
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        const failure = apiError(401);
+        const mutationFn = vi.fn<() => Promise<never>>().mockRejectedValue(failure);
+        const observer = new MutationObserver(queryClient, { mutationFn });
+
+        await expect(observer.mutate()).rejects.toBe(failure);
+
+        await vi.waitFor(() => {
+            expect(invalidateSpy).toHaveBeenCalledExactlyOnceWith({ queryKey: sessionKeys.me });
+        });
     });
 });

@@ -12,6 +12,7 @@ import { DocumentTitleContext } from '@/shared/lib/documentTitle';
 import { titleOf } from '@/shared/lib/routeHandle';
 
 import styles from './Layout.module.css';
+import { UserMenu } from './session/UserMenu';
 
 /** Shown in the header, and closes every document title. */
 const PRODUCT_NAME = 'FinAssist';
@@ -114,7 +115,12 @@ export function Layout() {
             </a>
             <header className={styles.header}>
                 <div className={styles.headerInner}>
-                    <p className={styles.product}>{PRODUCT_NAME}</p>
+                    <div className={styles.topRow}>
+                        <p className={styles.product}>{PRODUCT_NAME}</p>
+                        {/* Rendered only under SessionGate (App.tsx), which never renders Layout
+                            until a session has already loaded - see UserMenu's own doc comment. */}
+                        <UserMenu />
+                    </div>
                     <nav aria-label="Primary">
                         <ul className={styles.tabs}>
                             {PRIMARY_AREAS.map((area) => (

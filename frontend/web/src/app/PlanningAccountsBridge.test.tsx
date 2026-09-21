@@ -25,6 +25,21 @@ import { routes } from './routes';
 
 const ACCOUNTS_URL = '/ledger/api/v1/accounts';
 const SCENARIOS_URL = '/ledger/api/v1/scenarios';
+const ME_URL = '/bff/me';
+
+/**
+ * Answer the session check as a signed-in owner, and delegate everything else to `answer`.
+ *
+ * This file renders the real `App` and route table, which now sit behind `SessionGate`
+ * (ADR-030): without this, the first request any test here makes would be answered 401 and the
+ * projection page under test would never render at all.
+ */
+function withOwnerSession(answer: FetchAnswer): FetchAnswer {
+    return (request) =>
+        request.url === ME_URL
+            ? jsonResponse({ subject: 'sub-owner', name: 'Naim', roles: ['owner'] })
+            : answer(request);
+}
 
 /** Four ILS accounts and one USD account, in the order the ledger lists them. */
 const ACCOUNTS = [
@@ -102,7 +117,7 @@ function ledger(accounts: () => Response | Promise<Response>): FetchAnswer {
  * `answer`. The client retries nothing, so a failure shows at once rather than after a backoff.
  */
 function renderProjectionPage(answer: FetchAnswer) {
-    const requests = fakeFetch(answer);
+    const requests = fakeFetch(withOwnerSession(answer));
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const router = createMemoryRouter(routes, { initialEntries: ['/planning/projection'] });
     render(<App router={router} queryClient={queryClient} />);

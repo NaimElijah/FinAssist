@@ -31,4 +31,12 @@ export default defineConfig([
         },
         plugins: ['@hey-api/typescript'],
     },
+    {
+        input: '../../contracts/gateway-v1.openapi.json',
+        output: {
+            path: 'src/shared/api/contracts/gateway',
+            entryFile: false,
+        },
+        plugins: ['@hey-api/typescript'],
+    },
 ]);

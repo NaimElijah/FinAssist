@@ -153,8 +153,8 @@ cd backend/gateway && ./mvnw spring-boot:run
 ```
 
 The web client now reaches both backend services only through the gateway; see
-[Using the web client](#using-the-web-client) — every call needs a signed-in gateway session, and
-the web client has no sign-in screen of its own yet (a later task).
+[Using the web client](#using-the-web-client) — every call needs a signed-in gateway session,
+which the web client's own sign-in screen now gets by opening the gateway's OIDC login entry.
 
 > [!NOTE]
 > `make` is a convenience here, not a prerequisite, and it is not installed on the author's
@@ -180,13 +180,16 @@ and open [http://localhost:5173](http://localhost:5173) — `localhost`, never `
 gateway's session cookie is keyed to the host name `GATEWAY_PUBLIC_URL` names, which defaults to
 `localhost`, so opening the other address signs in against a different, cookie-less origin.
 
-**A signed-in gateway session is required for every ledger or assistant call at this commit** —
-the web client's own sign-in screen and session gate are a later task, so nothing in the running
-pages starts one for you. Sign in by hand first, by opening
-[http://localhost:5173/bff/oauth2/authorization/keycloak](http://localhost:5173/bff/oauth2/authorization/keycloak)
-directly and completing the Keycloak login described in [First sign-in](#first-sign-in) above.
-Until then, every Accounts, Budgets, Planning or Portfolio screen answers 401 on its first
-request.
+**A signed-in gateway session is required for every ledger or assistant call**, and the whole app
+is gated on one: opening [http://localhost:5173](http://localhost:5173) with nobody signed in
+shows a sign-in screen, never an Accounts, Budgets, Planning or Portfolio page answering 401.
+Click "Sign in with Keycloak" — a plain link, so the browser actually navigates to Keycloak's
+login page rather than a script following the redirect invisibly — and complete the Keycloak
+login described in [First sign-in](#first-sign-in) above. Keycloak sends the browser back to
+`http://localhost:5173/` once you are signed in, landing on Accounts with your name and role shown
+in the header; a failed sign-in sends it back to `?signin=failed` instead, which the sign-in
+screen shows as an explanation. "Sign out", beside your name, ends the gateway's session and
+Keycloak's own, and clears everything the app had cached.
 
 Once signed in, Accounts, Budgets and Planning read and write through the ledger. Portfolio reads
 through the assistant, which holds no real data yet, so every lookup answers that nothing is held
@@ -378,6 +381,7 @@ behaviour they describe.
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
 | Web architecture | No feature imports another; `shared` imports no feature and nothing from `src/app`; `src/app` imports a feature only through its `index.ts`, and no feature imports `src/app` | `make test-web` |
 | Web unit | The HTTP client's failure contracts and `Accept` header; the shared retry rule, `isRetryable` — a read retried once after a network failure or a 5xx other than a 503, a write never, and "Try again" offered on a failed read by the same rule — with focus moved to what a successful retry restores; a settled mutation cleared when its form is edited, and a pending one left alone; a jsdom render of the app shell; and the shared UI primitives: labelled fields, a pending button, a table region that is a Tab stop only while it overflows, money formatted from its exact decimal string, and dates that never shift with the timezone | `make test-web` |
+| Web sign-in | `SessionGate` renders `SignIn` on a 401 `UNAUTHENTICATED`, a retryable `QueryErrorState` on anything else, and its children — with the resolved session, through `SessionContext` — once the session check succeeds; `SignIn` links to the gateway's OIDC entry as a plain `<a>`, never a `fetch`, and shows an explanation for `?signin=failed`; `UserMenu` shows the signed-in name and a "Read-only" badge for a `viewer`, sends the CSRF header on sign-out, clears the whole query cache and navigates to the URL the gateway answers, sends only one request for two presses before it renders again, and never navigates for a non-`http(s)` URL such as `javascript:`; `browserLocation.assign` refuses a `javascript:`, `data:` or malformed URL outright; `queryClient.ts` rechecks the session once on any other query's or mutation's 401 and never on the session check's own, which would loop | `make test-web` |
 | Web accounting | The accounts, account-detail and record-transaction screens end to end against a faked `fetch`: opening an account, recording a transaction by hand — including its two-entry amount mirror and the entry-row mapper's no-arithmetic sign handling — and clearing, reconciling or voiding one, offered only for the states each legally admits | `make test-web` |
 | Web budgeting | The budgets, budget-review and categorisation-rules screens end to end against a faked `fetch`: listing and defining budgets, the month-to-period mapping's calendar arithmetic (including a December rollover) and a non-month period's own display-end arithmetic, reviewing spend with an overspent status and unbudgeted and uncategorised amounts, not-found by problem code, the static `/budgets/rules` route outranking the dynamic `/budgets/:budgetId` one, and adding a rule invalidating the rules list and every cached budget review, proven through the query client's own state | `make test-web` |
 | Web planning | The planned-flows, scenarios, projection and comparison screens end to end against a faked `fetch`: planning a flow and moving it through its lifecycle, defining a scenario, projecting one against chosen accounts with its first shortfall and its chart, comparing scenarios against a baseline, and the account choices `src/app` adapts from accounting | `make test-web` |
