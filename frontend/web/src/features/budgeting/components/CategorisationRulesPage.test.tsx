@@ -155,10 +155,14 @@ describe('CategorisationRulesPage adding a rule', () => {
         await user.click(screen.getByRole('button', { name: 'Add rule' }));
 
         expect(await screen.findByText('"coffee" → dining')).toBeDefined();
-        const posts = requests.filter((request) => request.method === 'POST');
-        // toMatchObject, not toEqual: RecordedRequest also carries headers, which this
-        // assertion is not about - it still requires exactly one POST with this body.
-        expect(posts).toMatchObject([
+        const posts = requests
+            .filter((request) => request.method === 'POST')
+            // Projected before comparing: RecordedRequest also carries headers, which this
+            // assertion is not about, and toEqual demands an exact match on every field it is
+            // given - unlike toMatchObject, which would stop checking body for an unplanned
+            // extra field anywhere in its object graph.
+            .map(({ method, url, body }) => ({ method, url, body }));
+        expect(posts).toEqual([
             { method: 'POST', url: RULES_URL, body: { fragment: 'coffee', category: 'dining' } },
         ]);
         expect(

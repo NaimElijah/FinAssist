@@ -167,9 +167,13 @@ describe('DisposalSection', () => {
         await price(userEvent.setup({ delay: null }));
 
         const table = await screen.findByRole('table', { name: LOTS_CAPTION });
-        // toMatchObject, not toEqual: RecordedRequest also carries headers, which this
-        // assertion is not about - it still requires exactly one POST with this body.
-        expect(requests.filter(isDisposal)).toMatchObject([
+        // Projected before comparing: RecordedRequest also carries headers, which this
+        // assertion is not about, and toEqual demands an exact match on every field it is
+        // given - unlike toMatchObject, which would stop checking body for an unplanned extra
+        // field anywhere in its object graph.
+        expect(
+            requests.filter(isDisposal).map(({ method, url, body }) => ({ method, url, body })),
+        ).toEqual([
             {
                 method: 'POST',
                 url: VOO_DISPOSAL_URL,

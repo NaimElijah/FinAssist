@@ -1,14 +1,15 @@
 // @vitest-environment node
 // No DOM is needed: fetch, Headers and Response are Node globals, and requestJson touches
 // neither document nor window. sendJson does read document.cookie, for the CSRF header, but
-// that is one global property access - stubbed per test with vi.stubGlobal below rather than
-// pulling in jsdom for the whole file. Keeping this out of jsdom keeps the suite honest about
-// what the code under test actually depends on.
+// that is one global property access - stubbed per test with stubDocumentCookie below rather
+// than pulling in jsdom for the whole file. Keeping this out of jsdom keeps the suite honest
+// about what the code under test actually depends on.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { traceIdOf } from '../lib/correlation';
 import { type LogRecord, setLogSink } from '../lib/logger';
+import { stubDocumentCookie } from '../testing/stubDocumentCookie';
 import {
     ApiBodyError,
     ApiError,
@@ -25,11 +26,6 @@ import {
 } from './client';
 
 const URL = 'https://ledger.test/api/v1/accounts';
-
-/** Stubs `document` itself, not just `.cookie`: node has no `document` global to extend. */
-function stubDocumentCookie(cookie: string): void {
-    vi.stubGlobal('document', { cookie });
-}
 
 /**
  * Installs a stubbed global fetch and hands back the spy, typed as the real thing.
@@ -575,6 +571,18 @@ describe('the CSRF header', () => {
 
         const [, sent] = stub.mock.calls[0] ?? [];
         expect(new Headers(sent?.headers).has(CSRF_HEADER)).toBe(false);
+    });
+
+    it('Given_a_malformed_csrf_cookie_When_a_write_is_sent_Then_sendJson_itself_rejects', async () => {
+        // xsrfTokenFrom's own throw is pinned separately; this closes the loop end to end, so a
+        // future try/catch wrapped around a sendJson call cannot quietly swallow the failure and
+        // send the write anyway, without the header, as though nothing were wrong.
+        stubDocumentCookie('FINASSIST-XSRF-TOKEN=%');
+        const stub = stubFetch(jsonResponse({}, 201));
+
+        await expect(sendJson(URL, 'POST', {})).rejects.toThrow(URIError);
+
+        expect(stub).not.toHaveBeenCalled();
     });
 });
 
