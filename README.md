@@ -414,6 +414,14 @@ in the repository, the logs or an error message.
 
 </details>
 
+**The gateway's outbound HTTP timeouts are not an environment variable.** Spring Cloud Gateway
+Server Web MVC has no timeout property of its own for a relayed call, so
+`backend/gateway/src/main/resources/application.yml` sets Boot's own
+`spring.http.clients.connect-timeout` (`5s`) and `read-timeout` (`10s`) directly. Both bound
+every outbound HTTP call the gateway makes, not only a relay to the ledger or the assistant: the
+gateway's own calls to Keycloak — the authorization-code exchange and the `refresh_token` grant
+— share the same auto-configured `RestClient`. Raising either is a one-line change to that file.
+
 ## Deployment and operations
 
 Not deployed anywhere, and there is no target environment or migration strategy yet —

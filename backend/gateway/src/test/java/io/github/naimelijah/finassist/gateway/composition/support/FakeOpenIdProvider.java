@@ -118,6 +118,16 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         this.refuseNextRefreshOnce = true;
     }
 
+    /**
+     * Clears a pending {@link #refuseNextRefresh()} that no refresh ever consumed. The flag
+     * otherwise self-clears only when a refresh actually arrives, so a test that sets it and
+     * then fails — or simply never triggers a refresh — would leak it into whichever test runs
+     * next against this shared instance.
+     */
+    public void stopRefusingRefresh() {
+        this.refuseNextRefreshOnce = false;
+    }
+
     public boolean lastAuthorizationRequestHadPkce() {
         return lastAuthorizationRequestHadPkce;
     }

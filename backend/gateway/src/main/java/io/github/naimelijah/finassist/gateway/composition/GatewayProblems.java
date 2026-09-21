@@ -13,12 +13,14 @@ import tools.jackson.databind.json.JsonMapper;
  * The gateway's stable RFC 9457 problem codes, and the writer that serialises one in the ledger's
  * shape (ADR-028, extended by ADR-030).
  *
- * <p>Every code the gateway will ever answer is declared here, now, even though this task's
- * {@link HostAllowListFilter} is the only thing that returns one: {@code UNAUTHENTICATED},
- * {@code FORBIDDEN} and {@code CSRF_TOKEN_INVALID} wait on the OIDC login and the security chain
- * (a later task), and {@code UPSTREAM_UNAVAILABLE} waits on the relay routes (later still).
- * Declaring the whole vocabulary up front, rather than letting each task add its own constant,
- * is what keeps a later task from inventing a second name for a code this one already fixed.
+ * <p>Every code the gateway will ever answer was declared here up front, before every task that
+ * would come to return one: {@link HostAllowListFilter} answers {@code HOST_NOT_ALLOWED};
+ * {@code GatewaySecurityConfiguration}'s entry point, access-denied handler and failure handler
+ * answer {@code UNAUTHENTICATED}, {@code FORBIDDEN} and {@code CSRF_TOKEN_INVALID}; and {@code
+ * GatewayRelayProblems} answers {@code UPSTREAM_UNAVAILABLE} and {@code INTERNAL_ERROR} for a
+ * relay's own failures. Declaring the whole vocabulary up front, rather than letting each task
+ * add its own constant, is what kept every later task from inventing a second name for a code
+ * this one already fixed.
  *
  * <p>{@code title} and {@code detail} are prose for a person and may be reworded; {@code code} is
  * what a client branches on and does not change once served.

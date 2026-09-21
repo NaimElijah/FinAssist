@@ -97,6 +97,7 @@ class GatewayLoginFlowIT {
     void resetFakes() {
         idp.setIssuerOverride(null);
         idp.setAccessTokenExpiresInSeconds(300);
+        idp.stopRefusingRefresh();
         ledger.respondNext(200, "application/json", "{}");
         assistant.respondNext(200, "application/json", "{}");
     }
