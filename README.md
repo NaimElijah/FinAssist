@@ -101,7 +101,11 @@ assistant. The ledger applies its Flyway migrations at start-up, and Keycloak im
 `finassist` realm at start-up too — but only into an *empty* `keycloak-db-data` volume; editing
 `ops/keycloak/finassist-realm.json` later changes nothing until that volume is recreated or
 `kc.sh import --override` is run by hand (ADR-031). Every service then answers its health
-probe, published on `127.0.0.1` only (ADR-030, carrying [ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)'s loopback rule forward):
+probe, published on `127.0.0.1` only (ADR-030, carrying [ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)'s loopback rule forward). `docker-compose.yml`'s `:?` on
+every realm placeholder is what keeps this safe: run `ops/keycloak/Dockerfile` outside that
+guarded path with one of them unset, and Keycloak imports the literal, unresolved `${VAR}` text
+as the credential rather than refusing to start or leaving it blank — for the owner's initial
+password, that means a publicly known value, not a missing one:
 
 ```bash
 curl http://127.0.0.1:8080/actuator/health

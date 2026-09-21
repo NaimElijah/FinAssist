@@ -167,8 +167,9 @@
       <!--
         The shared contracts and ops directories live outside this module, so their paths are
         injected by Maven rather than resolved from the working directory: ${project.basedir} is
-        correct however the build was invoked. Nothing reads finassist.ops.dir yet; it is wired
-        ahead of the tests that will, the same way the ledger already wires finassist.contracts.dir.
+        correct however the build was invoked. KeycloakRealmTest and KeycloakRealmIT read
+        finassist.ops.dir to find ops/keycloak/finassist-realm.json, the same way the ledger's
+        own *IT suites read finassist.contracts.dir.
       -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

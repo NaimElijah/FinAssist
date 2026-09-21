@@ -167,7 +167,10 @@ services:
     healthcheck:
       # The image carries no curl, but it does carry bash (confirmed against the built image),
       # so the management port's readiness probe is read with bash's own `/dev/tcp`, the same
-      # technique the ledger's own tests use to write a request by hand.
+      # technique the ledger's own tests use to write a request by hand. The match tolerates
+      # whitespace around the colon, rather than pinning today's pretty-printed
+      # `"status": "UP"` exactly - a future Keycloak or Quarkus that compacts the body to
+      # `"status":"UP"` must not turn a healthy server into one this check calls unhealthy.
       test:
         - CMD
         - bash
@@ -175,7 +178,7 @@ services:
         - >-
           exec 3<>/dev/tcp/127.0.0.1/9000 &&
           printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
-          grep -q '"status": "UP"' <&3
+          grep -Eq '"status"[[:space:]]*:[[:space:]]*"UP"' <&3
       interval: 5s
       timeout: 3s
       retries: 10

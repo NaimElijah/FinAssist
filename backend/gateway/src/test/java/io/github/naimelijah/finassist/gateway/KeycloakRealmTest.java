@@ -192,6 +192,25 @@ class KeycloakRealmTest {
         assertThat(realm().has("clientScopes")).isFalse();
     }
 
+    /**
+     * The failure this guards is not the one {@code no_top_level_client_scope_is_declared}
+     * catches. That test catches a reintroduced {@code clientScopes} array; this one catches
+     * the other way to reach the same broken outcome - simply deleting {@code "basic"} from a
+     * client's own {@code defaultClientScopes} - which {@code KeycloakRealmIT} can only prove
+     * for the assistant (a real client-credentials token is easy to mint there). Nothing in
+     * this build mints a real browser user token for the gateway, because its client correctly
+     * permits only the standard flow - so this static check is the one thing standing between a
+     * dropped {@code "basic"} on the gateway and every browser sign-in silently losing
+     * {@code sub}.
+     */
+    @Test
+    void Given_both_clients_When_read_Then_basic_is_a_default_scope() {
+        for (String clientId : List.of("finassist-gateway", "finassist-assistant")) {
+            assertThat(texts(client(realm(), clientId).path("defaultClientScopes")))
+                    .contains("basic");
+        }
+    }
+
     @Test
     void Given_both_clients_When_read_Then_the_roles_claim_is_flat_multivalued_and_in_both_tokens() {
         for (String clientId : List.of("finassist-gateway", "finassist-assistant")) {
@@ -206,35 +225,35 @@ class KeycloakRealmTest {
         }
     }
 
+    /**
+     * Exhaustive on purpose, like the assistant's equivalent test below: an audience mapper the
+     * gateway acquires beyond these two would silently widen which service accepts a browser
+     * user's token, so {@code containsExactlyInAnyOrder} closes the set rather than merely
+     * checking that two named entries exist among however many there are.
+     */
     @Test
-    void Given_the_gateway_client_When_read_Then_it_carries_both_the_ledger_and_the_assistant_audience() {
+    void Given_the_gateway_client_When_read_Then_it_carries_exactly_the_ledger_and_assistant_audience() {
         JsonNode gateway = client(realm(), "finassist-gateway");
 
-        assertThat(mapperNamed(gateway, "finassist-ledger-audience")
-                        .path("config")
-                        .path("included.custom.audience")
-                        .asString())
-                .isEqualTo("finassist-ledger");
-        assertThat(mapperNamed(gateway, "finassist-assistant-audience")
-                        .path("config")
-                        .path("included.custom.audience")
-                        .asString())
-                .isEqualTo("finassist-assistant");
+        List<String> audiences = audienceMapperValues(gateway);
+
+        assertThat(audiences).containsExactlyInAnyOrder("finassist-ledger", "finassist-assistant");
     }
 
     @Test
     void Given_the_assistant_client_When_read_Then_it_carries_only_the_ledger_audience() {
         JsonNode assistant = client(realm(), "finassist-assistant");
 
-        List<String> audienceMapperNames = assistant
-                .path("protocolMappers")
+        assertThat(audienceMapperValues(assistant)).containsExactly("finassist-ledger");
+    }
+
+    private static List<String> audienceMapperValues(JsonNode client) {
+        return client.path("protocolMappers")
                 .valueStream()
                 .filter(m ->
                         "oidc-audience-mapper".equals(m.path("protocolMapper").asString()))
                 .map(m -> m.path("config").path("included.custom.audience").asString())
                 .toList();
-
-        assertThat(audienceMapperNames).containsExactly("finassist-ledger");
     }
 
     private static JsonNode mapperNamed(JsonNode client, String name) {

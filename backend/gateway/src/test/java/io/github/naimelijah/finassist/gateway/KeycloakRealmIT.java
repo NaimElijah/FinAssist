@@ -51,6 +51,16 @@ import tools.jackson.databind.json.JsonMapper;
  * unresolved placeholder text, not blank and not a failure). The variable that matters for a
  * secret is instead enforced one layer up, by {@code :?} in docker-compose.yml, which this test
  * cannot exercise because it never goes through Compose.
+ *
+ * <p><b>What this deliberately does not prove: a real browser user token for the gateway.</b>
+ * The assistant's service-account token is easy to mint here because its client permits
+ * {@code client_credentials} - the gateway client correctly permits none of that, only the
+ * standard authorization-code flow, which needs a login form this test does not drive. So
+ * {@code basic}'s presence on the gateway's own tokens is checked only statically, in
+ * {@link KeycloakRealmTest}'s {@code defaultClientScopes} assertion, never against a real image
+ * the way the assistant's is. The end-to-end proof that a real browser sign-in against the
+ * gateway actually produces a usable {@code sub} is the plan's final, manual sign-in check
+ * (R7), not this test.
  */
 class KeycloakRealmIT {
 
