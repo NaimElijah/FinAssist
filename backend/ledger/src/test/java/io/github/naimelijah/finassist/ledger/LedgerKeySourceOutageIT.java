@@ -107,9 +107,15 @@ class LedgerKeySourceOutageIT extends PostgresFixture {
                 .header(HttpHeaders.HOST, "localhost")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
 
-        assertThat(output.getOut())
+        String outageLine = output.getOut()
+                .lines()
+                .filter(candidate -> candidate.contains("key_source"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no log line was captured for the key source outage"));
+
+        assertThat(outageLine)
                 .contains("\"level\":\"ERROR\"")
-                .contains("key_source")
-                .doesNotContain(token);
+                .contains("Could not reach the authentication key source");
+        assertThat(output.getOut()).doesNotContain(token);
     }
 }
