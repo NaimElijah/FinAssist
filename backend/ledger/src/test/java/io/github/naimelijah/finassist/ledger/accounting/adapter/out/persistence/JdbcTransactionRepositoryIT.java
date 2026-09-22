@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.out.AccountRepository;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.out.TransactionRepository;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.Account;
@@ -41,6 +42,8 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
     private static final UUID SMALLER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
     private static final UUID LARGER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
+
+    private static final Actor RECORDER = new Actor("owner-user");
 
     @Autowired
     private AccountRepository accounts;
@@ -81,7 +84,7 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                         new Entry(groceries.id(), ils("2000.00")),
                         new Entry(cash.id(), ils("-1500.00")),
                         new Entry(cash.id(), ils("-500.00"))));
-        transactions.save(split);
+        transactions.save(split, RECORDER);
 
         assertThat(transactions.findById(split.id()).orElseThrow().entries())
                 .containsExactlyElementsOf(split.entries());
@@ -113,11 +116,41 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
     void Given_a_voided_transaction_When_read_back_Then_it_is_still_returned_with_its_reason() {
         Transaction recorded = record(MARCH_1, "Groceries", "12.50");
         Transaction voided = recorded.markVoided(MARCH_15, "entered twice");
-        transactions.save(voided);
+        transactions.save(voided, RECORDER);
 
         assertThat(transactions.findByAccount(cash.id())).containsExactly(voided);
         assertThat(transactions.findById(recorded.id()).orElseThrow().state())
                 .isEqualTo(new TransactionState.Voided(MARCH_15, "entered twice"));
+    }
+
+    /**
+     * {@code journal_transaction.recorded_by} is written once, at insert; each {@code
+     * journal_transaction_state} row keeps naming whoever wrote it, so clearing under a different
+     * subject must not overwrite the transaction row's own recorder (ADR-033).
+     */
+    @Test
+    void Given_a_transaction_recorded_by_one_subject_When_cleared_by_another_Then_each_row_stores_its_own_writer() {
+        Actor recorder = new Actor("owner-user");
+        Actor clearer = new Actor("viewer-user");
+        Transaction recorded = Transaction.record(
+                MARCH_1,
+                "Groceries",
+                List.of(new Entry(groceries.id(), ils("12.50")), new Entry(cash.id(), ils("-12.50"))));
+        transactions.save(recorded, recorder);
+
+        transactions.save(recorded.clear(MARCH_15), clearer);
+
+        assertThat(jdbc().sql("SELECT recorded_by FROM accounting.journal_transaction WHERE id = :id")
+                        .param("id", recorded.id().value())
+                        .query(String.class)
+                        .single())
+                .isEqualTo("owner-user");
+        assertThat(jdbc().sql("SELECT state, recorded_by FROM accounting.journal_transaction_state"
+                                + " WHERE transaction_id = :id ORDER BY sequence")
+                        .param("id", recorded.id().value())
+                        .query((row, rowNumber) -> row.getString("state") + ":" + row.getString("recorded_by"))
+                        .list())
+                .containsExactly("PENDING:owner-user", "CLEARED:viewer-user");
     }
 
     @Test
@@ -151,9 +184,12 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
         TransactionId id = TransactionId.generate();
 
         assertThatThrownBy(() -> {
-                    jdbc().sql("INSERT INTO accounting.journal_transaction VALUES (:id, :on, 'Wrong', 'ILS')")
+                    jdbc().sql("INSERT INTO accounting.journal_transaction"
+                                    + " (id, occurred_on, description, currency, recorded_by)"
+                                    + " VALUES (:id, :on, 'Wrong', 'ILS', :recordedBy)")
                             .param("id", id.value())
                             .param("on", MARCH_1)
+                            .param("recordedBy", RECORDER.subject())
                             .update();
                     jdbc().sql("INSERT INTO accounting.journal_entry VALUES (:id, 0, :account, 10.00, 'ILS')")
                             .param("id", id.value())
@@ -177,7 +213,7 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                         new Entry(travel.id(), Money.of("13870", Currency.JPY)),
                         new Entry(tokyo.id(), Money.of("-13870", Currency.JPY))));
 
-        transactions.save(yen);
+        transactions.save(yen, RECORDER);
 
         assertThat(transactions.findById(yen.id())).contains(yen);
     }
@@ -194,9 +230,12 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
     @Test
     void Given_an_entry_stored_with_more_precision_than_its_currency_admits_When_read_Then_it_is_a_server_fault() {
         TransactionId id = TransactionId.generate();
-        jdbc().sql("INSERT INTO accounting.journal_transaction VALUES (:id, :on, 'Too precise', 'ILS')")
+        jdbc().sql("INSERT INTO accounting.journal_transaction"
+                        + " (id, occurred_on, description, currency, recorded_by)"
+                        + " VALUES (:id, :on, 'Too precise', 'ILS', :recordedBy)")
                 .param("id", id.value())
                 .param("on", MARCH_1)
+                .param("recordedBy", RECORDER.subject())
                 .update();
         // One statement, so the deferred balance check sees both entries at commit.
         jdbc().sql("""
@@ -208,8 +247,11 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                 .param("groceries", groceries.id().value())
                 .param("cash", cash.id().value())
                 .update();
-        jdbc().sql("INSERT INTO accounting.journal_transaction_state VALUES (:id, 0, 'PENDING', NULL, NULL)")
+        jdbc().sql("INSERT INTO accounting.journal_transaction_state"
+                        + " (transaction_id, sequence, state, effective_on, reason, recorded_by)"
+                        + " VALUES (:id, 0, 'PENDING', NULL, NULL, :recordedBy)")
                 .param("id", id.value())
+                .param("recordedBy", RECORDER.subject())
                 .update();
 
         assertThatThrownBy(() -> transactions.findById(id))
@@ -239,7 +281,7 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                 on,
                 description,
                 List.of(new Entry(groceries.id(), ils(amount)), new Entry(cash.id(), ils("-" + amount))));
-        transactions.save(recorded);
+        transactions.save(recorded, RECORDER);
         return recorded;
     }
 
@@ -250,7 +292,7 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                 description,
                 List.of(new Entry(groceries.id(), ils(amount)), new Entry(cash.id(), ils("-" + amount))),
                 new TransactionState.Pending());
-        transactions.save(recorded);
+        transactions.save(recorded, RECORDER);
         return recorded;
     }
 

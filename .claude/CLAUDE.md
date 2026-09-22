@@ -50,7 +50,7 @@ and role-based permissions owned by each service (ADR-032). ADR-030 supersedes A
 enforcement lands neither service checks a token.
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
-Proposed today. Of all 32, ADR-027 is Superseded by ADR-030 and the other 31 are Accepted. The
+Proposed today. Of all 33, ADR-027 is Superseded by ADR-030 and the other 32 are Accepted. The
 requirements are still deliberately `TODO` in places rather than inferred from code.
 
 ## Commands
@@ -253,6 +253,12 @@ These are enforced by the build, not by review. Breaking one fails CI.
   current state. Do not add an `UPDATE` to `JdbcTransactionRepository` — the database will refuse
   it, which is the point (ADR-020, ADR-024). `budgeting` and `planning` are ordinary mutable
   tables: ADR-020 binds the record of what happened, and ADR-015 puts intent in another context.
+- **Every journal insert names `recorded_by`; never validate the constraints.** `V1_2` added a
+  nullable `recorded_by` and a `CHECK (...) NOT VALID` on `journal_transaction` and
+  `journal_transaction_state`, so a row written before it honestly stays `NULL` while every new
+  one must name a non-blank subject. `JdbcTransactionRepository` writes it on every `INSERT`;
+  never run `ALTER TABLE ... VALIDATE CONSTRAINT` on either — it would scan the historical `NULL`
+  rows and fail, and the append-only triggers forbid the `UPDATE` a fix would need (ADR-033).
 - **No foreign key crosses a schema.** `SchemaBoundariesIT` fails the build if one does. It is
   the storage-layer half of `contexts_do_not_depend_on_each_other`, which reads bytecode and so
   stops at the edge of the JVM.

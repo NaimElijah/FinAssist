@@ -1,7 +1,9 @@
 package io.github.naimelijah.finassist.ledger.accounting.adapter.in.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -13,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.github.naimelijah.finassist.ledger.WebSliceSecurity;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.AccountNotFoundException;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.EntryCurrencyMismatchException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.RecordTransactionCommand;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.RecordTransactionUseCase;
@@ -38,6 +41,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -69,6 +73,9 @@ class TransactionControllerTest {
     private static final LocalDate APRIL_1 = LocalDate.of(2026, 4, 1);
     private static final String REASON = "entered twice";
 
+    /** {@code WebSliceSecurity}'s default pre-authenticated subject; every request in this slice carries it. */
+    private static final Actor OWNER = new Actor("owner-user");
+
     private static final AccountId CASH = AccountId.generate();
     private static final AccountId GROCERIES = AccountId.generate();
 
@@ -96,7 +103,7 @@ class TransactionControllerTest {
     void Given_a_balanced_transaction_When_recorded_Then_it_is_answered_201_pending_with_no_date_and_no_location()
             throws Exception {
         Transaction recorded = purchase(MARCH_3, new TransactionState.Pending());
-        when(recorder.record(new RecordTransactionCommand(MARCH_3, "Groceries", recorded.entries())))
+        when(recorder.record(new RecordTransactionCommand(MARCH_3, "Groceries", recorded.entries(), OWNER)))
                 .thenReturn(recorded);
 
         mvc.perform(post(TRANSACTIONS)
@@ -117,6 +124,26 @@ class TransactionControllerTest {
                 .andExpect(jsonPath("$.state.status").value("PENDING"))
                 .andExpect(jsonPath("$.state.on").doesNotHaveJsonPath())
                 .andExpect(jsonPath("$.state.reason").doesNotHaveJsonPath());
+    }
+
+    /**
+     * {@code WebSliceSecurity} pre-authenticates every request as {@code owner-user}; the controller
+     * must build the command's {@code Actor} from that principal rather than from anything in the
+     * request body (ADR-033).
+     */
+    @Test
+    void Given_the_signed_in_subject_When_a_transaction_is_recorded_Then_the_command_names_it() throws Exception {
+        ArgumentCaptor<RecordTransactionCommand> captor = ArgumentCaptor.forClass(RecordTransactionCommand.class);
+        Transaction recorded = purchase(MARCH_3, new TransactionState.Pending());
+        when(recorder.record(any())).thenReturn(recorded);
+
+        mvc.perform(post(TRANSACTIONS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(recordRequest("12.50", "-12.50", "ILS")))
+                .andExpect(status().isCreated());
+
+        verify(recorder).record(captor.capture());
+        assertThat(captor.getValue().recordedBy()).isEqualTo(OWNER);
     }
 
     @Test
@@ -301,7 +328,7 @@ class TransactionControllerTest {
     void Given_a_pending_transaction_When_cleared_Then_it_is_answered_200_cleared_on_that_date_with_no_reason()
             throws Exception {
         Transaction cleared = purchase(MARCH_3, new TransactionState.Cleared(MARCH_5));
-        when(lifecycle.clear(cleared.id(), MARCH_5)).thenReturn(cleared);
+        when(lifecycle.clear(cleared.id(), MARCH_5, OWNER)).thenReturn(cleared);
 
         mvc.perform(post(TRANSACTIONS + "/" + cleared.id() + "/clear")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -318,7 +345,7 @@ class TransactionControllerTest {
     void Given_a_cleared_transaction_When_reconciled_Then_it_is_answered_200_reconciled_on_that_date_with_no_reason()
             throws Exception {
         Transaction reconciled = purchase(MARCH_3, new TransactionState.Reconciled(MARCH_5));
-        when(lifecycle.reconcile(reconciled.id(), MARCH_5)).thenReturn(reconciled);
+        when(lifecycle.reconcile(reconciled.id(), MARCH_5, OWNER)).thenReturn(reconciled);
 
         mvc.perform(post(TRANSACTIONS + "/" + reconciled.id() + "/reconcile")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -334,7 +361,7 @@ class TransactionControllerTest {
     void Given_a_pending_transaction_When_voided_Then_it_is_answered_200_voided_with_its_date_and_reason()
             throws Exception {
         Transaction voided = purchase(MARCH_3, new TransactionState.Voided(MARCH_5, REASON));
-        when(lifecycle.markVoided(voided.id(), MARCH_5, REASON)).thenReturn(voided);
+        when(lifecycle.markVoided(voided.id(), MARCH_5, REASON, OWNER)).thenReturn(voided);
 
         mvc.perform(post(TRANSACTIONS + "/" + voided.id() + "/void")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -449,9 +476,9 @@ class TransactionControllerTest {
     }
 
     private void everyTransitionThrows(RuntimeException failure) {
-        when(lifecycle.clear(any(), any())).thenThrow(failure);
-        when(lifecycle.reconcile(any(), any())).thenThrow(failure);
-        when(lifecycle.markVoided(any(), any(), any())).thenThrow(failure);
+        when(lifecycle.clear(any(), any(), any())).thenThrow(failure);
+        when(lifecycle.reconcile(any(), any(), any())).thenThrow(failure);
+        when(lifecycle.markVoided(any(), any(), any(), any())).thenThrow(failure);
     }
 
     /** A grocery purchase posted on 3 March: groceries debited, cash credited, in the given amounts. */

@@ -40,6 +40,9 @@ class AccountingHttpIT extends PostgresFixture {
     private static final String TRANSACTIONS = "/api/v1/transactions";
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
 
+    /** The subject {@link TestTokens#owner()} signs into its token; every request here carries it. */
+    private static final String OWNER_SUBJECT = "owner-user";
+
     /** One client for the class, closed afterwards, for the reason {@code LedgerApplicationIT} gives. */
     private static final HttpClient CLIENT = HttpClient.newHttpClient();
 
@@ -107,6 +110,32 @@ class AccountingHttpIT extends PostgresFixture {
         assertThat(cleared.path("id").asString()).isEqualTo(id);
         assertThat(cleared.path("state").path("status").asString()).isEqualTo("CLEARED");
         assertThat(cleared.path("state").path("on").asString()).isEqualTo("2026-03-05");
+    }
+
+    /**
+     * Every request in this class carries the owner's token, so both the transaction row and its
+     * state rows must name the token's real {@code sub} — not a placeholder, and not each other's
+     * value copied across (ADR-033).
+     */
+    @Test
+    void Given_a_transaction_recorded_and_cleared_When_the_journal_rows_are_read_Then_both_name_the_owners_subject()
+            throws Exception {
+        String cash = open("Cash", "ASSET");
+        String groceries = open("Groceries", "EXPENSE");
+        String id = record("2026-03-03", "Groceries", groceries, "12.50", cash, "-12.50");
+        ok(post(TRANSACTIONS + "/" + id + "/clear", transitionRequest("2026-03-05")));
+
+        assertThat(jdbc().sql("SELECT recorded_by FROM accounting.journal_transaction WHERE id = :id")
+                        .param("id", UUID.fromString(id))
+                        .query(String.class)
+                        .single())
+                .isEqualTo(OWNER_SUBJECT);
+        assertThat(jdbc().sql("SELECT recorded_by FROM accounting.journal_transaction_state"
+                                + " WHERE transaction_id = :id ORDER BY sequence")
+                        .param("id", UUID.fromString(id))
+                        .query(String.class)
+                        .list())
+                .containsExactly(OWNER_SUBJECT, OWNER_SUBJECT);
     }
 
     /**

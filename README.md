@@ -605,7 +605,7 @@ the database itself refuses to rewrite. **The ledger now serves accounting, budg
 planning over HTTP** under `/api/v1`, behind a Host allow-list and problem+json error handling,
 with its generated OpenAPI document pinned by `LedgerContractIT` and published as
 [`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json); it runs under Compose as
-well as natively. Thirty-two ADRs. Every architecture rule is live rather than dormant, and each
+well as natively. Thirty-three ADRs. Every architecture rule is live rather than dormant, and each
 was confirmed to fail against a planted violation — including dropping the append-only trigger and
 planting a foreign key across a schema boundary. CI gates build, lint, format and dependency audit
 across four jobs, and publishes a coverage report from each.
@@ -634,11 +634,13 @@ Known limitations:
   composition root so the endpoints have something to answer by hand; it is a development aid,
   not a data source, and no ledger client or price feed exists yet. Without it, the web client's
   portfolio screens answer every lookup with nothing held.
-- **The audit trail cannot say who.** The journal records what changed, when and — for a voided
-  transaction — why, and the database refuses to let any of it be rewritten. It records no actor,
-  because there is no authentication to name one. That gap is
-  [ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)'s, stated in advance rather
-  than discovered.
+- **The audit trail says who, from `V1_2` onward, but does not show it yet.** Every journal
+  insert now names the authenticated subject that wrote it — `TransactionController` builds an
+  `Actor` from the request's `java.security.Principal` — but a row written before that migration
+  honestly names nobody, and the value is stored, never exposed through the API
+  ([#63](https://github.com/NaimElijah/FinAssist/issues/63))
+  ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md),
+  [ADR-033](docs/ADRs/ADR-033-the-journal-records-who.md)).
 - **Docker is required to test the ledger**, not only to run it. The store is tested against a
   real PostgreSQL, and the suite fails rather than skipping when no daemon answers
   ([ADR-025](docs/ADRs/ADR-025-integration-tests-on-testcontainers.md)).

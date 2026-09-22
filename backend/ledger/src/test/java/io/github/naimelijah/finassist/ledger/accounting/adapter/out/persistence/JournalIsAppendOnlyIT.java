@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.out.AccountRepository;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.out.TransactionRepository;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.Account;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountType;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Entry;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Transaction;
+import io.github.naimelijah.finassist.ledger.accounting.domain.entry.TransactionId;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.TransactionState;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
@@ -37,6 +39,8 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
     private static final LocalDate MARCH_1 = LocalDate.of(2026, 3, 1);
     private static final LocalDate MARCH_3 = LocalDate.of(2026, 3, 3);
     private static final LocalDate MARCH_5 = LocalDate.of(2026, 3, 5);
+
+    private static final Actor RECORDER = new Actor("owner-user");
 
     @Autowired
     private AccountRepository accounts;
@@ -94,8 +98,8 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
     @Test
     void Given_a_transaction_moved_through_its_lifecycle_When_the_rows_are_read_Then_every_state_is_still_there() {
         Transaction recorded = record("12.50");
-        transactions.save(recorded.clear(MARCH_3));
-        transactions.save(recorded.clear(MARCH_3).reconcile(MARCH_5));
+        transactions.save(recorded.clear(MARCH_3), RECORDER);
+        transactions.save(recorded.clear(MARCH_3).reconcile(MARCH_5), RECORDER);
 
         List<String> history = jdbc().sql(
                         "SELECT state FROM accounting.journal_transaction_state WHERE transaction_id = :id"
@@ -114,8 +118,8 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
     void Given_a_transaction_saved_again_unchanged_When_the_rows_are_read_Then_no_state_was_appended() {
         Transaction recorded = record("12.50");
 
-        transactions.save(recorded);
-        transactions.save(recorded);
+        transactions.save(recorded, RECORDER);
+        transactions.save(recorded, RECORDER);
 
         assertThat(states(recorded)).isEqualTo(1);
     }
@@ -131,9 +135,28 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
         Transaction rewritten = new Transaction(
                 recorded.id(), recorded.occurredOn(), recorded.description(), entries("99.99"), recorded.state());
 
-        assertThatThrownBy(() -> transactions.save(rewritten))
+        assertThatThrownBy(() -> transactions.save(rewritten, RECORDER))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("cannot be rewritten");
+    }
+
+    /**
+     * {@code V1_2}'s {@code CHECK} is {@code NOT VALID}, which only excuses it from scanning history
+     * already in the table — it still runs on every row written from now on. This is the other half
+     * of ADR-033's obligation, proven the way this file proves the rest of ADR-020: against the
+     * database directly, not through the repository.
+     */
+    @Test
+    void Given_a_new_transaction_When_inserted_without_a_recorder_Then_the_database_refuses_it() {
+        TransactionId id = TransactionId.generate();
+
+        assertThatThrownBy(() -> jdbc().sql(
+                                "INSERT INTO accounting.journal_transaction (id, occurred_on, description, currency)"
+                                        + " VALUES (:id, :on, 'Groceries', 'ILS')")
+                        .param("id", id.value())
+                        .param("on", MARCH_1)
+                        .update())
+                .hasMessageContaining("journal_transaction_recorded_by_shape");
     }
 
     private int states(Transaction transaction) {
@@ -145,7 +168,7 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
 
     private Transaction record(String amount) {
         Transaction recorded = Transaction.record(MARCH_1, "Groceries", entries(amount));
-        transactions.save(recorded);
+        transactions.save(recorded, RECORDER);
         return recorded;
     }
 

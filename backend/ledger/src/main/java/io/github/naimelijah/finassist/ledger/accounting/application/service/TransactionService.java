@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger.accounting.application.service;
 
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.AccountNotFoundException;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.EntryCurrencyMismatchException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.RecordTransactionCommand;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.RecordTransactionUseCase;
@@ -61,32 +62,32 @@ public class TransactionService implements RecordTransactionUseCase, TransitionT
         }
 
         Transaction transaction = Transaction.record(command.occurredOn(), command.description(), command.entries());
-        transactions.save(transaction);
+        transactions.save(transaction, command.recordedBy());
         events.publish(new AccountingEvent.TransactionRecorded(
                 transaction.id(), transaction.occurredOn(), transaction.description(), List.copyOf(touched)));
         return transaction;
     }
 
     @Override
-    public Transaction clear(TransactionId id, LocalDate clearedOn) {
+    public Transaction clear(TransactionId id, LocalDate clearedOn, Actor recordedBy) {
         Transaction cleared = require(id).clear(clearedOn);
-        transactions.save(cleared);
+        transactions.save(cleared, recordedBy);
         events.publish(new AccountingEvent.TransactionCleared(cleared.id(), clearedOn));
         return cleared;
     }
 
     @Override
-    public Transaction reconcile(TransactionId id, LocalDate reconciledOn) {
+    public Transaction reconcile(TransactionId id, LocalDate reconciledOn, Actor recordedBy) {
         Transaction reconciled = require(id).reconcile(reconciledOn);
-        transactions.save(reconciled);
+        transactions.save(reconciled, recordedBy);
         events.publish(new AccountingEvent.TransactionReconciled(reconciled.id(), reconciledOn));
         return reconciled;
     }
 
     @Override
-    public Transaction markVoided(TransactionId id, LocalDate voidedOn, String reason) {
+    public Transaction markVoided(TransactionId id, LocalDate voidedOn, String reason, Actor recordedBy) {
         Transaction voided = require(id).markVoided(voidedOn, reason);
-        transactions.save(voided);
+        transactions.save(voided, recordedBy);
         // Genuinely read off the aggregate now, not re-derived from the input. The two agree only
         // because Voided happens to normalise with strip() today; the day it collapses whitespace or
         // truncates, a re-derived event would carry a reason that was never stored, and no test would

@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.accounting.application.port.out;
 
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Transaction;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.TransactionId;
@@ -41,6 +42,13 @@ public interface TransactionRepository {
      */
     List<Transaction> findBetween(LocalDate fromInclusive, LocalDate toExclusive);
 
-    /** Stores the transaction, replacing any earlier state of the same identity. */
-    void save(Transaction transaction);
+    /**
+     * Stores the transaction, replacing any earlier state of the same identity.
+     *
+     * <p>{@code recordedBy} is written once, on the row this identity is first recorded with; every
+     * later call — a lifecycle transition — writes it onto the new {@code journal_transaction_state}
+     * row it appends, which may name a different actor from the one who first recorded the
+     * transaction (ADR-033).
+     */
+    void save(Transaction transaction, Actor recordedBy);
 }

@@ -362,19 +362,26 @@ an `ErrorState` above the form. On success, `useRecordTransaction` invalidates t
 transaction-list queries of every account the entries name, and never the accounts list, which
 recording cannot change; the browser moves to the first entry's account.
 
-**Recording a purchase, ledger.** `RecordTransactionCommand` → `TransactionService` loads every
-referenced `Account` and refuses an entry whose currency the account does not hold →
-`Transaction.record` refuses entries that do not sum to zero → `TransactionRepository.save`,
-which inserts the transaction, its entries and its opening state in one database transaction,
-and whose deferred constraint refuses at commit anything the aggregate somehow let through →
-`AccountingEvents.publish`. Nothing consumes the event; see
-[ADR-023](../ADRs/ADR-023-domain-events-in-the-ledger.md).
+**Recording a purchase, ledger.** `TransactionController` builds an `Actor` from the request's
+`java.security.Principal#getName()` — the validated token's `sub` — and passes it into
+`RecordTransactionCommand` alongside the caller's own data, never as part of it (ADR-021 still
+holds: identity is generated inside the service, an actor is who asked, not what it named) →
+`TransactionService` loads every referenced `Account` and refuses an entry whose currency the
+account does not hold → `Transaction.record` refuses entries that do not sum to zero →
+`TransactionRepository.save`, which inserts the transaction, its entries, its opening state and
+the actor's subject as `recorded_by` in one database transaction, and whose deferred constraint
+refuses at commit anything the aggregate somehow let through → `AccountingEvents.publish`.
+Nothing consumes the event; see [ADR-023](../ADRs/ADR-023-domain-events-in-the-ledger.md).
 
-**Clearing it.** `TransactionService.clear` loads the transaction, the aggregate returns a new
-value in the `Cleared` state, and `save` **appends** a row to
-`accounting.journal_transaction_state`. Nothing is overwritten and nothing is deleted; the
-earlier states stay readable, which is what makes the journal the audit record
-([ADR-020](../ADRs/ADR-020-audit-trail-follows-persistence.md)).
+**Clearing it.** `TransactionController` builds a fresh `Actor` from the clearing request's own
+principal — it may name someone other than whoever recorded the transaction →
+`TransactionService.clear` loads the transaction, the aggregate returns a new value in the
+`Cleared` state, and `save` **appends** a row to `accounting.journal_transaction_state`, carrying
+that actor's subject as its own `recorded_by`; the transaction row's `recorded_by`, written once
+at insert, never changes. Nothing is overwritten and nothing is deleted; the earlier states stay
+readable, which is what makes the journal the audit record, now naming who wrote each row
+([ADR-020](../ADRs/ADR-020-audit-trail-follows-persistence.md),
+[ADR-033](../ADRs/ADR-033-the-journal-records-who.md)).
 
 **Reviewing a budget, from the browser.** `BudgetReviewPage` reads the budget's period and
 currency from `useBudgets()`'s own cache rather than a request of its own, since the ledger has

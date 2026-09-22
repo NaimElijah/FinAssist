@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.accounting.adapter.in.web;
 
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.RecordTransactionCommand;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -29,8 +30,8 @@ public record RecordTransactionRequest(
      * @throws IllegalArgumentException if an entry is zero, or carries more precision than its currency
      *     admits
      */
-    RecordTransactionCommand toCommand() {
+    RecordTransactionCommand toCommand(Actor recordedBy) {
         return new RecordTransactionCommand(
-                occurredOn, description, entries.stream().map(EntryDto::toEntry).toList());
+                occurredOn, description, entries.stream().map(EntryDto::toEntry).toList(), recordedBy);
     }
 }

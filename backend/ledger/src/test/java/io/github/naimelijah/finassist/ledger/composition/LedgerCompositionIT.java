@@ -3,6 +3,7 @@ package io.github.naimelijah.finassist.ledger.composition;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.OpenAccountCommand;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.RecordTransactionCommand;
 import io.github.naimelijah.finassist.ledger.accounting.application.service.AccountService;
@@ -62,6 +63,7 @@ class LedgerCompositionIT extends PostgresFixture {
 
     private static final LocalDate MARCH_5 = LocalDate.of(2026, 3, 5);
     private static final Category GROCERIES = Category.of("groceries");
+    private static final Actor RECORDER = new Actor("owner-user");
 
     @Autowired
     private AccountService accounts;
@@ -88,7 +90,8 @@ class LedgerCompositionIT extends PostgresFixture {
         transactions.record(new RecordTransactionCommand(
                 MARCH_5,
                 "SUPERPHARM TLV",
-                List.of(new Entry(groceries.id(), ils("310.50")), new Entry(cash.id(), ils("-310.50")))));
+                List.of(new Entry(groceries.id(), ils("310.50")), new Entry(cash.id(), ils("-310.50"))),
+                RECORDER));
 
         budgets.add(new CategorisationRule("superpharm", GROCERIES));
         Budget budget = budgets.define(new DefineBudgetCommand(
@@ -111,7 +114,8 @@ class LedgerCompositionIT extends PostgresFixture {
         transactions.record(new RecordTransactionCommand(
                 LocalDate.of(2026, 1, 1),
                 "Opening balance",
-                List.of(new Entry(cash.id(), ils("5000.00")), new Entry(equity.id(), ils("-5000.00")))));
+                List.of(new Entry(cash.id(), ils("5000.00")), new Entry(equity.id(), ils("-5000.00"))),
+                RECORDER));
 
         Scenario baseline = scenarios.define(
                 new DefineScenarioCommand("Do nothing", Currency.ILS, List.of(), GrowthAssumption.none()));

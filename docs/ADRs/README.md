@@ -25,11 +25,11 @@ append-only history: to change course, add a new record and mark the old one
 | [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted |
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
 | [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted |
-| [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted |
+| [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, extended by 033 |
 | [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted |
 | [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted |
 | [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted |
-| [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted |
+| [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033 |
 | [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted |
 | [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted, extended by 030 |
 | [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
@@ -38,6 +38,7 @@ append-only history: to change course, add a new record and mark the old one
 | [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted |
 | [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted |
+| [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -55,3 +56,8 @@ follow.
 chose to build authentication to a professional standard before the threat model asked for it.
 030 keeps 027's loopback binding, Host allow-lists and JSON-only writes as defence in depth. 031
 records the identity provider it relies on, and 032 the authorisation model.
+
+033 extends 020 and 024 on 2026-09-22, once authentication existed to discharge the "who" both
+records had deferred: every journal row now names the authenticated subject that wrote it, from
+`V1_2__journal_recorded_by.sql` onward. 021's rule that identity is generated inside the service
+still holds — an actor travels beside a command, never inside one.

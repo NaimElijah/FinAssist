@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger;
 
+import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -131,5 +132,27 @@ public abstract class PostgresFixture {
                 new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         source.setDriverClassName(POSTGRES.getDriverClassName());
         return JdbcClient.create(source);
+    }
+
+    /**
+     * Creates a brand-new, empty database inside this same container, for the one test that must run
+     * Flyway from an earlier target and cannot share the schema every other {@code *IT} truncates
+     * between cases ({@code JournalActorMigrationIT}).
+     *
+     * <p>{@code CREATE DATABASE} takes no bind parameter for its own name — PostgreSQL supports none
+     * for an identifier — so the name is interpolated rather than bound. Every caller passes a literal
+     * it wrote itself; this is a test fixture building its own throwaway database, not a boundary that
+     * ever sees external input.
+     *
+     * @param name a lowercase identifier, unique for the run
+     */
+    protected static DataSource freshDatabase(String name) {
+        freshConnection().sql("CREATE DATABASE " + name).update();
+        String url = "jdbc:postgresql://" + POSTGRES.getHost() + ":"
+                + POSTGRES.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT) + "/" + name;
+        DriverManagerDataSource source =
+                new DriverManagerDataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword());
+        source.setDriverClassName(POSTGRES.getDriverClassName());
+        return source;
     }
 }
