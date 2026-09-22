@@ -23,6 +23,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.tomcat.TomcatWebServer;
@@ -66,11 +67,30 @@ class GatewayApplicationIT {
     /** The same entry naming a registration that does not exist, which only this gateway can answer. */
     private static final String UNKNOWN_LOGIN_ENTRY = "/bff/oauth2/authorization/not-a-registered-provider";
 
+    /**
+     * The shipped outbound budget, {@code spring.http.clients.*} in {@code application.yml}.
+     * Spelled here rather than read from the same file the assertion is about: a test that took
+     * its expectation from its subject would pass through any change to it.
+     */
+    private static final Duration SHIPPED_CONNECT_TIMEOUT = Duration.ofSeconds(5);
+
+    private static final Duration SHIPPED_READ_TIMEOUT = Duration.ofSeconds(10);
+
     @LocalServerPort
     private int port;
 
     @Autowired
     private ServletWebServerApplicationContext context;
+
+    /**
+     * What {@code spring.http.clients.*} resolved to. {@code HttpClientAutoConfiguration}
+     * publishes this bean from {@code HttpClientsProperties}, and {@code
+     * ImperativeHttpClientAutoConfiguration} builds the {@code ClientHttpRequestFactory} every
+     * outbound call goes through from it — so this is the settings object the application actually
+     * uses, not a re-read of the file.
+     */
+    @Autowired
+    private HttpClientSettings outboundHttpSettings;
 
     /**
      * One client for the class, closed afterwards. {@link HttpClient} owns a selector thread and
@@ -128,6 +148,30 @@ class GatewayApplicationIT {
 
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body()).contains("\"status\":\"UP\"");
+    }
+
+    /**
+     * The budget that bounds every call this gateway makes to Keycloak — the authorization-code
+     * exchange, the {@code refresh_token} grant and the JWK-set fetch — and every relayed request
+     * besides.
+     *
+     * <p>{@code GatewayKeycloakTimeoutIT} proves those three calls are bounded, but it supplies
+     * its own one-second budget to do it, so it would stay green with the shipped values deleted.
+     * {@code HttpClientSettings.defaults()} leaves both durations {@code null} and the JDK client
+     * has no read timeout of its own, so deleting those two lines does not restore a default — it
+     * returns every outbound call to unbounded, which is the defect commit 6217273 fixed. Nothing
+     * else in this module reads them: this context boots the shipped {@code application.yml} with
+     * no override, which is the whole point of asserting it here.
+     *
+     * <p>Changing the budget means changing this assertion, which is deliberate: the numbers are
+     * written down twice already — in {@code application.yml} and in the README's note on the
+     * gateway's outbound timeouts — and a value only one place knows about is how this budget
+     * came to be missing in the first place.
+     */
+    @Test
+    void Given_the_shipped_configuration_When_the_outbound_http_settings_are_read_Then_they_carry_the_agreed_budget() {
+        assertThat(outboundHttpSettings.connectTimeout()).isEqualTo(SHIPPED_CONNECT_TIMEOUT);
+        assertThat(outboundHttpSettings.readTimeout()).isEqualTo(SHIPPED_READ_TIMEOUT);
     }
 
     /**
