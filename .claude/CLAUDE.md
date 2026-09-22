@@ -426,3 +426,14 @@ consistent rather than because a test would catch a deviation.
   shared `QueryErrorState` from `src/shared/ui`, which renders its `RetryButton`, never a copy of
   its own; moves focus to what a successful retry restores with `useRetryFocus`; and checks a
   problem's code with `hasProblemCode`, beside `ApiError`.
+- **A write control reads `useWriteAccess` before it renders, and the server enforces access
+  regardless.** `WriteAccessContext` (`src/shared/lib/writeAccess.ts`) is a UX courtesy alone,
+  never a security boundary; `SessionGate` provides it from `writeAccessFor(session.roles)`
+  (`src/app/session/access.ts`), and `renderRoutes`'s `access` option defaults to
+  `{canWrite: true}` so a screen test written before this convention needs no change. A viewer
+  sees every area but no control that changes data — `OpenAccountForm`, `RecordTransactionPage`,
+  Clear/Reconcile/Void, `DefineBudgetForm`, `AddCategorisationRuleForm`, `PlanFlowForm`,
+  Commit/Realise/Cancel, and `DefineScenarioForm` all hide themselves this way — except
+  `DisposalSection`, which stays offered because pricing a disposal is a read. A `FORBIDDEN`
+  problem is rendered by `ErrorState` with a fixed sentence rather than the server's own detail,
+  through the same `hasProblemCode` machinery, never a bespoke check.

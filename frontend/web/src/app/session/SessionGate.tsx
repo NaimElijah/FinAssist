@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
 
 import { hasProblemCode } from '@/shared/api/client';
+import { WriteAccessContext } from '@/shared/lib/writeAccess';
 import { QueryErrorState } from '@/shared/ui';
 
+import { writeAccessFor } from './access';
 import { SessionContext } from './sessionContext';
 import { useSession } from './sessionQueries';
 import styles from './SessionGate.module.css';
@@ -33,6 +35,11 @@ export interface SessionGateProps {
  * pending query in this app uses (`AccountsPage`'s "Loading accounts…", for one), rather than a
  * blank screen or a bespoke spinner.
  *
+ * It also provides `WriteAccessContext` (Task 16), computed once from the session's roles through
+ * `writeAccessFor`, so every screen reads whether to offer a control that changes data from the
+ * same resolved session rather than each recomputing it. Hiding a control there is a UX courtesy
+ * only; the server enforces access regardless of what this context says.
+ *
  * @param props - see `SessionGateProps`.
  */
 export function SessionGate({ children }: SessionGateProps) {
@@ -57,5 +64,11 @@ export function SessionGate({ children }: SessionGateProps) {
         );
     }
 
-    return <SessionContext value={session.data}>{children}</SessionContext>;
+    return (
+        <SessionContext value={session.data}>
+            <WriteAccessContext value={writeAccessFor(session.data.roles)}>
+                {children}
+            </WriteAccessContext>
+        </SessionContext>
+    );
 }

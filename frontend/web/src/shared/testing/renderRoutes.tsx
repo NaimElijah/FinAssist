@@ -10,11 +10,23 @@ import { render, type RenderResult } from '@testing-library/react';
 import { createMemoryRouter, type RouteObject } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 
+import { type WriteAccess, WriteAccessContext } from '@/shared/lib/writeAccess';
+
 /** What a test can reach after rendering: the DOM queries, and the router and cache behind them. */
 export type RenderedRoutes = RenderResult & {
     readonly router: ReturnType<typeof createMemoryRouter>;
     readonly queryClient: QueryClient;
 };
+
+/** `renderRoutes`'s own options, every one of them optional. */
+export interface RenderRoutesOptions {
+    /**
+     * The write access the mounted screen sees. Defaults to an owner's (`{canWrite: true}`), so
+     * every screen test written before Task 16 keeps rendering with write access and needs no
+     * change; a test of a read-only session opts in deliberately.
+     */
+    readonly access?: WriteAccess;
+}
 
 /**
  * Mount `routes` under a pathless-layout root at `/`, in an in-memory router starting at `path`,
@@ -27,9 +39,15 @@ export type RenderedRoutes = RenderResult & {
  *
  * @param routes - the routes to mount, with paths relative to `/`, as a feature exports them.
  * @param path - the location the router starts at, such as `/accounts`.
+ * @param options - see `RenderRoutesOptions`.
  * @returns Testing Library's render result, plus the router and the query client.
  */
-export function renderRoutes(routes: RouteObject[], path: string): RenderedRoutes {
+export function renderRoutes(
+    routes: RouteObject[],
+    path: string,
+    options?: RenderRoutesOptions,
+): RenderedRoutes {
+    const access = options?.access ?? { canWrite: true };
     const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -40,7 +58,9 @@ export function renderRoutes(routes: RouteObject[], path: string): RenderedRoute
     });
     const result = render(
         <QueryClientProvider client={queryClient}>
-            <RouterProvider router={router} />
+            <WriteAccessContext value={access}>
+                <RouterProvider router={router} />
+            </WriteAccessContext>
         </QueryClientProvider>,
     );
     return { ...result, router, queryClient };

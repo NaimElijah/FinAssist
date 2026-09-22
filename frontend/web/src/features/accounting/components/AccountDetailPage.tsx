@@ -6,6 +6,7 @@ import { hasProblemCode } from '@/shared/api/client';
 import { useDocumentTitle } from '@/shared/lib/documentTitle';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { todayIsoDate } from '@/shared/lib/today';
+import { useWriteAccess } from '@/shared/lib/writeAccess';
 import {
     ActionPanel,
     Button,
@@ -115,7 +116,12 @@ function stateCellId(transactionId: string): string {
     return `transaction-state-${transactionId}`;
 }
 
-/** The buttons offering this status's legal actions, or nothing for a frozen transaction. */
+/**
+ * The buttons offering this status's legal actions, or nothing for a frozen transaction or a
+ * read-only session (`useWriteAccess`) - Clear, Reconcile and Void all change data, so none is
+ * offered to a viewer even though the server would answer a lifecycle-change attempt with a plain
+ * 403 either way.
+ */
 function LifecycleButtons({
     status,
     onOpen,
@@ -123,8 +129,9 @@ function LifecycleButtons({
     readonly status: TransactionStatus;
     readonly onOpen: (kind: LifecycleKind) => void;
 }) {
+    const { canWrite } = useWriteAccess();
     const actions = LEGAL_ACTIONS[status];
-    if (actions.length === 0) {
+    if (!canWrite || actions.length === 0) {
         return null;
     }
     return (

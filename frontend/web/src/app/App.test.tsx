@@ -31,11 +31,16 @@ const AREAS = [
 const ACCOUNTS_URL = '/ledger/api/v1/accounts';
 const BUDGETS_URL = '/ledger/api/v1/budgets';
 const PLANNED_FLOWS_URL = '/ledger/api/v1/planned-flows';
+const SCENARIOS_URL = '/ledger/api/v1/scenarios';
+const RULES_URL = '/ledger/api/v1/categorisation-rules';
 const HOLDINGS_URL = '/assistant/api/v1/portfolio/holdings';
 const ME_URL = '/bff/me';
 
 /** The signed-in owner every test in this file runs as, unless a test overrides the session. */
 const OWNER_SESSION = { subject: 'sub-owner', name: 'Naim', roles: ['owner'] };
+
+/** The signed-in viewer the read-only test in this file runs as. */
+const VIEWER_SESSION = { subject: 'sub-viewer', name: 'A Viewer', roles: ['viewer'] };
 
 /**
  * Answer the session check as a signed-in owner, and delegate everything else to `answer`.
@@ -312,5 +317,46 @@ describe('App', () => {
 
         expect(await screen.findByRole('link', { name: /sign in/i })).toBeDefined();
         expect(screen.queryByRole('heading', { level: 1, name: 'Accounts' })).toBeNull();
+    });
+
+    it('Given_a_signed_in_viewer_When_every_area_is_visited_Then_no_write_control_is_offered_and_the_header_says_read_only', async () => {
+        fakeFetch((request) => {
+            if (request.url === ME_URL) return jsonResponse(VIEWER_SESSION);
+            if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+            if (request.url === BUDGETS_URL) return jsonResponse([]);
+            if (request.url === RULES_URL) return jsonResponse([]);
+            if (request.url === PLANNED_FLOWS_URL) return jsonResponse([]);
+            if (request.url === SCENARIOS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        const router = createMemoryRouter(routes, { initialEntries: ['/accounts'] });
+        render(<App router={router} queryClient={createQueryClient()} />);
+        const user = userEvent.setup();
+
+        await screen.findByRole('heading', { level: 1, name: 'Accounts' });
+        expect(screen.getByText('Read-only')).toBeDefined();
+        expect(screen.queryByRole('button', { name: 'Open account' })).toBeNull();
+        expect(screen.queryByRole('link', { name: 'Record transaction' })).toBeNull();
+
+        await user.click(screen.getByRole('link', { name: 'Budgets' }));
+        await screen.findByRole('heading', { level: 1, name: 'Budgets' });
+        expect(screen.queryByRole('button', { name: 'Define budget' })).toBeNull();
+
+        await user.click(screen.getByRole('link', { name: 'Categorisation rules' }));
+        await screen.findByRole('heading', { level: 1, name: 'Categorisation rules' });
+        expect(screen.queryByRole('button', { name: 'Add rule' })).toBeNull();
+
+        await user.click(screen.getByRole('link', { name: 'Planning' }));
+        await screen.findByRole('heading', { level: 1, name: 'Planning' });
+        expect(screen.queryByRole('button', { name: 'Plan flow' })).toBeNull();
+
+        await user.click(screen.getByRole('link', { name: 'Scenarios' }));
+        await screen.findByText(
+            'No scenarios yet — the do-nothing baseline is a scenario with no flows',
+        );
+        expect(screen.queryByRole('button', { name: 'Define scenario' })).toBeNull();
+
+        await user.click(screen.getByRole('link', { name: 'Portfolio' }));
+        expect(await screen.findByRole('heading', { level: 1, name: 'Portfolio' })).toBeDefined();
     });
 });

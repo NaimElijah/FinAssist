@@ -8,6 +8,7 @@ import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
+import type { WriteAccess } from '@/shared/lib/writeAccess';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -91,9 +92,16 @@ function isDisposal(request: RecordedRequest): boolean {
 /**
  * Render a holding's page and wait for its position and valuation to show, so the calculator is
  * driven on a page no longer loading.
+ *
+ * `access` defaults to an owner's, matching `renderRoutes`'s own default, so every test written
+ * before Task 16 needs no change; the one test proving the disposal section stays offered to a
+ * viewer passes `{canWrite: false}` deliberately.
  */
-async function renderSettledHolding(path = '/portfolio/VOO') {
-    const rendered = renderRoutes(portfolioRoutes, path);
+async function renderSettledHolding(
+    path = '/portfolio/VOO',
+    access: WriteAccess = { canWrite: true },
+) {
+    const rendered = renderRoutes(portfolioRoutes, path, { access });
     await screen.findByText('US$4,200.00');
     await screen.findByText('US$5,250.00');
     return rendered;
@@ -149,6 +157,18 @@ afterEach(() => {
 });
 
 describe('DisposalSection', () => {
+    it('Given_a_read_only_session_When_a_holding_page_renders_Then_the_disposal_section_is_still_offered', async () => {
+        // Pricing a disposal is a calculation that records nothing, so the assistant grants it
+        // under portfolio:read alone; a viewer must still be offered it (Task 16).
+        fakeFetch(assistant());
+
+        await renderSettledHolding('/portfolio/VOO', { canWrite: false });
+
+        expect(screen.getByRole('region', { name: SECTION })).toBeDefined();
+        expect(screen.getByLabelText('Quantity')).toBeDefined();
+        expect(screen.getByRole('button', { name: 'Price disposal' })).toBeDefined();
+    });
+
     it('Given_a_holding_page_When_rendered_Then_the_disposal_section_says_it_is_a_calculation_that_records_nothing', async () => {
         fakeFetch(assistant());
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { todayIsoDate } from '@/shared/lib/today';
+import { useWriteAccess } from '@/shared/lib/writeAccess';
 import {
     ActionPanel,
     Button,
@@ -118,7 +119,11 @@ function stateCellId(flowId: string): string {
     return `flow-state-${flowId}`;
 }
 
-/** The buttons offering this status's legal actions, or nothing for a frozen flow. */
+/**
+ * The buttons offering this status's legal actions, or nothing for a frozen flow or a read-only
+ * session (`useWriteAccess`) - Commit, Realise and Cancel all change data, so none is offered to
+ * a viewer (Task 16).
+ */
 function LifecycleButtons({
     status,
     onOpen,
@@ -126,8 +131,9 @@ function LifecycleButtons({
     readonly status: PlanStatus;
     readonly onOpen: (kind: LifecycleKind) => void;
 }) {
+    const { canWrite } = useWriteAccess();
     const actions = LEGAL_ACTIONS[status];
-    if (actions.length === 0) {
+    if (!canWrite || actions.length === 0) {
         return null;
     }
     return (
@@ -486,14 +492,17 @@ function PlannedFlowsList({
 
 /**
  * `/planning/flows`: every planned flow with its amount, direction, start date and recurrence
- * summary, whatever its state, and the form that plans another.
+ * summary, whatever its state, and, for a session with write access, the form that plans another.
  *
  * Each flow's legal lifecycle actions are offered per its current status; opening one moves the
  * flow through `PLANNED → COMMITTED → REALISED`, with `CANCELLED` reachable from the first two.
  * Planning a flow moves focus to its new row's description, once - the one success signal,
  * mirroring `AccountsPage`'s own pattern.
+ *
+ * A read-only session (`useWriteAccess`) sees neither the form nor a lifecycle action (Task 16).
  */
 export function PlannedFlowsPage() {
+    const { canWrite } = useWriteAccess();
     const [plannedFlowId, setPlannedFlowId] = useState<string | undefined>(undefined);
     // Stable, so the row's focus effect does not run again on every render of the page.
     const clearPlannedFlow = useCallback(() => {
@@ -503,11 +512,13 @@ export function PlannedFlowsPage() {
     return (
         <>
             <PlannedFlowsList focusedFlowId={plannedFlowId} onFocused={clearPlannedFlow} />
-            <PlanFlowForm
-                onPlanned={(flow) => {
-                    setPlannedFlowId(flow.id);
-                }}
-            />
+            {canWrite ? (
+                <PlanFlowForm
+                    onPlanned={(flow) => {
+                        setPlannedFlowId(flow.id);
+                    }}
+                />
+            ) : null}
         </>
     );
 }

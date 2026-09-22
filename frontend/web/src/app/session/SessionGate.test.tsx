@@ -5,8 +5,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
+import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 
+import { useWriteAccess } from '@/shared/lib/writeAccess';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -29,15 +31,19 @@ function ProtectedChild() {
     return <p>{`${CHILD_TEXT}: ${session.name}`}</p>;
 }
 
-function renderGate(answer: FetchAnswer) {
+/** Reads the write access `SessionGate` provided, proving it reached the tree too. */
+function WriteAccessChild() {
+    const { canWrite } = useWriteAccess();
+    return <p>{`can write: ${String(canWrite)}`}</p>;
+}
+
+function renderGate(answer: FetchAnswer, child: ReactElement = <ProtectedChild />) {
     fakeFetch(answer);
     // retry: false - a 5xx test would otherwise wait out the app's real backoff.
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     return render(
         <QueryClientProvider client={queryClient}>
-            <SessionGate>
-                <ProtectedChild />
-            </SessionGate>
+            <SessionGate>{child}</SessionGate>
         </QueryClientProvider>,
     );
 }
@@ -64,6 +70,30 @@ describe('SessionGate', () => {
         );
 
         expect(await screen.findByText(`${CHILD_TEXT}: Naim`)).toBeDefined();
+    });
+
+    it('Given_a_signed_in_owner_When_loaded_Then_write_access_is_granted_to_the_tree', async () => {
+        renderGate(
+            (request) =>
+                request.url === ME_URL
+                    ? jsonResponse({ subject: 'sub-1', name: 'Naim', roles: ['owner'] })
+                    : unexpectedRequest(request),
+            <WriteAccessChild />,
+        );
+
+        expect(await screen.findByText('can write: true')).toBeDefined();
+    });
+
+    it('Given_a_signed_in_viewer_When_loaded_Then_write_access_is_refused_to_the_tree', async () => {
+        renderGate(
+            (request) =>
+                request.url === ME_URL
+                    ? jsonResponse({ subject: 'sub-2', name: 'A Viewer', roles: ['viewer'] })
+                    : unexpectedRequest(request),
+            <WriteAccessChild />,
+        );
+
+        expect(await screen.findByText('can write: false')).toBeDefined();
     });
 
     it('Given_nobody_is_signed_in_When_the_session_check_answers_401_Then_the_sign_in_link_shows', async () => {

@@ -234,6 +234,13 @@ Through the web client, the owner can:
   loss, and the lots that would remain, oldest first. `DisposalSection`;
   `DisposalSection.test.tsx`, `portfolioApi.test.ts`
 
+**A viewer sees every area and is offered no control that changes data.** This is a client-side
+courtesy alone, never the enforcement: the ledger and the assistant decide access from the token,
+regardless of what the browser renders (see Authorization above). `useWriteAccess`,
+`writeAccessFor`; `writeAccess.test.tsx`, `access.test.ts`, and one read-only test per screen
+above. The one exception is pricing a disposal (`DisposalSection`), which stays offered to a
+viewer because it is a read, not a write.
+
 **One screen area per user-facing context**: accounts and transactions, budgets, planning, and
 portfolio. `marketdata` has no surface of its own and is visible only through portfolio figures.
 

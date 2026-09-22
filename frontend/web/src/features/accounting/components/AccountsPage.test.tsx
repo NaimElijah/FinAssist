@@ -220,6 +220,30 @@ describe('AccountsPage', () => {
     });
 });
 
+describe('AccountsPage read-only session', () => {
+    it('Given_a_read_only_session_When_the_page_renders_Then_neither_the_open_form_nor_the_record_transaction_link_is_offered', async () => {
+        fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL) return jsonResponse([CHECKING]);
+            if (balanceIdOf(request) === CHECKING.id) {
+                return jsonResponse({
+                    account: CHECKING.id,
+                    balance: { amount: '0.00', currency: 'USD' },
+                });
+            }
+            return unexpectedRequest(request);
+        });
+
+        renderRoutes(accountingRoutes, '/accounts', { access: { canWrite: false } });
+
+        await screen.findByRole('heading', { level: 1, name: 'Accounts' });
+        expect(screen.queryByLabelText('Name')).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Open account' })).toBeNull();
+        expect(screen.queryByRole('link', { name: 'Record transaction' })).toBeNull();
+        // The list itself is unaffected: a viewer still sees every account.
+        expect(await screen.findByRole('link', { name: 'Checking' })).toBeDefined();
+    });
+});
+
 describe('AccountsPage opening an account', () => {
     /** Type a name, pick a type and a currency, and submit. */
     async function openVisa(user: ReturnType<typeof userEvent.setup>) {

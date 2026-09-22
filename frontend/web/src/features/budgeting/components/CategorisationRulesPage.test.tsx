@@ -77,6 +77,19 @@ describe('CategorisationRulesPage', () => {
         ).toEqual(['"coffee" → dining', '"rent" → housing']);
     });
 
+    it('Given_a_read_only_session_When_the_page_renders_Then_the_add_form_is_not_offered_but_the_list_stays', async () => {
+        fakeFetch((request) =>
+            request.url === RULES_URL ? jsonResponse(RULES) : unexpectedRequest(request),
+        );
+
+        renderRoutes(budgetingRoutes, '/budgets/rules', { access: { canWrite: false } });
+
+        await screen.findByRole('list');
+        expect(screen.queryByRole('button', { name: 'Add rule' })).toBeNull();
+        expect(screen.queryByLabelText('Fragment')).toBeNull();
+        expect(screen.getByText('"coffee" → dining')).toBeDefined();
+    });
+
     it('Given_the_page_When_rendered_Then_the_ordering_hint_is_visible', async () => {
         fakeFetch((request) =>
             request.url === RULES_URL ? jsonResponse([]) : unexpectedRequest(request),
