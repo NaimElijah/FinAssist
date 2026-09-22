@@ -39,6 +39,7 @@ append-only history: to change course, add a new record and mark the old one
 | [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted |
 | [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted |
+| [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -61,3 +62,7 @@ records the identity provider it relies on, and 032 the authorisation model.
 records had deferred: every journal row now names the authenticated subject that wrote it, from
 `V1_2__journal_recorded_by.sql` onward. 021's rule that identity is generated inside the service
 still holds — an actor travels beside a command, never inside one.
+
+034 records, on 2026-09-22, why `ops/smoke/auth_smoke.py` is run by hand and never by CI, and
+weighs the evidence against that choice: the check's first real run found a defect no CI job
+would have caught, whose class a cheap unit test now guards.

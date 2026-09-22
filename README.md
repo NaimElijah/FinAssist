@@ -640,7 +640,7 @@ the database itself refuses to rewrite. **The ledger now serves accounting, budg
 planning over HTTP** under `/api/v1`, behind a Host allow-list and problem+json error handling,
 with its generated OpenAPI document pinned by `LedgerContractIT` and published as
 [`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json); it runs under Compose as
-well as natively. Thirty-three ADRs. Every architecture rule is live rather than dormant, and each
+well as natively. Thirty-four ADRs. Every architecture rule is live rather than dormant, and each
 was confirmed to fail against a planted violation — including dropping the append-only trigger and
 planting a foreign key across a schema boundary. CI gates build, lint, format and dependency audit
 across four jobs, and publishes a coverage report from each.

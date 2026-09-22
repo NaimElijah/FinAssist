@@ -50,7 +50,7 @@ and role-based permissions owned by each service (ADR-032). ADR-030 supersedes A
 enforcement lands neither service checks a token.
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
-Proposed today. Of all 33, ADR-027 is Superseded by ADR-030 and the other 32 are Accepted. The
+Proposed today. Of all 34, ADR-027 is Superseded by ADR-030 and the other 33 are Accepted. The
 requirements are still deliberately `TODO` in places rather than inferred from code.
 
 ## Commands
