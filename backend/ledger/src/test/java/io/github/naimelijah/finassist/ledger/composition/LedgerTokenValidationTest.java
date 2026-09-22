@@ -30,19 +30,28 @@ class LedgerTokenValidationTest {
     /** One second inside it. */
     private static final Duration WITHIN_SKEW = Duration.ofSeconds(29);
 
+    /**
+     * Comfortably before either expired token's {@code exp} below. {@code Jwt}'s own constructor
+     * requires {@code expiresAt} to be after {@code issuedAt} whenever both are present, so moving
+     * only {@code exp} into the past — without also moving {@code iat} — throws before validation
+     * ever runs; both expired-token tests move {@code iat} back to this instead of the default
+     * {@code NOW} the {@code jwt()} helper otherwise sets.
+     */
+    private static final Instant WELL_BEFORE_EXPIRY = NOW.minus(Duration.ofHours(1));
+
     private final OAuth2TokenValidator<Jwt> validator =
             LedgerSecurityConfiguration.tokenValidator(ISSUER, AUDIENCE, FIXED_CLOCK);
 
     @Test
     void Given_a_token_expired_beyond_the_skew_When_validated_Then_it_is_refused() {
-        Jwt jwt = jwt(builder -> builder.expiresAt(NOW.minus(BEYOND_SKEW)));
+        Jwt jwt = jwt(builder -> builder.issuedAt(WELL_BEFORE_EXPIRY).expiresAt(NOW.minus(BEYOND_SKEW)));
 
         assertThat(validator.validate(jwt).hasErrors()).isTrue();
     }
 
     @Test
     void Given_a_token_expired_within_the_skew_When_validated_Then_it_is_accepted() {
-        Jwt jwt = jwt(builder -> builder.expiresAt(NOW.minus(WITHIN_SKEW)));
+        Jwt jwt = jwt(builder -> builder.issuedAt(WELL_BEFORE_EXPIRY).expiresAt(NOW.minus(WITHIN_SKEW)));
 
         assertThat(validator.validate(jwt).hasErrors()).isFalse();
     }
@@ -62,6 +71,27 @@ class LedgerTokenValidationTest {
     }
 
     @Test
+    void Given_a_token_issued_beyond_the_skew_in_the_future_When_validated_Then_it_is_refused() {
+        Jwt jwt = jwt(builder -> builder.issuedAt(NOW.plus(BEYOND_SKEW)));
+
+        assertThat(validator.validate(jwt).hasErrors()).isTrue();
+    }
+
+    @Test
+    void Given_a_token_issued_within_the_skew_in_the_future_When_validated_Then_it_is_accepted() {
+        Jwt jwt = jwt(builder -> builder.issuedAt(NOW.plus(WITHIN_SKEW)));
+
+        assertThat(validator.validate(jwt).hasErrors()).isFalse();
+    }
+
+    @Test
+    void Given_a_token_with_no_issued_at_When_validated_Then_it_is_refused() {
+        Jwt jwt = jwt(UnaryOperator.identity(), true, false);
+
+        assertThat(validator.validate(jwt).hasErrors()).isTrue();
+    }
+
+    @Test
     void Given_a_token_naming_a_different_audience_When_validated_Then_it_is_refused() {
         Jwt jwt = jwt(builder -> builder.claim("aud", List.of("some-other-service")));
 
@@ -75,9 +105,31 @@ class LedgerTokenValidationTest {
         assertThat(validator.validate(jwt).hasErrors()).isFalse();
     }
 
+    /**
+     * Pins the audience check to an exact match rather than a "starts with" or "contains" one: a
+     * future refactor toward a looser comparison must fail this before it ever ships.
+     */
+    @Test
+    void Given_a_token_whose_only_audience_is_the_assistant_audience_When_validated_Then_it_is_refused() {
+        Jwt jwt = jwt(builder -> builder.claim("aud", List.of("finassist-assistant")));
+
+        assertThat(validator.validate(jwt).hasErrors()).isTrue();
+    }
+
     @Test
     void Given_a_token_with_the_wrong_issuer_When_validated_Then_it_is_refused() {
         Jwt jwt = jwt(builder -> builder.issuer("http://attacker.example/realms/finassist"));
+
+        assertThat(validator.validate(jwt).hasErrors()).isTrue();
+    }
+
+    /**
+     * Pins the issuer check to an exact match rather than a prefix one: {@code
+     * .../realms/finassist-evil} extends the real issuer byte-for-byte, and must still be refused.
+     */
+    @Test
+    void Given_a_token_whose_issuer_is_a_prefix_extension_of_the_real_one_When_validated_Then_it_is_refused() {
+        Jwt jwt = jwt(builder -> builder.issuer("http://localhost:8081/realms/finassist-evil"));
 
         assertThat(validator.validate(jwt).hasErrors()).isTrue();
     }
@@ -96,10 +148,20 @@ class LedgerTokenValidationTest {
     }
 
     private static Jwt jwt(UnaryOperator<Jwt.Builder> customizer) {
-        return jwt(customizer, true);
+        return jwt(customizer, true, true);
     }
 
     private static Jwt jwt(UnaryOperator<Jwt.Builder> customizer, boolean withSubject) {
+        return jwt(customizer, withSubject, true);
+    }
+
+    /**
+     * Builds a token that is valid on every check but the one its caller means to exercise.
+     * {@code withIssuedAt} is {@code false} only for the missing-{@code iat} case; every other
+     * test in this class needs a genuinely valid {@code iat} so it is isolating the one check it
+     * actually names.
+     */
+    private static Jwt jwt(UnaryOperator<Jwt.Builder> customizer, boolean withSubject, boolean withIssuedAt) {
         Jwt.Builder builder = Jwt.withTokenValue("token")
                 .header("alg", "RS256")
                 .issuer(ISSUER)
@@ -107,6 +169,9 @@ class LedgerTokenValidationTest {
                 .expiresAt(NOW.plus(Duration.ofHours(1)));
         if (withSubject) {
             builder = builder.subject("owner-user");
+        }
+        if (withIssuedAt) {
+            builder = builder.issuedAt(NOW);
         }
         return customizer.apply(builder).build();
     }

@@ -5,7 +5,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.ArrayList;
@@ -221,6 +223,20 @@ class LedgerAuthorizationIT extends PostgresFixture {
         assertThat(output.getOut()).contains("missing");
     }
 
+    /**
+     * M1: the single-token check above proves the property for {@code expired} only. Every shape
+     * {@link #badTokens()} carries — including a tampered signature and both new {@code iat}
+     * failures — must refuse to leak its own token into the log, not merely the one case above.
+     */
+    @ParameterizedTest
+    @MethodSource("badTokens")
+    void Given_any_bad_token_When_refused_Then_the_log_never_contains_that_token(String token, CapturedOutput output)
+            throws Exception {
+        mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        assertThat(output.getOut()).doesNotContain(token);
+    }
+
     @Test
     void Given_the_owner_token_When_head_or_options_is_sent_Then_both_are_denied() throws Exception {
         String token = TestTokens.owner();
@@ -229,6 +245,22 @@ class LedgerAuthorizationIT extends PostgresFixture {
                 .andExpect(status().isForbidden());
         mvc.perform(withHost(options("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isForbidden());
+    }
+
+    /**
+     * I3: the security property {@code dispatcherTypeMatchers(DispatcherType.ERROR)} rests on. A
+     * direct {@code GET /error} arrives as {@code DispatcherType.REQUEST}, matches no {@code
+     * permitAll} rule, and must be refused exactly like any other unmatched route — never treated
+     * as the internal forward the container makes for a genuine failure ({@code
+     * LedgerSecurityConfiguration}'s class comment explains the choice this pins).
+     */
+    @Test
+    void Given_no_token_When_a_direct_error_request_is_made_Then_it_is_401_with_a_problem_body() throws Exception {
+        mvc.perform(withHost(get("/error")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
     @ParameterizedTest
@@ -270,11 +302,14 @@ class LedgerAuthorizationIT extends PostgresFixture {
         return Stream.of(
                         TestTokens.expired(),
                         TestTokens.notYetValid(),
+                        TestTokens.futureIssuedAt(),
+                        TestTokens.noIssuedAt(),
                         TestTokens.wrongAudience(),
                         TestTokens.wrongIssuer(),
                         TestTokens.unsigned(),
                         TestTokens.hmacConfused(),
-                        TestTokens.foreignKey())
+                        TestTokens.foreignKey(),
+                        TestTokens.tamperedSignature())
                 .map(Arguments::of);
     }
 

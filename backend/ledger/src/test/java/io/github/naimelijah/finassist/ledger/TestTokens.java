@@ -156,6 +156,47 @@ public final class TestTokens {
         return jwt.serialize();
     }
 
+    /**
+     * {@code iat} beyond the 30 s skew in the future: a token that claims to have been issued
+     * after now, which {@code LedgerSecurityConfiguration}'s {@code iat} validator refuses on its
+     * own merits, without touching {@code exp}, {@code nbf}, or any other claim.
+     */
+    public static String futureIssuedAt() {
+        return signed(claims("owner-user", List.of("owner"))
+                .issueTime(Date.from(NOW.plus(BEYOND_SKEW)))
+                .build());
+    }
+
+    /**
+     * No {@code iat} claim at all — a real signature, a real issuer and audience, nothing to check
+     * the token's own age against. ADR-030's Vocabulary requires {@code iat}, so its absence alone
+     * must refuse this token.
+     */
+    public static String noIssuedAt() {
+        JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder()
+                .issuer(ISSUER)
+                .subject("owner-user")
+                .audience(AUDIENCE)
+                .expirationTime(Date.from(NOW.plus(LIFETIME)))
+                .claim("roles", List.of("owner"));
+        return signed(claims.build());
+    }
+
+    /**
+     * A genuine {@link #viewer()} token whose payload segment is swapped for one naming {@code
+     * owner}, keeping the original header and signature segments untouched — the textbook JWT
+     * integrity attack, and exactly how a viewer would try to become an owner: take a real token,
+     * edit the claims, keep the signature. Both payloads are signed by the same real key with an
+     * identical header, so only the payload actually differs between the two tokens combined here
+     * — which is why the kept signature no longer verifies against it.
+     */
+    public static String tamperedSignature() {
+        String[] genuine = viewer().split("\\.", 3);
+        String[] tampered =
+                signed(claims("viewer-user", List.of("owner")).build()).split("\\.", 3);
+        return genuine[0] + "." + tampered[1] + "." + genuine[2];
+    }
+
     private static JWTClaimsSet.Builder claims(String subject, List<String> roles) {
         return new JWTClaimsSet.Builder()
                 .issuer(ISSUER)

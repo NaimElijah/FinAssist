@@ -3,6 +3,7 @@ package io.github.naimelijah.finassist.ledger.composition;
 import jakarta.servlet.DispatcherType;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -166,7 +167,11 @@ public class LedgerSecurityConfiguration {
      */
     static OAuth2TokenValidator<Jwt> tokenValidator(String issuer, String audience, Clock clock) {
         return new DelegatingOAuth2TokenValidator<>(List.of(
-                timestampValidator(clock), issuerValidator(issuer), audienceValidator(audience), SUBJECT_VALIDATOR));
+                timestampValidator(clock),
+                issuedAtValidator(clock),
+                issuerValidator(issuer),
+                audienceValidator(audience),
+                SUBJECT_VALIDATOR));
     }
 
     /**
@@ -183,6 +188,25 @@ public class LedgerSecurityConfiguration {
             return result.hasErrors()
                     ? OAuth2TokenValidatorResult.failure(error(ProblemAuthenticationEntryPoint.LIFETIME))
                     : result;
+        };
+    }
+
+    /**
+     * Spring's own {@link JwtTimestampValidator} checks only {@code exp} and {@code nbf} —
+     * confirmed by disassembly, it carries no reference to {@code getIssuedAt} at all — so a token
+     * claiming to have been issued in the future, or carrying no {@code iat} whatsoever, would
+     * otherwise be admitted. This checks both, against the same injected {@link Clock} and the same
+     * {@link #CLOCK_SKEW} the timestamp validator already uses: never a second clock, never a bare
+     * {@link Instant#now()}. ADR-030's Vocabulary requires {@code iat} rather than merely tolerating
+     * its absence, so a missing claim fails this exactly as a future one does.
+     */
+    private static OAuth2TokenValidator<Jwt> issuedAtValidator(Clock clock) {
+        return jwt -> {
+            Instant issuedAt = jwt.getIssuedAt();
+            Instant latestAllowed = Instant.now(clock).plus(CLOCK_SKEW);
+            return issuedAt != null && !issuedAt.isAfter(latestAllowed)
+                    ? OAuth2TokenValidatorResult.success()
+                    : OAuth2TokenValidatorResult.failure(error(ProblemAuthenticationEntryPoint.LIFETIME));
         };
     }
 
@@ -278,10 +302,45 @@ public class LedgerSecurityConfiguration {
      * disassembling it: a JWKS outage reaches {@code JwtAuthenticationProvider} as a plain {@code
      * JwtException}, which it wraps in {@link AuthenticationServiceException}, and that default
      * means the filter re-throws it rather than calling the entry point, so it would otherwise
-     * escape the whole filter chain uncaught rather than answering 503. Nothing in the DSL exposes
-     * this filter's {@code setAuthenticationFailureHandler} directly, so this walks the already-
-     * {@code build()}-assembled chain's own filter list and corrects the one instance Spring
-     * Security constructed.
+     * escape the whole filter chain uncaught rather than answering 503.
+     *
+     * <p>This walks the already-{@code build()}-assembled chain's filter list and corrects the one
+     * {@code BearerTokenAuthenticationFilter} instance directly, rather than an {@code
+     * HttpSecurity.objectPostProcessor(...)} registered on this same builder — not because no
+     * supported path exists, but because the one that does has two hazards this one lacks, both
+     * read from Spring Security 7.1.1's own sources rather than assumed:
+     *
+     * <ul>
+     *   <li>{@code AbstractConfiguredSecurityBuilder.objectPostProcessor(ObjectPostProcessor)} only
+     *       reassigns {@code HttpSecurity}'s own field; it never reaches a configurer already
+     *       applied. Each configurer instead snapshots that field into its own composite post
+     *       processor the moment it is first applied — {@code
+     *       AbstractConfiguredSecurityBuilder.with(configurer, customizer)}, which {@code
+     *       HttpSecurity.getOrApply(...)} calls for {@code .oauth2ResourceServer(...)}, runs {@code
+     *       configurer.addObjectPostProcessor(this.objectPostProcessor)} exactly once, at that
+     *       moment. {@code OAuth2ResourceServerConfigurer.configure(...)} then builds the new
+     *       {@code BearerTokenAuthenticationFilter} and passes it through that snapshot ({@code
+     *       postProcess(filter)}), never the builder's live field. A processor registered through
+     *       {@code http.objectPostProcessor(...)} <em>after</em> {@code .oauth2ResourceServer(...)}
+     *       has already run therefore has no effect on the filter it built — the zero invocations
+     *       actually observed when that route was tried here first;
+     *   <li>registering the processor <em>before</em> {@code .oauth2ResourceServer(...)} instead,
+     *       so the snapshot taken at that point is the new one, would work — but was deliberately
+     *       not adopted. {@code http.objectPostProcessor(...)} <em>replaces</em> the builder's
+     *       field outright rather than composing with it, and the field it would replace is {@code
+     *       @EnableWebSecurity}'s own ambient processor ({@code
+     *       AutowireBeanFactoryObjectPostProcessor}, from {@code ObjectPostProcessorConfiguration}),
+     *       which autowires and initialises every security object the DSL constructs. Replacing
+     *       rather than composing would silently drop that for every object built afterwards — a
+     *       failure nothing here would necessarily catch, since none of this configuration's own
+     *       beans happen to need field injection today — and it is order-sensitive besides,
+     *       correct only for as long as it runs strictly before {@code .oauth2ResourceServer(...)}
+     *       in this method, silently reverting to a no-op if the chain were ever reordered.
+     * </ul>
+     *
+     * <p>The filter-list walk has neither hazard: it acts on the fully built, already-autowired
+     * filter instance regardless of DSL ordering. {@code LedgerKeySourceOutageIT} is what would
+     * turn red — the 503 becoming an uncaught exception again — if this method stopped running.
      */
     private static void stopSwallowingJwksOutages(SecurityFilterChain chain, AuthenticationEntryPoint entryPoint) {
         for (var filter : chain.getFilters()) {
