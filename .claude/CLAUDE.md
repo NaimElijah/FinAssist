@@ -216,7 +216,10 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **Adding a Python dependency can widen an architecture rule silently.** The forbidden list is
   derived from `pyproject.toml` and mangles `-` to `_`, so a distribution whose import root
   differs from its name (`opentelemetry-sdk` → `opentelemetry`) is missed unless named in the
-  explicit set in `tests/test_architecture.py`.
+  explicit set in `tests/test_architecture.py`. `jwt` and `cryptography` are named there for the
+  same reason: `PyJWT[crypto]` mangles to the literal `PyJWT`, which matches neither `jwt` (the
+  real import root) nor `pyjwt`, and `cryptography` arrives only transitively through the
+  `crypto` extra, so no declared dependency name can ever produce it at all (ADR-030, ADR-032).
 - **Logs are diagnostics, never the audit trail.** They are dropped when no collector is
   attached. The append-only journal is the audit record (ADR-020).
 - **The application layer imports no framework, in either language.** No `@Service`, no
@@ -293,6 +296,18 @@ These are enforced by the build, not by review. Breaking one fails CI.
   alike, ledger-wide (`spring.jackson.deserialization.accept-float-as-int: false`).
 - **The assistant's router is a factory taking use cases, and never reads `app.state`.** Its
   handlers are `def`, never `async def` — every port behind them is synchronous (ADR-021).
+- **Every assistant route declares exactly one permission dependency, built through the
+  `require` factory the composition root passes into the router** (ADR-030, ADR-032) —
+  `Depends(require(READ_PORTFOLIO))` on each of `portfolio_router`'s three routes, checked by a
+  coverage test in `tests/test_authorization.py` that fails the build if a route is added
+  without one. `RequirePermission`, the factory `app.py` passes as `require`, reads the
+  `Principal` `BearerAuthentication` already verified from `request.scope`; it is never imported
+  by the router itself, which would be the composition-root import the slice rule forbids.
+- **`BearerAuthentication` runs inside the correlation middleware, not outside it** — added to
+  the app before `correlate`, so Starlette's last-added-runs-first rule puts `correlate` outside
+  it and a refused request still gets a correlation id and a request-answered line. The order is
+  `HostAllowList` → correlate → auth → routes; `HostAllowList` stays outermost, added last, so a
+  foreign `Host` is refused before authentication is even attempted.
 - **The assistant's problem handlers live in the composition root**, `adapters/problems.py` —
   the one assistant package allowed to see every context's exceptions, mirroring
   `LedgerProblemHandler`.

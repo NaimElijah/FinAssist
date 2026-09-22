@@ -35,10 +35,10 @@ class Settings(BaseSettings):
     :param host: interface to bind. Loopback by default, so a native run is never published to
         the local network. Compose sets it to ``0.0.0.0`` inside the container, where loopback
         would be unreachable through the published port, and publishes that port on
-        ``127.0.0.1`` only (ADR-027).
+        ``127.0.0.1`` only (ADR-030).
     :param port: TCP port to serve on.
     :param allowed_hosts: the host names a request's ``Host`` header may name; any other is
-        refused with 403 (ADR-027). Comma-separated in the environment, as the ledger's
+        refused with 403 (ADR-030). Comma-separated in the environment, as the ledger's
         ``LEDGER_ALLOWED_HOSTS`` is, so the field opts out of pydantic-settings' JSON decoding of
         list fields and is split here instead.
     :param otlp_endpoint: collector base URL. ``None`` disables export entirely (ADR-019).

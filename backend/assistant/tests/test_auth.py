@@ -122,6 +122,89 @@ def Given_a_valid_token_When_verified_Then_the_principal_carries_its_subject(
     assert principal == Principal(subject=SUBJECT)
 
 
+# --- roles: read defensively from the already-verified claims (ADR-030's Vocabulary) ----------
+
+
+def Given_a_token_naming_one_role_When_verified_Then_the_principal_carries_it(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    static_key_source: KeySource,
+    fixed_clock: Clock,
+) -> None:
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock(), roles=["owner"]))
+
+    principal = _verifier(static_key_source, fixed_clock)(token)
+
+    assert principal.roles == frozenset({"owner"})
+
+
+def Given_a_token_naming_several_roles_When_verified_Then_the_principal_carries_all_of_them(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    static_key_source: KeySource,
+    fixed_clock: Clock,
+) -> None:
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock(), roles=["owner", "viewer"]))
+
+    principal = _verifier(static_key_source, fixed_clock)(token)
+
+    assert principal.roles == frozenset({"owner", "viewer"})
+
+
+def Given_a_token_with_no_roles_claim_When_verified_Then_the_principal_has_no_roles(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    static_key_source: KeySource,
+    fixed_clock: Clock,
+) -> None:
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock()))
+
+    principal = _verifier(static_key_source, fixed_clock)(token)
+
+    assert principal.roles == frozenset()
+
+
+def Given_a_roles_claim_that_is_not_a_list_When_verified_Then_the_principal_has_no_roles(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    static_key_source: KeySource,
+    fixed_clock: Clock,
+) -> None:
+    """A caller controls this claim, and one that exists but is shaped wrong - a string here,
+    rather than a list of them - must grant no role, never raise."""
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock(), roles="owner"))
+
+    principal = _verifier(static_key_source, fixed_clock)(token)
+
+    assert principal.roles == frozenset()
+
+
+def Given_a_roles_claim_with_non_string_elements_When_verified_Then_they_are_dropped(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    static_key_source: KeySource,
+    fixed_clock: Clock,
+) -> None:
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock(), roles=["owner", 42, None, True]))
+
+    principal = _verifier(static_key_source, fixed_clock)(token)
+
+    assert principal.roles == frozenset({"owner"})
+
+
+def Given_a_roles_claim_that_is_an_empty_list_When_verified_Then_the_principal_has_no_roles(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    static_key_source: KeySource,
+    fixed_clock: Clock,
+) -> None:
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock(), roles=[]))
+
+    principal = _verifier(static_key_source, fixed_clock)(token)
+
+    assert principal.roles == frozenset()
+
+
 # --- exp --------------------------------------------------------------------------------------
 
 

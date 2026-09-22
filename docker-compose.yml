@@ -77,15 +77,18 @@ services:
 
   assistant:
     build: ./backend/assistant
-    # Loopback only, per ADR-027 — the assistant has no authentication either, so the published
-    # port must not be reachable from outside this machine even though the container itself
-    # binds every interface (see ASSISTANT_HOST below).
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    # Loopback only, kept as defence in depth now that every business request also needs a
+    # bearer token (ADR-030) — the published port must not be reachable from outside this
+    # machine even though the container itself binds every interface (see ASSISTANT_HOST below).
     ports:
       - "127.0.0.1:${ASSISTANT_PORT:-8000}:8000"
     environment:
       # The container's own loopback is unreachable from outside the container, so the interface
       # it binds has to be every one of them; the host-side port mapping above is what stays on
-      # 127.0.0.1 (ADR-027).
+      # 127.0.0.1 (ADR-030).
       ASSISTANT_HOST: 0.0.0.0
       ASSISTANT_PORT: 8000
       # `assistant` — this service's own Compose DNS name, so a request reaching it that way
@@ -94,6 +97,11 @@ services:
       ASSISTANT_ALLOWED_HOSTS: localhost,127.0.0.1,assistant
       ASSISTANT_DEV_SEED: ${ASSISTANT_DEV_SEED:-false}
       ASSISTANT_LOG_LEVEL: ${ASSISTANT_LOG_LEVEL:-INFO}
+      # A token's iss is always the public URL a browser signed in against (ADR-030, ADR-031).
+      ASSISTANT_OIDC_ISSUER: http://localhost:${KEYCLOAK_PORT:-8081}/realms/finassist
+      # Fetched service-to-service, so this is the container-to-container address, never the
+      # published port — "localhost" inside a container means the container itself.
+      ASSISTANT_OIDC_JWKS_URI: http://keycloak:8080/realms/finassist/protocol/openid-connect/certs
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_EXPORT_ENABLED: ${OTEL_EXPORT_ENABLED:-false}
       # No ANTHROPIC_API_KEY: nothing reads it at start-up today. `assistance` is written and
@@ -102,7 +110,7 @@ services:
     healthcheck:
       # python:3.13-slim carries no curl; the interpreter already in the image is enough. The
       # Host header urllib sends is `localhost:8000`, which ASSISTANT_ALLOWED_HOSTS admits — the
-      # check compares only the text before the header's first colon (ADR-027).
+      # check compares only the text before the header's first colon (ADR-030).
       test:
         [
           "CMD",

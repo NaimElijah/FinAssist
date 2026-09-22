@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 
 from finassist_assistant.adapters.app import create_app
+from finassist_assistant.adapters.auth import TokenVerifier
 from finassist_assistant.adapters.settings import Settings
 
 CONTRACT_FILE = "assistant-v1.openapi.json"
@@ -52,13 +53,13 @@ NOT_ALWAYS_PRESENT_MEMBERS = {
 
 
 @pytest.fixture
-def document() -> dict[str, Any]:
+def document(token_verifier: TokenVerifier) -> dict[str, Any]:
     settings = Settings(
         OTEL_EXPORTER_OTLP_ENDPOINT=None,
         OTEL_EXPORT_ENABLED=False,
         ASSISTANT_LOG_LEVEL="INFO",
     )
-    generated: dict[str, Any] = create_app(settings).openapi()
+    generated: dict[str, Any] = create_app(settings, token_verifier=token_verifier).openapi()
     return generated
 
 
@@ -118,6 +119,26 @@ def Given_both_contracts_When_their_problem_schemas_are_compared_Then_they_are_i
     assert (
         document["components"]["schemas"]["Problem"] == ledger["components"]["schemas"]["Problem"]
     )
+
+
+def Given_both_contracts_When_their_security_schemes_are_compared_Then_they_are_identical(
+    document: dict[str, Any],
+) -> None:
+    """One client authenticates against both services the same way (ADR-030)."""
+    ledger = json.loads(LEDGER_CONTRACT.read_text(encoding="utf-8"))
+
+    assert document["components"]["securitySchemes"] == ledger["components"]["securitySchemes"]
+
+
+def Given_the_document_When_security_is_read_Then_every_operation_requires_a_bearer_token(
+    document: dict[str, Any],
+) -> None:
+    """A single global requirement, exactly as the ledger's document carries one (ADR-030): every
+    operation inherits it, and none may be documented as needing something else or nothing at all.
+    """
+    assert document["security"] == [{"bearerAuth": []}]
+    for operation_name, operation in _operations(document):
+        assert "security" not in operation, operation_name
 
 
 def Given_every_operation_When_its_responses_are_read_Then_failures_are_problems(

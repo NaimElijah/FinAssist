@@ -8,9 +8,12 @@ refused exactly as one that gets it wrong.
 Lives in the composition root, alongside :mod:`~finassist_assistant.adapters.settings` and
 :mod:`~finassist_assistant.adapters.observability`, because PyJWT and ``cryptography`` are
 frameworks: ``tests/test_architecture.py`` forbids importing either from an inward layer, and
-this is the one package allowed to import them outside a context's own ``adapters``. Task 15
-wires this into a middleware and a permission table; nothing here decides what a caller may do,
-only who it is.
+this is the one package allowed to import them outside a context's own ``adapters``.
+
+:class:`BearerAuthentication` wires the verifier into every request, denying by default (ADR-030);
+:class:`RequirePermission` and :data:`ROLE_PERMISSIONS` decide what a verified caller may then do
+(ADR-032). Nothing in :class:`TokenVerifier` itself decides that - it carries a token's own
+``roles`` claim on :class:`Principal` and nothing more.
 
 Two traps a first pass at this kind of check tends to fall into, both guarded here and pinned by
 ``tests/test_auth.py``:
@@ -38,20 +41,33 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from http import HTTPStatus
 from typing import Any, Final
 
 import jwt
+import structlog
+from fastapi import HTTPException, Request
 from jwt import PyJWK, PyJWKClient
 from jwt.exceptions import InvalidSubjectError
+from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import Headers
+from starlette.types import ASGIApp, Receive, Scope, Send
 
+from finassist_assistant.adapters.problems import (
+    AUTHENTICATION_UNAVAILABLE,
+    UNAUTHENTICATED,
+    problem_response,
+)
 from finassist_assistant.adapters.wiring import Clock
 
 __all__ = [
     "ALGORITHM",
     "ASSISTANT_AUDIENCE",
     "DEFAULT_LEEWAY",
+    "PRINCIPAL_SCOPE_KEY",
+    "PUBLIC_PATHS",
     "REASON_AUDIENCE",
     "REASON_ISSUER",
     "REASON_KEY_SOURCE",
@@ -62,13 +78,18 @@ __all__ = [
     "REASON_SUBJECT",
     "REASON_UNKNOWN_KEY",
     "REQUIRED_CLAIMS",
+    "ROLE_PERMISSIONS",
+    "BearerAuthentication",
     "KeySource",
     "KeySourceUnavailable",
     "Principal",
+    "RequirePermission",
     "TokenRefused",
     "TokenVerifier",
     "jwks_key_source",
 ]
+
+_log = structlog.get_logger(__name__)
 
 ALGORITHM: Final = "RS256"
 """The only signature algorithm ever accepted.
@@ -135,15 +156,23 @@ the token it is given.
 
 @dataclass(frozen=True, slots=True)
 class Principal:
-    """Who a verified bearer token identifies.
+    """Who a verified bearer token identifies, and which roles it named.
 
     :param subject: the token's ``sub`` claim, already checked non-blank.
+    :param roles: the token's own ``roles`` claim, read defensively by
+        :class:`TokenVerifier` and never re-parsed from the raw token afterwards - acting on a
+        claim nobody has verified would defeat the point of verifying it once. A missing claim,
+        one that is not a JSON array, and any element that is not a string are each dropped
+        rather than raised, mirroring the ledger's ``LedgerPermissions.convert``: a caller
+        controls this claim, and a token that shapes it oddly must be handled, not trusted.
 
-    Nothing about a caller's authority is decided here: role and permission enforcement is a
-    later use case's job (ADR-032), so this dataclass carries only the fact a valid token proved.
+    Nothing about a caller's authority is decided here. Which permission a role grants is
+    :data:`ROLE_PERMISSIONS`'s job, applied later by :class:`RequirePermission` - this dataclass
+    carries only the claims a valid token proved.
     """
 
     subject: str
+    roles: frozenset[str] = field(default_factory=frozenset)
 
 
 class TokenRefused(Exception):  # noqa: N818 - ADR-030's Vocabulary fixes this exact name
@@ -271,7 +300,7 @@ class TokenVerifier:
         subject = claims["sub"]
         if not subject.strip():
             raise TokenRefused(REASON_SUBJECT)
-        return Principal(subject=subject)
+        return Principal(subject=subject, roles=_roles_from(claims))
 
     def _check_issuer(self, claims: Mapping[str, Any]) -> None:
         """Compares the raw ``iss`` claim to the configured issuer, as an exact string.
@@ -307,6 +336,20 @@ class TokenVerifier:
         not_before = claims.get("nbf")
         if not_before is not None and _as_instant(not_before) > now + self._leeway:
             raise TokenRefused(REASON_LIFETIME)
+
+
+def _roles_from(claims: Mapping[str, Any]) -> frozenset[str]:
+    """The already-verified token's ``roles`` claim, read defensively (ADR-030's Vocabulary).
+
+    A missing claim, one that is not a JSON array, and a non-string element each contribute no
+    role, exactly as the ledger's ``LedgerPermissions.convert`` reads ``Jwt#getClaim`` rather
+    than ``Jwt#getClaimAsStringList`` for the same reason: the claim is caller-controlled, and a
+    claim that exists but is shaped wrong must grant nothing rather than raise.
+    """
+    claim = claims.get("roles")
+    if not isinstance(claim, list):
+        return frozenset()
+    return frozenset(role for role in claim if isinstance(role, str))
 
 
 def _as_instant(value: Any) -> datetime:
@@ -365,3 +408,189 @@ def _reason_for(exception: jwt.PyJWTError) -> str:
     if isinstance(exception, jwt.DecodeError):
         return REASON_MALFORMED
     return REASON_REJECTED
+
+
+# --- authentication: wiring the verifier into every request (ADR-030) -------------------------
+
+PRINCIPAL_SCOPE_KEY: Final = "finassist.principal"
+"""Where :class:`BearerAuthentication` stores a verified :class:`Principal`.
+
+Namespaced, as ASGI asks of anything an application adds to a scope - the same convention
+:mod:`~finassist_assistant.adapters.hosts` follows for its own scope key. A route's permission
+dependency reads it back through :class:`RequirePermission`; nothing else may write it.
+"""
+
+PUBLIC_PATHS: Final[frozenset[str]] = frozenset({"/health", "/ready", "/openapi.json"})
+"""Every path served with no bearer token at all (ADR-030).
+
+Deliberately short: the two probes, for whatever runs the process, and the committed contract's
+own document, which is already public (both contracts are committed in the repository). Every
+other path denies by default, so a route added without a permission dependency is refused here
+rather than served unprotected.
+"""
+
+_BEARER_PREFIX: Final = "bearer "
+_BARE_CHALLENGE: Final = "Bearer"
+_INVALID_TOKEN_CHALLENGE: Final = 'Bearer error="invalid_token"'
+_INSUFFICIENT_SCOPE_CHALLENGE: Final = 'Bearer error="insufficient_scope"'
+_WWW_AUTHENTICATE_HEADER: Final = "WWW-Authenticate"
+
+_UNAUTHENTICATED_DETAIL: Final = "This request needs a valid bearer token."
+_AUTHENTICATION_UNAVAILABLE_DETAIL: Final = (
+    "The authentication service could not be reached; this token's validity could not be decided."
+)
+_INSUFFICIENT_SCOPE_DETAIL: Final = "This token does not grant the permission this request needs."
+
+_HTTP_SCOPE: Final = "http"
+
+
+def _bearer_token(headers: Headers) -> str:
+    """The bearer token a request actually presented, or ``""`` when it presented none at all.
+
+    Deliberately not "whatever the Authorization header holds": a Basic-scheme header, or one
+    absent altogether, is not a bearer-token attempt, and treating either as a malformed one
+    would answer ``invalid_token`` where the caller never claimed to send a bearer token in the
+    first place. Both collapse to ``""`` instead, which :class:`TokenVerifier` already refuses as
+    :data:`REASON_MISSING` - the same reason category a genuinely absent credential belongs to,
+    so :class:`BearerAuthentication` only has to branch on the reason once.
+    """
+    header = headers.get("authorization", "")
+    if not header.lower().startswith(_BEARER_PREFIX):
+        return ""
+    return header[len(_BEARER_PREFIX) :].strip()
+
+
+class BearerAuthentication:
+    """Authenticates every request and denies by default (ADR-030, ADR-032).
+
+    Modelled on :class:`~finassist_assistant.adapters.hosts.HostAllowList`: a pure ASGI
+    middleware wrapping the application, deciding before the request reaches routing at all.
+    Unlike the Host check, this one denies by default rather than admits by default - every path
+    outside :data:`PUBLIC_PATHS` needs a valid bearer token, so a new route that forgets a
+    permission dependency is still refused here, never served unprotected.
+
+    Added closer to the application than
+    :func:`~finassist_assistant.adapters.app.create_app`'s correlation middleware, so it runs
+    *inside* that one rather than outside it as ``HostAllowList`` does: a refused request still
+    gets a correlation id and the one request-answered line every admitted request gets, because
+    the correlation middleware's own ``call_next`` is what invokes this middleware and sees the
+    response it produces. ``HostAllowList`` stays outside both, so a foreign ``Host`` is refused
+    before authentication is even attempted.
+
+    Only the ``http`` scope is checked. The assistant serves no WebSocket route, and
+    ``HostAllowList`` already refuses a foreign host on that scope type too.
+
+    :param app: the application behind the check.
+    :param verifier: decides whether a bearer token is genuine.
+
+    The token is verified through :func:`starlette.concurrency.run_in_threadpool`: the verifier
+    is a synchronous callable (ADR-021), and calling it directly from this coroutine would block
+    the event loop for every other request while a JWKS fetch or a signature check ran.
+    """
+
+    def __init__(self, app: ASGIApp, verifier: TokenVerifier) -> None:
+        self._app = app
+        self._verifier = verifier
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != _HTTP_SCOPE or scope["path"] in PUBLIC_PATHS:
+            await self._app(scope, receive, send)
+            return
+
+        token = _bearer_token(Headers(scope=scope))
+        try:
+            principal = await run_in_threadpool(self._verifier, token)
+        except TokenRefused as refused:
+            await self._refuse(refused.reason, scope, receive, send)
+            return
+        except KeySourceUnavailable as unavailable:
+            await self._report_unavailable(unavailable.reason, scope, receive, send)
+            return
+
+        scope[PRINCIPAL_SCOPE_KEY] = principal
+        await self._app(scope, receive, send)
+
+    async def _refuse(self, reason: str, scope: Scope, receive: Receive, send: Send) -> None:
+        """401: no valid identity. Logged at WARN, naming only the reason (never the token)."""
+        _log.warning("refused a request with no valid bearer token", reason=reason)
+        challenge = _BARE_CHALLENGE if reason == REASON_MISSING else _INVALID_TOKEN_CHALLENGE
+        refusal = problem_response(
+            HTTPStatus.UNAUTHORIZED,
+            UNAUTHENTICATED,
+            _UNAUTHENTICATED_DETAIL,
+            headers={_WWW_AUTHENTICATE_HEADER: challenge},
+        )
+        await refusal(scope, receive, send)
+
+    async def _report_unavailable(
+        self, reason: str, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """503: the JWKS source could not be reached, so nothing here says the token was bad."""
+        _log.warning("refused a request with no valid bearer token", reason=reason)
+        refusal = problem_response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            AUTHENTICATION_UNAVAILABLE,
+            _AUTHENTICATION_UNAVAILABLE_DETAIL,
+        )
+        await refusal(scope, receive, send)
+
+
+# --- authorization: what a verified caller may then do (ADR-032) ------------------------------
+
+ROLE_PERMISSIONS: Final[Mapping[str, frozenset[str]]] = {
+    "owner": frozenset({"portfolio:read"}),
+    "viewer": frozenset({"portfolio:read"}),
+    # "assistant" is deliberately absent: a service principal has no portfolio permission at all
+    # (ADR-004, ADR-030's Vocabulary), and it falls out of this table exactly as an unknown role
+    # does - there is no third branch to keep in step with the other two.
+}
+"""Every permission a role grants, owned by this service alone (ADR-030's Vocabulary).
+
+The ledger keeps its own copy in ``LedgerPermissions``; neither service reads the other's table.
+The permission string ``"portfolio:read"`` is duplicated from the router's own
+``READ_PORTFOLIO`` on purpose, not imported: a context may not import the composition root, and
+this table has to live here, where :class:`RequirePermission` is built.
+``tests/test_authorization.py`` pins both spellings equal.
+"""
+
+
+def _granted_permissions(principal: Principal) -> frozenset[str]:
+    """Every permission *principal*'s roles grant, from :data:`ROLE_PERMISSIONS`.
+
+    A role absent from the table - an unknown one, or every one when ``principal.roles`` is
+    empty - contributes nothing, exactly as a missing, non-list or non-string-elements ``roles``
+    claim already left ``principal.roles`` empty in :func:`_roles_from`.
+    """
+    return frozenset().union(*(ROLE_PERMISSIONS.get(role, frozenset()) for role in principal.roles))
+
+
+class RequirePermission:
+    """A FastAPI dependency admitting only a caller whose role grants *permission* (ADR-032).
+
+    :param permission: the permission this route requires, such as ``portfolio:read``.
+
+    Reads the :class:`Principal` that :class:`BearerAuthentication` already verified and stored
+    in ``request.scope[PRINCIPAL_SCOPE_KEY]``. Deny-by-default means one is always there by the
+    time a route's dependencies run: every path outside :data:`PUBLIC_PATHS` already passed
+    authentication before routing began, and every route this factory guards is outside that set.
+
+    A plain, synchronous callable (ADR-021): FastAPI runs a ``def`` dependency in its own thread
+    pool, so this never has to be async merely to sit behind one - the same reason
+    :func:`~finassist_assistant.portfolio.adapters.inbound.api.router._require_json` is not
+    async either.
+    """
+
+    def __init__(self, permission: str) -> None:
+        self._permission = permission
+
+    def __call__(self, request: Request) -> None:
+        """:raises HTTPException: 403, with ``WWW-Authenticate: Bearer error="insufficient_scope"``,
+        when *permission* is not among what the caller's roles grant.
+        """
+        principal: Principal = request.scope[PRINCIPAL_SCOPE_KEY]
+        if self._permission not in _granted_permissions(principal):
+            raise HTTPException(
+                status_code=HTTPStatus.FORBIDDEN,
+                detail=_INSUFFICIENT_SCOPE_DETAIL,
+                headers={_WWW_AUTHENTICATE_HEADER: _INSUFFICIENT_SCOPE_CHALLENGE},
+            )

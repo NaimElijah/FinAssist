@@ -43,8 +43,10 @@ from finassist_assistant.portfolio.domain.analysis import InsufficientHoldingErr
 from finassist_assistant.shared import CurrencyMismatchError
 
 __all__ = [
+    "AUTHENTICATION_UNAVAILABLE",
     "BLANK_TYPE",
     "CURRENCY_MISMATCH",
+    "FORBIDDEN",
     "HOLDING_NOT_FOUND",
     "HOST_NOT_ALLOWED",
     "INSUFFICIENT_HOLDING",
@@ -53,6 +55,7 @@ __all__ = [
     "PRICE_UNAVAILABLE",
     "PROBLEM_MEDIA_TYPE",
     "RULE_VIOLATED",
+    "UNAUTHENTICATED",
     "answer_unexpected",
     "install_problem_handlers",
     "problem_response",
@@ -69,7 +72,7 @@ reading the member finds it rather than having to know the RFC's default.
 """
 
 HOST_NOT_ALLOWED: Final = "HOST_NOT_ALLOWED"
-"""The ``Host`` header names no host on the allow-list (ADR-027)."""
+"""The ``Host`` header names no host on the allow-list (ADR-030)."""
 
 MALFORMED_REQUEST: Final = "MALFORMED_REQUEST"
 """A parameter or body the request could not be read from: fix the request."""
@@ -91,6 +94,16 @@ INSUFFICIENT_HOLDING: Final = "INSUFFICIENT_HOLDING"
 
 PRICE_UNAVAILABLE: Final = "PRICE_UNAVAILABLE"
 """No price recent enough to value the holding exists. Try again later."""
+
+UNAUTHENTICATED: Final = "UNAUTHENTICATED"
+"""No token, or one the verifier rejected outright, on a request that needs one (ADR-030)."""
+
+FORBIDDEN: Final = "FORBIDDEN"
+"""A genuine identity, denied by the permission its role does not hold (ADR-030)."""
+
+AUTHENTICATION_UNAVAILABLE: Final = "AUTHENTICATION_UNAVAILABLE"
+"""The JWKS source could not be reached; nothing here says whether the token would have been
+valid (ADR-030)."""
 
 _INTERNAL_ERROR_DETAIL: Final = "The assistant failed to handle this request."
 _PRICE_UNAVAILABLE_DETAIL: Final = "No price recent enough to value this holding is available."
@@ -236,14 +249,21 @@ def _malformed_request(request: Request, exception: RequestValidationError) -> J
 def _framework_failure(request: Request, exception: HTTPException) -> JSONResponse:
     """A failure Starlette raised on its own, such as an unknown route or an unsupported method.
 
-    Coded from the status, as the ledger codes Spring's. 400 is ``MALFORMED_REQUEST``; any other
-    4xx is its standard reason, which for 404, 405, 406 and 415 is exactly the ledger's code. A
-    5xx is withheld like any other.
+    Coded from the status, as the ledger codes Spring's. 400 is ``MALFORMED_REQUEST``; 401 is
+    ``UNAUTHENTICATED``, not the reason phrase's own ``UNAUTHORIZED`` - the code names a caller
+    with no valid identity, and RFC 6750's use of "unauthorized" for the very same thing has
+    confused this exact pair before. Any other 4xx is its standard reason, which for 403, 404,
+    405, 406 and 415 is exactly the ledger's code. A 5xx is withheld like any other.
     """
     status = HTTPStatus(exception.status_code)
     if status.is_server_error:
         return _withheld(request, exception, status)
-    code = MALFORMED_REQUEST if status is HTTPStatus.BAD_REQUEST else status.name
+    if status is HTTPStatus.BAD_REQUEST:
+        code = MALFORMED_REQUEST
+    elif status is HTTPStatus.UNAUTHORIZED:
+        code = UNAUTHENTICATED
+    else:
+        code = status.name
     return problem_response(
         status, code, exception.detail, instance=request.url.path, headers=exception.headers
     )
