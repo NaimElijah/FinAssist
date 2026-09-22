@@ -285,6 +285,13 @@ class LedgerAuthorizationIT extends PostgresFixture {
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     }
 
+    /**
+     * One case per pattern {@code LedgerSecurityConfiguration} permits, so dropping any one of the
+     * six turns this red rather than leaving a rule nothing exercises. {@code
+     * /actuator/metrics/jvm.memory.used} is there for the wildcard half of {@code
+     * /actuator/metrics/**}: the bare path alone would pass whether the pattern ended in {@code
+     * /**} or not.
+     */
     @ParameterizedTest
     @ValueSource(
             strings = {
@@ -293,7 +300,10 @@ class LedgerAuthorizationIT extends PostgresFixture {
                 "/actuator/health/readiness",
                 "/actuator/info",
                 "/actuator/prometheus",
-                "/v3/api-docs"
+                "/actuator/metrics",
+                "/actuator/metrics/jvm.memory.used",
+                "/v3/api-docs",
+                "/v3/api-docs.yaml"
             })
     void Given_a_public_path_When_requested_with_no_token_Then_it_answers(String path) throws Exception {
         MvcResult result = mvc.perform(withHost(get(path))).andReturn();
