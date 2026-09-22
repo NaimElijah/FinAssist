@@ -2,12 +2,18 @@ package io.github.naimelijah.finassist.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.yaml.snakeyaml.Yaml;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -16,6 +22,11 @@ import tools.jackson.databind.json.JsonMapper;
  * the security posture ADR-031 records: sign-in protection, each client's flow and audience, the
  * owner's forced first sign-in, and - the one guarantee that matters most in a file the build
  * never encrypts - that every secret and credential in it is a placeholder, never a real value.
+ *
+ * <p>It also compares the realm's placeholders with what {@code docker-compose.yml} gives the
+ * {@code keycloak} service, which is a comparison of two text files and needs no container -
+ * and which nothing else makes: {@link KeycloakRealmIT} supplies every placeholder itself as
+ * container environment, and the assertions below check only that each is bare.
  *
  * <p>{@link KeycloakRealmIT} is this file's other half: it proves Keycloak actually reads the
  * realm the way these assertions assume. This test cannot catch a wrong assumption about
@@ -26,7 +37,18 @@ class KeycloakRealmTest {
     /** Set by surefire and failsafe in {@code pom.xml} to the repository's {@code ops/} directory. */
     private static final String OPS_DIR_PROPERTY = "finassist.ops.dir";
 
+    /** Set the same way, to the repository root, because {@code docker-compose.yml} lives there. */
+    private static final String REPO_DIR_PROPERTY = "finassist.repo.dir";
+
     private static final String REALM_FILE = "finassist-realm.json";
+
+    private static final String COMPOSE_FILE = "docker-compose.yml";
+
+    /** The service whose environment resolves the realm's placeholders at import. */
+    private static final String KEYCLOAK_SERVICE = "keycloak";
+
+    /** One {@code ${VAR}} reference in the realm file, capturing the variable's name. */
+    private static final Pattern PLACEHOLDER_REFERENCE = Pattern.compile("\\$\\{([A-Z_][A-Z0-9_]*)}");
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -377,5 +399,77 @@ class KeycloakRealmTest {
 
         assertThat(text).contains("${"); // the file does use placeholders - this pins that fact
         assertThat(text).doesNotMatch("(?s).*\\$\\{[A-Za-z_][A-Za-z0-9_]*:.*");
+    }
+
+    /**
+     * The realm's placeholders against the environment Compose actually gives Keycloak.
+     *
+     * <p>Keycloak does not refuse an import over a missing variable: it imports the literal,
+     * unresolved {@code ${GATEWAY_CLIENT_SECRET}} text, neither blank nor a failure (observed
+     * against the real image, and recorded in {@link KeycloakRealmIT}'s javadoc). So a placeholder
+     * renamed or added here without a matching entry on the {@code keycloak} service becomes a
+     * client secret, or the owner's initial password, with a value anyone reading this repository
+     * can type.
+     *
+     * <p>Nothing else could catch that. {@link KeycloakRealmIT} supplies all of them itself as
+     * container environment, and the assertions above check only that each is bare. This is a
+     * comparison between two files in the repository and needs no container at all.
+     *
+     * <p>Compose's own {@code :?} on the three secrets is the control that stops a variable being
+     * <em>unset</em> at run time; this is the control that stops one being <em>unmentioned</em>,
+     * which {@code :?} cannot see.
+     */
+    @Test
+    void Given_the_realm_file_When_compared_with_compose_Then_every_placeholder_it_names_is_given_to_keycloak() {
+        Set<String> named = placeholdersNamedByTheRealm();
+
+        assertThat(named)
+                .as("the realm does use placeholders, so this comparison is not vacuous")
+                .isNotEmpty();
+        assertThat(keycloakServiceEnvironmentKeys())
+                .as("environment the keycloak service is given in %s", COMPOSE_FILE)
+                .containsAll(named);
+    }
+
+    /** Every distinct {@code ${VAR}} the realm file refers to, in a stable order for a failure message. */
+    private static Set<String> placeholdersNamedByTheRealm() {
+        Set<String> names = new TreeSet<>();
+        Matcher references = PLACEHOLDER_REFERENCE.matcher(rawText());
+        while (references.find()) {
+            names.add(references.group(1));
+        }
+        return names;
+    }
+
+    /**
+     * The environment variable names the {@code keycloak} service declares. Parsed as YAML rather
+     * than matched by text, because the block also carries folded scalars and quoted values that a
+     * line-wise reading would misread.
+     */
+    private static Set<String> keycloakServiceEnvironmentKeys() {
+        String directory = System.getProperty(REPO_DIR_PROPERTY);
+        if (directory == null) {
+            throw new IllegalStateException(REPO_DIR_PROPERTY
+                    + " is not set. Failsafe and surefire set it in pom.xml; run this test through Maven, or"
+                    + " pass -D" + REPO_DIR_PROPERTY + "=<repository>.");
+        }
+        Path file = Path.of(directory, COMPOSE_FILE).toAbsolutePath().normalize();
+        try (Reader reader = Files.newBufferedReader(file)) {
+            Map<String, Object> compose = new Yaml().load(reader);
+            Map<String, Object> services = asMap(compose.get("services"), "services");
+            Map<String, Object> keycloak = asMap(services.get(KEYCLOAK_SERVICE), KEYCLOAK_SERVICE);
+            return asMap(keycloak.get("environment"), KEYCLOAK_SERVICE + ".environment")
+                    .keySet();
+        } catch (Exception e) {
+            throw new IllegalStateException("could not read " + file, e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object node, String what) {
+        if (!(node instanceof Map<?, ?> map)) {
+            throw new AssertionError(COMPOSE_FILE + " has no mapping at " + what);
+        }
+        return (Map<String, Object>) map;
     }
 }

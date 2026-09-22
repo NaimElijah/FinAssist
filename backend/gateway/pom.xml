@@ -169,7 +169,10 @@
         injected by Maven rather than resolved from the working directory: ${project.basedir} is
         correct however the build was invoked. KeycloakRealmTest and KeycloakRealmIT read
         finassist.ops.dir to find ops/keycloak/finassist-realm.json, the same way the ledger's
-        own *IT suites read finassist.contracts.dir.
+        own *IT suites read finassist.contracts.dir. finassist.repo.dir is the repository root,
+        which KeycloakRealmTest reads docker-compose.yml from: an unresolved realm placeholder
+        imports as literal text, so the realm's placeholders and the environment Compose gives
+        Keycloak have to be compared, and neither file lives in this module.
       -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -178,6 +181,7 @@
           <systemPropertyVariables>
             <finassist.contracts.dir>${project.basedir}/../../contracts</finassist.contracts.dir>
             <finassist.ops.dir>${project.basedir}/../../ops</finassist.ops.dir>
+            <finassist.repo.dir>${project.basedir}/../..</finassist.repo.dir>
           </systemPropertyVariables>
         </configuration>
       </plugin>
@@ -199,6 +203,7 @@
           <systemPropertyVariables>
             <finassist.contracts.dir>${project.basedir}/../../contracts</finassist.contracts.dir>
             <finassist.ops.dir>${project.basedir}/../../ops</finassist.ops.dir>
+            <finassist.repo.dir>${project.basedir}/../..</finassist.repo.dir>
           </systemPropertyVariables>
         </configuration>
         <executions>
