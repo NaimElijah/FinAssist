@@ -15,10 +15,11 @@ with no `pip install` step (the same tag `backend/assistant/Dockerfile` already 
 Exits non-zero on the first failed check, naming which one failed and why. Never prints a
 token, a client secret, a cookie, an `Authorization` header or a response body. A failure
 message may quote a non-secret claim value (the token's `alg`, `iss` or `aud`, a role name)
-where the failure cannot be diagnosed without it, and a response's status, problem code, or
-redirect target stripped of its query. An error none of the checks anticipated is reported by
-its type alone: a standard-library exception's message can quote its input, and
-`http.client`'s "Invalid header value" quotes the whole rejected header, token included.
+where the failure cannot be diagnosed without it, and a response's status, problem code,
+`WWW-Authenticate` challenge, or redirect target stripped of its query. An error none of the
+checks anticipated is reported by its type alone: a standard-library exception's message can
+quote its input, and `http.client`'s "Invalid header value" quotes the whole rejected header,
+token included.
 
 Run it with `make smoke-auth` (see README.md, "Smoke-testing authentication"). Refs #38.
 """
@@ -93,6 +94,9 @@ LOCATION_HEADER: Final = "Location"
 AUTHORIZATION_HEADER: Final = "Authorization"
 CONTENT_TYPE_HEADER: Final = "Content-Type"
 BEARER_SCHEME: Final = "Bearer"
+# What the ledger and the assistant send for a token they read and refused (ADR-030); a request
+# with no token at all gets the bare `BEARER_SCHEME` instead.
+INVALID_TOKEN_CHALLENGE: Final = 'Bearer error="invalid_token"'
 JSON_CONTENT_TYPE: Final = "application/json"
 # The OAuth2 token endpoint's request shape (RFC 6749, section 4.4.2).
 FORM_CONTENT_TYPE: Final = "application/x-www-form-urlencoded"
@@ -321,13 +325,32 @@ def check_ledger_requires_a_token() -> None:
         raise SmokeCheckError(
             _status_mismatch(f"GET {LEDGER_ACCOUNTS_PATH} with no token", status, HTTP_UNAUTHORIZED)
         )
-    if headers.get(WWW_AUTHENTICATE_HEADER) is None:
-        raise SmokeCheckError(f"the 401 carried no {WWW_AUTHENTICATE_HEADER} header")
+    # The exact scheme, as LedgerAuthorizationIT pins it: mere presence would also pass a
+    # re-enabled HTTP Basic answering `Basic realm=...`.
+    challenge = headers.get(WWW_AUTHENTICATE_HEADER)
+    if challenge != BEARER_SCHEME:
+        raise SmokeCheckError(
+            f"the 401's {WWW_AUTHENTICATE_HEADER} was {challenge!r}, expected {BEARER_SCHEME!r}"
+        )
 
 
 def check_wrong_audience_at_the_assistant(ledger_token: str) -> None:
-    """Check 5: a ledger-audience token is not a valid credential at the assistant either."""
-    status, _headers, _body = _request(
+    """Check 5: the assistant refuses a token whose audience is the ledger's (ADR-030, ADR-032).
+
+    Asserts exactly what the assistant's `BearerAuthentication` sends for a token it read and
+    refused: 401, `WWW-Authenticate: Bearer error="invalid_token"` and problem code
+    `UNAUTHENTICATED`. That proves the token reached the assistant's verifier and was refused as
+    invalid, rather than treated as missing (a bare `Bearer`) or left undecided because the key
+    source was unreachable (a 503).
+
+    It cannot prove why. This token fails the audience check whatever else is wrong, so an
+    assistant with a mis-set ASSISTANT_OIDC_ISSUER, or a JWKS URI serving some other realm's
+    keys, answers exactly the same. The ledger has check 2 as its positive control; the assistant
+    has none here, because only a token whose audience is the assistant could be one, and only an
+    owner's or viewer's token is: that needs an interactive sign-in through the gateway, which
+    this script cannot perform.
+    """
+    status, headers, body = _request(
         ASSISTANT_HOST, ASSISTANT_INTERNAL_PORT, "GET", ASSISTANT_POSITION_PATH, token=ledger_token
     )
     if status != HTTP_UNAUTHORIZED:
@@ -336,6 +359,15 @@ def check_wrong_audience_at_the_assistant(ledger_token: str) -> None:
                 f"GET {ASSISTANT_POSITION_PATH} with the ledger's token", status, HTTP_UNAUTHORIZED
             )
         )
+    challenge = headers.get(WWW_AUTHENTICATE_HEADER)
+    if challenge != INVALID_TOKEN_CHALLENGE:
+        raise SmokeCheckError(
+            f"the 401's {WWW_AUTHENTICATE_HEADER} was {challenge!r},"
+            f" expected {INVALID_TOKEN_CHALLENGE!r}"
+        )
+    code = _problem_code(body)
+    if code != CODE_UNAUTHENTICATED:
+        raise SmokeCheckError(f"problem code was {code!r}, expected {CODE_UNAUTHENTICATED!r}")
 
 
 def check_gateway_denies_without_a_session() -> None:
@@ -345,6 +377,11 @@ def check_gateway_denies_without_a_session() -> None:
     is that nothing else may start it implicitly. A relayed path that redirected instead would
     silently defeat that: a browser script reading `/ledger/...` would be bounced into an OIDC
     flow it never asked for.
+
+    The 401 must also carry no `WWW-Authenticate`. The gateway's own refusal never does, since it
+    takes a session cookie rather than a credential (its `ProblemAuthenticationEntryPoint`); the
+    ledger's always does. Without this, a route that stopped requiring a session would relay the
+    ledger's look-alike 401 problem and pass.
     """
     status, headers, body = _request(
         GATEWAY_HOST, GATEWAY_INTERNAL_PORT, "GET", GATEWAY_LEDGER_ACCOUNTS_PATH
@@ -357,6 +394,11 @@ def check_gateway_denies_without_a_session() -> None:
         )
     if headers.get(LOCATION_HEADER) is not None:
         raise SmokeCheckError(f"the 401 carried a {LOCATION_HEADER} header — this was a redirect")
+    if headers.get(WWW_AUTHENTICATE_HEADER) is not None:
+        raise SmokeCheckError(
+            f"the 401 carried a {WWW_AUTHENTICATE_HEADER} header — a relayed 401, not the"
+            " gateway's own"
+        )
     code = _problem_code(body)
     if code != CODE_UNAUTHENTICATED:
         raise SmokeCheckError(f"problem code was {code!r}, expected {CODE_UNAUTHENTICATED!r}")
