@@ -125,9 +125,16 @@ spring:
       # Server MVC's proxy has no timeout property of its own (confirmed absent from
       # org.springframework.cloud.gateway.server.mvc.config.GatewayMvcProperties by reading the
       # installed sources jar): its RestClient is Boot's own auto-configured one, so these are
-      # the only lever. They bound both a relayed call and the gateway's own calls to Keycloak -
-      # one outbound budget for every HTTP call this process makes, which is what "the underlying
-      # client" means when no gateway-specific property exists.
+      # the only lever.
+      #
+      # They bound every outbound call this process makes - a relayed request, and the gateway's
+      # own three calls to Keycloak: the authorization-code exchange, the refresh_token grant and
+      # the JWK-set fetch that verifies an ID token. Only the relay gets that for free. Spring
+      # Security builds each of the other three from a static factory that never consults Boot's
+      # builder, so KeycloakRegistration rebuilds all three from it deliberately; without that
+      # they are unbounded, and a Keycloak that accepts a connection and then stops answering
+      # parks a Tomcat thread for ever. GatewayKeycloakTimeoutIT is what turns red if that
+      # wiring is removed.
       connect-timeout: 5s
       read-timeout: 10s
 

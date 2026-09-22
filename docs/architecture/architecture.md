@@ -311,7 +311,12 @@ identity provider and the `finassist` realm it imports at start-up (ADR-031); an
   `http://keycloak:8080`, which only a container can resolve, while the URLs the browser is sent to
   are built from `GATEWAY_OIDC_PUBLIC_URL`. `GatewayLoginFlowIT` proves this edge against
   `composition.support.FakeOpenIdProvider`, a JDK `HttpServer` signing genuine RSA JWTs, so the
-  login and refresh paths run against real HTTP and a real signature check, never a mock.
+  login and refresh paths run against real HTTP and a real signature check, never a mock. All
+  three calls are bounded by `spring.http.clients.connect-timeout` and `read-timeout`, because
+  `KeycloakRegistration` builds each one's HTTP client from Boot's own builders; Spring
+  Security's defaults for all three build theirs from a static factory that never sees those
+  settings, and `GatewayKeycloakTimeoutIT` drives a Keycloak that accepts the connection and then
+  never answers to prove each gives up.
 - **Gateway to ledger, and gateway to assistant** — HTTP, relaying `GET`/`POST
   /ledger/api/v1/**` and `/assistant/api/v1/**` once each request is authenticated. A Spring
   Cloud Gateway Server Web MVC route strips the gateway's own path prefix, removes the browser's

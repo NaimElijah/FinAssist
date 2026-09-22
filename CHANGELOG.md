@@ -129,6 +129,14 @@ history; write the commit message well and this file writes itself.
   missing expiry unless told otherwise, so a token signed with the realm's key and given no
   lifetime at all was accepted forever — and answered `200` — while the assistant, which enforces
   the claim, refused the same token. ADR-030 requires `exp` of both.
+- **Every call the gateway makes to Keycloak is bounded.** The authorization-code exchange, the
+  `refresh_token` grant and the JWK-set fetch that verifies an ID token each built their own HTTP
+  client from a Spring Security factory that never consults Boot's, so none of them saw
+  `spring.http.clients.*` — the budget the relay has always had, and which the README and
+  `.env.example` both claimed covered them too. A Keycloak that accepted the connection and then
+  stopped answering would have parked a Tomcat thread for ever. All three are now built from
+  Boot's own builders in `KeycloakRegistration`, and `GatewayKeycloakTimeoutIT` drives that exact
+  failure against each.
 - **`DisposeUnits` sorts lots by acquisition date before consuming them.** `consume_fifo` takes
   them in the order it is given and documents that the ordering is the caller's responsibility,
   so a caller handing it newest-first lots got a LIFO cost basis in silence, with a plausible

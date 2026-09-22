@@ -359,6 +359,13 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **The Host allow-list lives in `composition`.** `HostAllowListFilter`, at the highest filter
   precedence, refuses a `Host` outside `LEDGER_ALLOWED_HOSTS` with 403 — before Actuator, and
   before any controller (ADR-030).
+- **Every gateway call to Keycloak is built from Boot's own HTTP builders**, in
+  `KeycloakRegistration`: the authorization-code client and the `refresh_token` client from
+  `RestClient.Builder`, and the ID token's `JwtDecoderFactory` from `RestTemplateBuilder`. Spring
+  Security's defaults for all three build their client from a static factory that never sees
+  `spring.http.clients.*`, so dropping any of these beans silently makes that call unbounded —
+  only the relay's own client gets Boot's budget for free. `GatewayKeycloakTimeoutIT` stalls each
+  endpoint in turn and fails the build if one stops giving up.
 - **A web DTO's simple name is unique across every context** — `MoneyDto` alone is exempt, one
   identical copy per context on purpose. `web_dto_names_are_unique_across_contexts`;
   `MoneyDtoShapesTest` keeps the copies identical.

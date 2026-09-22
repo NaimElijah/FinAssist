@@ -666,9 +666,15 @@ in the repository, the logs or an error message.
 Server Web MVC has no timeout property of its own for a relayed call, so
 `backend/gateway/src/main/resources/application.yml` sets Boot's own
 `spring.http.clients.connect-timeout` (`5s`) and `read-timeout` (`10s`) directly. Both bound
-every outbound HTTP call the gateway makes, not only a relay to the ledger or the assistant: the
-gateway's own calls to Keycloak — the authorization-code exchange and the `refresh_token` grant
-— share the same auto-configured `RestClient`. Raising either is a one-line change to that file.
+every outbound HTTP call the gateway makes. The relay to the ledger or the assistant gets that
+for free, because Spring Cloud Gateway builds its client from Boot's own builder. The gateway's
+three calls to Keycloak — the authorization-code exchange, the `refresh_token` grant, and the
+JWK-set fetch that verifies an ID token at sign-in — do not: Spring Security builds each from a
+static factory that never consults Boot's builder, so `KeycloakRegistration` rebuilds all three
+from it deliberately. Unbounded, a Keycloak that accepts the connection and then stops answering
+would park a Tomcat thread for ever while the browser spins with no error; `GatewayKeycloakTimeoutIT`
+drives exactly that failure against all three. Raising either budget is a one-line change to that
+file.
 
 ## Deployment and operations
 

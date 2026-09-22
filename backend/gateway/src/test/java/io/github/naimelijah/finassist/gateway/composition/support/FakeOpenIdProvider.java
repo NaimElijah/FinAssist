@@ -16,13 +16,19 @@ import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -52,7 +58,13 @@ import tools.jackson.databind.json.JsonMapper;
  *       #lastTokenRequestHadCodeVerifier()} — whether the two halves of PKCE actually arrived.
  *   <li>{@link #lastAccessToken()}, {@link #lastRefreshToken()} and {@link #lastIdToken()} — the
  *       exact values last issued, for the log sweep to search for.
+ *   <li>{@link #stall(Endpoint)} and {@link #releaseStalledRequests()} — the endpoint accepts the
+ *       connection and then never answers, which is what an unbounded HTTP client hangs on
+ *       forever (see {@code GatewayKeycloakTimeoutIT}).
  * </ul>
+ *
+ * <p>Each exchange is handled on its own thread, so one stalled request does not also stop the
+ * endpoints a test still needs while it waits.
  */
 public final class FakeOpenIdProvider implements AutoCloseable {
 
@@ -65,11 +77,21 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     private static final String KEY_ID = "fake-idp-key";
     private static final int RSA_KEY_SIZE_BITS = 2048;
 
+    /**
+     * How long a stalled handler waits before giving up on its own. Far beyond any budget a test
+     * asserts, so the stall is what the client gives up on — but finite, so a test that forgets
+     * {@link #releaseStalledRequests()} leaks a thread for this long rather than for ever.
+     */
+    private static final Duration STALL_LIMIT = Duration.ofMinutes(2);
+
     private static final JsonMapper JSON = JsonMapper.shared();
 
     private final HttpServer server;
+    private final ExecutorService exchanges = Executors.newCachedThreadPool();
     private final RSAKey rsaKey;
     private final Map<String, String> nonceByCode = new ConcurrentHashMap<>();
+    private final Set<Endpoint> stalled = ConcurrentHashMap.newKeySet();
+    private final AtomicReference<CountDownLatch> release = new AtomicReference<>(new CountDownLatch(1));
 
     private final AtomicReference<String> lastAccessToken = new AtomicReference<>();
     private final AtomicReference<String> lastRefreshToken = new AtomicReference<>();
@@ -87,10 +109,19 @@ public final class FakeOpenIdProvider implements AutoCloseable {
                 .algorithm(JWSAlgorithm.RS256)
                 .generate();
         this.server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        server.setExecutor(exchanges);
         server.createContext(OIDC_PATH + "/auth", this::handleAuthorize);
         server.createContext(OIDC_PATH + "/token", this::handleToken);
         server.createContext(OIDC_PATH + "/certs", this::handleCerts);
         server.start();
+    }
+
+    /** The endpoints a test can make stall: the ones the gateway itself calls over the backchannel. */
+    public enum Endpoint {
+        /** Both the authorization-code exchange and the {@code refresh_token} grant. */
+        TOKEN,
+        /** The JWK set the ID token's signature is verified against. */
+        CERTS
     }
 
     /** The base URL both {@code GATEWAY_OIDC_PUBLIC_URL} and {@code GATEWAY_OIDC_INTERNAL_URL} are pointed at in the IT. */
@@ -128,6 +159,37 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         this.refuseNextRefreshOnce = false;
     }
 
+    /**
+     * Every subsequent request to {@code endpoint} accepts the connection and then waits, writing
+     * no status line at all, until {@link #releaseStalledRequests()} or {@link #STALL_LIMIT}.
+     *
+     * <p>This is the failure a connect timeout cannot catch and a read timeout must: the TCP
+     * handshake completes, so the client is not refused — it simply waits for bytes that never
+     * come, which is what a paused or wedged Keycloak looks like from the gateway.
+     */
+    public void stall(Endpoint endpoint) {
+        stalled.add(endpoint);
+    }
+
+    /**
+     * Lets every stalled request finish and stops stalling new ones, so the next test starts on a
+     * fake that answers. Idempotent, and safe to call when nothing is stalled.
+     */
+    public void releaseStalledRequests() {
+        stalled.clear();
+        release.getAndSet(new CountDownLatch(1)).countDown();
+    }
+
+    /** Blocks this exchange until the test releases it, or {@link #STALL_LIMIT} passes. */
+    private void awaitRelease() throws IOException {
+        try {
+            release.get().await(STALL_LIMIT.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IOException("the stalled exchange was interrupted", interrupted);
+        }
+    }
+
     public boolean lastAuthorizationRequestHadPkce() {
         return lastAuthorizationRequestHadPkce;
     }
@@ -150,7 +212,9 @@ public final class FakeOpenIdProvider implements AutoCloseable {
 
     @Override
     public void close() {
+        releaseStalledRequests();
         server.stop(0);
+        exchanges.shutdownNow();
     }
 
     private void handleAuthorize(HttpExchange exchange) throws IOException {
@@ -167,6 +231,10 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     }
 
     private void handleToken(HttpExchange exchange) throws IOException {
+        if (stalled.contains(Endpoint.TOKEN)) {
+            awaitRelease();
+            return;
+        }
         Map<String, String> form =
                 parseFormEncoded(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
         String grantType = form.get("grant_type");
@@ -240,6 +308,10 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     }
 
     private void handleCerts(HttpExchange exchange) throws IOException {
+        if (stalled.contains(Endpoint.CERTS)) {
+            awaitRelease();
+            return;
+        }
         Map<String, Object> jwkSet = new com.nimbusds.jose.jwk.JWKSet(rsaKey.toPublicJWK()).toJSONObject();
         respondJson(exchange, 200, JSON.writeValueAsString(jwkSet));
     }

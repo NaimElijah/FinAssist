@@ -8,6 +8,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.oauth2.client.endpoint.OAuth2AccessTokenResponseClient;
+import org.springframework.security.oauth2.client.endpoint.OAuth2AuthorizationCodeGrantRequest;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
@@ -112,6 +114,8 @@ public class GatewaySecurityConfiguration {
      * @param webOrigin where every redirect this chain issues points
      * @param sessionCookieName {@code server.servlet.session.cookie.name}, so the cookie the
      *     container sets and the cookie sign-out deletes are named in exactly one place
+     * @param tokenResponseClient the bounded authorization-code client {@link KeycloakRegistration}
+     *     builds, replacing the unbounded one this configurer would otherwise construct itself
      * @return the chain, which is also registered as the {@code springSecurityFilterChain} servlet
      *     filter, after {@link HostAllowListFilter}
      * @throws Exception if the builder rejects the configuration, which is a start-up failure
@@ -122,7 +126,8 @@ public class GatewaySecurityConfiguration {
             CsrfTokenRepository csrfTokenRepository,
             ClientRegistrationRepository registrations,
             Origin webOrigin,
-            @Value("${server.servlet.session.cookie.name}") String sessionCookieName)
+            @Value("${server.servlet.session.cookie.name}") String sessionCookieName,
+            OAuth2AccessTokenResponseClient<OAuth2AuthorizationCodeGrantRequest> tokenResponseClient)
             throws Exception {
         return http.authorizeHttpRequests(requests -> requests
                         // The container's own forward to /error, and only that: a direct request
@@ -152,6 +157,7 @@ public class GatewaySecurityConfiguration {
                 .oauth2Login(login -> login.loginPage(BffRoutes.LOGIN_ENTRY)
                         .authorizationEndpoint(endpoint -> endpoint.baseUri(BffRoutes.AUTHORIZATION_BASE))
                         .redirectionEndpoint(endpoint -> endpoint.baseUri(BffRoutes.CALLBACK_PATTERN))
+                        .tokenEndpoint(endpoint -> endpoint.accessTokenResponseClient(tokenResponseClient))
                         .successHandler(signInSuccessHandler(webOrigin))
                         .failureHandler(new SignInFailureHandler(webOrigin)))
                 .logout(logout -> logout.logoutUrl(BffRoutes.LOGOUT)
