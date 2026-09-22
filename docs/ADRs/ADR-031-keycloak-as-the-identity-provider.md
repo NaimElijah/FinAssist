@@ -1,8 +1,6 @@
 # ADR-031: Keycloak as the identity provider
 
-- **Status:** Accepted — extended: each client is now denied the realm's full scope and given an
-  explicit scope mapping for the roles its own tokens need, so the `roles` claim carries only
-  FinAssist's own roles (`KeycloakRealmTest`, `KeycloakRealmIT`)
+- **Status:** Accepted, extended by [ADR-036](ADR-036-least-privilege-keycloak-client-scoping.md).
 - **Date:** 2026-09-16
 
 ## Context
