@@ -102,6 +102,14 @@ is **not installed** on the development machine, so the raw command is given for
   (`ops/keycloak/finassist-realm.json`) imports only into an empty `keycloak-db-data` volume —
   edit it, and nothing changes for an existing one until that volume is recreated or
   `kc.sh import --override` is run by hand
+- Smoke-test authentication (opt-in, manual): `make smoke-auth` — `docker compose --profile
+  smoke run --rm auth-smoke`, once every other service reports healthy. Runs
+  `ops/smoke/auth_smoke.py` — standard library only — inside the Compose network to prove the
+  eight things a unit or integration suite cannot see from outside it: the issuer Keycloak
+  puts in a token fetched over the backchannel, the ledger's and the assistant's read/write and
+  audience checks, and the gateway's 401-not-302 and login-redirect behaviour (ADR-030 through
+  ADR-032). Never started by `docker compose up`; CI validates the service definition
+  (`--profile smoke config`) but never runs the check itself
 - Regenerate the ledger's OpenAPI contract: `cd backend/ledger && ./mvnw -B verify -Dtest=NONE
   -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running); on a
   mismatch, copy `target/contracts/ledger-v1.openapi.json` over
@@ -149,6 +157,9 @@ so it can be extracted by moving it (ADR-010).
   runs) and `finassist-realm.json` (the `finassist` realm, imported at start-up; every secret
   and credential in it is a `${VAR}` placeholder, pinned by `KeycloakRealmTest`, and the whole
   file is proved against a real Keycloak by `KeycloakRealmIT`, both in the gateway module).
+  `ops/smoke/auth_smoke.py` is the `monitoring` profile's sibling `smoke` profile's one file —
+  a standard-library-only, opt-in Compose smoke check of the authentication and RBAC wiring,
+  run by hand with `make smoke-auth`, never by `docker compose up`.
 - `docs/ADRs/` — one file per decision, `ADR-NNN-short-kebab-title.md`, zero-padded and
   monotonically increasing. Append-only: supersede, never rewrite.
 - `docs/requirements/` — what the system must do. `docs/architecture/` — what it actually is.

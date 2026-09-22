@@ -10,7 +10,7 @@ WEB       := frontend/web
 MVNW      := ./mvnw -B
 UV        := uv
 
-.PHONY: help setup lock run run-monitoring run-identity stop stop-monitoring \
+.PHONY: help setup lock run run-monitoring run-identity smoke-auth stop stop-monitoring \
         test test-ledger test-gateway test-assistant test-web mutation-ledger \
         lint lint-ledger lint-gateway lint-assistant lint-web \
         build-web generate-web-api format audit audit-assistant audit-web clean
@@ -37,6 +37,9 @@ run-monitoring: ## Start the stack plus the collector, Prometheus and Grafana
 
 run-identity: ## Start only Keycloak and its database, for signing in or testing without the rest
 	docker compose up -d keycloak-db keycloak
+
+smoke-auth: ## Opt-in end-to-end check of the authentication and RBAC wiring (ops/smoke/auth_smoke.py); needs the stack already healthy
+	docker compose --profile smoke run --rm auth-smoke
 
 stop: ## Stop the stack, keeping volumes
 	docker compose down

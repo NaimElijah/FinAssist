@@ -334,6 +334,7 @@ pipeline and the local commands cannot drift.
 | Run | `make run` | `docker compose up --build` |
 | Run with monitoring | `make run-monitoring` | `docker compose --profile monitoring up --build` |
 | Run identity only | `make run-identity` | `docker compose up -d keycloak-db keycloak` — for signing in or testing against Keycloak without the rest of the stack |
+| Smoke-test authentication (opt-in) | `make smoke-auth` | `docker compose --profile smoke run --rm auth-smoke` — see [Smoke-testing authentication](#smoke-testing-authentication) below |
 | Test everything | `make test` | the four test rows below; all four measure coverage |
 | Test the ledger | `make test-ledger` | `cd backend/ledger && ./mvnw -B verify` |
 | Test the gateway | `make test-gateway` | `cd backend/gateway && ./mvnw -B verify` |
@@ -357,6 +358,32 @@ behaviour they describe.
 > [!WARNING]
 > Editing `backend/assistant/pyproject.toml` dependencies without running `make lock` will fail CI,
 > which installs with `uv sync --locked` and refuses a stale lockfile.
+
+### Smoke-testing authentication
+
+`ops/smoke/auth_smoke.py` is an opt-in, manually-run check of the authentication and RBAC
+wiring (ADR-030 through ADR-032) against the stack actually running under Compose — not a
+substitute for `make test-ledger`, `make test-gateway` or `make test-assistant`, which already
+cover each service alone. It runs as the `auth-smoke` service, behind its own `smoke` Compose
+profile, and reaches every other service by its Compose DNS name, which is the point: from
+inside that network it can catch what no test running outside it can — a wiring fault in
+Compose's own networking, the issuer Keycloak actually places in a token fetched over the
+backchannel, and the gateway's real redirect response, rather than a fake one a test double
+would return.
+
+Standard library only, so it runs unmodified in the pinned `python:3.13.8-slim-trixie` image
+with no install step, and it never prints a token.
+
+Bring the stack up and wait for every service to report healthy, then run:
+
+```bash
+make smoke-auth
+```
+
+It exits non-zero on the first of its eight checks to fail, naming which one and why. It is
+never started by a bare `docker compose up`, and CI validates only that the service definition
+itself parses (`docker compose --profile smoke config`) — running the check against a live
+stack stays a manual step.
 
 ## Testing
 
