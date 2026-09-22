@@ -135,18 +135,22 @@ public abstract class PostgresFixture {
     }
 
     /**
-     * Creates a brand-new, empty database inside this same container, for the one test that must run
-     * Flyway from an earlier target and cannot share the schema every other {@code *IT} truncates
-     * between cases ({@code JournalActorMigrationIT}).
+     * Creates a brand-new, empty database inside this same container, for the two tests that must run
+     * Flyway themselves and cannot share the schema every other {@code *IT} truncates between cases
+     * ({@code JournalActorMigrationIT} and {@link LedgerUpgradeIT}).
      *
      * <p>{@code CREATE DATABASE} takes no bind parameter for its own name — PostgreSQL supports none
      * for an identifier — so the name is interpolated rather than bound. Every caller passes a literal
      * it wrote itself; this is a test fixture building its own throwaway database, not a boundary that
      * ever sees external input.
      *
+     * <p>Declared as the concrete {@link DriverManagerDataSource} rather than {@link DataSource}
+     * because {@link LedgerUpgradeIT} has to hand the same URL and credentials to a Spring context
+     * through {@code @DynamicPropertySource}, and {@link DataSource} exposes none of the three.
+     *
      * @param name a lowercase identifier, unique for the run
      */
-    protected static DataSource freshDatabase(String name) {
+    protected static DriverManagerDataSource freshDatabase(String name) {
         freshConnection().sql("CREATE DATABASE " + name).update();
         String url = "jdbc:postgresql://" + POSTGRES.getHost() + ":"
                 + POSTGRES.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT) + "/" + name;

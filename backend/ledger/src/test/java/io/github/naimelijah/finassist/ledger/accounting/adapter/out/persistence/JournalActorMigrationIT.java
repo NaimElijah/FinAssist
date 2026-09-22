@@ -14,8 +14,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
- * Rehearses the owner's real upgrade: a ledger already running on {@code V1_1}, holding real rows,
- * started for the first time against {@code V1_2} (ADR-033).
+ * What {@code V1_2} does to accounting rows that already exist: it adds columns, leaves every
+ * historical row saying nobody recorded it, and makes a recorder mandatory from then on (ADR-033).
  *
  * <p>Every other {@code *IT} runs against a schema Flyway has already brought to {@code latest}
  * before the first test method executes, so none of them can tell an additive migration apart from
@@ -23,9 +23,19 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * container ({@link PostgresFixture#freshDatabase}), migrates it only to {@code 1.1} — the schema
  * every row in the owner's real ledger was written under — inserts a transaction the way the
  * pre-{@code V1_2} code did, with no {@code recorded_by} column to write to, and only then migrates
- * to {@code latest}. If {@code V1_2} could not run against real history, or if it touched a row it
- * has no business touching, this is the one place that would show up: nowhere else runs the
- * migration itself against seeded data.
+ * to {@code latest}. If {@code V1_2} could not run against real rows, or if it touched a row it has
+ * no business touching, this is the one place that would show up: nowhere else runs the migration
+ * itself against seeded data and then writes through the new constraint.
+ *
+ * <p><b>This is not a rehearsal of the owner's real start-up, and does not claim to be.</b> No real
+ * database has ever stood at {@code 1.1} alone: {@code V1_1}, {@code V2_1} and {@code V3_1} entered
+ * git in one commit. Migrating {@code 1.1 → 1.2 → 2.1 → 3.1}, as the {@code latest} run below does,
+ * is an order no real database will see, and it is exactly the order that hides whether Flyway would
+ * accept {@code 1.2} arriving below a version already applied. {@link
+ * io.github.naimelijah.finassist.ledger.LedgerUpgradeIT} is what covers that, by rebuilding the
+ * applied history literally and starting the ledger's own context against it (ADR-035). The two are
+ * kept apart because they answer different questions: this one, whether the migration's SQL is safe
+ * for existing rows; that one, whether the ledger starts at all.
  */
 @SpringBootTest
 class JournalActorMigrationIT extends PostgresFixture {

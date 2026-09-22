@@ -67,6 +67,19 @@ spring:
     # so the three can never collide on a version or share a file, and the history table stays
     # single (ADR-024).
     enabled: true
+    # Required by ADR-024's own scheme, not a convenience: one history table ordered by version,
+    # with a major version per context, means the next migration for any context but the highest
+    # arrives below the highest version already applied. Flyway classes such a migration IGNORED
+    # and refuses to start (FlywayValidateException, "Detected resolved migration not applied to
+    # database"), so left false, accounting and budgeting could never gain another migration at
+    # all. Safe because no foreign key crosses a schema (SchemaBoundariesIT), so order between
+    # contexts carries no meaning; order within a context is unchanged. Never set this to false:
+    # LedgerUpgradeIT rebuilds the real applied history and starts the ledger against it, and is
+    # what turns red if it is (ADR-035).
+    #
+    # Not ignoreMigrationPatterns: that would start the ledger while skipping the migration, and
+    # every journal write would then fail on the missing recorded_by column.
+    out-of-order: true
 
 logging:
   structured:

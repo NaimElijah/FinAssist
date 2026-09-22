@@ -117,6 +117,14 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **The ledger starts against a database that already holds the books.** `V1_2` is numbered below
+  `2.1` and `3.1`, which every existing database has applied, and Flyway refuses an unapplied
+  lower version unless it is told to run out of order — so the ledger would have exited at
+  start-up on the owner's own volume, leaving every screen answering 502. `spring.flyway.out-of-order`
+  is now `true`, which a major version per context requires in any case, and `LedgerUpgradeIT`
+  rebuilds that history from the committed scripts and starts the ledger against it, so the next
+  such migration fails the build instead. See
+  [ADR-035](docs/ADRs/ADR-035-flyway-runs-out-of-order.md).
 - **`DisposeUnits` sorts lots by acquisition date before consuming them.** `consume_fifo` takes
   them in the order it is given and documents that the ordering is the caller's responsibility,
   so a caller handing it newest-first lots got a LIFO cost basis in silence, with a plausible

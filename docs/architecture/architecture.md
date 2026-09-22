@@ -280,7 +280,11 @@ identity provider and the `finassist` realm it imports at start-up (ADR-031); an
 - **Ledger to Postgres** — JDBC, hand-written SQL over Spring's `JdbcClient`, with Flyway
   running the migrations at start-up ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md),
   [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)). No ORM: an entity is
-  not an aggregate, and every statement the ledger issues is readable in one place.
+  not an aggregate, and every statement the ledger issues is readable in one place. Flyway runs
+  **out of order** (`spring.flyway.out-of-order: true`): one history table with a major version
+  per context means a new migration for any context but the highest necessarily arrives below a
+  version already applied, and Flyway would otherwise refuse to start
+  ([ADR-035](../ADRs/ADR-035-flyway-runs-out-of-order.md)).
 - **Browser to gateway** — HTTP, everything under `/bff/` — the OIDC login entry and callback,
   `GET /bff/me` and `POST /bff/logout` — and, once authenticated, `GET`/`POST` under
   `/ledger/api/v1/**` and `/assistant/api/v1/**`. **`HostAllowListFilter` runs first, ahead of

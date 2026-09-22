@@ -1,6 +1,7 @@
 # ADR-033: The journal records who
 
-- **Status:** Accepted
+- **Status:** Accepted — its claim that `JournalActorMigrationIT` rehearses the owner's real
+  upgrade is corrected by [ADR-035](ADR-035-flyway-runs-out-of-order.md)
 - **Date:** 2026-09-22
 
 ## Context

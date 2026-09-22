@@ -29,7 +29,7 @@ append-only history: to change course, add a new record and mark the old one
 | [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted |
 | [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted |
 | [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted |
-| [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033 |
+| [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033 and 035 |
 | [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted |
 | [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted, extended by 030 |
 | [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
@@ -38,8 +38,9 @@ append-only history: to change course, add a new record and mark the old one
 | [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted |
 | [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted |
-| [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted |
+| [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035 |
 | [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted |
+| [035](ADR-035-flyway-runs-out-of-order.md) | Flyway runs out of order, because every context owns a major version | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -66,3 +67,9 @@ still holds — an actor travels beside a command, never inside one.
 034 records, on 2026-09-22, why `ops/smoke/auth_smoke.py` is run by hand and never by CI, and
 weighs the evidence against that choice: the check's first real run found a defect no CI job
 would have caught, whose class a cheap unit test now guards.
+
+035 corrects 024 and 033 on 2026-09-22, after review found that `V1_2` would have stopped the
+owner's ledger from starting: a major version per context means a new migration for any context
+but the highest arrives below a version already applied, which Flyway refuses unless it is told
+to run out of order. `LedgerUpgradeIT` now starts the ledger against the history a real database
+actually holds.

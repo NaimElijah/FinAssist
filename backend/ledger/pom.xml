@@ -305,9 +305,11 @@
                      wiring, not domain logic; PIT would rerun both per mutant for nothing gained. -->
                 <param>io.github.naimelijah.finassist.ledger.LedgerAuthorizationIT</param>
                 <param>io.github.naimelijah.finassist.ledger.LedgerKeySourceOutageIT</param>
-                <!-- Runs Flyway programmatically against a second database to rehearse a migration;
-                     boots no Spring bean PIT would ever mutate. -->
+                <!-- Both run Flyway against a database of their own to exercise a migration, one of
+                     them booting the full context afterwards; neither reaches a bean PIT would
+                     ever mutate. -->
                 <param>io.github.naimelijah.finassist.ledger.accounting.adapter.out.persistence.JournalActorMigrationIT</param>
+                <param>io.github.naimelijah.finassist.ledger.LedgerUpgradeIT</param>
               </excludedTestClasses>
               <excludedClasses>
                 <!-- Excluded because LedgerCompositionIT, the test that exists to cover it, is excluded above.

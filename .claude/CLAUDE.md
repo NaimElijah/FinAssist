@@ -62,7 +62,7 @@ every screen on a session (`SessionGate`, `SessionContext`) and hides write cont
 the running Compose stack, by hand and never in CI (ADR-034).
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
-Proposed today. Of all 34, ADR-027 is Superseded by ADR-030 and the other 33 are Accepted. The
+Proposed today. Of all 35, ADR-027 is Superseded by ADR-030 and the other 34 are Accepted. The
 requirements are still deliberately `TODO` in places rather than inferred from code.
 
 ## Commands
@@ -316,6 +316,16 @@ These are enforced by the build, not by review. Breaking one fails CI.
   one must name a non-blank subject. `JdbcTransactionRepository` writes it on every `INSERT`;
   never run `ALTER TABLE ... VALIDATE CONSTRAINT` on either — it would scan the historical `NULL`
   rows and fail, and the append-only triggers forbid the `UPDATE` a fix would need (ADR-033).
+- **`spring.flyway.out-of-order` stays `true`; never turn it off.** One history table with a major
+  version per context (ADR-024) means the next migration for any context but the highest arrives
+  below a version already applied, which Flyway classes `IGNORED` and refuses to start over — so
+  with it false, `accounting` and `budgeting` could never gain another migration at all. Safe
+  because no foreign key crosses a schema, so order between contexts means nothing; order within
+  one is unchanged, and checksum validation is untouched. `LedgerUpgradeIT` is what turns red:
+  it rebuilds the history a real database holds (`1.1`, `2.1`, `3.1`) from the committed scripts,
+  byte for byte, then starts the ledger's own context against it. Extend it when the applied set
+  changes, and never reach for `ignoreMigrationPatterns`, which would start the ledger with the
+  column missing (ADR-035).
 - **No foreign key crosses a schema.** `SchemaBoundariesIT` fails the build if one does. It is
   the storage-layer half of `contexts_do_not_depend_on_each_other`, which reads bytecode and so
   stops at the edge of the JVM.
