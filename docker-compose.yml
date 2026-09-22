@@ -187,10 +187,13 @@ services:
     healthcheck:
       # The image carries no curl, but it does carry bash (confirmed against the built image),
       # so the management port's readiness probe is read with bash's own `/dev/tcp`, the same
-      # technique the ledger's own tests use to write a request by hand. The match tolerates
-      # whitespace around the colon, rather than pinning today's pretty-printed
-      # `"status": "UP"` exactly - a future Keycloak or Quarkus that compacts the body to
-      # `"status":"UP"` must not turn a healthy server into one this check calls unhealthy.
+      # technique the ledger's own tests use to write a request by hand. Judge readiness by the
+      # HTTP status line, not the body: `/health/ready`'s body lists sub-checks, and "Graceful
+      # Shutdown" reports UP within seconds of boot while "Keycloak Initialized" is still DOWN
+      # and the realm import hasn't run — a body grep for any `"status":"UP"` matches that
+      # sub-check and calls the container healthy long before it can issue a token. Reading only
+      # the status line agrees with `KeycloakRealmIT.java`'s own
+      # `Wait.forHttp("/health/ready").forStatusCode(200)`.
       test:
         - CMD
         - bash
@@ -198,11 +201,15 @@ services:
         - >-
           exec 3<>/dev/tcp/127.0.0.1/9000 &&
           printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
-          grep -Eq '"status"[[:space:]]*:[[:space:]]*"UP"' <&3
+          head -1 <&3 | grep -Eq '^HTTP/[0-9.]+ 200'
       interval: 5s
       timeout: 3s
       retries: 10
-      start_period: 60s
+      # Measured on this machine from a fresh volume: ~100s to the first real 200 with the rest
+      # of the stack starting alongside it (Task 18's own run saw ~150s). A probe success inside
+      # start_period still marks the container healthy immediately, so this costs nothing on a
+      # fast start; it only stops a correct, slower check from failing the container outright.
+      start_period: 240s
 
   gateway:
     build: ./backend/gateway
