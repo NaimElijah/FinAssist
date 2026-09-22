@@ -166,6 +166,36 @@ def Given_a_token_whose_exp_claim_is_not_numeric_When_verified_Then_it_is_refuse
     assert refused.value.reason == REASON_MALFORMED
 
 
+@pytest.mark.parametrize(
+    "exp",
+    [1e300, float("inf"), -1e10, float("nan")],
+    ids=["huge", "infinity", "pre_epoch_os_error", "nan"],
+)
+def Given_a_token_whose_exp_the_platform_cannot_represent_When_verified_Then_it_is_refused(
+    exp: float,
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    static_key_source: KeySource,
+    fixed_clock: Clock,
+) -> None:
+    """A validly-signed token whose ``exp`` is a value ``datetime.fromtimestamp`` cannot turn
+    into an instant must be refused, never left to crash the caller with an exception the
+    verifier's contract does not advertise.
+
+    ``jwt.encode`` serialises the payload with plain ``json.dumps`` (no ``allow_nan=False``), so
+    ``float("inf")`` and ``float("nan")`` reach the wire as the genuine JSON literals ``Infinity``
+    and ``NaN`` - exactly what a real, misbehaving issuer could sign - not merely as Python
+    values a test happens to construct. ``1e300`` overflows the platform's ``time_t`` on every
+    platform; ``-1e10`` (a pre-epoch timestamp) additionally reproduces the Windows-specific
+    ``OSError`` path, which is distinct from the ``OverflowError`` the other three raise.
+    """
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock(), exp=exp))
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(static_key_source, fixed_clock)(token)
+    assert refused.value.reason == REASON_MALFORMED
+
+
 def Given_a_token_with_no_exp_claim_When_verified_Then_it_is_refused(
     rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
     static_key_source: KeySource,

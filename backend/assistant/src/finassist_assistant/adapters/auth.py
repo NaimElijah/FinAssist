@@ -25,10 +25,18 @@ Two traps a first pass at this kind of check tends to fall into, both guarded he
   ``PyJWT._validate_claims`` calls ``_validate_required_claims`` unconditionally, before any
   ``verify_*`` flag is even inspected, so a claim named in ``require`` still has to be present
   whatever the ``verify_*`` options say. A missing ``exp`` is refused for exactly that reason.
+
+The issuer check is a deliberate trade of the same kind: ``jwt.decode`` is never given
+``issuer=``, so PyJWT's own (redundant) issuer comparison never runs, and
+:meth:`TokenVerifier._check_issuer` is the *only* one left. That is safe - it is an exact string
+comparison, ``iss`` is required by ``require`` regardless of whether anything then compares it,
+and four tests in ``tests/test_auth.py`` guard the exact-match boundary - so do not pass
+``issuer=`` back in "to be safe twice"; it would only duplicate a check this module already owns.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -302,10 +310,33 @@ class TokenVerifier:
 
 
 def _as_instant(value: Any) -> datetime:
-    """A NumericDate claim as a UTC instant; a claim that is not really a number is refused."""
+    """A NumericDate claim as a UTC instant.
+
+    A claim that is not really a number is refused, and so is a number no clock can ever be set
+    to. ``json.loads`` accepts the literals ``Infinity``, ``-Infinity`` and ``NaN`` by default, so
+    a real (if misbehaving) issuer can sign ``{"exp": Infinity}`` and have it arrive here as a
+    genuine ``float`` rather than a parse error. ``math.isfinite`` refuses that value, and
+    ``nan``, for a stated reason - rather than by relying on whichever exception a given platform
+    happens to raise for them, which is not the same exception everywhere (see below).
+
+    The ``try`` stays narrow, around the one remaining conversion - a numeric timestamp to a
+    ``datetime`` - so catching ``OSError`` here is a targeted translation of a platform quirk,
+    never a broad silence. ``OSError`` is a Windows-specific behaviour: its C runtime refuses some
+    finite, non-``NaN``, non-infinite values that ``fromtimestamp`` cannot turn into a ``time_t``
+    (observed for a large pre-epoch instant such as ``exp=-1e10``). ``OverflowError`` is caught
+    alongside it because an extreme-but-finite value such as ``1e300`` overflows the same way on
+    every platform. The security property this function guarantees - a non-representable
+    timestamp is always refused, never left to crash the caller - holds everywhere; only the
+    *reason category* a value falls under can differ by platform: this same ``exp=-1e10`` is
+    refused ``malformed`` here, on Windows, but would convert successfully and then be refused as
+    ``lifetime`` (simply very expired) on a platform whose C runtime accepts it.
+    """
     try:
-        return datetime.fromtimestamp(float(value), tz=UTC)
-    except (TypeError, ValueError) as unparseable:
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            raise TokenRefused(REASON_MALFORMED)
+        return datetime.fromtimestamp(numeric, tz=UTC)
+    except (TypeError, ValueError, OverflowError, OSError) as unparseable:
         raise TokenRefused(REASON_MALFORMED) from unparseable
 
 
