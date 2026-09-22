@@ -8,6 +8,7 @@ put a documented variable outside the validation this file provides.
 from __future__ import annotations
 
 from typing import Annotated, Final, Literal
+from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -20,6 +21,10 @@ _WILDCARD: Final = "*"
 # A port's colon and an IPv6 literal's colon or bracket. The middleware compares only the text
 # before a Host header's first colon, so an allowed entry holding one of these matches no request.
 _PORT_OR_BRACKET: Final = (":", "[")
+
+# `PyJWKClient` itself refuses any other scheme when it is finally asked to fetch (ADR-030); this
+# refuses one earlier, at start-up, instead of on the first request that needs a key.
+_HTTP_SCHEMES: Final = frozenset({"http", "https"})
 
 
 class Settings(BaseSettings):
@@ -48,6 +53,12 @@ class Settings(BaseSettings):
     :param dev_seed: loads a small set of fictional holdings and quotes at start-up, so the
         portfolio screens have something to show by hand. The data is invented and never meant
         for real use; off by default so a production-shaped run never serves it by accident.
+    :param oidc_issuer: the ``iss`` every bearer token must name. Always the public URL a
+        browser signed in against, never an internal one (ADR-030, ADR-031) - the same value the
+        ledger is configured with, since both services trust the one realm.
+    :param oidc_jwks_uri: where this service fetches signing keys, service-to-service. Compose
+        overrides this with Keycloak's internal address; this default targets a native run
+        against Keycloak's own published port.
     """
 
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
@@ -57,6 +68,13 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, ge=1, le=65535, alias="ASSISTANT_PORT")
     allowed_hosts: Annotated[list[str], NoDecode] = Field(
         default=["localhost", "127.0.0.1"], alias="ASSISTANT_ALLOWED_HOSTS"
+    )
+    oidc_issuer: str = Field(
+        default="http://localhost:8081/realms/finassist", alias="ASSISTANT_OIDC_ISSUER"
+    )
+    oidc_jwks_uri: str = Field(
+        default="http://localhost:8081/realms/finassist/protocol/openid-connect/certs",
+        alias="ASSISTANT_OIDC_JWKS_URI",
     )
     otlp_endpoint: str | None = Field(default=None, alias="OTEL_EXPORTER_OTLP_ENDPOINT")
     traces_export_enabled: bool = Field(default=False, alias="OTEL_EXPORT_ENABLED")
@@ -97,6 +115,28 @@ class Settings(BaseSettings):
                 "must name hosts without a port or brackets, which no Host header would match"
             )
         return names
+
+    @field_validator("oidc_issuer")
+    @classmethod
+    def require_issuer_http_scheme(cls, value: str) -> str:
+        """Refused at start-up rather than surfacing as a 503 on the first token verified.
+
+        :raises ValueError: if the URL's scheme is neither ``http`` nor ``https``.
+        """
+        if urlparse(value).scheme not in _HTTP_SCHEMES:
+            raise ValueError("ASSISTANT_OIDC_ISSUER must be an http(s) URL")
+        return value
+
+    @field_validator("oidc_jwks_uri")
+    @classmethod
+    def require_jwks_uri_http_scheme(cls, value: str) -> str:
+        """The service-to-service counterpart of :meth:`require_issuer_http_scheme`.
+
+        :raises ValueError: if the URL's scheme is neither ``http`` nor ``https``.
+        """
+        if urlparse(value).scheme not in _HTTP_SCHEMES:
+            raise ValueError("ASSISTANT_OIDC_JWKS_URI must be an http(s) URL")
+        return value
 
     @property
     def traces_enabled(self) -> bool:
