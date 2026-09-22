@@ -106,6 +106,13 @@ spring:
                 - StripPrefix=1
                 - RemoveRequestHeader=Cookie
                 - RemoveRequestHeader=X-FINASSIST-XSRF-TOKEN
+                # Authorization is removed rather than left to be overwritten. TokenRelay's
+                # setBearerAuth replaces, so a browser-supplied header is overwritten on the
+                # ordinary path - but that same filter falls through to the unmodified request
+                # when there is no authorized client, and on that path a header the browser chose
+                # would reach the service untouched. Removing it makes the guarantee this
+                # gateway's rather than a library's choice of `set` over `add`.
+                - RemoveRequestHeader=Authorization
                 # No client-registration id: TokenRelayFilterFunctions reads it from the
                 # signed-in OAuth2AuthenticationToken, which is the only kind of principal that
                 # ever reaches this route - the security chain requires authentication first.
@@ -119,6 +126,7 @@ spring:
                 - StripPrefix=1
                 - RemoveRequestHeader=Cookie
                 - RemoveRequestHeader=X-FINASSIST-XSRF-TOKEN
+                - RemoveRequestHeader=Authorization
                 - TokenRelay=
   http:
     clients:

@@ -14,6 +14,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -21,10 +22,13 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.cloud.gateway.server.mvc.config.GatewayMvcProperties;
+import org.springframework.cloud.gateway.server.mvc.config.RouteProperties;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -64,6 +68,9 @@ class GatewayLoginFlowIT {
     /** What {@code SignInFailureHandler} appends when a sign-in does not complete. */
     private static final String SIGN_IN_FAILED = "/?signin=failed";
 
+    /** A bearer the browser supplied itself, which no downstream service may ever be shown. */
+    private static final String BROWSER_SUPPLIED_BEARER = "Bearer a-token-the-browser-chose";
+
     /** A W3C trace id the client picks, so the value asserted downstream can only have come from it. */
     private static final String CLIENT_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
 
@@ -77,6 +84,10 @@ class GatewayLoginFlowIT {
 
     @LocalServerPort
     private int port;
+
+    /** The relay routes as the running gateway bound them from {@code application.yml}. */
+    @Autowired
+    private GatewayMvcProperties routes;
 
     @BeforeAll
     static void startFakes() throws Exception {
@@ -157,9 +168,12 @@ class GatewayLoginFlowIT {
         return client.send(
                 HttpRequest.newBuilder(URI.create(gatewayUrl(path)))
                         .timeout(TIMEOUT)
-                        // Sent even though this is a GET the CSRF filter would not otherwise
-                        // check, so that "the header is stripped" has something real to strip.
+                        // Both sent so that "the header is stripped" has something real to
+                        // strip: the CSRF one even though this is a GET the filter would not
+                        // otherwise check, and an Authorization header because a page is free to
+                        // set one and the relay must never pass it on.
                         .header(XSRF_HEADER, "a-header-that-must-not-reach-the-ledger")
+                        .header("Authorization", BROWSER_SUPPLIED_BEARER)
                         .GET()
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
@@ -312,9 +326,47 @@ class GatewayLoginFlowIT {
             FakeService.ReceivedRequest received = ledger.lastRequest();
             assertThat(received.path()).isEqualTo("/api/v1/accounts");
             assertThat(received.header("authorization")).isEqualTo("Bearer " + accessToken);
+            assertThat(received.headers().get("authorization")).containsExactly("Bearer " + accessToken);
             assertThat(received.hasHeader("cookie")).isFalse();
             assertThat(received.hasHeader("x-finassist-xsrf-token")).isFalse();
         }
+    }
+
+    /**
+     * Which of the browser's own headers each relay route removes, read from the routes the
+     * running gateway bound.
+     *
+     * <p>A configuration assertion rather than a behavioural one, because the behaviour is masked:
+     * {@code TokenRelayFilterFunctions.tokenRelay()} calls {@code HttpHeaders#setBearerAuth},
+     * which <em>replaces</em>, so a browser-supplied {@code Authorization} header is overwritten
+     * whatever this list says — the test above would pass either way. But that same method falls
+     * through to {@code next.handle(request)}, the unmodified request, when the client
+     * registration id is null or the client manager does not authorize, and on that path the
+     * browser's header would reach the ledger untouched. Removing the header outright is what
+     * makes the guarantee the gateway's rather than a library's choice of {@code set} over {@code
+     * add}, and this is the only place that choice can be pinned.
+     *
+     * <p>The set is closed, and both routes are checked, because it is the whole list that is the
+     * decision: a removal dropped from one route and not the other is exactly the asymmetry that
+     * would otherwise go unnoticed.
+     */
+    @Test
+    void Given_the_shipped_relay_routes_When_their_filters_are_read_Then_each_strips_the_browsers_own_headers() {
+        assertThat(routes.getRoutes()).extracting(RouteProperties::getId).containsExactly("ledger", "assistant");
+
+        for (RouteProperties route : routes.getRoutes()) {
+            assertThat(removedHeaders(route))
+                    .as("headers the %s route removes", route.getId())
+                    .containsExactlyInAnyOrder("Cookie", XSRF_HEADER, "Authorization");
+        }
+    }
+
+    /** Every header named by a {@code RemoveRequestHeader} filter on one route. */
+    private static List<String> removedHeaders(RouteProperties route) {
+        return route.getFilters().stream()
+                .filter(filter -> "RemoveRequestHeader".equals(filter.getName()))
+                .flatMap(filter -> filter.getArgs().values().stream())
+                .toList();
     }
 
     /**
