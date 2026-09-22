@@ -64,9 +64,6 @@ final class GatewayProblems {
     /** A relayed request's upstream service — the ledger or the assistant — could not be reached. */
     static final String UPSTREAM_UNAVAILABLE = "UPSTREAM_UNAVAILABLE";
 
-    /** An unknown route. */
-    static final String NOT_FOUND = "NOT_FOUND";
-
     /** The path exists here, but no handler answers this method. */
     static final String METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED";
 

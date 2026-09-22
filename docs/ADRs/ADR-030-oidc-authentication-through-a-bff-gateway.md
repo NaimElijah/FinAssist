@@ -1,9 +1,12 @@
 # ADR-030: OIDC authentication through a backend-for-frontend gateway
 
-- **Status:** Accepted — its "WARN line naming one reason category" now holds for every category
-  but `key_source`, which both services log at ERROR under a message of its own: an unreachable
-  key source is not one caller's refusal but an outage in which nobody can authenticate
-  (`docs/architecture/architecture.md`, "An authentication failure is logged as a reason")
+- **Status:** Accepted, with two of its details corrected by what was built. Its "WARN line naming
+  one reason category" now holds for every category but `key_source`, which both services log at
+  ERROR under a message of its own: an unreachable key source is not one caller's refusal but an
+  outage in which nobody can authenticate. And the gateway answers no `NOT_FOUND`: the security
+  chain refuses an unknown route 401 or 403 long before routing could call it unknown, so that
+  code was never reachable and no longer exists. Both are described as built in
+  `docs/architecture/architecture.md`
 - **Date:** 2026-09-16
 
 Supersedes [ADR-027](ADR-027-defer-authentication-and-bind-to-loopback.md). This record replaces
