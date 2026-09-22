@@ -58,6 +58,8 @@ class GatewayApplicationIT {
 
     private static final String SESSION_COOKIE = "FINASSIST_SESSION";
 
+    private static final String CSRF_COOKIE = "FINASSIST-XSRF-TOKEN";
+
     /** Creates a session without a sign-in: Spring saves the authorization request in one. */
     private static final String LOGIN_ENTRY = "/bff/oauth2/authorization/keycloak";
 
@@ -199,6 +201,28 @@ class GatewayApplicationIT {
     }
 
     /**
+     * The other cookie the browser holds, written by {@code CookieCsrfTokenRepository}'s customiser
+     * rather than by Tomcat, and therefore able to disagree with the session cookie above.
+     *
+     * <p>{@code SameSite=Lax} is defence in depth here, not the CSRF defence itself — that is the
+     * header comparison, which a cross-site page cannot satisfy because it cannot read this
+     * cookie. It is asserted because the attribute is set on purpose rather than left to Spring's
+     * default of "whatever the current request's scheme is", and nothing else would notice it
+     * being dropped. {@code HttpOnly} must be absent, for the opposite reason to the session
+     * cookie's: the web client's own script has to read this one.
+     */
+    @Test
+    void Given_a_request_that_starts_a_session_When_the_csrf_cookie_is_written_Then_it_is_same_site_lax_and_readable()
+            throws Exception {
+        HttpResponse<String> response = get(LOGIN_ENTRY);
+
+        assertThat(setCookie(response, CSRF_COOKIE))
+                .contains("SameSite=Lax")
+                .doesNotContain("HttpOnly")
+                .doesNotContain("Secure");
+    }
+
+    /**
      * The direction of {@code GATEWAY_COOKIE_SECURE} that matters in production. The default of
      * {@code false} is asserted above by the absence of {@code Secure}, and an absence passes just
      * as well when a property is ignored altogether — so the setting is only shown to be honoured
@@ -229,7 +253,7 @@ class GatewayApplicationIT {
             HttpResponse<String> response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
 
             assertThat(setCookie(response, SESSION_COOKIE)).contains("Secure");
-            assertThat(setCookie(response, "FINASSIST-XSRF-TOKEN")).contains("Secure");
+            assertThat(setCookie(response, CSRF_COOKIE)).contains("Secure");
         }
     }
 }

@@ -54,6 +54,9 @@ class GatewayLoginFlowIT {
     private static final String WEB_ORIGIN = "http://localhost:5173";
     private static final String SESSION_COOKIE = "FINASSIST_SESSION";
 
+    /** A W3C trace id the client picks, so the value asserted downstream can only have come from it. */
+    private static final String CLIENT_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
+
     private static FakeOpenIdProvider idp;
     private static FakeService ledger;
     private static FakeService assistant;
@@ -139,12 +142,25 @@ class GatewayLoginFlowIT {
      * a caller can assert either outcome: a completed sign-in, or a failed one.
      */
     private HttpResponse<Void> completeCallback(HttpClient client) throws Exception {
+        return finishLogin(client, startLogin(client));
+    }
+
+    /**
+     * The first half of a sign-in: the login entry, and the redirect it answers with. Split out so
+     * a test can read what the browser holds <em>between</em> the two halves, which is the only
+     * moment the pre-sign-in session cookie exists.
+     */
+    private URI startLogin(HttpClient client) throws Exception {
         HttpResponse<Void> entry = getFollowingNothing(client, gatewayUrl("/bff/oauth2/authorization/keycloak"));
         assertThat(entry.statusCode()).isEqualTo(302);
         URI authorizeUri = URI.create(entry.headers().firstValue("Location").orElseThrow());
         assertThat(queryParam(authorizeUri, "code_challenge_method")).isEqualTo("S256");
         assertThat(queryParam(authorizeUri, "code_challenge")).isNotBlank();
+        return authorizeUri;
+    }
 
+    /** The second half: the fake provider's authorization endpoint, then the gateway's callback. */
+    private HttpResponse<Void> finishLogin(HttpClient client, URI authorizeUri) throws Exception {
         HttpResponse<Void> authorized = getFollowingNothing(client, authorizeUri.toString());
         assertThat(authorized.statusCode()).isEqualTo(302);
         assertThat(idp.lastAuthorizationRequestHadPkce()).isTrue();
@@ -249,6 +265,61 @@ class GatewayLoginFlowIT {
             FakeService.ReceivedRequest received = ledger.lastRequest();
             assertThat(received.method()).isEqualTo("POST");
             assertThat(received.path()).isEqualTo("/api/v1/transactions");
+        }
+    }
+
+    /**
+     * Session fixation, pinned rather than inherited. Spring's default authentication strategy is
+     * {@code ChangeSessionIdAuthenticationStrategy}, and nothing in this gateway's configuration
+     * names it — so only an assertion stops a future {@code sessionManagement} customiser from
+     * quietly turning it off. A session id handed to the browser <em>before</em> a sign-in must
+     * not still be valid after one, or a page that could plant that cookie would be signed in as
+     * the owner the moment the owner signed in.
+     */
+    @Test
+    void Given_a_session_started_before_sign_in_When_the_callback_completes_Then_the_session_id_changes()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            URI authorizeUri = startLogin(client);
+            String beforeSignIn = sessionCookieValue(client);
+
+            HttpResponse<Void> callback = finishLogin(client, authorizeUri);
+            assertThat(callback.statusCode()).isEqualTo(302);
+
+            assertThat(sessionCookieValue(client)).isNotEqualTo(beforeSignIn);
+        }
+    }
+
+    /**
+     * The owner's rule is that a correlation id crosses every boundary, and the relay is one. The
+     * ledger and the assistant each log a trace id, so a request a person is looking at must be
+     * findable in all three services' logs under the same one.
+     *
+     * <p>The header is not passed through untouched: the gateway continues the trace, so the
+     * {@code trace-id} field is the caller's while the {@code parent-id} field is the gateway's
+     * own span. Both halves are asserted, because an implementation that simply copied the header
+     * would satisfy the first alone and would record no span of its own.
+     */
+    @Test
+    void Given_a_relayed_request_carrying_a_traceparent_When_it_arrives_Then_it_carries_the_same_trace_id()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+            String traceparent = "00-" + CLIENT_TRACE_ID + "-00f067aa0ba902b7-01";
+
+            HttpResponse<String> response = client.send(
+                    HttpRequest.newBuilder(URI.create(gatewayUrl("/ledger/api/v1/accounts")))
+                            .timeout(TIMEOUT)
+                            .header("traceparent", traceparent)
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            assertThat(response.statusCode()).isEqualTo(200);
+            String relayed = ledger.lastRequest().header("traceparent");
+            assertThat(relayed).isNotNull();
+            assertThat(relayed.split("-")[1]).isEqualTo(CLIENT_TRACE_ID);
+            assertThat(relayed).isNotEqualTo(traceparent);
         }
     }
 

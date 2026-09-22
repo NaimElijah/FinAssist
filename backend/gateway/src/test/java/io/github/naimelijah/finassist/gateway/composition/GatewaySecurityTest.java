@@ -305,10 +305,18 @@ class GatewaySecurityTest {
      * Deny by default, seen from the far side: a signed-in session is not a licence to reach a path
      * no rule mentions. An anonymous caller gets 401 on the same path, because
      * {@code ExceptionTranslationFilter} sends an anonymous principal to the entry point instead.
+     *
+     * <p>{@code /v3/api-docs} is listed beside an invented path because the gateway really does
+     * serve a document there — {@code springdoc.api-docs.enabled} is {@code true}, deliberately —
+     * and {@code application.yml} states as fact that the chain refuses it anyway. Nothing but
+     * this assertion held that claim: {@code GatewayContractIT} reads the document in process,
+     * never over HTTP.
      */
-    @Test
-    void Given_a_signed_in_session_When_an_unrouted_path_is_requested_Then_it_is_denied_403() throws Exception {
-        mvc.perform(named(get("/admin")).with(oidcLogin().idToken(ownerToken(List.of("owner")))))
+    @ParameterizedTest
+    @ValueSource(strings = {"/admin", "/v3/api-docs"})
+    void Given_a_signed_in_session_When_an_unrouted_path_is_requested_Then_it_is_denied_403(String path)
+            throws Exception {
+        mvc.perform(named(get(path)).with(oidcLogin().idToken(ownerToken(List.of("owner")))))
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
