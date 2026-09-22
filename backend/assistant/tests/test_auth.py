@@ -22,7 +22,7 @@ import json
 import socket
 import threading
 from collections.abc import Iterator, Mapping
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -30,10 +30,12 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi.testclient import TestClient
 from jwt import PyJWK
 from jwt.algorithms import RSAAlgorithm
 from pydantic import ValidationError
 
+from finassist_assistant.adapters.app import create_app
 from finassist_assistant.adapters.auth import (
     ASSISTANT_AUDIENCE,
     REASON_AUDIENCE,
@@ -58,6 +60,23 @@ from finassist_assistant.adapters.wiring import Clock
 ISSUER = "http://localhost:8081/realms/finassist"
 SUBJECT = "owner-user"
 KEY_ID = "test-key"
+
+_POSITION_URL = "/api/v1/portfolio/holdings/VOO/position"
+"""Any route behind the permission check; the assembly holds nothing, so it answers 404."""
+
+
+def _live_settings(jwks_uri: str) -> Settings:
+    """Settings a production-shaped ``create_app`` reads, pointed at a real local JWKS endpoint."""
+    return Settings(
+        OTEL_EXPORTER_OTLP_ENDPOINT=None,
+        OTEL_EXPORT_ENABLED=False,
+        ASSISTANT_LOG_LEVEL="INFO",
+        # TestClient sends `Host: testserver`.
+        ASSISTANT_ALLOWED_HOSTS=["testserver"],
+        ASSISTANT_OIDC_ISSUER=ISSUER,
+        ASSISTANT_OIDC_JWKS_URI=jwks_uri,
+    )
+
 
 _BEYOND_LEEWAY = timedelta(seconds=31)
 """One second past the 30 s leeway :data:`~finassist_assistant.adapters.auth.DEFAULT_LEEWAY`
@@ -672,6 +691,61 @@ def Given_a_real_PyJWKClient_with_a_dead_port_When_verified_Then_it_is_unavailab
 
     with pytest.raises(KeySourceUnavailable):
         _verifier(key_source, fixed_clock)(token)
+
+
+# --- the verifier create_app builds when a test does not supply one ---------------------------
+
+
+def _live_claims(**overrides: Any) -> dict[str, Any]:
+    """Claims valid against the wall clock, which is the clock the production wiring reads.
+
+    Every other test in this file mints against ``fixed_clock``; ``create_app``'s own verifier
+    is built with ``utc_now``, so a fixed-clock token would be refused for its lifetime before
+    the issuer or the key source was ever reached, and the test would pass for the wrong reason.
+    """
+    now = datetime.now(UTC)
+    claims = _valid_claims(now, roles=["owner"])
+    claims.update(overrides)
+    return claims
+
+
+def Given_no_token_verifier_When_create_app_builds_its_own_Then_it_accepts_a_correctly_issued_token(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey], jwks_server: str
+) -> None:
+    """The one path the rest of the suite never runs: ``create_app`` with no ``token_verifier``.
+
+    Every other ``create_app`` caller passes one, so nothing would notice if the composition
+    root wired the issuer and the JWKS URI to each other's settings - the owner's first sign-in
+    would. Here the real ``jwks_key_source`` fetches from a real endpoint, and a token the realm
+    would have issued reaches the route.
+    """
+    private_key, _ = rsa_key_pair
+    app = create_app(_live_settings(jwks_server))
+    token = _encode(private_key, _live_claims())
+
+    with TestClient(app, headers={"Authorization": f"Bearer {token}"}) as client:
+        response = client.get(_POSITION_URL)
+
+    # 404, not merely "not 401": nothing is held for this symbol, which is the answer only a
+    # caller who got past both authentication and authorization ever sees.
+    assert response.status_code == 404
+    assert response.json()["code"] == "HOLDING_NOT_FOUND"
+
+
+def Given_no_token_verifier_When_create_app_builds_its_own_Then_it_refuses_a_foreign_issuer(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey], jwks_server: str
+) -> None:
+    """Signed by the very key the JWKS serves, so only the issuer check can refuse it - which is
+    what pins that ``create_app`` passed the issuer, and not some other URL, to the verifier."""
+    private_key, _ = rsa_key_pair
+    app = create_app(_live_settings(jwks_server))
+    token = _encode(private_key, _live_claims(iss="http://elsewhere.invalid/realms/other"))
+
+    with TestClient(app, headers={"Authorization": f"Bearer {token}"}) as client:
+        response = client.get(_POSITION_URL)
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "UNAUTHENTICATED"
 
 
 # --- settings: the issuer and JWKS URI are validated as http(s) at start-up --------------------
