@@ -41,20 +41,22 @@ same way (ADR-026, extended by ADR-030): `PortfolioPage` looks a holding up by s
 `HoldingPage` (`/portfolio/:symbol`) shows its position and valuation — nothing held and no usable
 price as calm empty states rather than errors — and prices a disposal as a calculation that records
 nothing. All four screen areas now exist; only "ask a question" is deliberately left out.
-Observability is live (ADR-019): the ledger answers Actuator probes and traces its business
-endpoints too, and the assistant serves `/health` and `/ready` and assembles its use cases at
-start-up. The ledger, the gateway and the assistant emit structured JSON logs and OTLP traces, and
-all three run under Compose (`docker compose up`) as well as natively. **Authentication and
-authorisation are built**: OIDC through a backend-for-frontend gateway (ADR-030, which supersedes
-ADR-027), Keycloak (ADR-031), and role-based permissions owned by each service (ADR-032).
+Observability is live (ADR-019): the ledger and the gateway answer Actuator probes, the ledger
+traces its business endpoints too, and the assistant serves `/health` and `/ready` and assembles
+its use cases at start-up. The ledger, the gateway and the assistant emit structured JSON logs
+and OTLP traces, and all three run under Compose (`docker compose up`) as well as natively.
+**Authentication and authorisation are built**: OIDC through a backend-for-frontend gateway
+(ADR-030, which supersedes ADR-027), Keycloak (ADR-031), and role-based permissions owned by each
+service (ADR-032).
 `backend/gateway` signs the browser in against a self-hosted Keycloak (`ops/keycloak/`, with its
 own `keycloak-db`), keeps every token in its server-side session, and relays each call to the
 ledger or the assistant with `TokenRelay`; the browser holds only an `HttpOnly` session cookie and
 a CSRF token, and the web client's dev proxy sends every call to the gateway. The ledger is a
 resource server that validates bearer tokens and denies by default (`LedgerSecurityConfiguration`,
 proven by `LedgerAuthorizationIT`); the assistant requires a bearer token and `portfolio:read` on
-every route (`BearerAuthentication` and `RequirePermission` in `adapters/auth.py`). The web client
-gates every screen on a session (`SessionGate`, `SessionContext`) and hides write controls from a
+every business route, leaving `/health`, `/ready` and `/openapi.json` public
+(`BearerAuthentication` and `RequirePermission` in `adapters/auth.py`). The web client gates
+every screen on a session (`SessionGate`, `SessionContext`) and hides write controls from a
 `viewer` (`useWriteAccess`), and every journal row written from `V1_2` onward records the token's
 `sub` as `recorded_by` (ADR-033). `ops/smoke/auth_smoke.py` checks the wiring between them against
 the running Compose stack, by hand and never in CI (ADR-034).
@@ -118,8 +120,10 @@ is **not installed** on the development machine, so the raw command is given for
 - Run identity only: `make run-identity` — `docker compose up -d keycloak-db keycloak`, for
   signing in or testing against Keycloak without the rest of the stack. Its realm
   (`ops/keycloak/finassist-realm.json`) imports only into an empty `keycloak-db-data` volume —
-  edit it, and nothing changes for an existing one until that volume is recreated or
-  `kc.sh import --override` is run by hand
+  edit it, or a secret it takes from `.env`, and nothing changes for an existing one until the
+  realm is imported again. The README's "Changing the realm or its secrets" gives both recipes, a
+  re-import with `kc.sh import --override true` or a recreated `keycloak-db-data`, and both delete
+  the realm's users
 - Smoke-test authentication (opt-in, manual): `make smoke-auth` — `docker compose --profile
   smoke run --rm auth-smoke`, after `make run` reports every service healthy (run cold, `compose
   run` starts the stack itself, but from existing images, without building). Runs
@@ -166,12 +170,18 @@ so it can be extracted by moving it (ADR-010).
   keeps the access and refresh tokens in its in-memory session, and relays `GET`/`POST
   /ledger/api/v1/**` and `/assistant/api/v1/**` with `StripPrefix`, `RemoveRequestHeader` and
   `TokenRelay` — routes declared in `application.yml`. It holds no bounded context: everything is
-  in its `composition/` root — `GatewaySecurityConfiguration` (the one security chain, deny by
-  default, 401 never 302, renamed CSRF cookie and header), `KeycloakRegistration` (the
-  `ClientRegistration` built by hand, public and backchannel URLs split), `HostAllowListFilter`
-  (a deliberate copy of the ledger's, configured by `GATEWAY_ALLOWED_HOSTS`), `SessionController`
-  (`GET /bff/me`), `SpaLogoutSuccessHandler` (`POST /bff/logout`), `GatewayProblems` and
-  `GatewayRelayProblems`. Its own Maven wrapper, so it builds standalone like the ledger.
+  in its `composition/` root, which is, in full: `GatewayConfiguration` (registers the Host
+  allow-list first), `HostAllowListFilter` (a deliberate copy of the ledger's, configured by
+  `GATEWAY_ALLOWED_HOSTS`), `GatewaySecurityConfiguration` (the one security chain, deny by
+  default, 401 never 302, renamed CSRF cookie and header), `BffRoutes` (every `/bff/` path, in one
+  place), `KeycloakRegistration` (the `ClientRegistration` built by hand, public and backchannel
+  URLs split, and the client manager `TokenRelay` uses), `SessionController` (`GET /bff/me`),
+  `SignInFailureHandler` (a failed sign-in back to `?signin=failed`),
+  `SpaLogoutSuccessHandler` (`POST /bff/logout`), `ProblemAuthenticationEntryPoint` (401) and
+  `ProblemAccessDeniedHandler` (403), `GatewayProblems` (the problem codes and writer),
+  `GatewayRelayProblems` (a relay's failures), `GatewayOpenApiConfiguration` (the committed
+  contract's shape), and the records `Origin`, `SessionResponse` and `LogoutResponse`. Its own
+  Maven wrapper, so it builds standalone like the ledger.
 - `backend/assistant/` — Python 3.13, FastAPI. Contexts `portfolio/`, `assistance/`,
   `marketdata/`, each with `domain/`, `application/{port,usecase}/`, `adapters/`, plus
   `shared/` and the composition root `adapters/` (`app.py`, `wiring.py`, `settings.py`,
@@ -383,11 +393,14 @@ These are enforced by the build, not by review. Breaking one fails CI.
   configured. The wire models' `hide_input_in_errors=True` is defence in depth for anything else
   that prints a pydantic `ValidationError`, not the guarantee. A 503 `PRICE_UNAVAILABLE` logs the
   event and the symbol only, never a traceback.
-- **Both Host allow-lists refuse, at start-up, an entry naming a port or an IPv6 literal**:
-  `ASSISTANT_ALLOWED_HOSTS` refuses one containing a `:` or a `[`, and
-  `HostAllowListFilter` refuses a `:`, a `[` or a `]` in `LEDGER_ALLOWED_HOSTS`.
-- **Neither service serves a `/docs` or `/redoc` UI.** `/openapi.json` (and the ledger's own
-  OpenAPI route) stays.
+- **All three Host allow-lists refuse, at start-up, an entry naming a port or an IPv6 literal**:
+  `ASSISTANT_ALLOWED_HOSTS` refuses one containing a `:` or a `[`, and each `HostAllowListFilter`
+  — the ledger's and the gateway's copy — refuses a `:`, a `[` or a `]` in `LEDGER_ALLOWED_HOSTS`
+  or `GATEWAY_ALLOWED_HOSTS`.
+- **No service serves an API UI**: no `/docs` or `/redoc` on the assistant, and no Swagger UI on
+  the ledger or the gateway, which depend on springdoc's `-api` starter alone. `/openapi.json`
+  (and the ledger's own OpenAPI route) stays; the gateway's `/v3/api-docs` is denied by its
+  security chain.
 - **The ledger validates a bearer token and denies by default on every request** (ADR-030).
   `LedgerAuthorizationIT` checks this against an explicit, named inventory of every endpoint the
   running server answers to — plus springdoc's own and the container's error forward — so an

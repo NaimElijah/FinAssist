@@ -89,16 +89,16 @@ where a decision waits on its owner; the
 ```bash
 git clone https://github.com/NaimElijah/FinAssist.git
 cd FinAssist
-cp .env.example .env        # then set every secret in the table below
-docker compose up --build
+cp .env.example .env        # then set every secret in the table below, before starting anything
 ```
 
 **Set every secret first.** `.env.example` leaves each one blank, and `docker-compose.yml`
-requires each through `${VAR:?}` — `GRAFANA_ADMIN_PASSWORD` only for the `monitoring`
-profile — so Compose refuses to start, naming a missing one, until they are set. **An `.env`
-copied before the gateway existed lacks the five identity secrets below**, from
-`KEYCLOAK_DB_PASSWORD` to `ASSISTANT_CLIENT_SECRET`; add them, or `docker compose up` refuses to
-start.
+requires each through `${VAR:?}` — `GRAFANA_ADMIN_PASSWORD` only for the `monitoring` profile —
+so until they are set Compose refuses to start, printing
+`required variable X is missing a value: set X in .env` for every one still missing, once for each
+service that uses it. **An `.env` copied before authentication arrived lacks the five identity
+secrets below**, from `KEYCLOAK_DB_PASSWORD` to `ASSISTANT_CLIENT_SECRET`; add them, or
+`docker compose up` refuses to start.
 
 | Secret | What to put in it |
 |---|---|
@@ -117,21 +117,29 @@ alone, since the assistant has no ledger client to use it yet
 ([#62](https://github.com/NaimElijah/FinAssist/issues/62)). Keycloak copies both client secrets
 and the owner's initial password into the realm when it first imports it, and only then, so
 changing one of them later changes nothing in Keycloak until the realm is imported again (see
-[Known limitations](#status-and-limitations)).
+[Changing the realm or its secrets](#changing-the-realm-or-its-secrets)).
 
-`docker compose up --build` starts PostgreSQL 18, Keycloak and its own database, the ledger, the
-gateway and the assistant, with every published port bound to `127.0.0.1` only (ADR-030).
+With every secret set, start the stack:
+
+```bash
+docker compose up --build
+```
+
+It starts PostgreSQL 18, Keycloak and its own database, the ledger, the gateway and the
+assistant, with every published port bound to `127.0.0.1` only (ADR-030).
 
 **The first `docker compose up` takes a couple of minutes, and that is expected, not a hang.**
 Keycloak imports the `finassist` realm into the empty `keycloak-db-data` volume before it reports
 ready, and the ledger, the gateway and the assistant each wait for that before they start. The
 ledger applies its Flyway migrations at start-up.
 
-`docker-compose.yml`'s `:?` on every realm placeholder is what keeps this safe: run
-`ops/keycloak/Dockerfile` outside that guarded path with one of them unset, and Keycloak imports
-the literal, unresolved `${VAR}` text as the credential rather than refusing to start or leaving
-it blank — for the owner's initial password, that means a publicly known value, not a missing
-one.
+`docker-compose.yml`'s `:?` on each of the realm's three secret placeholders — the two client
+secrets and the owner's initial password — is what keeps that import safe; its two other
+placeholders, `GATEWAY_PUBLIC_URL` and `FINASSIST_OWNER_USERNAME`, are not secret and take `:-`
+defaults. Run `ops/keycloak/Dockerfile` outside that guarded path with one of the secrets unset,
+and Keycloak imports the literal, unresolved `${VAR}` text as the credential rather than refusing
+to start or leaving it blank — for the owner's initial password, that means a publicly known
+value, not a missing one.
 
 Once it is up:
 
@@ -180,7 +188,8 @@ give it a password under **Credentials**, and assign it the realm role `viewer` 
 For the faster native inner loop, start only the databases and Keycloak under Compose, and run
 the services outside it. Run natively, no service reads `.env`: each takes its settings from the
 environment alone, so export what it needs in the shell that starts it — `LEDGER_DB_PASSWORD` for
-the ledger, and for the gateway `GATEWAY_CLIENT_SECRET`, holding the value Keycloak imported:
+the ledger, and for the gateway `GATEWAY_CLIENT_SECRET`, holding the same value as `.env`, which is
+what Keycloak imported:
 
 ```bash
 docker compose up -d db keycloak-db keycloak
@@ -259,7 +268,7 @@ is financial advice.
 | Assistant lint, format, types | Ruff + mypy | 0.16.5 / 2.3.1 | Ruff replaces flake8 + isort + black; mypy runs `--strict` |
 | Assistant token verification | PyJWT, `crypto` extra | 2.14.0 | RS256 signature checks and JWKS fetching; the time checks are redone against the injected clock ([ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)) |
 | Ledger architecture tests | ArchUnit | 1.5.0 | Layering, context isolation, the no-floating-point-money rule, and the two rules fencing the composition root, all fail the build |
-| Coverage | JaCoCo + pytest-cov + coverage-v8 | 0.8.13 / 7.1.0 / 4.1.11 | Measured in all three codebases, published by CI, gating nothing ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
+| Coverage | JaCoCo + pytest-cov + coverage-v8 | 0.8.13 / 7.1.0 / 4.1.11 | Measured in all four codebases, published by CI, gating nothing ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
 | Mutation testing | PIT | 1.19.1 | Answers what coverage cannot: would a test notice this line being wrong? Opt-in profile, not in CI |
 | Property-based tests | Seeded `Random` (Java) + Hypothesis (Python) | — / 6.167.0 | Deterministic on both sides. jqwik is unusable on JUnit Platform 6; see ADR-017 |
 | Telemetry | OpenTelemetry + Micrometer | 1.44.0 (Python) / 4.1.1 starter (Java) | Vendor-neutral by decision: the backend is an environment variable, not a rewrite ([ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
@@ -294,7 +303,7 @@ flowchart LR
     Web -->|"HTTP proxy, /ledger /assistant /bff"| Gateway["backend/gateway - Java, Spring Cloud Gateway"]
     Gateway -->|"HTTP, bearer token"| Ledger["backend/ledger - Java, Spring Boot"]
     Gateway -->|"HTTP, bearer token"| Assistant["backend/assistant - Python, FastAPI"]
-    Gateway -->|"HTTP, code exchange and refresh"| Keycloak
+    Gateway -->|"HTTP, code exchange, refresh and JWKS"| Keycloak
     Ledger -->|"HTTP, JWKS"| Keycloak
     Assistant -->|"HTTP, JWKS"| Keycloak
     Ledger -->|JDBC| DB[(db - PostgreSQL 18)]
@@ -330,10 +339,10 @@ ledger client yet.
 | `marketdata` — instruments and quotes, feed not chosen | assistant | no |
 | `planning` — planned flows, projections, strategy comparison | ledger | yes |
 
-Both services are hexagonal, but **only the ledger uses tactical DDD** — aggregates,
-value objects and domain events protect invariants, and the analysis side has none to
-protect ([ADR-007](docs/ADRs/ADR-007-asymmetric-hexagonal-architecture.md)). The assistant
-gets ports and a pure-function core instead.
+The ledger and the assistant are both hexagonal, but **only the ledger uses tactical DDD** —
+aggregates, value objects and domain events protect invariants, and the analysis side has none to
+protect ([ADR-007](docs/ADRs/ADR-007-asymmetric-hexagonal-architecture.md)). The assistant gets
+ports and a pure-function core instead.
 
 In strategic DDD terms the ledger is the upstream **Supplier**, the OpenAPI contract is the
 **Published Language**, and `adapters/outbound/ledger/` is the assistant's
@@ -341,7 +350,8 @@ In strategic DDD terms the ledger is the upstream **Supplier**, the OpenAPI cont
 assistant's own model. Nothing inward may reach it, and that is asserted per package rather
 than assumed.
 
-Dependency direction is enforced by the build in all three codebases: ArchUnit in the ledger,
+Dependency direction is enforced by the build in every codebase that holds a bounded context
+(the gateway holds none): ArchUnit in the ledger,
 source-parsing rules in the assistant, and a walk of the file tree in the web client.
 
 Full description: [docs/architecture/architecture.md](docs/architecture/architecture.md).
@@ -462,9 +472,57 @@ check against a live stack stays a manual step.
 [ADR-034](docs/ADRs/ADR-034-keep-the-compose-smoke-check-manual.md) records why, and what would
 change that.
 
-It cannot tell a stale realm from a current one. Keycloak imports the realm only into an empty
-`keycloak-db-data` volume, and the login-redirect check compares the gateway's redirect with the
-public URLs Compose configured, not with the redirect URIs Keycloak actually stored.
+It sees only part of a stale realm. Keycloak imports the realm only into an empty
+`keycloak-db-data` volume, so what it holds can lag behind the file and `.env`. An
+`ASSISTANT_CLIENT_SECRET` changed in `.env` but never re-imported fails check 1, because the check
+authenticates with the `.env` value while Keycloak still holds the old one. It cannot see a stale
+`GATEWAY_CLIENT_SECRET`, which it never exchanges — only a real sign-in does — nor stale redirect
+URIs: the login-redirect check compares the gateway's redirect with the public URLs Compose
+configured, not with the redirect URIs Keycloak stored.
+
+### Changing the realm or its secrets
+
+Keycloak imports `ops/keycloak/finassist-realm.json` at start-up only into an empty
+`keycloak-db-data` volume, filling its `${VAR}` placeholders from `.env` as it does. An edit to
+the file, or to `GATEWAY_CLIENT_SECRET`, `ASSISTANT_CLIENT_SECRET` or
+`FINASSIST_OWNER_INITIAL_PASSWORD` in `.env`, changes nothing in Keycloak until the realm is
+imported again. There are two ways to do that.
+
+**Both delete every user in the `finassist` realm**: the owner's password and TOTP enrolment, and
+every viewer added by hand. Afterwards the owner signs in again with
+`FINASSIST_OWNER_INITIAL_PASSWORD`, sets a new password and enrols TOTP again, as at
+[first sign-in](#first-sign-in), and each viewer is created again. The owner keeps the same `sub`,
+because the realm pins the owner's id, so every journal row the owner wrote still names them.
+**Neither touches `db-data`, the ledger's volume.**
+
+**Re-import the realm in place.** This keeps Keycloak's database, and with it Keycloak's own admin
+account:
+
+```bash
+docker compose build keycloak      # the realm file is copied into the image at build time
+docker compose stop keycloak       # Keycloak requires every node stopped before an override import
+docker compose run --rm keycloak import --optimized --file /opt/keycloak/data/import/finassist-realm.json --override true
+docker compose up -d keycloak gateway   # recreates each whose image or configuration changed
+```
+
+`docker compose run` keeps the image's `kc.sh` entrypoint and replaces only its `start` command,
+runs with the `keycloak` service's own environment, so the placeholders fill from `.env`, publishes
+no port, and starts `keycloak-db` first if it is not already running. `--override true` makes
+Keycloak delete the existing `finassist` realm and import the file in its place.
+
+**Or recreate `keycloak-db-data`.** This deletes Keycloak's whole database, its own admin account
+included, which it creates again from `KEYCLOAK_ADMIN_USERNAME` and `KEYCLOAK_ADMIN_PASSWORD`:
+
+```bash
+docker compose rm --stop --force keycloak keycloak-db   # these two containers only
+docker volume rm finassist_keycloak-db-data             # Keycloak's volume only, never finassist_db-data
+docker compose build keycloak
+docker compose up -d keycloak gateway                   # imports the realm into the new, empty volume
+```
+
+`docker volume rm` names the one volume it deletes; the ledger's books are in
+`finassist_db-data`, a different volume, which none of these commands touches. Never do this with
+`docker compose down -v`: it deletes every volume the project has, `db-data` included.
 
 ## Testing
 
@@ -481,7 +539,7 @@ public URLs Compose configured, not with the redirect URIs Keycloak actually sto
 | Ledger HTTP | Each controller in a `@WebMvcTest` slice — `AccountControllerTest`, `TransactionControllerTest`, `BudgetControllerTest`, `CategorisationRuleControllerTest`, `PlannedFlowControllerTest`, `ScenarioControllerTest`, `ProjectionControllerTest` and `ComparisonControllerTest` — for its request validation, including a JSON number refused where the contract requires a decimal string, and each refusal's status and problem `code`; `HostAllowListFilterTest` and `LedgerProblemHandlerTest` for the Host allow-list and the problem+json fallback; `AccountingHttpIT`, `BudgetingHttpIT` and `PlanningHttpIT`, which boot the ledger and drive it over HTTP against a real PostgreSQL; and `LedgerContractIT`, which pins the generated OpenAPI document to `contracts/ledger-v1.openapi.json` | `make test-ledger` |
 | Gateway smoke | `GatewayApplicationIT` boots the backend-for-frontend, asserts its Actuator health endpoint reports `UP`, refuses a foreign `Host` header with a 403 problem, confirms the Host allow-list filter runs first in the chain the server actually built and `springSecurityFilterChain` after it, and reads the real `Set-Cookie` to hold the session cookie `HttpOnly` and `SameSite=Lax`. `HostAllowListFilterTest`, ported from the ledger, pins the allow-list's refusal, its problem shape and its start-up validation of a configured entry holding a port or an IPv6 literal | `make test-gateway` |
 | Gateway sign-in | `GatewaySecurityTest` drives the security chain: an unauthenticated request answers 401 problem+json and never a 302 to Keycloak, no `/login` page is generated, `GET /bff/me` reports the subject, name and only the roles FinAssist knows, a write without the `X-FINASSIST-XSRF-TOKEN` header is refused 403 `CSRF_TOKEN_INVALID`, sign-out ends the session and names the public post-logout URI, the login entry redirects to the public authorization URI with PKCE `S256`, and an unrouted path is denied. `KeycloakRegistrationTest` pins the split between the browser-facing and backchannel URLs, the public issuer, and the gateway's refusal to start without `GATEWAY_CLIENT_SECRET`. `SpaLogoutSuccessHandlerTest` pins its two start-up refusals — no `keycloak` registration, and one with no `end_session_endpoint` ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `make test-gateway` |
-| Gateway relay | `GatewayLoginFlowIT` drives a real code-plus-PKCE sign-in with a JDK `HttpClient` and cookie manager against a fake OpenID provider (a real RSA-signed ID token, no mock) and two fake downstream services: PKCE is sent and the browser lands on the public URL; a relayed call to the ledger carries `Authorization: Bearer <access token>` with its prefix stripped and its `Cookie` and `X-FINASSIST-XSRF-TOKEN` headers removed; the assistant route relays the same way; a downstream problem+json response passes through unchanged; an already-expired access token is refreshed before the call; a refresh Keycloak refuses invalidates the session and answers 401, never a redirect; an unreachable ledger answers 502 `UPSTREAM_UNAVAILABLE`; an ID token from a foreign issuer fails sign-in; and a full login-and-refused-refresh run's captured logs carry no token, code or session value. The callback is deliberately sent to the gateway's own test address rather than the registered `redirect_uri`, pinning that Spring compares only `state` at the callback (R1) | `make test-gateway` |
+| Gateway relay | `GatewayLoginFlowIT` drives a real code-plus-PKCE sign-in with a JDK `HttpClient` and cookie manager against a fake OpenID provider (a real RSA-signed ID token, no mock) and two fake downstream services: PKCE is sent and the browser lands on the public URL; a relayed call to the ledger carries `Authorization: Bearer <access token>` with its prefix stripped and its `Cookie` and `X-FINASSIST-XSRF-TOKEN` headers removed; the assistant route relays the same way; a downstream problem+json response passes through unchanged; an already-expired access token is refreshed before the call; a refresh Keycloak refuses invalidates the session and answers 401, never a redirect; an unreachable ledger answers 502 `UPSTREAM_UNAVAILABLE`; an ID token from a foreign issuer fails sign-in; and a full login-and-refused-refresh run's captured logs carry no token, code or session value. The callback is deliberately sent to the gateway's own test address rather than the registered `redirect_uri`, pinning that Spring compares only `state` at the callback | `make test-gateway` |
 | Gateway contract | `GatewayContractIT` pins the generated OpenAPI document — `GET /bff/me`, `POST /bff/logout`, the session-cookie and CSRF security schemes, and a `Problem` schema identical to the ledger's — to `contracts/gateway-v1.openapi.json` | `make test-gateway` |
 | Keycloak realm | `KeycloakRealmTest` reads `ops/keycloak/finassist-realm.json` as data — registration, password reset and remember-me off, brute-force protection on, the password policy, token lifetimes and rotation off, the gateway client's standard-flow-only and exact PKCE/redirect configuration, the assistant client's service-account-only configuration and its `assistant` role, the flat `roles` claim on both clients, each client's audience, the owner's forced `UPDATE_PASSWORD`/`CONFIGURE_TOTP`, the owner's pinned id, and — the one guarantee that matters most — that every secret and credential in the file is an unresolved `${VAR}` placeholder, never a literal, with no `${VAR:default}` anywhere. `KeycloakRealmIT` builds `ops/keycloak/Dockerfile` with Testcontainers `ImageFromDockerfile` and runs the real image against a real PostgreSQL: the discovery document's issuer is the public URL even though the test reaches Keycloak on a random mapped port, and the assistant's client-credentials token carries `iss`, `aud=[finassist-ledger]`, `roles` containing `assistant`, a `sub`, and an RS256 `kid` present in the realm's JWKS | `make test-gateway` |
 | Assistant architecture | Every source file is parsed: no inward module imports a framework or the adapters, no module imports another context, no domain module names `float` or reads the wall clock. The scanner itself is unit-tested | `make test-assistant` |
@@ -557,11 +615,11 @@ in the repository, the logs or an error message.
 | `LEDGER_DB_PASSWORD` | Ledger database password. The ledger connects as the role Compose creates, so this must match `POSTGRES_PASSWORD` until it gets its own role | none | **Yes** — the ledger refuses to start without it |
 | `ANTHROPIC_API_KEY` | The LLM behind the assistant | none | No — the assistant only registers it for redaction, and nothing uses it until an LLM adapter is wired, which waits on the privacy question |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana admin password | none | **Yes** when using the `monitoring` profile |
-| `GATEWAY_CLIENT_SECRET` | The gateway's Keycloak client secret, taken from the realm. It never leaves the gateway: the browser holds a session cookie and a CSRF token, never a token ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | none | **Yes** — the gateway and Keycloak both refuse to start without it |
+| `GATEWAY_CLIENT_SECRET` | The `finassist-gateway` Keycloak client's secret: any strong value. Keycloak sets the client's secret from it when it imports the realm, and the gateway signs in to Keycloak with it. It never leaves the gateway: the browser holds a session cookie and a CSRF token, never a token ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | none | **Yes** — the gateway and Keycloak both refuse to start without it |
 | `KEYCLOAK_ADMIN_PASSWORD` | Keycloak's own bootstrap admin password, for its admin console at `http://localhost:8081/admin` ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) | none | **Yes** — Keycloak refuses to start without it |
 | `KEYCLOAK_DB_PASSWORD` | `keycloak-db`'s password. Its own database, its own volume, no published port ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) | none | **Yes** — both Keycloak and its database refuse to start without it |
 | `FINASSIST_OWNER_INITIAL_PASSWORD` | The owner's temporary password in the `finassist` realm. Must satisfy the realm's password policy; used once, at [first sign-in](#first-sign-in) | none | **Yes** — Keycloak refuses to start without it |
-| `ASSISTANT_CLIENT_SECRET` | The `finassist-assistant` Keycloak client's secret — a confidential, service-account-only client holding the `assistant` role ([ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)) | none | **Yes** — Keycloak refuses to start without it |
+| `ASSISTANT_CLIENT_SECRET` | The `finassist-assistant` Keycloak client's secret — a confidential, service-account-only client holding the `assistant` role ([ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)): any strong value. Keycloak sets the client's secret from it when it imports the realm | none | **Yes** — Keycloak refuses to start without it |
 
 <details>
 
@@ -665,9 +723,9 @@ a bare "I spent 12.50" is not expressible.
 **Context first, hexagon inside**
 ([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md)) — six bounded contexts, each one
 directory with its own hexagon, so a context is extractable by moving it. No context may
-depend on another; that rule is enforced in all three codebases and was proved by making it
-fail. The alternative — layers on top, contexts nested inside — leaves a context's code in
-three distant trees and lets cross-context imports accumulate unopposed. Cost: deeper nesting,
+depend on another; that rule is enforced in every codebase that holds one and was proved by
+making it fail. The alternative — layers on top, contexts nested inside — leaves a context's code
+in three distant trees and lets cross-context imports accumulate unopposed. Cost: deeper nesting,
 and `shared` is exempt, so it is where coupling can still accrue quietly.
 
 **Tactical DDD in the ledger only**
@@ -755,13 +813,15 @@ Known limitations:
 - **There is no TLS.** Everything is plain HTTP on loopback, which is what makes that acceptable;
   `GATEWAY_COOKIE_SECURE` must become `true` behind TLS, and a port reachable from a network would
   carry tokens and cookies in clear text (ADR-030).
-- **A realm change needs a fresh `keycloak-db` volume or `kc.sh import --override`.** Keycloak
-  imports `ops/keycloak/finassist-realm.json` — with the client secrets and the owner's initial
-  password from `.env` — only into an empty `keycloak-db-data` volume, so editing any of them
-  changes nothing for an existing one until that volume is recreated or the realm is re-imported
-  by hand. Never recreate it with `docker compose down -v`, which deletes the ledger's `db-data`
-  volume too. The smoke check cannot tell a stale realm from a current one
-  ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md),
+- **A realm change needs a fresh `keycloak-db-data` volume or `kc.sh import --override true`.**
+  Keycloak imports `ops/keycloak/finassist-realm.json` — with the client secrets and the owner's
+  initial password from `.env` — only into an empty `keycloak-db-data` volume, so editing any of
+  them changes nothing for an existing one until the realm is imported again, and either way of
+  doing that deletes the realm's users: see
+  [Changing the realm or its secrets](#changing-the-realm-or-its-secrets). Never recreate the
+  volume with `docker compose down -v`, which deletes the ledger's `db-data` volume too. The smoke
+  check sees a stale `ASSISTANT_CLIENT_SECRET`, but not a stale gateway secret or stale redirect
+  URIs ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md),
   [ADR-034](docs/ADRs/ADR-034-keep-the-compose-smoke-check-manual.md)).
 - **Nothing serves the built bundle** ([#61](https://github.com/NaimElijah/FinAssist/issues/61)).
   `npm run build` produces it, but only the Vite dev and preview servers, with their proxy to the
