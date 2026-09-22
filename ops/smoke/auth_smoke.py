@@ -1,13 +1,16 @@
 """Opt-in Compose smoke check for the authentication and RBAC wiring (ADR-030 through ADR-032).
 
-Runs as the `auth-smoke` Compose service (profile `smoke`), inside the Compose network, so it
-reaches every other service by its Compose DNS name rather than a published host port. That
-placement is deliberate: it is the only way to catch a class of fault the unit and integration
-suites cannot see from outside the network — Compose's own DNS and routing, the issuer Keycloak
-actually places in a token when reached over the backchannel (R2 in
-docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md), and the gateway's real redirect
-response. It duplicates none of those suites' coverage of the individual services; it proves the
-wiring between them.
+Runs as the `auth-smoke` Compose service (profile `smoke`), inside the Compose network, and
+reaches Keycloak, the ledger, the assistant and the gateway by their Compose DNS names rather
+than by a published host port.
+
+Most of what it asserts, the services' own suites already prove, each against one service with
+its own test settings: `KeycloakRealmIT` a client-credentials token's claims,
+`LedgerAuthorizationIT` the ledger's 401 and 403 answers, `GatewayLoginFlowIT` the login
+redirect and its PKCE method. What only this run sees is the wiring docker-compose.yml gives the
+running stack: the service names and ports, the issuer, JWKS URI, Host allow-list and public
+URLs it hands each service, and whether Keycloak, reached over the backchannel, still puts the
+public issuer in a token (ADR-031: two addresses, one issuer).
 
 Standard library only, so it runs unmodified from the pinned `python:3.13.8-slim-trixie` image
 with no `pip install` step (the same tag `backend/assistant/Dockerfile` already builds from).
@@ -158,9 +161,9 @@ def _request(
 def _decode_jwt(token: str) -> tuple[dict[str, object], dict[str, object]]:
     """Decodes a JWT's header and payload without verifying its signature.
 
-    Signature verification is each resource server's own job (ADR-030) — proven by
-    `KeycloakRealmIT` and the two services' own test suites. This check only inspects claims the
-    services have already promised to enforce.
+    Signature verification is each resource server's own job (ADR-030), tested by their own
+    suites; check 2 is where the ledger does it for real against this stack. This check only
+    inspects claims the services have already promised to enforce.
 
     :param token: already matched against `JWS_COMPACT`, so it has exactly three segments.
     :raises SmokeCheckError: the header or the payload is not a base64url-encoded JSON object.
@@ -222,11 +225,11 @@ def _problem_code(body: bytes) -> str | None:
 def check_assistant_token_claims() -> str:
     """Check 1: fetches an assistant client-credentials token and inspects its claims.
 
-    The token is fetched over the backchannel (`keycloak:8080`), exactly as the ledger and the
-    assistant themselves fetch signing keys. If Keycloak ever put that backchannel address in
-    `iss` instead of the public one, every token every service issues would carry an issuer no
-    resource server's `LEDGER_OIDC_ISSUER`/`ASSISTANT_OIDC_ISSUER` could ever match — this is
-    the one check positioned to catch that before it reaches either resource server.
+    The token is fetched over the backchannel (`keycloak:8080`), the address the ledger and the
+    assistant fetch signing keys from, yet its `iss` must still be the public issuer (ADR-030,
+    ADR-031), the value their `LEDGER_OIDC_ISSUER` and `ASSISTANT_OIDC_ISSUER` are built from. If
+    Keycloak put the backchannel address there instead, both would refuse every token: check 2
+    would then fail with a 401 that does not say why, and this check names the cause first.
     """
     secret = _required_environment(ASSISTANT_CLIENT_SECRET_ENV)
     public_issuer = _public_url(KEYCLOAK_PUBLIC_URL_ENV) + REALM_PATH
@@ -298,7 +301,11 @@ def check_ledger_read_admitted(token: str) -> None:
 
 
 def check_ledger_write_forbidden(token: str) -> None:
-    """Check 3: the assistant role has no ledger:write — it is read-only on the ledger (ADR-004)."""
+    """Check 3: the assistant role has no ledger:write.
+
+    ADR-032 grants it `ledger:read` alone, which is how the ledger enforces ADR-004's sole-writer
+    rule rather than trusting the assistant to behave.
+    """
     status, _headers, body = _request(
         LEDGER_HOST,
         LEDGER_INTERNAL_PORT,
@@ -405,12 +412,14 @@ def check_gateway_denies_without_a_session() -> None:
 
 
 def check_gateway_login_entry_redirects() -> None:
-    """Check 7: the login entry sends the browser to Keycloak's public authorize endpoint,
-    with PKCE and a redirect_uri the browser itself can reach — never the backchannel one.
+    """Check 7: the login entry sends the browser to Keycloak's public authorization endpoint,
+    with PKCE S256 and a redirect_uri the browser itself can reach — never the backchannel one
+    (ADR-030).
 
-    Redirect-following must stay off here (see `_request`'s docstring): following it would
-    reach `keycloak:8080` from inside this container, which is not what a real browser could
-    ever do, and would hide a wrong `Location` behind a response that still "worked".
+    The redirect is observed, never followed (see `_request`'s docstring). What matters is the
+    `Location` a browser is sent to, and following it from in here would say nothing about that:
+    the correct public URL names `localhost`, which inside this container is the container
+    itself, so the request would simply be refused.
     """
     public_authorization_endpoint = (
         _public_url(KEYCLOAK_PUBLIC_URL_ENV) + KEYCLOAK_AUTHORIZATION_PATH
@@ -445,8 +454,8 @@ def check_gateway_login_entry_redirects() -> None:
 
 
 def check_ledger_health_is_public() -> None:
-    """Check 8: Actuator health stays public on the ledger's main port (a settled design choice,
-    recorded in the plan's "Actuator stays on the ledger's main port" decision)."""
+    """Check 8: the ledger's Actuator health answers with no token, on its main port (ADR-030
+    keeps Actuator there and its health endpoints public)."""
     status, _headers, _body = _request(LEDGER_HOST, LEDGER_INTERNAL_PORT, "GET", LEDGER_HEALTH_PATH)
     if status != HTTP_OK:
         raise SmokeCheckError(f"GET {LEDGER_HEALTH_PATH} answered {status}, expected {HTTP_OK}")

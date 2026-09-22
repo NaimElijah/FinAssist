@@ -17,10 +17,10 @@
 # (ADR-030) is not reachable that way. The assistant exposes no metrics endpoint yet, so only its
 # OTLP push is collected.
 #
-# `smoke` is a second, unrelated profile: `auth-smoke` (ops/smoke/auth_smoke.py) proves the
+# `smoke` is a second, unrelated profile: `auth-smoke` (ops/smoke/auth_smoke.py) checks the
 # authentication and RBAC wiring end to end against the services actually running in this
 # network. Also never started by a bare `docker compose up`; run it by hand with `make
-# smoke-auth` once every other service reports healthy (Refs #38).
+# smoke-auth` after `make run` reports every service healthy (Refs #38).
 name: finassist
 
 services:
@@ -291,10 +291,11 @@ services:
 
   # --- Smoke test (profile: smoke) ---------------------------------------------------------
   # ops/smoke/auth_smoke.py, run once by hand (`make smoke-auth`), never as part of `docker
-  # compose up`. It reaches every other service by its Compose DNS name — the same network this
-  # service joins by being declared here — which is the whole point: it catches a wiring fault
-  # (Compose networking, the issuer Keycloak actually puts in a token, the gateway's redirect)
-  # none of the unit or integration suites can see from outside this network (Refs #38).
+  # compose up`. It reaches Keycloak, the ledger, the assistant and the gateway by their Compose
+  # DNS names, on the network this service joins by being declared here, which is the point: it
+  # checks the wiring this file gives them (service names and ports, issuers, JWKS URIs, Host
+  # allow-lists, public URLs), which each service's own suite, booted alone with its own test
+  # settings, never sees (Refs #38).
   auth-smoke:
     profiles: [smoke]
     # The exact tag backend/assistant/Dockerfile already builds from, so it is proven to exist

@@ -41,7 +41,9 @@ run-monitoring: ## Start the stack plus the collector, Prometheus and Grafana
 run-identity: ## Start only Keycloak and its database, for signing in or testing without the rest
 	docker compose up -d keycloak-db keycloak
 
-smoke-auth: ## Opt-in end-to-end check of the authentication and RBAC wiring (ops/smoke/auth_smoke.py); needs the stack already healthy
+# Run cold, `compose run` starts the services the check depends on and waits for them, but from
+# whatever images already exist; `make run` is what builds them.
+smoke-auth: ## Opt-in end-to-end check of the authentication and RBAC wiring (ops/smoke/auth_smoke.py); run after make run reports healthy
 	docker compose --profile smoke run --rm auth-smoke
 
 stop: ## Stop the stack, keeping volumes

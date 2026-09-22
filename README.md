@@ -361,29 +361,37 @@ behaviour they describe.
 
 ### Smoke-testing authentication
 
-`ops/smoke/auth_smoke.py` is an opt-in, manually-run check of the authentication and RBAC
-wiring (ADR-030 through ADR-032) against the stack actually running under Compose — not a
-substitute for `make test-ledger`, `make test-gateway` or `make test-assistant`, which already
-cover each service alone. It runs as the `auth-smoke` service, behind its own `smoke` Compose
-profile, and reaches every other service by its Compose DNS name, which is the point: from
-inside that network it can catch what no test running outside it can — a wiring fault in
-Compose's own networking, the issuer Keycloak actually places in a token fetched over the
-backchannel, and the gateway's real redirect response, rather than a fake one a test double
-would return.
+`ops/smoke/auth_smoke.py` is an opt-in, manually run check of the authentication and RBAC
+wiring (ADR-030 through ADR-032) against the stack actually running under Compose. It is not a
+substitute for `make test-ledger`, `make test-gateway` or `make test-assistant`, and most of what
+it asserts those suites already prove, each against one service with its own test settings.
+What it adds is Compose's own wiring. It runs as the `auth-smoke` service, behind its own
+`smoke` Compose profile, and reaches Keycloak, the ledger, the assistant and the gateway by their
+Compose DNS names, so it sees the service names and ports, the issuer, JWKS URI, Host
+allow-list and public URLs `docker-compose.yml` hands each service, and the issuer Keycloak
+puts in a token fetched over the backchannel.
+
+It gets no positive answer from the assistant. Every token it can obtain carries the ledger's
+audience, so it can only show that the assistant refuses one; a token for the assistant needs an
+interactive sign-in.
 
 Standard library only, so it runs unmodified in the pinned `python:3.13.8-slim-trixie` image
-with no install step, and it never prints a token.
+with no install step. It runs as an unprivileged user and never prints a token.
 
-Bring the stack up and wait for every service to report healthy, then run:
+Run it after `make run` reports every service healthy:
 
 ```bash
 make smoke-auth
 ```
 
+On a stack that is not up, `docker compose run` starts the services the check depends on and
+waits for them to report healthy, but from whatever images already exist, which may predate
+your last change; `make run` is what builds them.
+
 It exits non-zero on the first of its eight checks to fail, naming which one and why. It is
-never started by a bare `docker compose up`, and CI validates only that the service definition
-itself parses (`docker compose --profile smoke config`) — running the check against a live
-stack stays a manual step.
+never started by a bare `docker compose up`. CI validates that the service definition parses
+(`docker compose --profile smoke config`) and lints the script (`make lint-smoke`); running the
+check against a live stack stays a manual step.
 
 ## Testing
 
