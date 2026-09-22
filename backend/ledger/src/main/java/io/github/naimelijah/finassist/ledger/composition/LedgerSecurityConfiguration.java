@@ -179,10 +179,20 @@ public class LedgerSecurityConfiguration {
      * what ADR-030 asks for — but replaces its free-text failure description ({@code "Jwt expired at
      * ..."}) with the fixed {@code lifetime} category, so a log line never carries the token's own
      * timestamp claims.
+     *
+     * <p>{@code setAllowEmptyExpiryClaim(false)} is the whole reason {@code exp} is required rather
+     * than merely checked when present. {@link JwtTimestampValidator}'s constructor initialises that
+     * flag to {@code true} — confirmed by disassembling the installed 7.1.1 jar — and {@code
+     * NimbusJwtDecoder} installs a no-op {@code JWTClaimsSetVerifier}, so nothing else in the chain
+     * would ever notice the claim's absence: a token signed by the realm's key with no expiry at all
+     * would be valid forever. ADR-030 requires {@code exp} of both resource servers, and the
+     * assistant already refuses this shape; {@code nbf} is deliberately left optional, since ADR-030
+     * requires only that it be honoured when present.
      */
     private static OAuth2TokenValidator<Jwt> timestampValidator(Clock clock) {
         JwtTimestampValidator delegate = new JwtTimestampValidator(CLOCK_SKEW);
         delegate.setClock(clock);
+        delegate.setAllowEmptyExpiryClaim(false);
         return jwt -> {
             OAuth2TokenValidatorResult result = delegate.validate(jwt);
             return result.hasErrors()

@@ -11,6 +11,7 @@ import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtClaimNames;
 
 /**
  * {@code LedgerSecurityConfiguration.tokenValidator}, against a fixed clock rather than the system
@@ -82,6 +83,24 @@ class LedgerTokenValidationTest {
         Jwt jwt = jwt(builder -> builder.issuedAt(NOW.plus(WITHIN_SKEW)));
 
         assertThat(validator.validate(jwt).hasErrors()).isFalse();
+    }
+
+    /**
+     * {@code JwtTimestampValidator} treats a missing {@code exp} as acceptable unless told
+     * otherwise, so without {@code setAllowEmptyExpiryClaim(false)} a signed token with no lifetime
+     * at all is valid forever. ADR-030 requires {@code exp} of both resource servers, and the
+     * assistant already refuses this shape.
+     *
+     * <p>The claim is removed from the built token rather than left unset by the {@link #jwt}
+     * helper: {@code Jwt.Builder#build} derives {@code expiresAt} from the {@code exp} claim it
+     * holds, so removing the entry is what produces a token with no expiry — and it keeps this the
+     * only test that has to know the helper sets one.
+     */
+    @Test
+    void Given_a_token_with_no_expiry_When_validated_Then_it_is_refused() {
+        Jwt jwt = jwt(builder -> builder.claims(claims -> claims.remove(JwtClaimNames.EXP)));
+
+        assertThat(validator.validate(jwt).hasErrors()).isTrue();
     }
 
     @Test

@@ -125,6 +125,10 @@ history; write the commit message well and this file writes itself.
   rebuilds that history from the committed scripts and starts the ledger against it, so the next
   such migration fails the build instead. See
   [ADR-035](docs/ADRs/ADR-035-flyway-runs-out-of-order.md).
+- **The ledger refuses a token carrying no `exp`.** Spring's `JwtTimestampValidator` allows a
+  missing expiry unless told otherwise, so a token signed with the realm's key and given no
+  lifetime at all was accepted forever — and answered `200` — while the assistant, which enforces
+  the claim, refused the same token. ADR-030 requires `exp` of both.
 - **`DisposeUnits` sorts lots by acquisition date before consuming them.** `consume_fifo` takes
   them in the order it is given and documents that the ordering is the caller's responsibility,
   so a caller handing it newest-first lots got a LIFO cost basis in silence, with a plausible

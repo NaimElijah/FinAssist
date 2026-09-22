@@ -225,8 +225,9 @@ class LedgerAuthorizationIT extends PostgresFixture {
 
     /**
      * M1: the single-token check above proves the property for {@code expired} only. Every shape
-     * {@link #badTokens()} carries — including a tampered signature and both new {@code iat}
-     * failures — must refuse to leak its own token into the log, not merely the one case above.
+     * {@link #badTokens()} carries — including a tampered signature, both {@code iat} failures and
+     * a token with no {@code exp} — must refuse to leak its own token into the log, not merely the
+     * one case above.
      */
     @ParameterizedTest
     @MethodSource("badTokens")
@@ -304,6 +305,7 @@ class LedgerAuthorizationIT extends PostgresFixture {
                         TestTokens.notYetValid(),
                         TestTokens.futureIssuedAt(),
                         TestTokens.noIssuedAt(),
+                        TestTokens.noExpiry(),
                         TestTokens.wrongAudience(),
                         TestTokens.wrongIssuer(),
                         TestTokens.unsigned(),

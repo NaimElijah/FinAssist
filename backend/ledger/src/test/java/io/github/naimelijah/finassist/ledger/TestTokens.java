@@ -183,6 +183,21 @@ public final class TestTokens {
     }
 
     /**
+     * No {@code exp} claim at all — a real signature, a real issuer, audience and {@code iat}, and
+     * no moment at which it stops being valid. ADR-030 requires {@code exp}, so its absence alone
+     * must refuse this token, exactly as the assistant already refuses the same shape.
+     */
+    public static String noExpiry() {
+        JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder()
+                .issuer(ISSUER)
+                .subject("owner-user")
+                .audience(AUDIENCE)
+                .issueTime(Date.from(NOW))
+                .claim("roles", List.of("owner"));
+        return signed(claims.build());
+    }
+
+    /**
      * A genuine {@link #viewer()} token whose payload segment is swapped for one naming {@code
      * owner}, keeping the original header and signature segments untouched — the textbook JWT
      * integrity attack, and exactly how a viewer would try to become an owner: take a real token,
