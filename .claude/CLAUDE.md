@@ -454,7 +454,9 @@ These are enforced by the build, not by review. Breaking one fails CI.
   still touches only `java.security.Principal`.
 - **Every `@WebMvcTest` slice imports `WebSliceSecurity`.** A slice loads no scanned configuration
   (ADR-028's convention, extended to ADR-030), so without it a slice would boot with no security at
-  all — every request admitted, which is a false pass, not a fast one.
+  all — every request admitted, which is a false pass, not a fast one. Enforced by
+  `WebSliceSecurityImportTest`, which reads the compiled test classes and fails the build for a
+  slice that omits the import.
 - **References to ADR-027 in code, configuration and docs point to ADR-030, in every codebase.**
   ADR-027 is Superseded; ADR-030 keeps its loopback binding, Host allow-lists and JSON-only writes
   as defence in depth, and is the record to cite for them going forward. ADR-027 is still named
