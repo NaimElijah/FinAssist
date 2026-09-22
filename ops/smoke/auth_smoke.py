@@ -14,11 +14,11 @@ with no `pip install` step (the same tag `backend/assistant/Dockerfile` already 
 
 Exits non-zero on the first failed check, naming which one failed and why. Never prints a
 token, a client secret, a cookie, an `Authorization` header or a response body. A failure
-message may quote a non-secret claim value (the token's `alg`, its `aud`, a role name) where the
-failure cannot be diagnosed without it, and a response's status, problem code, or redirect
-target stripped of its query. An error none of the checks anticipated is reported by its type
-alone: a standard-library exception's message can quote its input, and `http.client`'s
-"Invalid header value" quotes the whole rejected header, token included.
+message may quote a non-secret claim value (the token's `alg`, `iss` or `aud`, a role name)
+where the failure cannot be diagnosed without it, and a response's status, problem code, or
+redirect target stripped of its query. An error none of the checks anticipated is reported by
+its type alone: a standard-library exception's message can quote its input, and
+`http.client`'s "Invalid header value" quotes the whole rejected header, token included.
 
 Run it with `make smoke-auth` (see README.md, "Smoke-testing authentication"). Refs #38.
 """
@@ -36,10 +36,10 @@ from collections.abc import Callable
 from email.message import Message
 from typing import Final
 
-# --- The Compose network topology (docker-compose.yml). Fixed, not environment-configurable:
-# this script exists to prove that one topology, not to be portable to another.
-# `_INTERNAL_PORT`, never `_PORT`: `.env`'s KEYCLOAK_PORT, LEDGER_PORT, ASSISTANT_PORT and
-# GATEWAY_PORT name the ports published on the host, which this script never uses.
+# --- Where each service answers inside the Compose network. docker-compose.yml fixes every one
+# of these, and no `.env` setting moves them, so they are constants. `_INTERNAL_PORT`, never
+# `_PORT`: `.env`'s KEYCLOAK_PORT, LEDGER_PORT, ASSISTANT_PORT and GATEWAY_PORT name the ports
+# published on the host, which this script never uses.
 KEYCLOAK_HOST: Final = "keycloak"
 KEYCLOAK_INTERNAL_PORT: Final = 8080
 LEDGER_HOST: Final = "ledger"
@@ -49,12 +49,15 @@ ASSISTANT_INTERNAL_PORT: Final = 8000
 GATEWAY_HOST: Final = "gateway"
 GATEWAY_INTERNAL_PORT: Final = 8090
 
-KEYCLOAK_TOKEN_PATH: Final = "/realms/finassist/protocol/openid-connect/token"
+REALM_PATH: Final = "/realms/finassist"
+KEYCLOAK_TOKEN_PATH: Final = REALM_PATH + "/protocol/openid-connect/token"
+KEYCLOAK_AUTHORIZATION_PATH: Final = REALM_PATH + "/protocol/openid-connect/auth"
 LEDGER_ACCOUNTS_PATH: Final = "/api/v1/accounts"
 LEDGER_HEALTH_PATH: Final = "/actuator/health"
 ASSISTANT_POSITION_PATH: Final = "/api/v1/portfolio/holdings/VOO/position"
 GATEWAY_LEDGER_ACCOUNTS_PATH: Final = "/ledger/api/v1/accounts"
 GATEWAY_LOGIN_ENTRY_PATH: Final = "/bff/oauth2/authorization/keycloak"
+GATEWAY_CALLBACK_PATH: Final = "/bff/login/oauth2/code/keycloak"
 
 # --- Fixed by ops/keycloak/finassist-realm.json and the ADRs it implements.
 ASSISTANT_CLIENT_ID: Final = "finassist-assistant"
@@ -64,15 +67,13 @@ ASSISTANT_AUDIENCE: Final = "finassist-assistant"
 ASSISTANT_ROLE: Final = "assistant"
 EXPECTED_ALG: Final = "RS256"
 
-# The public URLs a browser would see — never the backchannel ones this script reaches services
-# by. Keycloak leaking the backchannel URL into `iss` (R2) is exactly what check 1 catches, and
-# it can only catch it by comparing against this exact string rather than deriving it the same
-# way the token was fetched.
-PUBLIC_ISSUER: Final = "http://localhost:8081/realms/finassist"
-PUBLIC_AUTHORIZATION_ENDPOINT: Final = (
-    "http://localhost:8081/realms/finassist/protocol/openid-connect/auth"
-)
-PUBLIC_REDIRECT_URI: Final = "http://localhost:5173/bff/login/oauth2/code/keycloak"
+# --- The public bases a browser uses, which `.env` can move (KEYCLOAK_PORT, GATEWAY_PUBLIC_URL).
+# docker-compose.yml passes this container both, built from the same expressions it builds
+# KC_HOSTNAME, the resource servers' issuer and the gateway's GATEWAY_PUBLIC_URL from, so a
+# reconfigured stack is checked against its own settings. Never derived from the address this
+# script reaches a service by: check 1 exists to notice an `iss` naming that backchannel address.
+KEYCLOAK_PUBLIC_URL_ENV: Final = "KEYCLOAK_PUBLIC_URL"
+GATEWAY_PUBLIC_URL_ENV: Final = "GATEWAY_PUBLIC_URL"
 # ADR-030 signs the browser in with PKCE S256; `plain` would put the verifier itself in the URL.
 PKCE_METHOD: Final = "S256"
 
@@ -175,6 +176,28 @@ def _decode_jwt(token: str) -> tuple[dict[str, object], dict[str, object]]:
     return decode_segment(header), decode_segment(payload)
 
 
+def _required_environment(name: str) -> str:
+    """Reads one variable docker-compose.yml sets for this container.
+
+    :raises SmokeCheckError: the variable is unset or blank. The message names the variable,
+        never a value.
+    """
+    value = os.environ.get(name, "")
+    if not value.strip():
+        raise SmokeCheckError(f"{name} is not set in this container")
+    return value
+
+
+def _public_url(name: str) -> str:
+    """Reads a public base URL, normalised the way the gateway's `Origin` normalises it.
+
+    `Origin` strips surrounding whitespace and every trailing slash from GATEWAY_PUBLIC_URL
+    before building a URL from it, so an expectation built here must too, or the two disagree
+    over nothing but a slash.
+    """
+    return _required_environment(name).strip().rstrip("/")
+
+
 def _status_mismatch(description: str, status: int, expected: int) -> str:
     """Formats one "answered X, expected Y" message — the shape every status check below needs."""
     return f"{description} answered {status}, expected {expected}"
@@ -201,9 +224,8 @@ def check_assistant_token_claims() -> str:
     resource server's `LEDGER_OIDC_ISSUER`/`ASSISTANT_OIDC_ISSUER` could ever match — this is
     the one check positioned to catch that before it reaches either resource server.
     """
-    secret = os.environ.get(ASSISTANT_CLIENT_SECRET_ENV)
-    if not secret:
-        raise SmokeCheckError(f"{ASSISTANT_CLIENT_SECRET_ENV} is not set in this container")
+    secret = _required_environment(ASSISTANT_CLIENT_SECRET_ENV)
+    public_issuer = _public_url(KEYCLOAK_PUBLIC_URL_ENV) + REALM_PATH
 
     form = urllib.parse.urlencode(
         {
@@ -242,10 +264,8 @@ def check_assistant_token_claims() -> str:
         raise SmokeCheckError(f"header alg was {alg!r}, expected {EXPECTED_ALG!r}")
 
     issuer = payload.get("iss")
-    if issuer != PUBLIC_ISSUER:
-        raise SmokeCheckError(
-            "iss was not the public issuer — Keycloak may be leaking the backchannel URL (R2)"
-        )
+    if issuer != public_issuer:
+        raise SmokeCheckError(f"iss was {issuer!r}, expected the public issuer {public_issuer!r}")
 
     audience = payload.get("aud")
     audiences = audience if isinstance(audience, list) else [audience]
@@ -350,6 +370,11 @@ def check_gateway_login_entry_redirects() -> None:
     reach `keycloak:8080` from inside this container, which is not what a real browser could
     ever do, and would hide a wrong `Location` behind a response that still "worked".
     """
+    public_authorization_endpoint = (
+        _public_url(KEYCLOAK_PUBLIC_URL_ENV) + KEYCLOAK_AUTHORIZATION_PATH
+    )
+    public_redirect_uri = _public_url(GATEWAY_PUBLIC_URL_ENV) + GATEWAY_CALLBACK_PATH
+
     status, headers, _body = _request(
         GATEWAY_HOST, GATEWAY_INTERNAL_PORT, "GET", GATEWAY_LOGIN_ENTRY_PATH
     )
@@ -364,16 +389,17 @@ def check_gateway_login_entry_redirects() -> None:
     authorization_endpoint = urllib.parse.urlunsplit(
         (parsed.scheme, parsed.netloc, parsed.path, "", "")
     )
-    if authorization_endpoint != PUBLIC_AUTHORIZATION_ENDPOINT:
+    if authorization_endpoint != public_authorization_endpoint:
         raise SmokeCheckError(
-            f"redirected to {authorization_endpoint!r}, expected the public authorization endpoint"
+            f"redirected to {authorization_endpoint!r},"
+            f" expected the public {public_authorization_endpoint!r}"
         )
 
     query = urllib.parse.parse_qs(parsed.query)
     if query.get("code_challenge_method") != [PKCE_METHOD]:
         raise SmokeCheckError(f"the redirect did not carry code_challenge_method={PKCE_METHOD}")
-    if query.get("redirect_uri") != [PUBLIC_REDIRECT_URI]:
-        raise SmokeCheckError(f"redirect_uri was not the public {PUBLIC_REDIRECT_URI!r}")
+    if query.get("redirect_uri") != [public_redirect_uri]:
+        raise SmokeCheckError(f"redirect_uri was not the public {public_redirect_uri!r}")
 
 
 def check_ledger_health_is_public() -> None:

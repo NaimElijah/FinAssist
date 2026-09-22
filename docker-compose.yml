@@ -312,11 +312,15 @@ services:
     volumes:
       - ./ops/smoke/auth_smoke.py:/auth_smoke.py:ro
     environment:
-      # Fetches the one client-credentials token every check after the first reuses; every
-      # other value the script needs is a named constant inside it, not an environment
-      # variable, because this check exists to prove one fixed topology (see its own module
-      # docstring), not to be reconfigured.
+      # Fetches the one client-credentials token every check after the first reuses.
       ASSISTANT_CLIENT_SECRET: ${ASSISTANT_CLIENT_SECRET:?set ASSISTANT_CLIENT_SECRET in .env}
+      # The public bases a browser uses, which `.env` can move. Not secret. Built from exactly
+      # the expressions KC_HOSTNAME, the two issuers and the gateway's GATEWAY_PUBLIC_URL use
+      # above, so the check expects what this stack was actually configured with. Service names
+      # and the ports they listen on inside this network are fixed here, so the script keeps
+      # those as constants.
+      KEYCLOAK_PUBLIC_URL: http://localhost:${KEYCLOAK_PORT:-8081}
+      GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-http://localhost:5173}
     command: ["python", "/auth_smoke.py"]
 
 volumes:
