@@ -46,8 +46,9 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  *
  * <p>The inventory check is what a stray {@code @GetMapping} or a mis-mapped permission would break:
  * it lists the ledger's 23 endpoints by hand, and fails if the running server answers to one more or
- * one fewer than that list plus springdoc's own two. A test that only checked the endpoints it
- * already knew about would never notice a new one arriving unprotected.
+ * one fewer than that list plus the three routes {@link #KNOWN_NON_BUSINESS_ENDPOINTS} names. A test
+ * that only checked the endpoints it already knew about would never notice a new one arriving
+ * unprotected.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
@@ -56,6 +57,17 @@ class LedgerAuthorizationIT extends PostgresFixture {
 
     private static final String RANDOM_ID = UUID.randomUUID().toString();
     private static final String JSON_BODY = "{}";
+
+    /**
+     * The method a mapping that names none is inventoried under. A {@code @RequestMapping} with no
+     * {@code method} answers every verb, so it has no single one to name, and flat-mapping over its
+     * empty method set used to emit nothing at all — such a handler vanished from this check, and
+     * ADR-032's "an endpoint added without being classified fails the build" vanished with it.
+     * {@code HttpMethod} is a final class over an open set of names, so a name no verb uses is a
+     * safe sentinel. Inventory only: nothing in {@link #READS} or {@link #WRITES} carries it,
+     * because an endpoint that answers requests is classified by the verb it is reached with.
+     */
+    private static final HttpMethod ANY_METHOD = HttpMethod.valueOf("ANY");
 
     /**
      * Read access: admitted for the owner, the viewer and the assistant (ADR-004). Paths are the
@@ -92,21 +104,27 @@ class LedgerAuthorizationIT extends PostgresFixture {
 
     /**
      * Every route not named above that the running server may legitimately answer: springdoc's
-     * contract document, in both forms it serves. Not an ADR-030 business endpoint, so it carries no
-     * permission.
+     * contract document, in both forms it serves, and the container's own error page. None is an
+     * ADR-030 business endpoint, so none carries a permission.
      *
-     * <p>{@code /error} is not part of this inventory: {@code RequestMappingHandlerMapping} — this
-     * check's own data source — never maps it, in this configuration, to a {@code RequestMappingInfo}
-     * at all, so it is not a route this reflection-based check could compare against either way. Its
-     * denial is proven directly instead: {@code LedgerApplicationIT}'s unknown-route test reaches it
-     * as the composition fallback's 404, and this class's {@code
-     * dispatcherTypeMatchers(DispatcherType.ERROR)} rule is what a direct {@code GET /error} — never
-     * a {@code DispatcherType.ERROR} forward — would fail to match, which is exactly why that path
-     * stays behind {@code denyAll} rather than {@code permitAll} (see {@code
+     * <p>{@code /error} is inventoried under {@link #ANY_METHOD} because that is the shape Boot's
+     * {@code BasicErrorController} has: a {@code @Controller} whose class-level {@code
+     * @RequestMapping} names the path and whose two handler methods name no HTTP method at all, so
+     * {@code RequestMappingHandlerMapping} — this check's own data source — maps it with an empty
+     * method condition. It is mapped. An earlier version of this comment claimed it never was; that
+     * was {@link #endpointsOf}'s blind spot for a method-less mapping speaking, not the truth.
+     *
+     * <p>Being inventoried is not being public. A direct {@code GET /error} arrives as {@code
+     * DispatcherType.REQUEST}, matches no {@code permitAll} rule and is refused 401 — proved by
+     * {@code Given_no_token_When_a_direct_error_request_is_made_Then_it_is_401_with_a_problem_body}
+     * below. Only the container's internal {@code DispatcherType.ERROR} forward is permitted, which
+     * is why that path stays behind {@code denyAll} rather than {@code permitAll} (see {@code
      * LedgerSecurityConfiguration}'s class comment).
      */
-    private static final Set<Endpoint> KNOWN_NON_BUSINESS_ENDPOINTS =
-            Set.of(new Endpoint(HttpMethod.GET, "/v3/api-docs"), new Endpoint(HttpMethod.GET, "/v3/api-docs.yaml"));
+    private static final Set<Endpoint> KNOWN_NON_BUSINESS_ENDPOINTS = Set.of(
+            new Endpoint(HttpMethod.GET, "/v3/api-docs"),
+            new Endpoint(HttpMethod.GET, "/v3/api-docs.yaml"),
+            new Endpoint(ANY_METHOD, "/error"));
 
     @Autowired
     private MockMvc mvc;
@@ -141,11 +159,14 @@ class LedgerAuthorizationIT extends PostgresFixture {
     }
 
     private static Stream<Endpoint> endpointsOf(RequestMappingInfo info) {
-        Set<String> patterns = info.getPatternValues();
         Set<RequestMethod> methods = info.getMethodsCondition().getMethods();
-        return patterns.stream()
-                .flatMap(pattern ->
-                        methods.stream().map(method -> new Endpoint(HttpMethod.valueOf(method.name()), pattern)));
+        List<HttpMethod> inventoried = methods.isEmpty()
+                ? List.of(ANY_METHOD)
+                : methods.stream()
+                        .map(method -> HttpMethod.valueOf(method.name()))
+                        .toList();
+        return info.getPatternValues().stream()
+                .flatMap(pattern -> inventoried.stream().map(method -> new Endpoint(method, pattern)));
     }
 
     @ParameterizedTest
