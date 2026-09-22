@@ -526,8 +526,19 @@ class BearerAuthentication:
     async def _report_unavailable(
         self, reason: str, scope: Scope, receive: Receive, send: Send
     ) -> None:
-        """503: the JWKS source could not be reached, so nothing here says the token was bad."""
-        _log.warning("refused a request with no valid bearer token", reason=reason)
+        """503: the JWKS source could not be reached, so nothing here says the token was bad.
+
+        Logged at ERROR, under an event of its own rather than :meth:`_refuse`'s, because this is
+        the one failure here that is nobody's caller's fault: while the key source is unreachable
+        *no* request can be authenticated, which is "actionable now". Still the reason category
+        alone, never the token. The ledger's ``ProblemAuthenticationEntryPoint`` draws the same
+        line in the same place, so a rule written against one service reads the other.
+        """
+        _log.error(
+            "could not reach the authentication key source; "
+            "no request can be authenticated until it answers",
+            reason=reason,
+        )
         refusal = problem_response(
             HTTPStatus.SERVICE_UNAVAILABLE,
             AUTHENTICATION_UNAVAILABLE,

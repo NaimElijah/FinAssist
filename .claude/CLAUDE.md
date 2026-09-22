@@ -277,6 +277,12 @@ These are enforced by the build, not by review. Breaking one fails CI.
   same reason: `PyJWT[crypto]` mangles to the literal `PyJWT`, which matches neither `jwt` (the
   real import root) nor `pyjwt`, and `cryptography` arrives only transitively through the
   `crypto` extra, so no declared dependency name can ever produce it at all (ADR-030, ADR-032).
+- **A refused token is WARN; an unreachable key source is ERROR, on both resource servers.** The
+  first is one caller's problem, the second is an outage in which nobody can authenticate, so it
+  gets a message of its own rather than the refusal line's — still the reason category alone,
+  never the token. `ProblemAuthenticationEntryPoint.reportOutage` and
+  `BearerAuthentication._report_unavailable`; pinned by `ProblemAuthenticationEntryPointTest`,
+  `LedgerKeySourceOutageIT` and `tests/test_authorization.py`. Keep the two services symmetric.
 - **Logs are diagnostics, never the audit trail.** They are dropped when no collector is
   attached. The append-only journal is the audit record (ADR-020).
 - **The application layer imports no framework, in either language.** No `@Service`, no

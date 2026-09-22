@@ -129,6 +129,11 @@ history; write the commit message well and this file writes itself.
   missing expiry unless told otherwise, so a token signed with the realm's key and given no
   lifetime at all was accepted forever — and answered `200` — while the assistant, which enforces
   the claim, refused the same token. ADR-030 requires `exp` of both.
+- **An unreachable key source is an ERROR line of its own, on both resource servers.** The ledger
+  and the assistant each logged it at WARN, under the same message as a refused token — so the
+  one failure in which *nobody* can authenticate read like one more caller presenting a bad
+  credential. Both now log it at ERROR, under a message of its own, still naming the reason
+  category and nothing else.
 - **Every call the gateway makes to Keycloak is bounded.** The authorization-code exchange, the
   `refresh_token` grant and the JWK-set fetch that verifies an ID token each built their own HTTP
   client from a Spring Security factory that never consults Boot's, so none of them saw

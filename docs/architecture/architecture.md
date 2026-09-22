@@ -645,9 +645,13 @@ still no bare `token`, so a token count survives.
 **An authentication failure is logged as a reason, never as the credential.**
 
 - **Ledger and assistant.** Each logs a refused token at WARN with one reason category —
-  `missing`, `malformed`, `rejected`, `lifetime`, `issuer`, `audience`, `subject`, `unknown_key`
-  or `key_source` — and never the token or its claims: `ProblemAuthenticationEntryPoint` on the
-  ledger, `BearerAuthentication` on the assistant (ADR-030).
+  `missing`, `malformed`, `rejected`, `lifetime`, `issuer`, `audience`, `subject` or
+  `unknown_key` — and never the token or its claims: `ProblemAuthenticationEntryPoint` on the
+  ledger, `BearerAuthentication` on the assistant (ADR-030). The ninth category, `key_source`, is
+  the exception: an unreachable key source means nobody can authenticate at all, so both services
+  log it at ERROR under a message of its own rather than the refusal line's, still carrying the
+  category and nothing else (`ProblemAuthenticationEntryPointTest`,
+  `LedgerKeySourceOutageIT`, `test_authorization.py`).
 - **Gateway.** It logs a failed sign-in by its OAuth2 error code alone (`SignInFailureHandler`), a
   refused refresh or an unreachable service as a fixed sentence, and an unexpected relay failure
   by exception class name (`GatewayRelayProblems`). It never logs a request header, a cookie, a

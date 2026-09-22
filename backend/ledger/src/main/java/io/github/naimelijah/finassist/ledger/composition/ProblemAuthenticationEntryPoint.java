@@ -40,7 +40,10 @@ import tools.jackson.databind.json.JsonMapper;
  * which filter raised the exception.
  *
  * <p>Every refusal is logged once at WARN, carrying only one of the reason categories ADR-030
- * names — never the token, never a claim. The category comes from the decoder's own exception:
+ * names — never the token, never a claim. The one exception is the {@code key_source} outage
+ * above, which is logged at ERROR under its own message: a refused token is one caller's problem,
+ * while an unreachable key source means nobody can authenticate at all. The category comes from
+ * the decoder's own exception:
  * a {@link JwtValidationException} carries the {@link OAuth2Error} {@code
  * LedgerSecurityConfiguration}'s validators built, whose description already <em>is</em> the
  * category; anything else is read from Nimbus's own (English-language, not machine-typed) failure
@@ -86,7 +89,7 @@ final class ProblemAuthenticationEntryPoint implements AuthenticationEntryPoint 
             HttpServletRequest request, HttpServletResponse response, AuthenticationException authException)
             throws IOException {
         if (authException instanceof AuthenticationServiceException) {
-            log(KEY_SOURCE);
+            reportOutage();
             send(response, HttpStatus.SERVICE_UNAVAILABLE, UNAVAILABLE_BODY);
             return;
         }
@@ -124,6 +127,22 @@ final class ProblemAuthenticationEntryPoint implements AuthenticationEntryPoint 
 
     private static void log(String reason) {
         LOG.atWarn().addKeyValue(REASON_KEY, reason).log("Refused a request with no valid bearer token: {}", reason);
+    }
+
+    /**
+     * The one failure here that is not a caller's fault, and the one worth waking someone for:
+     * while the key source is unreachable <em>no</em> request can be authenticated, so this is
+     * ERROR — "actionable now" — under a message of its own, not the refusal line's, so a reader
+     * scanning messages sees an outage rather than one more refused token.
+     *
+     * <p>Still nothing about the request: the reason category alone, as every other line here.
+     * The assistant's {@code BearerAuthentication._report_unavailable} draws the same line in the
+     * same place, so a rule written against one service reads the other.
+     */
+    private static void reportOutage() {
+        LOG.atError()
+                .addKeyValue(REASON_KEY, KEY_SOURCE)
+                .log("Could not reach the authentication key source; no request can be authenticated until it answers");
     }
 
     private static void send(HttpServletResponse response, HttpStatus status, byte[] body) throws IOException {

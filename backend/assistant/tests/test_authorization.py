@@ -177,6 +177,48 @@ def Given_the_key_source_is_unreachable_When_a_protected_route_is_requested_Then
     assert "www-authenticate" not in {key.lower() for key in response.headers}
 
 
+def Given_the_key_source_is_unreachable_When_a_request_is_refused_Then_it_is_logged_at_error(
+    settings: Settings,
+    owner_headers: dict[str, str],
+    fixed_clock: Clock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An outage is ERROR, under an event of its own; a refused token stays WARN.
+
+    Nobody can authenticate at all while the key source is unreachable, which is "actionable
+    now" - so it must not read as one more refused token in a log a person is scanning. Both
+    lines are driven through the same application, because the distinction only means anything
+    if the two are told apart where they are written. The ledger's
+    ``ProblemAuthenticationEntryPoint`` draws the same line in the same place, and
+    ``ProblemAuthenticationEntryPointTest`` pins it there.
+    """
+
+    def unreachable(_token: str) -> jwt.PyJWK:
+        raise jwt.PyJWKClientConnectionError("refused")
+
+    verifier = TokenVerifier(unreachable, "https://issuer.invalid", "aud", fixed_clock)
+    app = create_app(settings, token_verifier=verifier)
+    token = owner_headers["Authorization"].removeprefix("Bearer ")
+    capsys.readouterr()
+
+    with TestClient(app) as client:
+        # A token to look up a key for, so the unreachable key source is actually consulted.
+        client.get(POSITION_URL, headers=owner_headers)
+        # No credential at all, which is refused before any key is looked up.
+        client.get(POSITION_URL)
+
+    captured = capsys.readouterr().out
+    records = [json.loads(line) for line in captured.strip().splitlines() if line.startswith("{")]
+    outages = [record for record in records if record.get("level") == "error"]
+    refusals = [record for record in records if record.get("level") == "warning"]
+
+    assert len(outages) == 1
+    assert outages[0]["reason"] == "key_source"
+    assert len(refusals) == 1
+    assert refusals[0]["event"] != outages[0]["event"]
+    assert token not in captured
+
+
 def Given_a_foreign_host_When_requested_with_no_token_Then_it_is_refused_before_authentication(
     anonymous: TestClient,
 ) -> None:

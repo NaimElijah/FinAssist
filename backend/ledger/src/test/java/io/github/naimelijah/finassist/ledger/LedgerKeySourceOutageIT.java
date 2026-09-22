@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -11,8 +12,11 @@ import java.net.ServerSocket;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -34,6 +38,7 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
+@ExtendWith(OutputCaptureExtension.class)
 class LedgerKeySourceOutageIT extends PostgresFixture {
 
     /**
@@ -84,5 +89,27 @@ class LedgerKeySourceOutageIT extends PostgresFixture {
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_UNAVAILABLE"));
+    }
+
+    /**
+     * The same outage, seen from the log rather than the response: an unreachable key source means
+     * nobody can authenticate at all, so it is ERROR under its own message rather than one more
+     * WARN about a refused token. {@code ProblemAuthenticationEntryPointTest} pins the level and
+     * the message directly; this proves the real path reaches that branch, through a real decoder
+     * against a real closed port, and that the token still never reaches a line.
+     */
+    @Test
+    void Given_the_jwks_source_is_unreachable_When_a_token_is_presented_Then_the_outage_is_logged_at_error(
+            CapturedOutput output) throws Exception {
+        String token = TestTokens.owner();
+
+        mvc.perform(get("/api/v1/accounts")
+                .header(HttpHeaders.HOST, "localhost")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        assertThat(output.getOut())
+                .contains("\"level\":\"ERROR\"")
+                .contains("key_source")
+                .doesNotContain(token);
     }
 }
