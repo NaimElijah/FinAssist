@@ -300,6 +300,10 @@ services:
     # The exact tag backend/assistant/Dockerfile already builds from, so it is proven to exist
     # and the two stay pinned to the same Debian trixie generation of Python 3.13.
     image: python:3.13.8-slim-trixie
+    # nobody:nogroup. The script needs no privilege, and this container holds a client secret,
+    # so it runs as a user that owns nothing, as the three application images already drop to a
+    # system user of their own.
+    user: "65534:65534"
     depends_on:
       keycloak:
         condition: service_healthy
@@ -321,6 +325,9 @@ services:
       # those as constants.
       KEYCLOAK_PUBLIC_URL: http://localhost:${KEYCLOAK_PORT:-8081}
       GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-http://localhost:5173}
+      # Nothing here should be written, and this user could not write it anyway: the script's
+      # own mount is read-only. So bytecode caching is switched off outright.
+      PYTHONDONTWRITEBYTECODE: "1"
     command: ["python", "/auth_smoke.py"]
 
 volumes:
