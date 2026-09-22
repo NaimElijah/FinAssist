@@ -213,6 +213,46 @@ class KeycloakRealmTest {
         }
     }
 
+    /**
+     * Least privilege in the {@code roles} claim. Left at Keycloak's default of {@code true},
+     * {@code fullScopeAllowed} puts <em>every</em> role in the realm into a client's scope — which
+     * a real import confirms: with it unset, the gateway client's scope held
+     * {@code default-roles-finassist}, {@code offline_access}, {@code uma_authorization} and even
+     * {@code assistant}, the service principal's own role. Off, the scope is exactly what
+     * {@link #Given_the_realm_file_When_read_Then_each_client_is_scoped_to_only_the_roles_it_needs()}
+     * declares. {@code KeycloakRealmIT} proves both against the running image.
+     */
+    @Test
+    void Given_both_clients_When_read_Then_neither_is_allowed_the_realms_full_scope() {
+        for (String clientId : List.of("finassist-gateway", "finassist-assistant")) {
+            assertThat(client(realm(), clientId).path("fullScopeAllowed").asBoolean(true))
+                    .as("fullScopeAllowed on %s", clientId)
+                    .isFalse();
+        }
+    }
+
+    /**
+     * The other half: with full scope off, a role reaches a token only if it is named here. The
+     * gateway issues the browser's tokens, so it needs the two roles a person can hold; the
+     * assistant issues only its own service-account token, so it needs one. The sets are closed,
+     * because a widened one would silently restore what the switch above turns off.
+     */
+    @Test
+    void Given_the_realm_file_When_read_Then_each_client_is_scoped_to_only_the_roles_it_needs() {
+        assertThat(scopedRealmRoles(realm(), "finassist-gateway")).containsExactlyInAnyOrder("owner", "viewer");
+        assertThat(scopedRealmRoles(realm(), "finassist-assistant")).containsExactly("assistant");
+    }
+
+    /** The realm roles {@code scopeMappings} puts in one client's scope. */
+    private static List<String> scopedRealmRoles(JsonNode realm, String clientId) {
+        for (JsonNode mapping : realm.path("scopeMappings")) {
+            if (clientId.equals(mapping.path("client").asString(null))) {
+                return texts(mapping.path("roles"));
+            }
+        }
+        throw new AssertionError("no scope mapping for client " + clientId + " in the realm file");
+    }
+
     @Test
     void Given_both_clients_When_read_Then_the_roles_claim_is_flat_multivalued_and_in_both_tokens() {
         for (String clientId : List.of("finassist-gateway", "finassist-assistant")) {

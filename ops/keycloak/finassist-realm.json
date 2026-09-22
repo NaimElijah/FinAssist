@@ -26,6 +26,10 @@
       { "name": "assistant", "description": "The assistant's service principal; reads the ledger only." }
     ]
   },
+  "scopeMappings": [
+    { "client": "finassist-gateway", "roles": ["owner", "viewer"] },
+    { "client": "finassist-assistant", "roles": ["assistant"] }
+  ],
   "clients": [
     {
       "clientId": "finassist-gateway",
@@ -38,6 +42,7 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
       "redirectUris": ["${GATEWAY_PUBLIC_URL}/bff/login/oauth2/code/keycloak"],
       "webOrigins": [],
       "attributes": {
@@ -96,6 +101,7 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true,
+      "fullScopeAllowed": false,
       "redirectUris": [],
       "webOrigins": [],
       "defaultClientScopes": ["basic"],

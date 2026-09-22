@@ -129,6 +129,12 @@ history; write the commit message well and this file writes itself.
   missing expiry unless told otherwise, so a token signed with the realm's key and given no
   lifetime at all was accepted forever — and answered `200` — while the assistant, which enforces
   the claim, refused the same token. ADR-030 requires `exp` of both.
+- **Neither Keycloak client is allowed the realm's full scope.** Both defaulted to it, so the
+  gateway client's scope held every role in the realm — `default-roles-finassist`,
+  `offline_access`, `uma_authorization` and even `assistant`, the service principal's own role.
+  Nothing granted anything for them, but a `roles` claim should say what its bearer may do here
+  and nothing else. Each client now names the roles it needs, and `KeycloakRealmIT` reads the
+  scope back from a running Keycloak rather than from the file.
 - **A refusal Spring MVC raised at the gateway keeps its own status.** `POST /bff/me` was
   answered 500 `INTERNAL_ERROR` and logged at ERROR, because the relay advice's catch-all claimed
   it before anything read the status the exception already carried. A framework refusal is now
