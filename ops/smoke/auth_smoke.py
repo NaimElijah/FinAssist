@@ -33,14 +33,16 @@ from typing import Final
 
 # --- The Compose network topology (docker-compose.yml). Fixed, not environment-configurable:
 # this script exists to prove that one topology, not to be portable to another.
+# `_INTERNAL_PORT`, never `_PORT`: `.env`'s KEYCLOAK_PORT, LEDGER_PORT, ASSISTANT_PORT and
+# GATEWAY_PORT name the ports published on the host, which this script never uses.
 KEYCLOAK_HOST: Final = "keycloak"
-KEYCLOAK_PORT: Final = 8080
+KEYCLOAK_INTERNAL_PORT: Final = 8080
 LEDGER_HOST: Final = "ledger"
-LEDGER_PORT: Final = 8080
+LEDGER_INTERNAL_PORT: Final = 8080
 ASSISTANT_HOST: Final = "assistant"
-ASSISTANT_PORT: Final = 8000
+ASSISTANT_INTERNAL_PORT: Final = 8000
 GATEWAY_HOST: Final = "gateway"
-GATEWAY_PORT: Final = 8090
+GATEWAY_INTERNAL_PORT: Final = 8090
 
 KEYCLOAK_TOKEN_PATH: Final = "/realms/finassist/protocol/openid-connect/token"
 LEDGER_ACCOUNTS_PATH: Final = "/api/v1/accounts"
@@ -66,6 +68,8 @@ PUBLIC_AUTHORIZATION_ENDPOINT: Final = (
     "http://localhost:8081/realms/finassist/protocol/openid-connect/auth"
 )
 PUBLIC_REDIRECT_URI: Final = "http://localhost:5173/bff/login/oauth2/code/keycloak"
+# ADR-030 signs the browser in with PKCE S256; `plain` would put the verifier itself in the URL.
+PKCE_METHOD: Final = "S256"
 
 # Every service names its machine-readable failure the same way: Problems.CODE_MEMBER (ledger),
 # GatewayProblems.CODE_MEMBER (gateway) and problem_response's "code" (assistant) all agree.
@@ -80,6 +84,12 @@ HTTP_FORBIDDEN: Final = 403
 
 WWW_AUTHENTICATE_HEADER: Final = "WWW-Authenticate"
 LOCATION_HEADER: Final = "Location"
+AUTHORIZATION_HEADER: Final = "Authorization"
+CONTENT_TYPE_HEADER: Final = "Content-Type"
+BEARER_SCHEME: Final = "Bearer"
+JSON_CONTENT_TYPE: Final = "application/json"
+# The OAuth2 token endpoint's request shape (RFC 6749, section 4.4.2).
+FORM_CONTENT_TYPE: Final = "application/x-www-form-urlencoded"
 
 # An empty JSON object is enough: the authorization filter chain in all three services decides
 # on the token before any request body is parsed, so a write refused by role never needs a
@@ -88,23 +98,12 @@ EMPTY_JSON_BODY: Final = b"{}"
 
 REQUEST_TIMEOUT_SECONDS: Final = 10
 
-CHECK_NAMES: Final[dict[int, str]] = {
-    1: "assistant client-credentials token claims",
-    2: "GET /api/v1/accounts with the assistant token",
-    3: "POST /api/v1/accounts with the assistant token",
-    4: "GET /api/v1/accounts with no token",
-    5: "the ledger-audience token presented to the assistant",
-    6: "the gateway's /ledger/... with no session",
-    7: "the gateway's login entry",
-    8: "GET /actuator/health with no token",
-}
-
 
 class SmokeCheckError(Exception):
     """Raised by a check that did not get what ADR-030 through ADR-032 promise.
 
-    Carries only a human-readable reason. `main` attributes it to a check number itself, from
-    the position in its own run order, so a check never has to duplicate its own number.
+    Carries only a human-readable reason. `main` reports it against the check `_CheckRun` was
+    running, so a check never has to know its own number or name.
     """
 
 
@@ -116,41 +115,27 @@ def _request(
     *,
     token: str | None = None,
     body: bytes | None = None,
+    content_type: str = JSON_CONTENT_TYPE,
 ) -> tuple[int, Message, bytes]:
     """Sends one HTTP request and returns (status, headers, body) — including for a refusal.
 
     Uses `http.client` rather than `urllib.request` because a redirect must be observed, never
     followed (check 7): `http.client` never follows one on its own, so there is no redirect
     handler to disable.
+
+    :param token: sent as a bearer token when given.
+    :param body: sent, labelled `content_type`, when given; a request without one sends neither.
     """
     headers: dict[str, str] = {}
     if token is not None:
-        headers["Authorization"] = f"Bearer {token}"
+        headers[AUTHORIZATION_HEADER] = f"{BEARER_SCHEME} {token}"
     if body is not None:
-        headers["Content-Type"] = "application/json"
+        headers[CONTENT_TYPE_HEADER] = content_type
     connection = http.client.HTTPConnection(host, port, timeout=REQUEST_TIMEOUT_SECONDS)
     try:
         connection.request(method, path, body=body, headers=headers)
         response = connection.getresponse()
-        payload = response.read()
-        return response.status, response.headers, payload
-    finally:
-        connection.close()
-
-
-def _post_form(
-    host: str, port: int, path: str, fields: dict[str, str]
-) -> tuple[int, Message, bytes]:
-    """Sends one `application/x-www-form-urlencoded` POST — the OAuth2 token endpoint's shape."""
-    body = urllib.parse.urlencode(fields).encode()
-    connection = http.client.HTTPConnection(host, port, timeout=REQUEST_TIMEOUT_SECONDS)
-    try:
-        connection.request(
-            "POST", path, body=body, headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        response = connection.getresponse()
-        payload = response.read()
-        return response.status, response.headers, payload
+        return response.status, response.headers, response.read()
     finally:
         connection.close()
 
@@ -207,15 +192,20 @@ def check_assistant_token_claims() -> str:
     if not secret:
         raise SmokeCheckError(f"{ASSISTANT_CLIENT_SECRET_ENV} is not set in this container")
 
-    status, _headers, body = _post_form(
-        KEYCLOAK_HOST,
-        KEYCLOAK_PORT,
-        KEYCLOAK_TOKEN_PATH,
+    form = urllib.parse.urlencode(
         {
             "grant_type": "client_credentials",
             "client_id": ASSISTANT_CLIENT_ID,
             "client_secret": secret,
-        },
+        }
+    ).encode()
+    status, _headers, body = _request(
+        KEYCLOAK_HOST,
+        KEYCLOAK_INTERNAL_PORT,
+        "POST",
+        KEYCLOAK_TOKEN_PATH,
+        body=form,
+        content_type=FORM_CONTENT_TYPE,
     )
     if status != HTTP_OK:
         raise SmokeCheckError(f"the token endpoint answered {status}, expected {HTTP_OK}")
@@ -257,7 +247,7 @@ def check_assistant_token_claims() -> str:
 def check_ledger_read_admitted(token: str) -> None:
     """Check 2: the assistant role has ledger:read (ADR-032's role→permission table)."""
     status, _headers, _body = _request(
-        LEDGER_HOST, LEDGER_PORT, "GET", LEDGER_ACCOUNTS_PATH, token=token
+        LEDGER_HOST, LEDGER_INTERNAL_PORT, "GET", LEDGER_ACCOUNTS_PATH, token=token
     )
     if status != HTTP_OK:
         raise SmokeCheckError(f"GET {LEDGER_ACCOUNTS_PATH} answered {status}, expected {HTTP_OK}")
@@ -266,7 +256,12 @@ def check_ledger_read_admitted(token: str) -> None:
 def check_ledger_write_forbidden(token: str) -> None:
     """Check 3: the assistant role has no ledger:write — it is read-only on the ledger (ADR-004)."""
     status, _headers, body = _request(
-        LEDGER_HOST, LEDGER_PORT, "POST", LEDGER_ACCOUNTS_PATH, token=token, body=EMPTY_JSON_BODY
+        LEDGER_HOST,
+        LEDGER_INTERNAL_PORT,
+        "POST",
+        LEDGER_ACCOUNTS_PATH,
+        token=token,
+        body=EMPTY_JSON_BODY,
     )
     if status != HTTP_FORBIDDEN:
         raise SmokeCheckError(
@@ -279,7 +274,9 @@ def check_ledger_write_forbidden(token: str) -> None:
 
 def check_ledger_requires_a_token() -> None:
     """Check 4: the ledger denies by default — no token, no access, ever (ADR-030)."""
-    status, headers, _body = _request(LEDGER_HOST, LEDGER_PORT, "GET", LEDGER_ACCOUNTS_PATH)
+    status, headers, _body = _request(
+        LEDGER_HOST, LEDGER_INTERNAL_PORT, "GET", LEDGER_ACCOUNTS_PATH
+    )
     if status != HTTP_UNAUTHORIZED:
         raise SmokeCheckError(
             _status_mismatch(f"GET {LEDGER_ACCOUNTS_PATH} with no token", status, HTTP_UNAUTHORIZED)
@@ -291,7 +288,7 @@ def check_ledger_requires_a_token() -> None:
 def check_wrong_audience_at_the_assistant(ledger_token: str) -> None:
     """Check 5: a ledger-audience token is not a valid credential at the assistant either."""
     status, _headers, _body = _request(
-        ASSISTANT_HOST, ASSISTANT_PORT, "GET", ASSISTANT_POSITION_PATH, token=ledger_token
+        ASSISTANT_HOST, ASSISTANT_INTERNAL_PORT, "GET", ASSISTANT_POSITION_PATH, token=ledger_token
     )
     if status != HTTP_UNAUTHORIZED:
         raise SmokeCheckError(
@@ -310,7 +307,7 @@ def check_gateway_denies_without_a_session() -> None:
     flow it never asked for.
     """
     status, headers, body = _request(
-        GATEWAY_HOST, GATEWAY_PORT, "GET", GATEWAY_LEDGER_ACCOUNTS_PATH
+        GATEWAY_HOST, GATEWAY_INTERNAL_PORT, "GET", GATEWAY_LEDGER_ACCOUNTS_PATH
     )
     if status != HTTP_UNAUTHORIZED:
         raise SmokeCheckError(
@@ -333,7 +330,9 @@ def check_gateway_login_entry_redirects() -> None:
     reach `keycloak:8080` from inside this container, which is not what a real browser could
     ever do, and would hide a wrong `Location` behind a response that still "worked".
     """
-    status, headers, _body = _request(GATEWAY_HOST, GATEWAY_PORT, "GET", GATEWAY_LOGIN_ENTRY_PATH)
+    status, headers, _body = _request(
+        GATEWAY_HOST, GATEWAY_INTERNAL_PORT, "GET", GATEWAY_LOGIN_ENTRY_PATH
+    )
     if status != HTTP_FOUND:
         raise SmokeCheckError(f"the login entry answered {status}, expected {HTTP_FOUND}")
 
@@ -351,8 +350,8 @@ def check_gateway_login_entry_redirects() -> None:
         )
 
     query = urllib.parse.parse_qs(parsed.query)
-    if query.get("code_challenge_method") != ["S256"]:
-        raise SmokeCheckError("the redirect did not carry code_challenge_method=S256")
+    if query.get("code_challenge_method") != [PKCE_METHOD]:
+        raise SmokeCheckError(f"the redirect did not carry code_challenge_method={PKCE_METHOD}")
     if query.get("redirect_uri") != [PUBLIC_REDIRECT_URI]:
         raise SmokeCheckError(f"redirect_uri was not the public {PUBLIC_REDIRECT_URI!r}")
 
@@ -360,7 +359,7 @@ def check_gateway_login_entry_redirects() -> None:
 def check_ledger_health_is_public() -> None:
     """Check 8: Actuator health stays public on the ledger's main port (a settled design choice,
     recorded in the plan's "Actuator stays on the ledger's main port" decision)."""
-    status, _headers, _body = _request(LEDGER_HOST, LEDGER_PORT, "GET", LEDGER_HEALTH_PATH)
+    status, _headers, _body = _request(LEDGER_HOST, LEDGER_INTERNAL_PORT, "GET", LEDGER_HEALTH_PATH)
     if status != HTTP_OK:
         raise SmokeCheckError(f"GET {LEDGER_HEALTH_PATH} answered {status}, expected {HTTP_OK}")
 
@@ -375,54 +374,69 @@ def _emit(message: str, *, to_stderr: bool = False) -> None:
     print(message, file=sys.stderr if to_stderr else sys.stdout)
 
 
+class _CheckRun:
+    """Numbers and reports the checks `main` runs, in the order it runs them.
+
+    Each check's name is paired with its function at the one call in `main` that runs it, so the
+    two cannot drift apart, and the token check 1 returns reaches the checks that reuse it as an
+    ordinary value.
+    """
+
+    def __init__(self) -> None:
+        self.passed = 0
+        self.current = ""
+
+    def check[**P, R](
+        self, name: str, step: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs
+    ) -> R:
+        """Runs one check and reports it passed.
+
+        :param name: the check's name in the report.
+        :param step: the check itself, called with `args` and `kwargs`.
+        :return: whatever `step` returned.
+        :raises Exception: whatever `step` raised, unreported: `main` reports it against
+            `current`, which already names this check.
+        """
+        number = self.passed + 1
+        self.current = f"{number} ({name})"
+        result = step(*args, **kwargs)
+        _emit(f"{number}. {name}: PASS")
+        self.passed = number
+        return result
+
+
 def main() -> int:
     """Runs every check in order, stopping at the first failure (see the module docstring)."""
-    # Holds the token check 1 fetches, for the later checks that reuse it rather than fetching
-    # their own — closed over by the steps below instead of threaded through `steps`'s uniform
-    # no-argument shape.
-    token_holder: dict[str, str] = {}
+    run = _CheckRun()
+    try:
+        token = run.check("assistant client-credentials token claims", check_assistant_token_claims)
+        run.check(
+            "GET /api/v1/accounts with the assistant token", check_ledger_read_admitted, token
+        )
+        run.check(
+            "POST /api/v1/accounts with the assistant token", check_ledger_write_forbidden, token
+        )
+        run.check("GET /api/v1/accounts with no token", check_ledger_requires_a_token)
+        run.check(
+            "the ledger-audience token presented to the assistant",
+            check_wrong_audience_at_the_assistant,
+            token,
+        )
+        run.check(
+            "the gateway's /ledger/... with no session", check_gateway_denies_without_a_session
+        )
+        run.check("the gateway's login entry", check_gateway_login_entry_redirects)
+        run.check("GET /actuator/health with no token", check_ledger_health_is_public)
+    except SmokeCheckError as failure:
+        _emit(f"FAILED check {run.current}: {failure}", to_stderr=True)
+        return 1
+    except OSError as error:
+        # A service unreachable over the Compose network is exactly the class of wiring
+        # fault this script exists to catch, not an internal error to mask.
+        _emit(f"FAILED check {run.current}: could not reach a service — {error}", to_stderr=True)
+        return 1
 
-    def step_1() -> None:
-        token_holder["assistant"] = check_assistant_token_claims()
-
-    def step_2() -> None:
-        check_ledger_read_admitted(token_holder["assistant"])
-
-    def step_3() -> None:
-        check_ledger_write_forbidden(token_holder["assistant"])
-
-    def step_5() -> None:
-        check_wrong_audience_at_the_assistant(token_holder["assistant"])
-
-    steps: list[Callable[[], None]] = [
-        step_1,
-        step_2,
-        step_3,
-        check_ledger_requires_a_token,
-        step_5,
-        check_gateway_denies_without_a_session,
-        check_gateway_login_entry_redirects,
-        check_ledger_health_is_public,
-    ]
-
-    for number, step in enumerate(steps, start=1):
-        name = CHECK_NAMES[number]
-        try:
-            step()
-        except SmokeCheckError as failure:
-            _emit(f"FAILED check {number} ({name}): {failure}", to_stderr=True)
-            return 1
-        except OSError as error:
-            # A service unreachable over the Compose network is exactly the class of wiring
-            # fault this script exists to catch, not an internal error to mask.
-            _emit(
-                f"FAILED check {number} ({name}): could not reach a service — {error}",
-                to_stderr=True,
-            )
-            return 1
-        _emit(f"{number}. {name}: PASS")
-
-    _emit(f"{len(steps)}/{len(steps)} checks passed")
+    _emit(f"{run.passed}/{run.passed} checks passed")
     return 0
 
 
