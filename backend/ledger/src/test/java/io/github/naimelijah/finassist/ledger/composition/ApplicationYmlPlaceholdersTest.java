@@ -16,7 +16,6 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.env.YamlPropertySourceLoader;
-import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.io.ClassPathResource;
@@ -34,16 +33,34 @@ import org.springframework.core.io.Resource;
  * the shipped {@code application.yml} alone, with no context started and no Docker needed. {@link
  * ClassFileImporter} reads bytecode rather than loading classes, the same static approach {@code
  * LedgerArchitectureTest} already uses for the ledger's other structural rules.
+ *
+ * <p>{@code @ConfigurationProperties} binding is out of scope: it fails differently, silently
+ * falling back to a field's default rather than raising a {@code PlaceholderResolutionException},
+ * so the class of defect this guards against does not apply to it. The module declares none
+ * today ({@code grep -r '@ConfigurationProperties' backend/ledger/src} finds nothing) — a reason
+ * to leave it out, not a promise it never will.
  */
 class ApplicationYmlPlaceholdersTest {
 
     private static final String ROOT = "io.github.naimelijah.finassist.ledger";
 
     /**
+     * Computed once for the whole class, not once per {@code @Test}: importing the ledger's
+     * bytecode is the expensive part of this test (seconds, not milliseconds), and both tests
+     * below want the identical, deterministic result of the same scan. A {@code static final}
+     * field initialised eagerly needs no {@code @BeforeAll} and carries no risk of one test
+     * depending on another having run first — the same idiom {@code PostgresFixture} and {@code
+     * TestJwks} each use for their own one-per-JVM setup.
+     */
+    private static final List<String> PRODUCTION_VALUE_PLACEHOLDERS = productionValuePlaceholders();
+
+    /**
      * Every {@code @Value} placeholder expression declared by the ledger's production code, found
      * without starting Spring. Spring honours {@code @Value} in three places, and every one is
-     * covered: a field, a constructor parameter, and — how every current usage in this codebase is
-     * actually written — a {@code @Bean} factory method's parameter.
+     * covered: a field, a constructor parameter, and a method parameter — {@code @Bean} factory
+     * methods are how every current usage in this codebase is actually written, but the scan does
+     * not gate on {@code @Bean}, so an {@code @Value} on, say, an {@code @Autowired} setter's
+     * parameter is caught too rather than passing this guard by accident.
      */
     private static List<String> productionValuePlaceholders() {
         JavaClasses production = new ClassFileImporter()
@@ -61,9 +78,7 @@ class ApplicationYmlPlaceholdersTest {
                 addAnnotatedParameters(constructor.getParameters(), placeholders);
             }
             for (JavaMethod method : clazz.getMethods()) {
-                if (method.isAnnotatedWith(Bean.class)) {
-                    addAnnotatedParameters(method.getParameters(), placeholders);
-                }
+                addAnnotatedParameters(method.getParameters(), placeholders);
             }
         }
         return placeholders;
@@ -84,7 +99,7 @@ class ApplicationYmlPlaceholdersTest {
      */
     @Test
     void Given_the_ledgers_production_code_When_scanned_for_at_Value_placeholders_Then_at_least_one_is_found() {
-        assertThat(productionValuePlaceholders()).isNotEmpty();
+        assertThat(PRODUCTION_VALUE_PLACEHOLDERS).isNotEmpty();
     }
 
     /**
@@ -106,7 +121,7 @@ class ApplicationYmlPlaceholdersTest {
         loaded.forEach(environment.getPropertySources()::addLast);
 
         List<String> unresolvable = new ArrayList<>();
-        for (String placeholder : productionValuePlaceholders()) {
+        for (String placeholder : PRODUCTION_VALUE_PLACEHOLDERS) {
             try {
                 environment.resolveRequiredPlaceholders(placeholder);
             } catch (IllegalArgumentException e) {
