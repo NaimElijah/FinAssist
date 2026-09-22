@@ -241,6 +241,44 @@ class GatewaySecurityTest {
     }
 
     /**
+     * A method no handler supports is the caller's mistake, and must be answered as one.
+     *
+     * <p>It reaches the dispatcher rather than the security chain — {@code /bff/me} is permitted
+     * for any method, and the CSRF token is sent — so Spring raises {@code
+     * HttpRequestMethodNotSupportedException}, which {@code GatewayRelayProblems}' catch-all would
+     * otherwise turn into a 500 {@code INTERNAL_ERROR}, logged at ERROR. Nothing failed here but
+     * the request.
+     */
+    @Test
+    void Given_a_signed_in_session_When_a_method_no_handler_supports_is_used_Then_it_is_405_not_500() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        MvcResult signedIn = mvc.perform(
+                        named(get(ME)).session(session).with(oidcLogin().idToken(ownerToken(List.of("owner")))))
+                .andExpect(status().isOk())
+                .andReturn();
+        Cookie csrf = signedIn.getResponse().getCookie(XSRF_COOKIE);
+        assertThat(csrf).isNotNull();
+
+        mvc.perform(named(post(ME)).session(session).cookie(csrf).header(XSRF_HEADER, csrf.getValue()))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
+    }
+
+    /**
+     * The same rule for the other framework refusal this gateway can raise: {@code GET /bff/me}
+     * {@code produces} JSON alone, so asking for anything else is 406, not a gateway failure.
+     */
+    @Test
+    void Given_a_signed_in_session_When_a_media_type_no_handler_produces_is_asked_for_Then_it_is_406_not_500()
+            throws Exception {
+        mvc.perform(named(get(ME)).accept(MediaType.TEXT_PLAIN).with(oidcLogin().idToken(ownerToken(List.of("owner")))))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("NOT_ACCEPTABLE"));
+    }
+
+    /**
      * The only redirect the gateway issues towards Keycloak, and it issues it because the browser
      * asked for it by navigating here. Its {@code redirect_uri} is the public one so the callback
      * comes back through the web client's origin, and PKCE is {@code S256} because

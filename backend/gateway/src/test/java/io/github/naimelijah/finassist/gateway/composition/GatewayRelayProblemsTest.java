@@ -7,11 +7,19 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import java.io.IOException;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.ErrorResponseException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -27,8 +35,12 @@ import tools.jackson.databind.json.JsonMapper;
  * unexpected value could reach a log line.
  *
  * <p>{@code IllegalStateException} stands in for "anything else": nothing about this handler's
- * behaviour depends on which unmapped exception type arrives, since {@code relayFailed} branches
- * on nothing but calling it.
+ * behaviour depends on which unmapped exception type arrives, since the catch-all branch of
+ * {@code relayFailed} branches on nothing but calling it.
+ *
+ * <p>The refusals Spring MVC raises are different, and are named exactly: each carries its own
+ * status, and answering one as a 500 would both mislead the caller and log a caller's mistake at
+ * a level that means "a person is needed now".
  */
 class GatewayRelayProblemsTest {
 
@@ -111,5 +123,61 @@ class GatewayRelayProblemsTest {
         relayFailedWithSensitiveMessage();
 
         assertThat(captured.list.getFirst().getThrowableProxy()).isNull();
+    }
+
+    /**
+     * The two refusals Spring MVC can raise against {@code GET /bff/me}, the gateway's one handler
+     * method. {@code GatewaySecurityTest} drives both through the running chain; this pins what
+     * the handler does with them, including the status a wrong answer would hide.
+     */
+    @ParameterizedTest
+    @MethodSource("frameworkRefusals")
+    void Given_a_refusal_spring_raised_When_it_is_answered_Then_it_keeps_its_own_status_and_code(
+            Exception refusal, int status, String code) throws IOException {
+        problems.relayFailed(refusal, response);
+
+        assertThat(response.getStatus()).isEqualTo(status);
+        assertThat(response.getContentType()).isEqualTo(PROBLEM_JSON);
+        JsonNode problem = JSON.readTree(response.getContentAsByteArray());
+        assertThat(problem.path("status").asInt()).isEqualTo(status);
+        assertThat(problem.path("code").asString()).isEqualTo(code);
+    }
+
+    /**
+     * Only a true 5xx is ERROR. A 4xx says the request was wrong, and a log level that called it a
+     * gateway failure would page someone for a caller's mistake.
+     */
+    @ParameterizedTest
+    @MethodSource("refusalsSpringRaises")
+    void Given_a_refusal_spring_raised_When_it_is_logged_Then_it_is_warn_rather_than_error(Exception refusal)
+            throws IOException {
+        problems.relayFailed(refusal, response);
+
+        assertThat(captured.list).hasSize(1);
+        assertThat(captured.list.getFirst().getLevel()).isEqualTo(Level.WARN);
+    }
+
+    private static Stream<Arguments> frameworkRefusals() {
+        return Stream.of(
+                Arguments.of(new HttpRequestMethodNotSupportedException("POST"), 405, "METHOD_NOT_ALLOWED"),
+                Arguments.of(new HttpMediaTypeNotAcceptableException("text/plain"), 406, "NOT_ACCEPTABLE"));
+    }
+
+    /** The same refusals, for the assertions that care only about which exception arrived. */
+    private static Stream<Exception> refusalsSpringRaises() {
+        return frameworkRefusals().map(arguments -> (Exception) arguments.get()[0]);
+    }
+
+    /**
+     * A status this gateway serves no handler capable of raising is treated as the failure it
+     * would be, rather than passed through with a code invented for it. Nothing here can raise a
+     * 409 today; if something ever does, that is a defect, and it is answered as one.
+     */
+    @Test
+    void Given_an_error_response_at_an_unmapped_status_When_it_is_answered_Then_it_is_still_a_500() throws IOException {
+        problems.relayFailed(new ErrorResponseException(HttpStatus.CONFLICT), response);
+
+        assertThat(response.getStatus()).isEqualTo(500);
+        assertThat(captured.list.getFirst().getLevel()).isEqualTo(Level.ERROR);
     }
 }

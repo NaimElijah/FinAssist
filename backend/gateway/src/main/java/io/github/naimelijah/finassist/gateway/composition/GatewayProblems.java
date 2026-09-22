@@ -19,7 +19,10 @@ import tools.jackson.databind.json.JsonMapper;
  * CSRF_TOKEN_INVALID}, branching on whether the denial was a CSRF failure — its sign-in failure
  * handler answers neither, since a failed sign-in redirects the browser rather than answering a
  * problem; and {@code GatewayRelayProblems} answers {@code UNAUTHENTICATED} for a refused refresh,
- * and {@code UPSTREAM_UNAVAILABLE} and {@code INTERNAL_ERROR} for a relay's other failures.
+ * {@code UPSTREAM_UNAVAILABLE} and {@code INTERNAL_ERROR} for a relay's other failures, and
+ * {@code METHOD_NOT_ALLOWED} or {@code NOT_ACCEPTABLE} for the two refusals Spring MVC itself can
+ * raise here. Each is spelled exactly as the ledger spells the same code, so a client branching on
+ * one reads either service.
  * Keeping the whole vocabulary in one class, rather than a constant beside each caller, is what
  * stops a second name being invented for a code already fixed.
  *
@@ -63,6 +66,12 @@ final class GatewayProblems {
 
     /** An unknown route. */
     static final String NOT_FOUND = "NOT_FOUND";
+
+    /** The path exists here, but no handler answers this method. */
+    static final String METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED";
+
+    /** The handler produces nothing the request's {@code Accept} header would take. */
+    static final String NOT_ACCEPTABLE = "NOT_ACCEPTABLE";
 
     /** The gateway failed. Nothing about the request explains it, and the detail says nothing more. */
     static final String INTERNAL_ERROR = "INTERNAL_ERROR";
