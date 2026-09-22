@@ -54,6 +54,11 @@ class GatewayLoginFlowIT {
     private static final String WEB_ORIGIN = "http://localhost:5173";
     private static final String SESSION_COOKIE = "FINASSIST_SESSION";
 
+    private static final String XSRF_HEADER = "X-FINASSIST-XSRF-TOKEN";
+
+    /** A relayed write, so a refusal below is refusing the request CSRF exists to stop. */
+    private static final String LEDGER_TRANSACTIONS = "/ledger/api/v1/transactions";
+
     /** A W3C trace id the client picks, so the value asserted downstream can only have come from it. */
     private static final String CLIENT_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
 
@@ -99,6 +104,9 @@ class GatewayLoginFlowIT {
      * Every test that mutates a fake's shared, mutable state resets it, because the fakes are
      * started once for the whole class and a later test must not inherit an earlier one's
      * configuration.
+     *
+     * <p>The recorded request is cleared too, so that a test asserting a request never reached a
+     * downstream service is reading an empty slot rather than whatever ran before it.
      */
     @AfterEach
     void resetFakes() {
@@ -107,6 +115,8 @@ class GatewayLoginFlowIT {
         idp.stopRefusingRefresh();
         ledger.respondNext(200, "application/json", "{}");
         assistant.respondNext(200, "application/json", "{}");
+        ledger.forgetLastRequest();
+        assistant.forgetLastRequest();
     }
 
     private String gatewayUrl(String path) {
@@ -144,10 +154,24 @@ class GatewayLoginFlowIT {
                         .timeout(TIMEOUT)
                         // Sent even though this is a GET the CSRF filter would not otherwise
                         // check, so that "the header is stripped" has something real to strip.
-                        .header("X-FINASSIST-XSRF-TOKEN", "a-header-that-must-not-reach-the-ledger")
+                        .header(XSRF_HEADER, "a-header-that-must-not-reach-the-ledger")
                         .GET()
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
+    }
+
+    /**
+     * A relayed {@code POST} with no body, carrying the given CSRF token — or, when it is {@code
+     * null}, no CSRF header at all, which is what a cross-site page would manage.
+     */
+    private HttpResponse<String> relayPost(HttpClient client, String path, String csrfToken) throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(gatewayUrl(path)))
+                .timeout(TIMEOUT)
+                .POST(HttpRequest.BodyPublishers.noBody());
+        if (csrfToken != null) {
+            request.header(XSRF_HEADER, csrfToken);
+        }
+        return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     /**
@@ -268,18 +292,60 @@ class GatewayLoginFlowIT {
             signIn(client);
             String csrfToken = csrfTokenValue(client);
 
-            HttpResponse<String> response = client.send(
-                    HttpRequest.newBuilder(URI.create(gatewayUrl("/ledger/api/v1/transactions")))
-                            .timeout(TIMEOUT)
-                            .header("X-FINASSIST-XSRF-TOKEN", csrfToken)
-                            .POST(HttpRequest.BodyPublishers.noBody())
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = relayPost(client, LEDGER_TRANSACTIONS, csrfToken);
 
             assertThat(response.statusCode()).isEqualTo(200);
             FakeService.ReceivedRequest received = ledger.lastRequest();
             assertThat(received.method()).isEqualTo("POST");
             assertThat(received.path()).isEqualTo("/api/v1/transactions");
+        }
+    }
+
+    /**
+     * The request CSRF exists to stop, refused where it matters: a write to the owner's books.
+     *
+     * <p>{@code GatewaySecurityTest} refuses a write without its token, but its target is {@code
+     * POST /bff/logout} — a request a hostile page gains nothing from. Both relayed {@code POST}s
+     * in this class send the token, so nothing here would have noticed {@code
+     * ignoringRequestMatchers(LEDGER_API_PATTERN, ..)} being added to the chain — a plausible
+     * change, since the route already carries {@code RemoveRequestHeader=X-FINASSIST-XSRF-TOKEN}
+     * and someone could reason the header is stripped anyway.
+     *
+     * <p>The refusal has to happen <em>before</em> the relay, not merely instead of a 200, so the
+     * downstream fake is asserted to have received nothing at all.
+     */
+    @Test
+    void Given_a_signed_in_session_When_a_relayed_write_arrives_with_no_csrf_header_Then_it_is_refused_and_not_relayed()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+
+            HttpResponse<String> response = relayPost(client, LEDGER_TRANSACTIONS, null);
+
+            assertThat(response.statusCode()).isEqualTo(403);
+            assertThat(response.body()).contains("CSRF_TOKEN_INVALID");
+            assertThat(ledger.lastRequest()).isNull();
+        }
+    }
+
+    /**
+     * The other half: a header that is present but is not the token in the cookie. A page that
+     * cannot read the cookie can still put <em>something</em> in the header, so "the header
+     * exists" must not be what the check tests.
+     */
+    @Test
+    void
+            Given_a_signed_in_session_When_a_relayed_write_carries_the_wrong_csrf_token_Then_it_is_refused_and_not_relayed()
+                    throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+            String realToken = csrfTokenValue(client);
+
+            HttpResponse<String> response = relayPost(client, LEDGER_TRANSACTIONS, realToken + "-tampered");
+
+            assertThat(response.statusCode()).isEqualTo(403);
+            assertThat(response.body()).contains("CSRF_TOKEN_INVALID");
+            assertThat(ledger.lastRequest()).isNull();
         }
     }
 
@@ -364,7 +430,7 @@ class GatewayLoginFlowIT {
             HttpResponse<String> response = client.send(
                     HttpRequest.newBuilder(URI.create(gatewayUrl("/assistant/api/v1/portfolio/holdings/ACME/disposal")))
                             .timeout(TIMEOUT)
-                            .header("X-FINASSIST-XSRF-TOKEN", csrfToken)
+                            .header(XSRF_HEADER, csrfToken)
                             .header("Content-Type", "application/json")
                             .POST(HttpRequest.BodyPublishers.ofString(DISPOSAL_BODY))
                             .build(),

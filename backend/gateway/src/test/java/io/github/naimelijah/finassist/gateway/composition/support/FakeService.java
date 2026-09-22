@@ -53,6 +53,18 @@ public final class FakeService implements AutoCloseable {
         this.nextResponse = new CannedResponse(status, contentType, body.getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * Forgets the last request, so that {@link #lastRequest()} being {@code null} means "nothing
+     * reached this service" rather than "nothing has reached it since the JVM started".
+     *
+     * <p>This fixture is started once per test class, so without it a test asserting that the
+     * gateway refused a request before relaying it would be reading whatever an earlier test
+     * happened to send.
+     */
+    public void forgetLastRequest() {
+        lastRequest.set(null);
+    }
+
     @Override
     public void close() {
         server.stop(0);
