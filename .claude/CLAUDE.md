@@ -4,50 +4,60 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## State of the repository
 
-Three codebases — a Java ledger, a Python assistant, a React web client — all building and
-CI-gated. **All six bounded contexts have a domain layer and an application layer**, with tests.
-Use cases sit behind ports and are wired by constructor. **The ledger's repository ports are
-backed by PostgreSQL** (ADR-006, ratified 2026-09-06): hand-written SQL over `JdbcClient`, Flyway
-migrations, a schema per bounded context, and a journal the database refuses to rewrite
-(ADR-024). **The ledger now has an inbound HTTP adapter for each of its three contexts**
-(accounting, budgeting, planning) under `/api/v1`, behind a `HostAllowListFilter` and
-problem+json error handling, and an OpenAPI document generated from the code and committed at
+Four codebases — a Java ledger, a Java gateway, a Python assistant, a React web client — all
+building and CI-gated. **All six bounded contexts have a domain layer and an application layer**,
+with tests. Use cases sit behind ports and are wired by constructor. **The ledger's repository
+ports are backed by PostgreSQL** (ADR-006, ratified 2026-09-06): hand-written SQL over
+`JdbcClient`, Flyway migrations, a schema per bounded context, and a journal the database refuses
+to rewrite (ADR-024). **The ledger now has an inbound HTTP adapter for each of its three contexts**
+(accounting, budgeting, planning) under `/api/v1`, behind a `HostAllowListFilter` and problem+json
+error handling, and an OpenAPI document generated from the code and committed at
 `contracts/ledger-v1.openapi.json`, pinned by `LedgerContractIT`. ADR-004 is Accepted. **The
 assistant now serves `portfolio` under `/api/v1` too**, behind `HostAllowList` and its own
-problem+json handling in `adapters/problems.py`, with its OpenAPI document generated from the
-code and committed at `contracts/assistant-v1.openapi.json`, pinned by `tests/test_contract.py`.
-An opt-in, off-by-default development seed (`ASSISTANT_DEV_SEED`, `adapters/seed.py`) loads
-fictional holdings and quotes so those endpoints have something to answer by hand; the assistant
-still has no store, no ledger client and no price feed. **The web client has its accounting
-area**: `AccountsPage` opens an account and lists every one with its derived balance,
+problem+json handling in `adapters/problems.py`, with its OpenAPI document generated from the code
+and committed at `contracts/assistant-v1.openapi.json`, pinned by `tests/test_contract.py`. An
+opt-in, off-by-default development seed (`ASSISTANT_DEV_SEED`, `adapters/seed.py`) loads fictional
+holdings and quotes so those endpoints have something to answer by hand; the assistant still has no
+store, no ledger client and no price feed. **The web client has its accounting area**:
+`AccountsPage` opens an account and lists every one with its derived balance,
 `RecordTransactionPage` records a transaction by hand at the static route
 `/accounts/transactions/new`, and `AccountDetailPage` shows one account's transactions and moves
 each through `Clear`, `Reconcile` or `Void`, offering only the transitions its status legally
-admits. **It also has its budgeting area**: `BudgetsPage` lists every budget and defines one for
-a calendar month with a limit per category, `BudgetReviewPage` (`/budgets/:budgetId`) shows spend
-by category — overspent, unbudgeted and uncategorised — taking the budget's own period and
-currency from the cached list rather than a single-item read, and `CategorisationRulesPage`, at
-the static route `/budgets/rules`, lists rules in the order they are tried and adds another;
-`/budgets/rules` outranks the dynamic `/budgets/:budgetId` at the same depth by React Router's
-own static-over-dynamic ranking. **It also has its planning area**: `PlannedFlowsPage` plans flows
-and moves each through its lifecycle, `ScenariosPage` defines scenarios, `ProjectionPage`
-(`/planning/projection`) charts a scenario's projection, with its first shortfall, against the
-cash and invested accounts the owner chooses, and `ComparisonPage` (`/planning/compare`) compares
-two or more scenarios against a baseline in tables. Planning's account choices come from
-accounting through `PlanningAccountsBridge` in `src/app`, the web client's one cross-feature
-translation. All three areas call the ledger through the dev proxy, mapping generated wire types
-onto each feature's own in `api/`. **It also has its portfolio area**, calling the assistant
-through the same proxy (ADR-026): `PortfolioPage` looks a holding up by symbol, and `HoldingPage`
-(`/portfolio/:symbol`) shows its position and valuation — nothing held and no usable price as calm
-empty states rather than errors — and prices a disposal as a calculation that records nothing. All
-four screen areas now exist; only "ask a question" is deliberately left out.
-Observability is live (ADR-019): the ledger answers Actuator probes and now traces its business
+admits. **It also has its budgeting area**: `BudgetsPage` lists every budget and defines one for a
+calendar month with a limit per category, `BudgetReviewPage` (`/budgets/:budgetId`) shows spend by
+category — overspent, unbudgeted and uncategorised — taking the budget's own period and currency
+from the cached list rather than a single-item read, and `CategorisationRulesPage`, at the static
+route `/budgets/rules`, lists rules in the order they are tried and adds another; `/budgets/rules`
+outranks the dynamic `/budgets/:budgetId` at the same depth by React Router's own
+static-over-dynamic ranking. **It also has its planning area**: `PlannedFlowsPage` plans flows and
+moves each through its lifecycle, `ScenariosPage` defines scenarios, `ProjectionPage`
+(`/planning/projection`) charts a scenario's projection, with its first shortfall, against the cash
+and invested accounts the owner chooses, and `ComparisonPage` (`/planning/compare`) compares two or
+more scenarios against a baseline in tables. Planning's account choices come from accounting
+through `PlanningAccountsBridge` in `src/app`, the web client's one cross-feature translation. All
+three areas call the ledger through the dev proxy and the gateway, mapping generated wire types
+onto each feature's own in `api/`. **It also has its portfolio area**, calling the assistant the
+same way (ADR-026, extended by ADR-030): `PortfolioPage` looks a holding up by symbol, and
+`HoldingPage` (`/portfolio/:symbol`) shows its position and valuation — nothing held and no usable
+price as calm empty states rather than errors — and prices a disposal as a calculation that records
+nothing. All four screen areas now exist; only "ask a question" is deliberately left out.
+Observability is live (ADR-019): the ledger answers Actuator probes and traces its business
 endpoints too, and the assistant serves `/health` and `/ready` and assembles its use cases at
-start-up. Both services emit structured JSON logs and OTLP traces. Both services run under
-Compose (`docker compose up`) as well as natively. **Authentication and authorisation are decided
-and not yet built**: OIDC through a backend-for-frontend gateway (ADR-030), Keycloak (ADR-031),
-and role-based permissions owned by each service (ADR-032). ADR-030 supersedes ADR-027, and until
-enforcement lands neither service checks a token.
+start-up. The ledger, the gateway and the assistant emit structured JSON logs and OTLP traces, and
+all three run under Compose (`docker compose up`) as well as natively. **Authentication and
+authorisation are built**: OIDC through a backend-for-frontend gateway (ADR-030, which supersedes
+ADR-027), Keycloak (ADR-031), and role-based permissions owned by each service (ADR-032).
+`backend/gateway` signs the browser in against a self-hosted Keycloak (`ops/keycloak/`, with its
+own `keycloak-db`), keeps every token in its server-side session, and relays each call to the
+ledger or the assistant with `TokenRelay`; the browser holds only an `HttpOnly` session cookie and
+a CSRF token, and the web client's dev proxy sends every call to the gateway. The ledger is a
+resource server that validates bearer tokens and denies by default (`LedgerSecurityConfiguration`,
+proven by `LedgerAuthorizationIT`); the assistant requires a bearer token and `portfolio:read` on
+every route (`BearerAuthentication` and `RequirePermission` in `adapters/auth.py`). The web client
+gates every screen on a session (`SessionGate`, `SessionContext`) and hides write controls from a
+`viewer` (`useWriteAccess`), and every journal row written from `V1_2` onward records the token's
+`sub` as `recorded_by` (ADR-033). `ops/smoke/auth_smoke.py` checks the wiring between them against
+the running Compose stack, by hand and never in CI (ADR-034).
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
 Proposed today. Of all 34, ADR-027 is Superseded by ADR-030 and the other 33 are Accepted. The
@@ -66,25 +76,30 @@ is **not installed** on the development machine, so the raw command is given for
   database, the ledger, the gateway and the assistant; every published port binds `127.0.0.1`
   only, per ADR-030; `keycloak-db` publishes none at all). For the native inner loop:
   `cd backend/ledger && ./mvnw spring-boot:run` — it needs the database up first
-  (`docker compose up -d db`) and applies its Flyway migrations at start-up;
+  (`docker compose up -d db`), applies its Flyway migrations at start-up, and needs Keycloak up
+  to verify a token, though not to start (no service runs OIDC discovery, ADR-030);
   `cd backend/gateway && ./mvnw spring-boot:run` — it needs Keycloak up first
   (`docker compose up -d keycloak-db keycloak`, or `make run-identity`);
   `cd backend/assistant && uv run python -m finassist_assistant.adapters`; the web client with
   `cd frontend/web && npm run dev`
+- Stop: `make stop` — `docker compose down`, keeping volumes. Never `docker compose down -v`
+  against the owner's own project: it deletes `db-data` along with `keycloak-db-data`
 - Test (all): `make test`
-- Test (ledger): `cd backend/ledger && ./mvnw -B verify`
-- Test (gateway): `cd backend/gateway && ./mvnw -B verify`
-- Test (assistant): `cd backend/assistant && uv run pytest --cov --cov-report=term-missing
-  --cov-report=xml`
-- Test (web): `cd frontend/web && npm run test:coverage`
+- Test (ledger): `make test-ledger` — `cd backend/ledger && ./mvnw -B verify`
+- Test (gateway): `make test-gateway` — `cd backend/gateway && ./mvnw -B verify`
+- Test (assistant): `make test-assistant` — `cd backend/assistant && uv run pytest --cov
+  --cov-report=term-missing --cov-report=xml`
+- Test (web): `make test-web` — `cd frontend/web && npm run test:coverage`
 - Test (single, ledger): `cd backend/ledger && ./mvnw -B test -Dtest=LedgerArchitectureTest`
-- **Docker must be running for `make test-ledger`.** `*IT` tests drive the store against a real
-  PostgreSQL in Testcontainers and fail rather than skip without it (ADR-025). Surefire (the
-  unit suite) needs no Docker; failsafe does. `make test-gateway` needs no Docker today —
-  `GatewayApplicationIT` boots the context alone and touches no container — but keeps the same
-  surefire/failsafe split so it costs nothing to add one later.
+- **Docker must be running for `make test-ledger` and `make test-gateway`.** The ledger's `*IT`
+  tests drive the store against a real PostgreSQL in Testcontainers, and the gateway's
+  `KeycloakRealmIT` builds `ops/keycloak/Dockerfile` and runs it against a real PostgreSQL; both
+  fail rather than skip without Docker (ADR-025). Surefire (the unit suites) needs no Docker;
+  failsafe does. `ApplicationYmlPlaceholdersTest` is a surefire test, so the ledger's `@Value`
+  placeholder guard runs without Docker.
 - Test (single, assistant): `cd backend/assistant && uv run pytest tests/test_architecture.py -k <name>`
 - Test (single, web): `cd frontend/web && npx vitest run -t <name>`
+- Build the web bundle: `make build-web` — `cd frontend/web && npm run build`
 - Mutation testing (ledger): `make mutation-ledger` — `cd backend/ledger && ./mvnw -B -Pmutation
   test-compile org.pitest:pitest-maven:mutationCoverage`. A diagnostic, gated on nothing (ADR-017)
 - Lint / types: `make lint` — `./mvnw -B spotless:check` (ledger and gateway);
@@ -131,6 +146,9 @@ is **not installed** on the development machine, so the raw command is given for
   `contracts/gateway-v1.openapi.json`. Run this after every endpoint change
 - Regenerate the web client's contract types: `make generate-web-api` —
   `cd frontend/web && npm run generate:api`
+- Clean: `make clean` — `./mvnw -B -q clean` in `backend/ledger` and `backend/gateway`, then
+  delete the assistant's caches and coverage files and the web client's `dist/` and `coverage/`;
+  `.env` and Docker volumes are left alone
 
 Keep this list in sync with the Development table in `README.md`.
 
@@ -143,21 +161,29 @@ so it can be extracted by moving it (ADR-010).
   `planning/`, each with `domain/`, `application/{port/in,port/out,service}/`,
   `adapter/{in/web,out/persistence,out/event}/`, plus a top-level `shared/` kernel, a
   `composition/` root and `LedgerApplication`.
-- `backend/gateway/` — Java 21, Spring Boot, Spring Cloud Gateway (Server Web MVC). The
-  backend-for-frontend that will keep the browser's tokens server-side. It now has a
-  `composition/` root — `GatewayConfiguration`, `HostAllowListFilter` (a deliberate copy of the
-  ledger's, configured by `GATEWAY_ALLOWED_HOSTS`) and `GatewayProblems` — but still no route and
-  no OIDC; those arrive with the tasks that need them. Its own Maven wrapper, so it builds
-  standalone like the ledger.
+- `backend/gateway/` — Java 21, Spring Boot, Spring Cloud Gateway Server Web MVC. The
+  backend-for-frontend: it signs the browser in with OIDC (code flow, PKCE) against Keycloak,
+  keeps the access and refresh tokens in its in-memory session, and relays `GET`/`POST
+  /ledger/api/v1/**` and `/assistant/api/v1/**` with `StripPrefix`, `RemoveRequestHeader` and
+  `TokenRelay` — routes declared in `application.yml`. It holds no bounded context: everything is
+  in its `composition/` root — `GatewaySecurityConfiguration` (the one security chain, deny by
+  default, 401 never 302, renamed CSRF cookie and header), `KeycloakRegistration` (the
+  `ClientRegistration` built by hand, public and backchannel URLs split), `HostAllowListFilter`
+  (a deliberate copy of the ledger's, configured by `GATEWAY_ALLOWED_HOSTS`), `SessionController`
+  (`GET /bff/me`), `SpaLogoutSuccessHandler` (`POST /bff/logout`), `GatewayProblems` and
+  `GatewayRelayProblems`. Its own Maven wrapper, so it builds standalone like the ledger.
 - `backend/assistant/` — Python 3.13, FastAPI. Contexts `portfolio/`, `assistance/`,
   `marketdata/`, each with `domain/`, `application/{port,usecase}/`, `adapters/`, plus
   `shared/` and the composition root `adapters/` (`app.py`, `wiring.py`, `settings.py`,
-  `observability.py`).
+  `observability.py`, `auth.py`, `problems.py`).
 - `frontend/web/` — React 19, Vite 8, TypeScript. `src/features/` holds one directory per
-  user-facing context; `src/shared/`; `src/app/` composes them.
-- `contracts/` — the versioned OpenAPI contract. Holds `ledger-v1.openapi.json`, generated by
-  springdoc and pinned by `LedgerContractIT`, and `assistant-v1.openapi.json`, generated by
-  FastAPI and pinned by `tests/test_contract.py`.
+  user-facing context; `src/shared/`; `src/app/` composes them, and `src/app/session/` gates the
+  app on a signed-in session. `vite.config.ts` proxies `/ledger`, `/assistant` and `/bff` to the
+  gateway.
+- `contracts/` — the versioned OpenAPI contracts. Holds `ledger-v1.openapi.json`, generated by
+  springdoc and pinned by `LedgerContractIT`; `assistant-v1.openapi.json`, generated by FastAPI
+  and pinned by `tests/test_contract.py`; and `gateway-v1.openapi.json`, generated by springdoc
+  and pinned by `GatewayContractIT`.
 - `ops/` — infrastructure that is not this repository's application code: the collector,
   Prometheus and Grafana provisioning the `monitoring` Compose profile mounts, and
   `ops/keycloak/` — `Dockerfile` (builds the optimized Keycloak image that `docker-compose.yml`
@@ -166,7 +192,8 @@ so it can be extracted by moving it (ADR-010).
   file is proved against a real Keycloak by `KeycloakRealmIT`, both in the gateway module).
   `ops/smoke/auth_smoke.py` is the only file behind the `smoke` Compose profile: a
   standard-library-only, opt-in smoke check of the authentication and RBAC wiring, run by hand
-  with `make smoke-auth`, never by `docker compose up`.
+  with `make smoke-auth`, never by `docker compose up` and never by CI (ADR-034), and linted by
+  `make lint-smoke`.
 - `docs/ADRs/` — one file per decision, `ADR-NNN-short-kebab-title.md`, zero-padded and
   monotonically increasing. Append-only: supersede, never rewrite.
 - `docs/requirements/` — what the system must do. `docs/architecture/` — what it actually is.

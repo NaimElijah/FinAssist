@@ -5,9 +5,9 @@ The system as it actually is. *What it must do* is
 [the ADRs](../ADRs/).
 
 > **All six contexts have a domain and an application layer, and the ledger's store is
-> PostgreSQL. Both backend services now have a transport, and the web client calls both: the
-> ledger's from its accounting, budgeting and planning screens, and the assistant's from its
-> portfolio screens.** The ledger's repository ports are backed by hand-written SQL
+> PostgreSQL. Both backend services have a transport, and every call the web client makes reaches
+> them through a backend-for-frontend gateway, which signs the browser in with OIDC against a
+> self-hosted Keycloak.** The ledger's repository ports are backed by hand-written SQL
 > ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md),
 > [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)). It serves accounting,
 > budgeting and planning under `/api/v1`, through a component-scanned `@RestController` per
@@ -17,74 +17,100 @@ The system as it actually is. *What it must do* is
 > own idiom: `portfolio_router` is a factory taking use cases as arguments rather than reading
 > `app.state`, `HostAllowList` wraps Starlette's `TrustedHostMiddleware` with the ledger's own
 > refusal shape, and every failure is a problem built in `adapters/problems.py` — the one
-> assistant package allowed to see every context's exceptions. All of it decided in
+> assistant package allowed to see every context's exceptions. **Both are resource servers**:
+> each validates a bearer token Keycloak issued for its own audience, denies by default, and
+> decides what the caller may do from its own role table. The gateway keeps every token in its
+> server-side session and relays a signed-in browser's call with the access token attached, so the
+> browser holds only a session cookie and a CSRF token. Every journal row written from `V1_2`
+> onward names the authenticated subject that wrote it. All of it is decided in
 > [ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md),
-> [ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md) and
-> [ADR-028](../ADRs/ADR-028-http-wire-conventions.md), alongside
-> [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md), all now Accepted. Each service's
+> [ADR-028](../ADRs/ADR-028-http-wire-conventions.md),
+> [ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md),
+> [ADR-031](../ADRs/ADR-031-keycloak-as-the-identity-provider.md),
+> [ADR-032](../ADRs/ADR-032-role-based-authorization-per-service.md) and
+> [ADR-033](../ADRs/ADR-033-the-journal-records-who.md), alongside
+> [ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md), all Accepted. Each service's
 > generated OpenAPI document is pinned against its own committed contract — `LedgerContractIT`
 > against `contracts/ledger-v1.openapi.json`, `tests/test_contract.py` against
-> `contracts/assistant-v1.openapi.json` — and `adapters/openapi.py` rewrites FastAPI's own
+> `contracts/assistant-v1.openapi.json`, `GatewayContractIT` against
+> `contracts/gateway-v1.openapi.json` — and `adapters/openapi.py` rewrites FastAPI's own
 > generated `422` body on every operation into the `Problem` the assistant actually sends. A
 > development seed (`ASSISTANT_DEV_SEED`, off by default) can load a small set of fictional
 > holdings and quotes from the composition root alone (`adapters/seed.py`), so the portfolio
 > screens have something to show by hand — a development aid, never a data source. The assistant
 > still has no store and no ledger client — its assembled use cases run over in-memory stand-ins
-> regardless of the seed. Both services now run under Compose, alongside natively
-> (`./mvnw spring-boot:run`, `uv run python -m finassist_assistant.adapters`) for the faster
-> inner loop. Both emit structured logs and OTLP traces — see
-> [Cross-cutting concerns](#cross-cutting-concerns). Where a structure
-> is defined but not yet inhabited, this document says so.
+> regardless of the seed. Everything but the web client runs under Compose — PostgreSQL, Keycloak
+> and its own database, the ledger, the gateway and the assistant — and the three services also
+> run natively for the faster inner loop. All three emit structured logs and OTLP traces — see
+> [Cross-cutting concerns](#cross-cutting-concerns). Where a structure is defined but not yet
+> inhabited, this document says so.
 
 ## Architecture overview
 
-Two independently deployable backend services, a web client, and a database.
+Three independently deployable backend services, a web client, an identity provider, and two
+databases.
 
 The **ledger** (Java) owns financial records and the rules that govern them. The
 **assistant** (Python) answers questions and computes analysis over those records, reading
 them through the ledger's published API rather than its database. The **web client**
-(TypeScript) is what a person talks to.
+(TypeScript) is what a person talks to. The **gateway** (Java) stands between the web client and
+both services: it signs the browser in, keeps the browser's tokens, and relays each call to the
+service that owns its data. **Keycloak** issues every token, from a realm committed as code, and
+keeps its own database, `keycloak-db`.
 
 The split is [ADR-001](../ADRs/ADR-001-polyglot-java-python-split.md); the shape inside each
 service is [ADR-007](../ADRs/ADR-007-asymmetric-hexagonal-architecture.md) as extended by
 [ADR-010](../ADRs/ADR-010-bounded-context-map.md); the root layout is
-[ADR-008](../ADRs/ADR-008-backend-frontend-root-layout.md).
+[ADR-008](../ADRs/ADR-008-backend-frontend-root-layout.md); the gateway is
+[ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), and Keycloak
+[ADR-031](../ADRs/ADR-031-keycloak-as-the-identity-provider.md). The README shows this same
+diagram; change the two together.
 
 ```mermaid
 flowchart LR
-    Owner[Owner] -->|"HTTP, 127.0.0.1:5173"| Web[frontend/web - React SPA]
-    Web -->|HTTP| Assistant[backend/assistant - Python, FastAPI]
-    Assistant -->|HTTP, Published Language| Ledger[backend/ledger - Java, Spring Boot]
-    Web -->|HTTP| Ledger
-    Assistant -->|HTTPS| Claude[Anthropic API]
-    Assistant -->|HTTPS| Feed[Price feed - not chosen]
-    Ledger --> DB[(PostgreSQL 18)]
-    Gateway[backend/gateway - Java, Spring Cloud Gateway] -->|HTTP, bearer token| Ledger
-    Gateway -->|HTTP, bearer token| Assistant
-    Gateway -->|HTTP, OIDC| Keycloak[Keycloak - ops/keycloak]
+    Owner["Owner's browser"] -->|"HTTP, localhost:5173"| Web["frontend/web - React SPA, Vite dev server"]
+    Owner -->|"HTTP, localhost:8081, sign-in and sign-out"| Keycloak["Keycloak 26 - ops/keycloak"]
+    Web -->|"HTTP proxy, /ledger /assistant /bff"| Gateway["backend/gateway - Java, Spring Cloud Gateway"]
+    Gateway -->|"HTTP, bearer token"| Ledger["backend/ledger - Java, Spring Boot"]
+    Gateway -->|"HTTP, bearer token"| Assistant["backend/assistant - Python, FastAPI"]
+    Gateway -->|"HTTP, code exchange and refresh"| Keycloak
+    Ledger -->|"HTTP, JWKS"| Keycloak
+    Assistant -->|"HTTP, JWKS"| Keycloak
+    Ledger -->|JDBC| DB[(db - PostgreSQL 18)]
+    Keycloak -->|JDBC| KeycloakDB[(keycloak-db - PostgreSQL 17)]
+    Assistant -.->|"HTTP, Published Language - no client yet"| Ledger
+    Assistant -.->|"HTTPS - not wired"| Claude["Anthropic API"]
+    Assistant -.->|"HTTPS - not chosen"| Feed["Price feed"]
 ```
 
-`DB`, `Ledger`, `Assistant`, `Gateway` and `Keycloak` (with its own database, not drawn) all run
-under Compose now (`docker compose up`); `Ledger` reaches `DB` over JDBC, and
-`./mvnw spring-boot:run` / `uv run python -m finassist_assistant.adapters` against the Compose
-`DB` still work for the native inner loop. `Web -> Ledger` and `Web -> Assistant` are the two
-edges with a caller: the web client's accounting, budgeting and planning screens call the
-ledger, and its portfolio screens call the assistant, both through one origin
-([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md)). The ledger
-also serves its side of `Assistant -> Ledger`, which has no caller yet: the assistant has no
-ledger client. **`Gateway` is a fourth, independently deployable service.** It signs the browser
-in through OIDC, keeps every token server-side, and relays an authenticated request under
-`/ledger/api/v1/**` or `/assistant/api/v1/**` to `Ledger` or `Assistant` with a bearer token
-attached — both edges drawn above are real and exercised by `GatewayLoginFlowIT` against fakes,
-never against the real services in a test. **`Owner -> Gateway` has no caller yet**: the web
-client still reaches `Ledger` and `Assistant` directly through its own dev proxy. **`Gateway ->
-Keycloak` is real now too**: `Keycloak` is built as code, from `ops/keycloak/Dockerfile` and the
-`finassist` realm committed alongside it, and runs under Compose as `keycloak`, with its own
-database, `keycloak-db` — see
-[ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md) and
-[ADR-031](../ADRs/ADR-031-keycloak-as-the-identity-provider.md). `KeycloakRealmIT` proves this
-edge against the real image, in Testcontainers, rather than against a fake — the one place this
-document's fakes-not-reals caveat for `Gateway`'s own tests does not apply.
+A solid edge carries traffic today; a dotted one is a port with nothing calling through it yet.
+
+- **Every call the web client makes goes through the gateway.** The Vite dev server forwards
+  `/ledger/…`, `/assistant/…` and `/bff/…` to it, path intact, and the gateway relays an
+  authenticated `/ledger/api/v1/**` or `/assistant/api/v1/**` call to the ledger or the
+  assistant, with the session's access token attached
+  ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), extended by
+  ADR-030). The browser never calls either service directly.
+- **The browser reaches Keycloak directly only to sign in and to sign out.** The gateway sends it
+  to Keycloak's public URL, and Keycloak sends it back to the gateway's callback on the web
+  client's origin.
+- **Under Compose, the gateway, the ledger and the assistant reach Keycloak by its service
+  name**, `http://keycloak:8080`: the gateway for the code exchange and the refresh grant, the
+  ledger and the assistant for the signing keys they verify tokens against. Every token's issuer
+  is still the public URL, `http://localhost:8081/realms/finassist` (ADR-031). Run natively, both
+  addresses are Keycloak's published port.
+- **`Assistant -> Ledger` has no caller yet.** The ledger serves its side and publishes it as a
+  contract; the assistant has no ledger client
+  ([#62](https://github.com/NaimElijah/FinAssist/issues/62)).
+- **Where each part runs.** The two databases, Keycloak, the ledger, the gateway and the
+  assistant run under Compose (`docker compose up`); the ledger, the gateway and the assistant
+  also run natively, against the Compose databases and Keycloak. The web client runs as a Vite
+  dev server (`npm run dev`), outside Compose.
+
+`GatewayLoginFlowIT` proves the gateway's edges against fake services that speak real HTTP;
+`KeycloakRealmIT` proves Keycloak's own behaviour against the real image, in Testcontainers; and
+the opt-in smoke check, `ops/smoke/auth_smoke.py`, checks the wiring between the running
+services under Compose ([ADR-034](../ADRs/ADR-034-keep-the-compose-smoke-check-manual.md)).
 
 ## Bounded contexts
 
@@ -135,12 +161,14 @@ had been: `times_rounded` raised on a large product in Python where Java returne
 
 | Component | Responsibility | State |
 |---|---|---|
-| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain and application layers complete, with unit, seeded-property and shared-vector tests, **live architecture rules** (layering, context isolation, both framework-free layers, the two web-adapter direction rules, and DTO name uniqueness), and Spring tests covering the Actuator probes, the observability wiring, the Host allow-list, the problem+json fallback and the assembled composition root; structured logs, OTLP traces and Prometheus metrics. Every repository port is backed by PostgreSQL; the in-memory ones are gone. The only remaining in-memory adapters are the two event publishers, which nothing subscribes to yet. **It now has an inbound adapter**: a component-scanned `@RestController` per context under `/api/v1`, calling in-ports only, with its generated OpenAPI document pinned by `LedgerContractIT`. **It is now a resource server** (ADR-030): `LedgerSecurityConfiguration` validates every bearer token against Keycloak's JWKS and denies by default, granting `ledger:read`/`ledger:write` from a token's `roles` claim through `LedgerPermissions`, proven end to end by `LedgerAuthorizationIT` against the ledger's full, named inventory of endpoints, and `LedgerKeySourceOutageIT` for a JWKS outage. Runs under Compose (`build: ./backend/ledger`) as well as natively |
+| `backend/ledger` | Accounting, budgeting and planning. Sole writer of the ledger store. Java 21, Spring Boot 4.1.1, Maven wrapper 3.9.6 | Domain and application layers complete, with unit, seeded-property and shared-vector tests, **live architecture rules** (layering, context isolation, both framework-free layers, the two web-adapter direction rules, and DTO name uniqueness), and Spring tests covering the Actuator probes, the observability wiring, the Host allow-list, the problem+json fallback and the assembled composition root; structured logs, OTLP traces and Prometheus metrics. Every repository port is backed by PostgreSQL; the in-memory ones are gone. The only remaining in-memory adapters are the two event publishers, which nothing subscribes to yet. **It now has an inbound adapter**: a component-scanned `@RestController` per context under `/api/v1`, calling in-ports only, with its generated OpenAPI document pinned by `LedgerContractIT`. **It is now a resource server** (ADR-030): `LedgerSecurityConfiguration` validates every bearer token against Keycloak's JWKS and denies by default, granting `ledger:read`/`ledger:write` from a token's `roles` claim through `LedgerPermissions`, proven end to end by `LedgerAuthorizationIT` against the ledger's full, named inventory of endpoints, and `LedgerKeySourceOutageIT` for a JWKS outage. `TransactionController` passes the validated token's `sub` into every journal write as an `Actor`, stored as `recorded_by` (ADR-033). `ApplicationYmlPlaceholdersTest` resolves every `@Value` placeholder in its production code against `application.yml` alone, with no container. Runs under Compose (`build: ./backend/ledger`) as well as natively |
 | `backend/assistant` | Portfolio, assistance and market data. Client of the ledger. Python 3.13, FastAPI, uv lockfile | Domain and application layers complete, with unit, Hypothesis-property and shared-vector tests, and 7 architecture rules parametrised over every source file (those that do not apply to a given file skip; one now forbids an inbound adapter reaching an outbound one). It has an inbound adapter: `portfolio_router` under `/api/v1`, a `HostAllowList` middleware, and problem+json handling from the composition root, with its generated OpenAPI document pinned by `tests/test_contract.py`. Also serves `/health` and `/ready`. **It is now a resource server too** (ADR-030): `BearerAuthentication`, a pure ASGI middleware added closer to the routes than the correlation middleware so a refused request still carries a correlation id, verifies every request's bearer token through `TokenVerifier` (via `run_in_threadpool`, since the verifier is synchronous) and denies by default outside `/health`, `/ready` and `/openapi.json`, storing the verified `Principal` — subject and roles alike — on the ASGI scope. `RequirePermission`, built by the composition root's `ROLE_PERMISSIONS` table and passed into `portfolio_router` as `require`, grants `portfolio:read` to `owner` and `viewer` alone; `assistant`, an unknown role, a missing `roles` claim or one that is not a list all grant nothing. Every route declares exactly one permission dependency, checked by a coverage test in `tests/test_authorization.py`; the disposal route checks it before its JSON-media-type check, so a caller with no permission is refused 403 before 415. A development seed (`ASSISTANT_DEV_SEED`, off by default) loads fictional holdings and quotes from `adapters/seed.py` alone. `AnswerQuestion` is written and deliberately unwired — an LLM adapter would settle the privacy question by implication. Runs under Compose (`build: ./backend/assistant`) as well as natively |
-| `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and routes between four areas — accounting, budgets, planning and portfolio — each a feature under `src/features/` importing no other, composed in `src/app` inside a shared layout, under an error boundary per area and a TanStack Query client that retries a read once after a network failure or a 5xx other than a 503, and never retries a write. That rule is `isRetryable`, in `src/shared/api/retry.ts`, and it also decides whether a failed read's error state offers "Try again": every feature renders a failed read through `QueryErrorState` from `src/shared/ui`, which renders its `RetryButton`, and `useRetryFocus` moves focus to what a successful retry restores. Editing any field of a form whose mutation has settled clears its error or result (`clearSettledOutcome`, in `src/shared/lib`). **The app is gated on a session** (ADR-030): `App.tsx` renders `SessionGate` around the router, so every route, including the four areas below, mounts only once `GET /bff/me` has answered; while nobody is signed in it renders `SignIn`, a plain link to the gateway's OIDC entry, and it renders `Layout`'s `UserMenu` — the signed-in name, a "Read-only" badge for a `viewer`, and Sign out — through a `SessionContext` it provides once rather than a second fetch. `queryClient.ts`'s `QueryCache`/`MutationCache` recheck the session whenever any other query or mutation answers 401, so a session the gateway ended mid-visit is noticed the next time anything asks. Session lives in `src/app/session/`, not a feature, since no bounded context owns it. **The accounting area is implemented**: `AccountsPage` lists accounts, reading each balance by its own request, and opens one through `OpenAccountForm`; `RecordTransactionPage`, at the static route `/accounts/transactions/new`, records a transaction by hand, mirroring a two-entry transaction's amount by string (ADR-029) and mapping each row to a signed `Entry` with no arithmetic; `AccountDetailPage` shows one account's balance and the transactions touching it, taking the account itself from the cached list because the ledger has no single-item read, and offers `Clear`, `Reconcile` and `Void` on each transaction's row, only for the states its `TransactionState` legally admits. **The budgeting area is implemented too**: `BudgetsPage` lists every budget with its period, currency and total, and defines one for a calendar month through `DefineBudgetForm`, whose month-to-period mapping (`monthInputToPeriod`) and period label (`periodMonthLabel`, `periodDisplayEnd`) are pure calendar-part arithmetic on year, month and day integers, never a `Date` parsed from a string; `BudgetReviewPage`, at `/budgets/:budgetId`, takes the budget's period and currency from the cached list and shows its review's spend by category (with an `Overspent`/`Within limit` status badge, text carrying the meaning rather than colour), its unbudgeted spend and its uncategorised amount, shown even when zero; `CategorisationRulesPage`, at the static route `/budgets/rules` — ranked above the dynamic `:budgetId` route at the same depth by React Router's own matching, not by array order — lists every rule in the order it was added and adds another through `AddCategorisationRuleForm`. The accounting, budgeting and planning screens call the ledger, and the portfolio screens the assistant, through the dev proxy, with wire types generated from `contracts/` into `src/shared/api/contracts/` and mapped, member by member, onto each feature's own types in `api/accountingApi.ts`, `api/budgetingApi.ts`, `api/planningApi.ts` and `api/portfolioApi.ts` — the anti-corruption layer ADR-029 requires; query keys come from the `accountKeys`, `budgetKeys`/`categorisationRuleKeys`, `planKeys` and `portfolioKeys` factories, so a mutation invalidates exactly what it can have changed: recording a transaction or moving one through its lifecycle invalidates the balance and transaction-list queries of the accounts it touches and never the accounts list; defining a budget invalidates the budgets list alone; adding a categorisation rule invalidates the rules list and every cached budget-review query, since a new rule can change how any budget's spend categorises, and never the budgets list, which a rule cannot change. **The planning area is implemented too**: `PlannedFlowsPage` plans a flow through `PlanFlowForm` and moves each through `Commit`, `Realise` or `Cancel`, offering only what its `PlanState` legally admits; `ScenariosPage` lists scenarios and defines one through `DefineScenarioForm`, offering only flows in the scenario's currency; `ProjectionPage`, at `/planning/projection`, projects a scenario against the cash and invested accounts the owner chooses and shows whether cash ever falls below zero, with the within-step caveat, a hand-rolled SVG `ProjectionChart`, and a table of every step; `ComparisonPage`, at `/planning/compare`, compares two or more scenarios against a baseline in tables of end states and of each scenario's divergence, and draws no chart. Both offer accounts only in the currency being projected, and take them from accounting through `PlanningAccountsBridge` in `src/app` (see [Cross-cutting concerns](#cross-cutting-concerns)). Realising or cancelling a flow invalidates the flows list and every cached projection and comparison, by the `planKeys.projections` and `planKeys.comparisons` prefixes, since the ledger projects only planned and committed flows; planning a flow, committing one and defining a scenario each invalidate their own list alone. **The portfolio area is implemented too**, the one area the assistant serves: `PortfolioPage` looks a holding up by symbol through `SymbolLookup`, which trims the symbol and otherwise keeps it as typed, percent-encoded as one path segment; `HoldingPage`, at `/portfolio/:symbol`, reads the position and the valuation side by side, shows nothing held (404 `HOLDING_NOT_FOUND`) in place of every section — or in the valuation's section, when the valuation's 404 lands before the position's — and no usable price (503 `PRICE_UNAVAILABLE`) in the valuation's alone, each a calm empty state offering no retry, words an unrealised gain or loss from the amount's leading minus and nothing else, and reads both afresh when the symbol already shown is looked up again, by invalidating the `portfolioKeys.holding(symbol)` prefix; `DisposalSection`, offered once the position has loaded and starting its proceeds in the holding's own currency, the only one the assistant prices them in, prices a disposal by `POST` as a calculation that records nothing, and so invalidates no query, shows the quantity and proceeds it priced, the cost of sale, the realised gain or loss and the lots that would remain, oldest first, and is keyed by symbol, so another holding starts it afresh. Every portfolio page says its figures are not financial advice. Design tokens and the shared UI primitives every screen is built from, in `src/shared/ui`; test helpers in `src/shared/testing` that render routes with their providers and fake `fetch`; architecture rules, HTTP-client tests, jsdom tests of the shell, of each primitive and of every accounting, budgeting, planning and portfolio screen, and a structured logger that generates the `traceparent` every request carries |
-| `backend/gateway` | Backend-for-frontend: terminates the browser's session, signs it in through OIDC and keeps every token server-side, and relays an authenticated request to the ledger or the assistant. Java 21, Spring Boot 4.1.1, Spring Cloud Gateway Server Web MVC 5.0.3, Maven wrapper 3.9.6 | `HostAllowListFilter` refuses an un-allow-listed `Host` before anything else, Actuator's health probes included. `GatewaySecurityConfiguration` runs the OIDC authorization-code-plus-PKCE login against a `ClientRegistration` built by hand in `KeycloakRegistration` (no discovery, so the browser-facing and backchannel Keycloak addresses can differ under Compose); the session — held only in this process's memory — carries the access and refresh tokens through an `HttpSessionOAuth2AuthorizedClientRepository`, and the browser is left with an `HttpOnly` session cookie and a script-readable CSRF cookie, never a token. `GET /bff/me` and `POST /bff/logout` are the only endpoints the gateway serves itself; every other permitted path — `/ledger/api/v1/**` and `/assistant/api/v1/**`, `GET` and `POST` — is a Spring Cloud Gateway MVC route matched by `Path=`/`Method=`, with `StripPrefix=1` removing the gateway's own prefix, `RemoveRequestHeader=` removing the browser's `Cookie` and CSRF header, and `TokenRelay=` attaching the session's access token, refreshing it first if it has expired. `GatewayRelayProblems`, a `@RestControllerAdvice`, turns a refused refresh into an invalidated session and a 401, a refused connection into a 502 `UPSTREAM_UNAVAILABLE`, and anything else into a logged 500 — logged by exception class name alone, never a message or a token — while a downstream problem+json response passes through unchanged. Every failure the gateway raises itself is the same RFC 9457 shape, written by `GatewayProblems`. Proven by `GatewayApplicationIT`, `GatewaySecurityTest`, `KeycloakRegistrationTest`, `HostAllowListFilterTest`, `SignInFailureHandlerTest`, `SpaLogoutSuccessHandlerTest` and `GatewayLoginFlowIT` — the last driving a real code-plus-PKCE login against a fake OpenID provider and relaying to two fake downstream services, never a mock. **It now publishes its own OpenAPI document**, generated by springdoc and pinned by `GatewayContractIT`, describing `GET /bff/me`, `POST /bff/logout` — added by an `OpenApiCustomizer` in `GatewayOpenApiConfiguration`, since sign-out is a security filter and springdoc never sees it — the `sessionCookie`/`xsrfToken` security schemes, and a `Problem` schema kept identical to the ledger's by that same test. `GatewayContractIT` generates the document by calling springdoc's resource bean directly rather than over HTTP, so `/v3/api-docs` stays denied by the security chain even though its document is committed; the relay routes are deliberately absent from it, since the ledger and the assistant already publish their own. Both the ledger and the assistant now validate every relayed token themselves and deny by default (see their own rows and Data flow below). Runs under Compose (`build: ./backend/gateway`) as well as natively (`./mvnw spring-boot:run`) |
+| `frontend/web` | The only interface a person uses. React 19, Vite 8, TypeScript 6 | Builds and routes between four areas — accounting, budgets, planning and portfolio — each a feature under `src/features/` importing no other, composed in `src/app` inside a shared layout, under an error boundary per area and a TanStack Query client that retries a read once after a network failure or a 5xx other than a 503, and never retries a write. That rule is `isRetryable`, in `src/shared/api/retry.ts`, and it also decides whether a failed read's error state offers "Try again": every feature renders a failed read through `QueryErrorState` from `src/shared/ui`, which renders its `RetryButton`, and `useRetryFocus` moves focus to what a successful retry restores. Editing any field of a form whose mutation has settled clears its error or result (`clearSettledOutcome`, in `src/shared/lib`). **The app is gated on a session** (ADR-030): `App.tsx` renders `SessionGate` around the router, so every route, including the four areas below, mounts only once `GET /bff/me` has answered; while nobody is signed in it renders `SignIn`, a plain link to the gateway's OIDC entry, and it renders `Layout`'s `UserMenu` — the signed-in name, a "Read-only" badge for a `viewer`, and Sign out — through a `SessionContext` it provides once rather than a second fetch. It also provides `WriteAccessContext`, computed once from the session's roles by `writeAccessFor`, and every control that changes data reads `useWriteAccess` before it renders, so a `viewer` is offered none — a courtesy only, since the ledger and the assistant decide access from the token regardless (ADR-032). `queryClient.ts`'s `QueryCache`/`MutationCache` recheck the session whenever any other query or mutation answers 401, so a session the gateway ended mid-visit is noticed the next time anything asks. Session lives in `src/app/session/`, not a feature, since no bounded context owns it. **The accounting area is implemented**: `AccountsPage` lists accounts, reading each balance by its own request, and opens one through `OpenAccountForm`; `RecordTransactionPage`, at the static route `/accounts/transactions/new`, records a transaction by hand, mirroring a two-entry transaction's amount by string (ADR-029) and mapping each row to a signed `Entry` with no arithmetic; `AccountDetailPage` shows one account's balance and the transactions touching it, taking the account itself from the cached list because the ledger has no single-item read, and offers `Clear`, `Reconcile` and `Void` on each transaction's row, only for the states its `TransactionState` legally admits. **The budgeting area is implemented too**: `BudgetsPage` lists every budget with its period, currency and total, and defines one for a calendar month through `DefineBudgetForm`, whose month-to-period mapping (`monthInputToPeriod`) and period label (`periodMonthLabel`, `periodDisplayEnd`) are pure calendar-part arithmetic on year, month and day integers, never a `Date` parsed from a string; `BudgetReviewPage`, at `/budgets/:budgetId`, takes the budget's period and currency from the cached list and shows its review's spend by category (with an `Overspent`/`Within limit` status badge, text carrying the meaning rather than colour), its unbudgeted spend and its uncategorised amount, shown even when zero; `CategorisationRulesPage`, at the static route `/budgets/rules` — ranked above the dynamic `:budgetId` route at the same depth by React Router's own matching, not by array order — lists every rule in the order it was added and adds another through `AddCategorisationRuleForm`. The accounting, budgeting and planning screens call the ledger, and the portfolio screens the assistant, through the dev proxy, with wire types generated from `contracts/` into `src/shared/api/contracts/` and mapped, member by member, onto each feature's own types in `api/accountingApi.ts`, `api/budgetingApi.ts`, `api/planningApi.ts` and `api/portfolioApi.ts` — the anti-corruption layer ADR-029 requires; query keys come from the `accountKeys`, `budgetKeys`/`categorisationRuleKeys`, `planKeys` and `portfolioKeys` factories, so a mutation invalidates exactly what it can have changed: recording a transaction or moving one through its lifecycle invalidates the balance and transaction-list queries of the accounts it touches and never the accounts list; defining a budget invalidates the budgets list alone; adding a categorisation rule invalidates the rules list and every cached budget-review query, since a new rule can change how any budget's spend categorises, and never the budgets list, which a rule cannot change. **The planning area is implemented too**: `PlannedFlowsPage` plans a flow through `PlanFlowForm` and moves each through `Commit`, `Realise` or `Cancel`, offering only what its `PlanState` legally admits; `ScenariosPage` lists scenarios and defines one through `DefineScenarioForm`, offering only flows in the scenario's currency; `ProjectionPage`, at `/planning/projection`, projects a scenario against the cash and invested accounts the owner chooses and shows whether cash ever falls below zero, with the within-step caveat, a hand-rolled SVG `ProjectionChart`, and a table of every step; `ComparisonPage`, at `/planning/compare`, compares two or more scenarios against a baseline in tables of end states and of each scenario's divergence, and draws no chart. Both offer accounts only in the currency being projected, and take them from accounting through `PlanningAccountsBridge` in `src/app` (see [Cross-cutting concerns](#cross-cutting-concerns)). Realising or cancelling a flow invalidates the flows list and every cached projection and comparison, by the `planKeys.projections` and `planKeys.comparisons` prefixes, since the ledger projects only planned and committed flows; planning a flow, committing one and defining a scenario each invalidate their own list alone. **The portfolio area is implemented too**, the one area the assistant serves: `PortfolioPage` looks a holding up by symbol through `SymbolLookup`, which trims the symbol and otherwise keeps it as typed, percent-encoded as one path segment; `HoldingPage`, at `/portfolio/:symbol`, reads the position and the valuation side by side, shows nothing held (404 `HOLDING_NOT_FOUND`) in place of every section — or in the valuation's section, when the valuation's 404 lands before the position's — and no usable price (503 `PRICE_UNAVAILABLE`) in the valuation's alone, each a calm empty state offering no retry, words an unrealised gain or loss from the amount's leading minus and nothing else, and reads both afresh when the symbol already shown is looked up again, by invalidating the `portfolioKeys.holding(symbol)` prefix; `DisposalSection`, offered once the position has loaded and starting its proceeds in the holding's own currency, the only one the assistant prices them in, prices a disposal by `POST` as a calculation that records nothing, and so invalidates no query, shows the quantity and proceeds it priced, the cost of sale, the realised gain or loss and the lots that would remain, oldest first, and is keyed by symbol, so another holding starts it afresh. Every portfolio page says its figures are not financial advice. Design tokens and the shared UI primitives every screen is built from, in `src/shared/ui`; test helpers in `src/shared/testing` that render routes with their providers and fake `fetch`; architecture rules, HTTP-client tests, jsdom tests of the shell, of each primitive and of every accounting, budgeting, planning and portfolio screen, and a structured logger that generates the `traceparent` every request carries |
+| `backend/gateway` | Backend-for-frontend: terminates the browser's session, signs it in through OIDC and keeps every token server-side, and relays an authenticated request to the ledger or the assistant. Java 21, Spring Boot 4.1.1, Spring Cloud Gateway Server Web MVC 5.0.3, Maven wrapper 3.9.6 | `HostAllowListFilter` refuses an un-allow-listed `Host` before anything else, Actuator's health probes included. `GatewaySecurityConfiguration` runs the OIDC authorization-code-plus-PKCE login against a `ClientRegistration` built by hand in `KeycloakRegistration` (no discovery, so the browser-facing and backchannel Keycloak addresses can differ under Compose); the session — held only in this process's memory — carries the access and refresh tokens through an `HttpSessionOAuth2AuthorizedClientRepository`, and the browser is left with an `HttpOnly` session cookie and a script-readable CSRF cookie, never a token. `GET /bff/me` and `POST /bff/logout` are the only endpoints the gateway serves itself; every other permitted path — `/ledger/api/v1/**` and `/assistant/api/v1/**`, `GET` and `POST` — is a Spring Cloud Gateway MVC route matched by `Path=`/`Method=`, with `StripPrefix=1` removing the gateway's own prefix, `RemoveRequestHeader=` removing the browser's `Cookie` and CSRF header, and `TokenRelay=` attaching the session's access token, refreshing it first if it has expired. `GatewayRelayProblems`, a `@RestControllerAdvice`, turns a refused refresh into an invalidated session and a 401, a refused connection into a 502 `UPSTREAM_UNAVAILABLE`, and anything else into a logged 500 — logged by exception class name alone, never a message or a token — while a downstream problem+json response passes through unchanged. Every failure the gateway raises itself is the same RFC 9457 shape, written by `GatewayProblems`. Proven by `GatewayApplicationIT`, `GatewaySecurityTest`, `KeycloakRegistrationTest`, `HostAllowListFilterTest`, `SignInFailureHandlerTest`, `SpaLogoutSuccessHandlerTest`, `GatewayRelayProblemsTest` and `GatewayLoginFlowIT` — the last driving a real code-plus-PKCE login against a fake OpenID provider and relaying to two fake downstream services, never a mock. **It now publishes its own OpenAPI document**, generated by springdoc and pinned by `GatewayContractIT`, describing `GET /bff/me`, `POST /bff/logout` — added by an `OpenApiCustomizer` in `GatewayOpenApiConfiguration`, since sign-out is a security filter and springdoc never sees it — the `sessionCookie`/`xsrfToken` security schemes, and a `Problem` schema kept identical to the ledger's by that same test. `GatewayContractIT` generates the document by calling springdoc's resource bean directly rather than over HTTP, so `/v3/api-docs` stays denied by the security chain even though its document is committed; the relay routes are deliberately absent from it, since the ledger and the assistant already publish their own. Both the ledger and the assistant now validate every relayed token themselves and deny by default (see their own rows and Data flow below). Runs under Compose (`build: ./backend/gateway`) as well as natively (`./mvnw spring-boot:run`) |
 | `contracts/` | The versioned wire contract, and the cross-language `Money` conformance vectors | `money-vectors.v1.json`, the README, `ledger-v1.openapi.json` — generated by springdoc, pinned by `LedgerContractIT` — `assistant-v1.openapi.json` — generated by FastAPI, pinned by `tests/test_contract.py` — and `gateway-v1.openapi.json` — generated by springdoc, pinned by `GatewayContractIT` |
-| PostgreSQL 18 | The ledger's store | Runs via Compose. Three schemas — `accounting`, `budgeting`, `planning` — with no foreign key crossing one; migrated by Flyway from a directory per context. The journal is append-only in the database, enforced by triggers |
+| Keycloak (`ops/keycloak`) | The identity provider (ADR-031). Issues every token: the browser's, through the gateway's sign-in, and the assistant's own client-credentials token. Keycloak 26.7.4 | Built by `ops/keycloak/Dockerfile` as an optimized `kc.sh build`, and started with `start --optimized --import-realm` under Compose as `keycloak`, published on `127.0.0.1` only. It imports the `finassist` realm from `ops/keycloak/finassist-realm.json` at start-up, and only into an empty database. The realm holds the roles `owner`, `viewer` and `assistant`; two clients, `finassist-gateway` (standard flow, PKCE `S256`) and `finassist-assistant` (service account only); and one seeded user with the `owner` role, who must set a new password and enrol TOTP at first sign-in. Self-registration, password reset and remember-me are off, and brute-force protection is on. Every secret in the file is a `${VAR}` placeholder that `docker-compose.yml` requires through `:?`. `KeycloakRealmTest` pins the file, and `KeycloakRealmIT` runs the real image against a real PostgreSQL |
+| `keycloak-db` | Keycloak's own store. PostgreSQL 17.11 | Runs via Compose, with its own volume, `keycloak-db-data`, and no published port. It shares no role, backup or failure domain with the ledger's `db` (ADR-031), and stays on 17 because that is the newest major Keycloak 26.7 is tested against |
+| `db` — PostgreSQL 18 | The ledger's store | Runs via Compose. Three schemas — `accounting`, `budgeting`, `planning` — with no foreign key crossing one; migrated by Flyway from a directory per context. The journal is append-only in the database, enforced by triggers |
 
 ## Structure: context first, hexagon inside
 
@@ -156,6 +184,11 @@ backend/ledger/src/main/java/io/github/naimelijah/finassist/ledger/
   shared/       Money, Currency — in-language kernel
   composition/  the composition root: Spring wiring, and the two cross-context translations
   LedgerApplication.java
+
+backend/gateway/src/main/java/io/github/naimelijah/finassist/gateway/
+  composition/  the whole service: GatewaySecurityConfiguration, KeycloakRegistration,
+                HostAllowListFilter, SessionController, the problem writers and GatewayRelayProblems
+  GatewayApplication.java
 
 backend/assistant/src/finassist_assistant/
   portfolio/    domain/{model,analysis}/       application/{port,usecase}/  adapters/{inbound/api,outbound/ledger}/
@@ -184,9 +217,15 @@ FastAPI, structlog and OpenTelemetry. It sits beside the contexts because it bel
 and it is named `adapters` because that is what it is: the architecture rules key on that path
 segment, so the exemption it needs is one it already earns rather than a special case.
 
-Operational configuration lives in `ops/` — the collector, Prometheus and Grafana provisioning
-that the `monitoring` Compose profile mounts, and `ops/keycloak/`: the `Dockerfile` that builds
-the identity provider and the `finassist` realm it imports at start-up (ADR-031).
+The gateway has no bounded context: it holds no domain and restates no service's DTO, so
+everything it has is composition — its security chain, the Keycloak registration, the Host
+allow-list, `GET /bff/me`, its problem writers and its relay failures — and its two relay routes
+are declared in `application.yml` rather than in Java.
+
+Operational configuration lives in `ops/`: the collector, Prometheus and Grafana provisioning
+that the `monitoring` Compose profile mounts; `ops/keycloak/`, the `Dockerfile` that builds the
+identity provider and the `finassist` realm it imports at start-up (ADR-031); and
+`ops/smoke/auth_smoke.py`, the opt-in smoke check behind the `smoke` profile (ADR-034).
 
 ## Communication
 
@@ -194,10 +233,10 @@ the identity provider and the `finassist` realm it imports at start-up (ADR-031)
   `http://localhost:5173` — `localhost`, not `127.0.0.1`: the gateway's session cookie is keyed
   to the host name `GATEWAY_PUBLIC_URL` names, so opening the other one signs in against a
   different, cookie-less origin. Nothing terminates TLS: the server binds loopback only
-  (ADR-030, carrying [ADR-027](../ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)'s
-  rule forward), so the connection never leaves the machine.
-- **Web to ledger** — HTTP, for the accounting, budgeting and planning screens. **Implemented on
-  both sides for all three.** The ledger serves `/api/v1/accounts`, `/api/v1/transactions`,
+  (ADR-030), so the connection never leaves the machine.
+- **Web to ledger, through the gateway** — HTTP, for the accounting, budgeting and planning
+  screens. **Implemented on both sides for all three.** The ledger serves
+  `/api/v1/accounts`, `/api/v1/transactions`,
   `/api/v1/budgets`, `/api/v1/categorisation-rules`, `/api/v1/planned-flows`, `/api/v1/scenarios`
   and `/api/v1/scenario-comparisons`. The web client's accounting screens call `GET` and
   `POST /api/v1/accounts`, `GET /api/v1/accounts/{id}/balance` — one request per account on the
@@ -216,8 +255,8 @@ the identity provider and the `finassist` realm it imports at start-up (ADR-031)
   relays to the ledger once the session is authenticated — one origin throughout
   ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), extended by
   [ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)).
-- **Web to assistant** — HTTP, for the portfolio screens, through the same proxy under
-  `/assistant/…`. **Implemented on both sides.** The assistant serves
+- **Web to assistant, through the gateway** — HTTP, for the portfolio screens, through the same
+  proxy under `/assistant/…`. **Implemented on both sides.** The assistant serves
   `/api/v1/portfolio/holdings/{symbol}/position` (`GET`),
   `/api/v1/portfolio/holdings/{symbol}/valuation` (`GET`) and
   `/api/v1/portfolio/holdings/{symbol}/disposal` (`POST`, a JSON body, never query parameters,
@@ -233,7 +272,9 @@ the identity provider and the `finassist` realm it imports at start-up (ADR-031)
   and versioned in the URL path ([ADR-004](../ADRs/ADR-004-http-openapi-service-contract.md),
   Accepted). **The ledger side exists and is published as a contract; the assistant's client
   still does not.** `LedgerPort` remains an in-memory stand-in.
-- **Assistant to Anthropic** — HTTPS via the pinned SDK, behind `LlmPort`.
+- **Assistant to Anthropic** — not built. `LlmPort` and its anti-corruption layer's directory
+  exist with no adapter behind them, and `AnswerQuestion` is deliberately unwired
+  (`adapters/wiring.py`) until the privacy question is answered.
 - **Assistant to price feed** — not chosen; the port and its ACL exist, the client does not.
 - **Ledger to Postgres** — JDBC, hand-written SQL over Spring's `JdbcClient`, with Flyway
   running the migrations at start-up ([ADR-006](../ADRs/ADR-006-postgresql-for-the-ledger-store.md),
@@ -253,20 +294,36 @@ the identity provider and the `finassist` realm it imports at start-up (ADR-031)
   screen rather than a 401 problem, and signing in through it reaches this same login entry.
   Gateway tests still drive this edge with a JDK `HttpClient` directly, rather than through the
   running web client.
-- **Gateway to Keycloak** — HTTP, the authorization-code-plus-PKCE login and the `refresh_token`
-  grant `TokenRelay=` uses to renew an expired access token, against a `ClientRegistration` built
-  by hand in `KeycloakRegistration` rather than discovered. **Keycloak itself is not yet part of
-  this repository** ([ADR-031](../ADRs/ADR-031-keycloak-as-the-identity-provider.md)); every
-  gateway test stands a real, fake OpenID provider up instead —
-  `composition.support.FakeOpenIdProvider`, a JDK `HttpServer` signing genuine RSA JWTs — so the
-  login and refresh paths are proven against real HTTP and a real signature check, never a mock.
+- **Browser to Keycloak** — HTTP, to Keycloak's public URL, `http://localhost:8081` by default:
+  its login page, reached through the gateway's redirect; its end-session URL, reached through
+  the URL `POST /bff/logout` answers; and its account and admin consoles, which the owner opens by
+  hand. Keycloak's realm requires TLS for external addresses only (`sslRequired: external`), which
+  is what lets this stay plain HTTP on loopback (ADR-030).
+- **Gateway to Keycloak** — HTTP over the backchannel, `GATEWAY_OIDC_INTERNAL_URL`: the
+  authorization-code exchange and the `refresh_token` grant `TokenRelay=` uses to renew an expired
+  access token, and the JWK set it checks an ID token against, all from a `ClientRegistration`
+  built by hand in `KeycloakRegistration` rather than discovered. Under Compose that URL is
+  `http://keycloak:8080`, which only a container can resolve, while the URLs the browser is sent to
+  are built from `GATEWAY_OIDC_PUBLIC_URL`. `GatewayLoginFlowIT` proves this edge against
+  `composition.support.FakeOpenIdProvider`, a JDK `HttpServer` signing genuine RSA JWTs, so the
+  login and refresh paths run against real HTTP and a real signature check, never a mock.
 - **Gateway to ledger, and gateway to assistant** — HTTP, relaying `GET`/`POST
   /ledger/api/v1/**` and `/assistant/api/v1/**` once each request is authenticated. A Spring
   Cloud Gateway Server Web MVC route strips the gateway's own path prefix, removes the browser's
   `Cookie` and `X-FINASSIST-XSRF-TOKEN` headers, and attaches the session's access token —
-  refreshed first if it had expired. **Both the ledger and the assistant now validate that
-  token themselves and deny by default** (ADR-032), exactly as they do for the web client's own
-  direct calls above.
+  refreshed first if it had expired. **The ledger and the assistant each validate that token
+  themselves and deny by default**, deciding what it may do from their own role tables (ADR-032).
+  One access token carries both audiences, `finassist-ledger` and `finassist-assistant`, so the
+  one session serves both relays.
+- **Ledger and assistant to Keycloak** — HTTP, fetching the signing keys a bearer token is
+  verified against from an explicit, internal JWKS URI: `LEDGER_OIDC_JWKS_URI` and
+  `ASSISTANT_OIDC_JWKS_URI`, `http://keycloak:8080/realms/finassist/protocol/openid-connect/certs`
+  under Compose. Neither runs OIDC discovery at start-up (ADR-030). An unreachable key source is
+  answered 503 `AUTHENTICATION_UNAVAILABLE`, never 401 (`LedgerKeySourceOutageIT`,
+  `test_authorization.py`).
+- **Keycloak to `keycloak-db`** — JDBC, to its own PostgreSQL on the Compose network. That
+  database publishes no port and shares no role, volume or failure domain with the ledger's `db`
+  (ADR-031).
 
 The ledger never calls the assistant, and the assistant never calls the web client.
 
@@ -344,6 +401,33 @@ check's own 401, which is excluded deliberately: invalidating there would refetc
 401 again, an infinite loop for what is already the ordinary signed-out state. The next render of
 `SessionGate` then reads that invalidated session as failed and shows `SignIn` again, without a
 poll of its own.
+
+**Signing in, at the gateway and Keycloak (ADR-030, ADR-031).** The browser navigates to
+`/bff/oauth2/authorization/keycloak` on the Vite origin, and the dev proxy forwards it to the
+gateway → Spring's authorization endpoint, on the `ClientRegistration` `KeycloakRegistration`
+builds by hand, stores the request in the session and answers 302 to Keycloak's *public*
+authorization endpoint, with PKCE `S256` and a `redirect_uri` of
+`GATEWAY_PUBLIC_URL/bff/login/oauth2/code/keycloak` → the browser signs in on Keycloak's own page,
+which asks for a new password and a TOTP device the first time → Keycloak answers 302 to that
+callback, which the dev proxy forwards to the gateway → the gateway exchanges the code at
+Keycloak's token endpoint over the *backchannel*, authenticating as `finassist-gateway` with
+`client_secret_basic` and sending the PKCE verifier → it validates the ID token against the
+public issuer and the backchannel JWK set, keeps the access and refresh tokens in the session
+through `HttpSessionOAuth2AuthorizedClientRepository` and the ID token with the signed-in
+principal → it answers 302 to `GATEWAY_PUBLIC_URL/`, whatever the browser had been doing before,
+since a `NullRequestCache` remembers nothing. From then on the browser holds `FINASSIST_SESSION`,
+`HttpOnly`, and the script-readable `FINASSIST-XSRF-TOKEN` cookie, never a token. A failed
+sign-in answers 302 to
+`GATEWAY_PUBLIC_URL/?signin=failed` instead, and `SignInFailureHandler` logs its OAuth2 error code
+alone.
+
+**Signing out, at the gateway.** `POST /bff/logout`, with the CSRF header → Spring's
+`LogoutFilter` invalidates the session, and with it every token it held, and deletes
+`FINASSIST_SESSION` → `SpaLogoutSuccessHandler` answers 200 `{logoutUrl}`: Keycloak's public
+end-session endpoint, carrying `client_id`, a `post_logout_redirect_uri` of
+`GATEWAY_PUBLIC_URL/` and, when there was a session, the ID token as `id_token_hint` → the
+browser navigates there, which ends Keycloak's own session and returns the browser to the web
+client. A sign-out with no session still gets an end-session URL, without the hint.
 
 **Recording a transaction, from the browser.** `RecordTransactionPage`'s form state → its pure
 mapper, `entryRowAmount`, turns each row's debit/credit pair into the signed amount `Entry`
@@ -471,7 +555,13 @@ above the form, which takes focus.
 
 **Valuing a holding, assistant, over HTTP.** `GET /api/v1/portfolio/holdings/{symbol}/valuation`
 → `HostAllowList` refuses a request whose `Host` is not on `ASSISTANT_ALLOWED_HOSTS`, the same
-defence the ledger's filter runs, ahead of every route → `portfolio_router`'s handler builds a
+defence the ledger's filter runs, ahead of everything else → the correlation middleware binds the
+request's trace id → `BearerAuthentication` verifies the bearer token through `TokenVerifier`,
+off the event loop, against Keycloak's JWKS and the injected clock, answering 401
+`UNAUTHENTICATED` for a missing or refused token and 503 `AUTHENTICATION_UNAVAILABLE` when the
+key source is unreachable, and stores the verified `Principal` on the ASGI scope → the route's
+`RequirePermission` dependency refuses a principal whose roles do not grant `portfolio:read` with
+403 `FORBIDDEN` (ADR-032), before the handler runs → `portfolio_router`'s handler builds a
 `Symbol` and calls `ValueHolding` → `LedgerPort.lots_for` → `analysis.position` →
 `QuotePort.unit_price`, satisfied by `MarketDataQuotes` in the composition root, which turns the
 `Symbol` into a `Ticker`, calls marketdata's `LatestQuote`, and collapses both a missing and a
@@ -509,17 +599,17 @@ The telemetry path is real end to end and is described below.
 
 ## Cross-cutting concerns
 
-Logging, correlation and telemetry are the same decision applied three times, recorded in
+Logging, correlation and telemetry are the same decision applied to every codebase, recorded in
 [ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md).
 
-| Concern | Ledger | Assistant | Web client |
-|---|---|---|---|
-| Log format | ECS JSON on stdout, from Spring Boot's built-in structured logging | JSON on stdout, from `structlog` | JSON on the console, from `shared/lib/logger.ts` |
-| Boundary | Logback, configured in `application.yml` | `adapters/observability.py` | `shared/lib/logger.ts`, the only file allowed to call `console` |
-| Redaction | No secret reaches it — Actuator's `env` endpoint is not exposed | Key names plus registered values, as a `structlog` processor | Key names, depth-bounded |
-| Correlation | `traceId` in the MDC, from Micrometer Tracing | `contextvar`, seeded from an inbound `traceparent` | Generates the `traceparent` every request carries |
-| Traces | OTLP over HTTP, off unless `OTEL_EXPORT_ENABLED` is true | The same | None; no browser SDK |
-| Metrics | Micrometer, scraped at `/actuator/prometheus` | None yet | None |
+| Concern | Ledger | Gateway | Assistant | Web client |
+|---|---|---|---|---|
+| Log format | ECS JSON on stdout, from Spring Boot's built-in structured logging | The same | JSON on stdout, from `structlog` | JSON on the console, from `shared/lib/logger.ts` |
+| Boundary | Logback, configured in `application.yml` | The same | `adapters/observability.py` | `shared/lib/logger.ts`, the only file allowed to call `console` |
+| Redaction | No processor; nothing it logs carries a secret. A refused token is logged as its reason alone, and Actuator's `env` endpoint is not exposed | No processor; nothing it logs carries a header, cookie, token, session id or secret — see below | Key names plus registered values, as a `structlog` processor | Key names, depth-bounded |
+| Correlation | `traceId` in the MDC, from Micrometer Tracing | The same | `contextvar`, seeded from an inbound `traceparent` | Generates the `traceparent` every request carries |
+| Traces | OTLP over HTTP, off unless `OTEL_EXPORT_ENABLED` is true | The same | The same | None; no browser SDK |
+| Metrics | Micrometer, scraped at `/actuator/prometheus` | None over HTTP: Actuator exposes `health` alone | None yet | None |
 
 **The correlation id is a W3C trace context.** The browser generates a `traceparent`; the
 assistant reads its trace-id field and binds it for the request; the ledger's OpenTelemetry
@@ -533,12 +623,51 @@ the collector a production dependency of local development.
 
 **Redaction is a property of the boundary, not a duty of the caller.** Every event passes
 through a processor that removes secret-named keys, so a new call site inherits it. This is what
-the requirements mean by "redacted at the logging boundary, not at each call site".
+the requirements mean by "redacted at the logging boundary, not at each call site". The key
+fragments now include the credential names authentication brought — `authorization`, `cookie`,
+`csrf`, `xsrf`, `session`, `bearer` and `jwt`, on both the assistant and the web client — and
+still no bare `token`, so a token count survives.
+
+**An authentication failure is logged as a reason, never as the credential.**
+
+- **Ledger and assistant.** Each logs a refused token at WARN with one reason category —
+  `missing`, `malformed`, `rejected`, `lifetime`, `issuer`, `audience`, `subject`, `unknown_key`
+  or `key_source` — and never the token or its claims: `ProblemAuthenticationEntryPoint` on the
+  ledger, `BearerAuthentication` on the assistant (ADR-030).
+- **Gateway.** It logs a failed sign-in by its OAuth2 error code alone (`SignInFailureHandler`), a
+  refused refresh or an unreachable service as a fixed sentence, and an unexpected relay failure
+  by exception class name (`GatewayRelayProblems`). It never logs a request header, a cookie, a
+  token, a session id or a secret, and it strips the browser's `Cookie` and
+  `X-FINASSIST-XSRF-TOKEN` from every relayed request, so neither reaches a service's logs.
+- **Proven by sweeping the captured log**:
+  `LedgerAuthorizationIT.Given_any_bad_token_When_refused_Then_the_log_never_contains_that_token`,
+  `test_authorization.py::Given_a_refused_token_When_answered_Then_a_correlation_id_is_carried_and_only_the_reason_logged`,
+  and
+  `GatewayLoginFlowIT.Given_a_login_and_a_refused_refresh_When_the_logs_are_swept_Then_no_token_code_or_session_value_appears`.
+
+**The authenticated stack has six limits as built**, each accepted in the ADR named:
+
+- **Sessions live in the gateway's memory**, so restarting it signs everyone out, and a second
+  instance would share nothing (ADR-030).
+- **Nothing terminates TLS.** Every hop is plain HTTP on loopback or on the Compose network, and
+  `GATEWAY_COOKIE_SECURE` is `false` until something does (ADR-030).
+- **Roles refresh only at the next sign-in** in what the web client shows: `GET /bff/me` reads
+  them from the ID token the gateway received at sign-in (ADR-032).
+- **The realm is imported only into an empty `keycloak-db-data` volume.** A change to
+  `finassist-realm.json`, or to the secrets it takes from `.env`, needs that volume recreated or
+  `kc.sh import --override` run by hand (ADR-031).
+- **No deployed origin serves the built bundle**: only the Vite dev and preview servers, with
+  their proxy, stand in front of the gateway (ADR-030,
+  [#61](https://github.com/NaimElijah/FinAssist/issues/61)).
+- **Token lifetimes are checked with 30 seconds of leeway** against each service's own clock, so
+  a Docker VM whose clock drifts further — WSL2's is known to — refuses a valid token as
+  `lifetime` (ADR-030).
 
 **Diagnostics are not an audit trail.** Logs are dropped when no collector is attached and are
 explicitly not a record anyone may rely on after the fact.
 [ADR-020](../ADRs/ADR-020-audit-trail-follows-persistence.md) makes the append-only journal the
-audit record and defers its implementation to the first repository.
+audit record, and [ADR-033](../ADRs/ADR-033-the-journal-records-who.md) makes every row written
+from `V1_2` onward name who wrote it.
 
 **The composition root is a package, not a framework, and both services now have one.** The
 assistant's `src/finassist_assistant/adapters/` wires FastAPI, structlog and OpenTelemetry
@@ -604,7 +733,7 @@ the journal's half of it in the database too, where a trigger refuses an `UPDATE
 | Dependency | Used for | Pinned in |
 |---|---|---|
 | PostgreSQL 18.6 | Ledger store | `docker-compose.yml` (by hand — Dependabot covers no Compose file) |
-| Keycloak 26.7.4 | The identity provider (ADR-031): issues the tokens the gateway's OIDC login and the future assistant-to-ledger call both use. The gateway reaches it at a public URL the browser also uses for sign-in and sign-out, and at a separate backchannel URL — its own Compose service name — for the token and JWK-set requests only it makes; the issuer is always the public one | `ops/keycloak/Dockerfile` (Dependabot); `ops/keycloak/finassist-realm.json`, pinned by `KeycloakRealmTest` and proved against the real image by `KeycloakRealmIT` |
+| Keycloak 26.7.4 | The identity provider (ADR-031): issues the tokens the gateway's OIDC login and the future assistant-to-ledger call both use, and serves the signing keys the ledger and the assistant verify them against. The browser reaches it at its public URL to sign in and out; the gateway, the ledger and the assistant reach it at a separate backchannel URL — its own Compose service name — for the token, refresh and JWK-set requests only they make. The issuer is always the public one | `ops/keycloak/Dockerfile` (Dependabot); `ops/keycloak/finassist-realm.json`, pinned by `KeycloakRealmTest` and proved against the real image by `KeycloakRealmIT` |
 | PostgreSQL 17.11 | Keycloak's own store, `keycloak-db` — a separate database, role, volume and failure domain from the ledger's (ADR-031) | `docker-compose.yml` (by hand) |
 | Anthropic API | The LLM behind `assistance` | `backend/assistant/pyproject.toml`, `uv.lock` |
 | Price feed | `marketdata` | **Not chosen** — see the open questions |
@@ -648,6 +777,10 @@ the classes and tests that enforce them in
 | **No web feature imports another**, and `shared` imports no feature | `frontend/web/tests/architecture.test.ts` |
 | **`src/app` imports a web feature only through its `index.ts`**, and no feature imports `src/app` | `frontend/web/tests/architecture.test.ts` (`composition direction`) |
 | **`src/shared` imports nothing from `src/app`**, the composition root nothing may import back into | `frontend/web/tests/architecture.test.ts` |
+| **Every endpoint the running ledger maps is in a named inventory**, so one added without a URL rule fails the build rather than shipping open | `LedgerAuthorizationIT.Given_the_running_ledger_When_its_handler_mappings_are_read_Then_they_equal_the_named_inventory` |
+| **Every route `portfolio_router` declares carries exactly one permission dependency** — today every business route the assistant serves | `test_authorization.py::Given_the_portfolio_router_When_routes_are_inspected_Then_each_declares_one_permission` |
+| **Every `@Value` placeholder in the ledger's production code resolves from `application.yml` alone**, with no environment and no container | `ApplicationYmlPlaceholdersTest` |
+| **The gateway's `HostAllowListFilter` runs before its security chain**, in the filter chain the server actually built | `GatewayApplicationIT.Given_the_running_gateway_When_its_filter_chain_is_read_Then_the_host_allow_list_runs_before_security` |
 
 All three are **static**: ArchUnit scans bytecode, the assistant's rules parse every source
 file with `ast`, and the web client's walk the source tree. None of them import the code they

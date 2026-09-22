@@ -11,6 +11,34 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **A real sign-in, and every business request authenticated.** The browser signs in with OIDC,
+  the authorization-code flow with PKCE, at a new backend-for-frontend, `backend/gateway`
+  (Spring Cloud Gateway Server Web MVC). The gateway keeps the access and refresh tokens in its
+  server-side session, gives the browser only an `HttpOnly` session cookie and a CSRF token, and
+  relays each call to the ledger or the assistant with the access token attached. It answers an
+  unauthenticated request 401, never a redirect, and publishes its own contract,
+  `contracts/gateway-v1.openapi.json`. There is no switch that turns authentication off. See
+  [ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), which supersedes
+  ADR-027.
+- **Keycloak as the identity provider**, self-hosted under Compose with its own PostgreSQL,
+  `keycloak-db`, and its `finassist` realm committed as code in `ops/keycloak/`. The owner's
+  first sign-in sets a new password and enrols TOTP. See
+  [ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md).
+- **The ledger and the assistant are resource servers that deny by default.** Each validates a
+  bearer token against an injected clock and decides what it may do from its own role table:
+  `owner` reads and writes, `viewer` only reads, and the assistant's own `assistant` role only
+  reads the ledger. A ledger endpoint added without a URL rule, or a route added to the
+  assistant's router without a permission, fails the build. See
+  [ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md).
+- **The web client signs in and out**, shows who is signed in, and hides every control that
+  changes data from a `viewer`. The services enforce the same rule regardless.
+- **The journal records who wrote each row**, from `V1_2__journal_recorded_by.sql` onward. Rows
+  written before it honestly name nobody. See
+  [ADR-033](docs/ADRs/ADR-033-the-journal-records-who.md).
+- **An opt-in smoke check of the authentication wiring**, `ops/smoke/auth_smoke.py`, run by hand
+  with `make smoke-auth` against the Compose stack. CI lints it and validates its Compose
+  definition, but never runs it. See
+  [ADR-034](docs/ADRs/ADR-034-keep-the-compose-smoke-check-manual.md).
 - **The ledger's books are stored in PostgreSQL.** Three schemas, one per bounded context, with
   no foreign key crossing one — the storage-layer counterpart of the rule ArchUnit enforces in
   the bytecode, and the answer to whether planned data shares a store with the books: the same
@@ -70,6 +98,12 @@ history; write the commit message well and this file writes itself.
 
 ### Changed
 
+- **The web client's dev proxy sends every call to the gateway**, never straight to the ledger or
+  the assistant, and the app must be opened at `http://localhost:5173`, not `127.0.0.1`, because
+  the session cookie is keyed by host name.
+- **An existing `.env` needs five new secrets** — `KEYCLOAK_ADMIN_PASSWORD`,
+  `KEYCLOAK_DB_PASSWORD`, `FINASSIST_OWNER_INITIAL_PASSWORD`, `GATEWAY_CLIENT_SECRET` and
+  `ASSISTANT_CLIENT_SECRET` — or `docker compose up` refuses to start and names each one missing.
 - **The six in-memory repositories are deleted, not kept behind a profile.** They were a
   development seam while ADR-006 was open; a second implementation satisfying none of the
   persistence requirement is a code path nothing should be able to select by accident. The

@@ -13,17 +13,21 @@ language, and analyse the portfolio behind it.**
 </div>
 
 > [!IMPORTANT]
-> **All six bounded contexts have a domain and an application layer.** The ledger is persisted in
-> PostgreSQL and served over HTTP — accounting, budgeting and planning under `/api/v1`, with a
-> published OpenAPI contract — and answers its Actuator health probes. The assistant now serves
-> `portfolio` under `/api/v1` too, with its own published contract, but its data comes only from
-> an opt-in development seed, off by default — no ledger client and no price feed exist. The web
-> client's accounting area lists and opens accounts, records a transaction by hand, and clears,
-> reconciles or voids one; its budgeting area lists and defines budgets, reviews spend against
-> one, and adds categorisation rules; its planning area plans flows, defines scenarios, charts a
-> scenario's projection with its first shortfall, and compares scenarios against a baseline — all
-> over the ledger's API. Its portfolio area looks up a holding, shows its position and valuation,
-> and prices a disposal without recording it, over the assistant's. See
+> **All six bounded contexts have a domain and an application layer, and every business request
+> is authenticated.** The browser signs in with OIDC at a backend-for-frontend gateway, against a
+> self-hosted Keycloak; the gateway keeps the tokens server-side and relays each call to the
+> ledger or the assistant, and each of those validates the token and decides from its own role
+> table what the caller may do. The ledger is persisted in PostgreSQL and served over HTTP —
+> accounting, budgeting and planning under `/api/v1`, with a published OpenAPI contract — and
+> records who wrote each journal row. The assistant serves `portfolio` under `/api/v1` too, with
+> its own published contract, but its data comes only from an opt-in development seed, off by
+> default — no ledger client and no price feed exist. The web client signs in and out; its
+> accounting area lists and opens accounts, records a transaction by hand, and clears, reconciles
+> or voids one; its budgeting area lists and defines budgets, reviews spend against one, and adds
+> categorisation rules; its planning area plans flows, defines scenarios, charts a scenario's
+> projection with its first shortfall, and compares scenarios against a baseline — all over the
+> ledger's API. Its portfolio area looks up a holding, shows its position and valuation, and
+> prices a disposal without recording it, over the assistant's. See
 > [Known limitations](#status-and-limitations) for what does not exist yet.
 
 ## Contents
@@ -53,10 +57,11 @@ moves money — it records and explains, and nothing more. See
 
 There is no feature list, because much of the confirmed scope below is not built yet — listing
 one here that outruns the code would be a bug report waiting to be filed. What does work, end to
-end through the web client: opening an account, recording a transaction by hand and moving it
-through Clear, Reconcile and Void; defining a budget for a month with a limit per category,
-reviewing spend against it and adding categorisation rules; planning flows, defining scenarios,
-and projecting and comparing them — all against the ledger; and looking up a holding, seeing its
+end through the web client: signing in and out, as an `owner` who may change data or a `viewer`
+who may only read it; opening an account, recording a transaction by hand and moving it through
+Clear, Reconcile and Void; defining a budget for a month with a limit per category, reviewing
+spend against it and adding categorisation rules; planning flows, defining scenarios, and
+projecting and comparing them — all against the ledger; and looking up a holding, seeing its
 position and valuation, and pricing a disposal, against the assistant, whose figures come only
 from its development seed until a data source exists. The confirmed scope is four capability
 areas:
@@ -72,89 +77,117 @@ where a decision waits on its owner; the
 
 ## Quick start
 
-**Prerequisites:** Docker with Compose v2 — needed to run the stack, and now also to run the
-ledger's test suite, which drives the store against a real PostgreSQL and fails rather than
-skips when Docker is absent ([ADR-025](docs/ADRs/ADR-025-integration-tests-on-testcontainers.md)).
-For the native inner loop you also want a JDK 21 and [uv](https://docs.astral.sh/uv/) — uv
-fetches its own Python 3.13, so no system Python upgrade is needed.
+**Prerequisites:**
+
+- **Docker with Compose v2**, to run the stack. The ledger's and the gateway's test suites need
+  it too: they start real containers through Testcontainers, and fail rather than skip when
+  Docker is absent ([ADR-025](docs/ADRs/ADR-025-integration-tests-on-testcontainers.md)).
+- **Node 24 and npm**, for the web client (`frontend/web/.nvmrc`).
+- For the native inner loop, **a JDK 21 and [uv](https://docs.astral.sh/uv/)**. uv fetches its
+  own Python 3.13, so no system Python upgrade is needed.
 
 ```bash
 git clone https://github.com/NaimElijah/FinAssist.git
 cd FinAssist
-cp .env.example .env        # then set POSTGRES_PASSWORD and LEDGER_DB_PASSWORD to the same
-                            # value; Compose refuses to start either service without them.
-                            # It also refuses to start Keycloak or the gateway without
-                            # KEYCLOAK_ADMIN_PASSWORD, KEYCLOAK_DB_PASSWORD,
-                            # FINASSIST_OWNER_INITIAL_PASSWORD, GATEWAY_CLIENT_SECRET and
-                            # ASSISTANT_CLIENT_SECRET — an existing .env from before this
-                            # section names each missing one and stops rather than starting
-                            # half a stack (ADR-030, ADR-031). GATEWAY_CLIENT_SECRET and
-                            # ASSISTANT_CLIENT_SECRET are each read twice, by Keycloak (to set
-                            # a client's secret at import) and by the service that
-                            # authenticates as that client — the two must be given the exact
-                            # same value.
+cp .env.example .env        # then set every secret in the table below
 docker compose up --build
 ```
 
-That starts PostgreSQL 18, Keycloak and its own database, the ledger, the gateway and the
-assistant. The ledger applies its Flyway migrations at start-up, and Keycloak imports the
-`finassist` realm at start-up too — but only into an *empty* `keycloak-db-data` volume; editing
-`ops/keycloak/finassist-realm.json` later changes nothing until that volume is recreated or
-`kc.sh import --override` is run by hand (ADR-031). Every service then answers its health
-probe, published on `127.0.0.1` only (ADR-030, carrying [ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)'s loopback rule forward). `docker-compose.yml`'s `:?` on
-every realm placeholder is what keeps this safe: run `ops/keycloak/Dockerfile` outside that
-guarded path with one of them unset, and Keycloak imports the literal, unresolved `${VAR}` text
-as the credential rather than refusing to start or leaving it blank — for the owner's initial
-password, that means a publicly known value, not a missing one:
+**Set every secret first.** `.env.example` leaves each one blank, and `docker-compose.yml`
+requires each through `${VAR:?}` — `GRAFANA_ADMIN_PASSWORD` only for the `monitoring`
+profile — so Compose refuses to start, naming a missing one, until they are set. **An `.env`
+copied before the gateway existed lacks the five identity secrets below**, from
+`KEYCLOAK_DB_PASSWORD` to `ASSISTANT_CLIENT_SECRET`; add them, or `docker compose up` refuses to
+start.
+
+| Secret | What to put in it |
+|---|---|
+| `POSTGRES_PASSWORD` | Any strong value, for the ledger's database |
+| `LEDGER_DB_PASSWORD` | The same value as `POSTGRES_PASSWORD`: the ledger connects as the role Compose creates |
+| `KEYCLOAK_DB_PASSWORD` | Any strong value, for Keycloak's own database, `keycloak-db` |
+| `KEYCLOAK_ADMIN_PASSWORD` | Any strong value, for Keycloak's admin console |
+| `FINASSIST_OWNER_INITIAL_PASSWORD` | The owner's one-time password, used once at [first sign-in](#first-sign-in). It must satisfy the realm's policy: `length(12) and notUsername and notEmail and passwordHistory(3)` |
+| `GATEWAY_CLIENT_SECRET` | Any strong value. Keycloak sets the `finassist-gateway` client's secret from it, and the gateway signs in to Keycloak with it |
+| `ASSISTANT_CLIENT_SECRET` | Any strong value. Keycloak sets the `finassist-assistant` client's secret from it |
+| `GRAFANA_ADMIN_PASSWORD` | Any strong value. Needed only with the `monitoring` profile |
+
+Under Compose, Keycloak and the gateway read `GATEWAY_CLIENT_SECRET` from the same `.env` entry,
+so the two cannot disagree. `ASSISTANT_CLIENT_SECRET` is read by Keycloak and the smoke check
+alone, since the assistant has no ledger client to use it yet
+([#62](https://github.com/NaimElijah/FinAssist/issues/62)). Keycloak copies both client secrets
+and the owner's initial password into the realm when it first imports it, and only then, so
+changing one of them later changes nothing in Keycloak until the realm is imported again (see
+[Known limitations](#status-and-limitations)).
+
+`docker compose up --build` starts PostgreSQL 18, Keycloak and its own database, the ledger, the
+gateway and the assistant, with every published port bound to `127.0.0.1` only (ADR-030).
+
+**The first `docker compose up` takes a couple of minutes, and that is expected, not a hang.**
+Keycloak imports the `finassist` realm into the empty `keycloak-db-data` volume before it reports
+ready, and the ledger, the gateway and the assistant each wait for that before they start. The
+ledger applies its Flyway migrations at start-up.
+
+`docker-compose.yml`'s `:?` on every realm placeholder is what keeps this safe: run
+`ops/keycloak/Dockerfile` outside that guarded path with one of them unset, and Keycloak imports
+the literal, unresolved `${VAR}` text as the credential rather than refusing to start or leaving
+it blank — for the owner's initial password, that means a publicly known value, not a missing
+one.
+
+Once it is up:
 
 ```bash
-curl http://127.0.0.1:8080/actuator/health
+curl http://localhost:8080/actuator/health
 # {"groups":["liveness","readiness"],"status":"UP"}
-curl http://127.0.0.1:8080/api/v1/accounts
-# []
-curl http://127.0.0.1:8000/health
+curl http://localhost:8000/health
 # {"status":"UP"}
-curl http://127.0.0.1:8000/api/v1/portfolio/holdings/VOO/position
-# a 404 problem — the assistant has no real data source yet; see ASSISTANT_DEV_SEED below
-curl http://127.0.0.1:8081/realms/finassist/.well-known/openid-configuration
+curl http://localhost:8090/actuator/health
+# the gateway; its "status" is "UP"
+curl http://localhost:8081/realms/finassist/.well-known/openid-configuration
 # the realm's discovery document; "issuer" reads "http://localhost:8081/realms/finassist"
-curl http://127.0.0.1:8090/actuator/health
-# {"status":"UP"} — the gateway; neither the ledger nor the assistant validates its tokens yet
+curl -i http://localhost:8080/api/v1/accounts
+# 401 with WWW-Authenticate: Bearer and a problem whose code is UNAUTHENTICATED —
+# every business endpoint needs a bearer token, which only a signed-in session gets
+```
+
+Then start the web client, in a second terminal, and sign in:
+
+```bash
+cd frontend/web && npm ci && npm run dev
 ```
 
 ### First sign-in
 
-Keycloak seeds one user, `FINASSIST_OWNER_USERNAME`, with the `owner` role and a *temporary*
-password, `FINASSIST_OWNER_INITIAL_PASSWORD`. Its first sign-in must set a real password and
-enrol a TOTP device — an automated check cannot do either, so this step is done by hand:
+Keycloak seeds one user, `FINASSIST_OWNER_USERNAME` (`owner` by default), with the `owner` role
+and a *temporary* password, `FINASSIST_OWNER_INITIAL_PASSWORD`. Its first sign-in must set a real
+password and enrol a TOTP device, so it is done by hand:
 
-1. Open `http://localhost:8081/realms/finassist/account` in a browser.
-2. Sign in with `FINASSIST_OWNER_USERNAME` and `FINASSIST_OWNER_INITIAL_PASSWORD`.
-3. Keycloak asks for a new password (the realm's policy:
-   `length(12) and notUsername and notEmail and passwordHistory(3)`), then a TOTP secret —
-   scan it with any authenticator app, or note the secret and generate a code by hand.
-
-The gateway itself has no login page yet to drive this through (that arrives with the web
-client's own sign-in, a later task); this account console is Keycloak's own, and confirms the
-realm and the owner's credentials are usable before anything else depends on them.
+1. Open [http://localhost:5173](http://localhost:5173) — `localhost`, never `127.0.0.1` (see
+   [Using the web client](#using-the-web-client)). With nobody signed in, it shows a sign-in
+   screen.
+2. Click **Sign in with Keycloak**, and sign in on Keycloak's own page with
+   `FINASSIST_OWNER_USERNAME` and `FINASSIST_OWNER_INITIAL_PASSWORD`.
+3. Keycloak asks for a new password, under the policy above, and then for a TOTP device: scan the
+   QR code with any authenticator app, or note the secret and generate a code by hand.
+4. Keycloak sends you back to [http://localhost:5173](http://localhost:5173), on Accounts, with
+   your name in the header.
 
 **Adding a viewer.** No `viewer` is seeded. Sign in to the admin console at
-`http://localhost:8081/admin` with `KEYCLOAK_ADMIN_USERNAME`/`KEYCLOAK_ADMIN_PASSWORD`, open the
-`finassist` realm, create a user, and assign it the realm role `viewer` under
-**Role mapping**.
+[http://localhost:8081/admin](http://localhost:8081/admin) with
+`KEYCLOAK_ADMIN_USERNAME`/`KEYCLOAK_ADMIN_PASSWORD`, open the `finassist` realm, create a user,
+give it a password under **Credentials**, and assign it the realm role `viewer` under
+**Role mapping**. A viewer sees every area and is offered no control that changes data.
 
-For the faster native inner loop, run either service outside Compose against the same database:
+For the faster native inner loop, start only the databases and Keycloak under Compose, and run
+the services outside it. Run natively, no service reads `.env`: each takes its settings from the
+environment alone, so export what it needs in the shell that starts it — `LEDGER_DB_PASSWORD` for
+the ledger, and for the gateway `GATEWAY_CLIENT_SECRET`, holding the value Keycloak imported:
 
 ```bash
-docker compose up -d db
+docker compose up -d db keycloak-db keycloak
 cd backend/ledger && ./mvnw spring-boot:run
 cd backend/assistant && uv run python -m finassist_assistant.adapters
 cd backend/gateway && ./mvnw spring-boot:run
 ```
-
-The web client now reaches both backend services only through the gateway; see
-[Using the web client](#using-the-web-client) — every call needs a signed-in gateway session,
-which the web client's own sign-in screen now gets by opening the gateway's OIDC login entry.
 
 > [!NOTE]
 > `make` is a convenience here, not a prerequisite, and it is not installed on the author's
@@ -168,9 +201,9 @@ The web client is a Vite dev server that forwards `/ledger/…`, `/assistant/…
 gateway, path intact — never straight to the ledger or the assistant — and the gateway's own
 routes strip the prefix and relay each call once it authenticates
 ([ADR-026](docs/ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), extended by
-[ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)). Start the whole stack
-first — `docker compose up --build`, or the ledger, the assistant and the gateway natively, as in
-[Quick start](#quick-start) — then:
+[ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)). Start it once the
+stack is up — under Compose, or with the ledger, the assistant and the gateway run natively, as in
+[Quick start](#quick-start):
 
 ```bash
 cd frontend/web && npm ci && npm run dev
@@ -180,16 +213,17 @@ and open [http://localhost:5173](http://localhost:5173) — `localhost`, never `
 gateway's session cookie is keyed to the host name `GATEWAY_PUBLIC_URL` names, which defaults to
 `localhost`, so opening the other address signs in against a different, cookie-less origin.
 
-**A signed-in gateway session is required for every ledger or assistant call**, and the whole app
-is gated on one: opening [http://localhost:5173](http://localhost:5173) with nobody signed in
-shows a sign-in screen, never an Accounts, Budgets, Planning or Portfolio page answering 401.
-Click "Sign in with Keycloak" — a plain link, so the browser actually navigates to Keycloak's
-login page rather than a script following the redirect invisibly — and complete the Keycloak
-login described in [First sign-in](#first-sign-in) above. Keycloak sends the browser back to
-`http://localhost:5173/` once you are signed in, landing on Accounts with your name and role shown
-in the header; a failed sign-in sends it back to `?signin=failed` instead, which the sign-in
+**The whole app is gated on a signed-in gateway session.** With nobody signed in it shows a
+sign-in screen, never an Accounts, Budgets, Planning or Portfolio page answering 401. "Sign in
+with Keycloak" is a plain link, so the browser actually navigates to Keycloak's login page rather
+than a script following the redirect invisibly; the sign-in itself is described in
+[First sign-in](#first-sign-in). Keycloak sends the browser back to `http://localhost:5173/` once
+you are signed in; a failed sign-in sends it back to `?signin=failed` instead, which the sign-in
 screen shows as an explanation. "Sign out", beside your name, ends the gateway's session and
-Keycloak's own, and clears everything the app had cached.
+Keycloak's own, and clears everything the app had cached. A `viewer` sees a "Read-only" badge
+beside their name, and every area without the controls that change data; pricing a disposal,
+which records nothing, stays offered. The ledger and the assistant enforce the same rule
+themselves, whatever the browser shows.
 
 Once signed in, Accounts, Budgets and Planning read and write through the ledger. Portfolio reads
 through the assistant, which holds no real data yet, so every lookup answers that nothing is held
@@ -217,10 +251,13 @@ is financial advice.
 | Ledger build | Maven (wrapper) | 3.9.6 | Committed wrapper, so a clone needs only a JDK |
 | Ledger format | Spotless + palantir-java-format | 3.10.1 / 2.97.0 | One authoritative formatter; `spotless:check` gates CI |
 | Ledger OpenAPI | springdoc-openapi, API starter | 3.1.1 | Generates the ledger's contract from its controllers, with no Swagger UI; `LedgerContractIT` pins it to `contracts/` ([ADR-028](docs/ADRs/ADR-028-http-wire-conventions.md)) |
+| Gateway framework | Spring Cloud Gateway Server Web MVC | 5.0.3 (release train 2025.1.3) | The backend-for-frontend: OIDC sign-in, tokens held in the server-side session, and `TokenRelay` to both services, on the ledger's servlet stack ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) |
+| Identity provider | Keycloak | 26.7.4 | Self-hosted OIDC, with its realm committed as code and every secret in it a placeholder ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) |
 | Assistant language | Python | 3.13 | Native home for the Anthropic SDK and the pandas numerical stack |
 | Assistant framework | FastAPI | 0.141.1 | Typed request and response validation from the same Pydantic models the domain uses |
 | Assistant packaging | uv | 0.12.7 | Resolves, locks and fetches the interpreter in one pinned tool |
 | Assistant lint, format, types | Ruff + mypy | 0.16.5 / 2.3.1 | Ruff replaces flake8 + isort + black; mypy runs `--strict` |
+| Assistant token verification | PyJWT, `crypto` extra | 2.14.0 | RS256 signature checks and JWKS fetching; the time checks are redone against the injected clock ([ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)) |
 | Ledger architecture tests | ArchUnit | 1.5.0 | Layering, context isolation, the no-floating-point-money rule, and the two rules fencing the composition root, all fail the build |
 | Coverage | JaCoCo + pytest-cov + coverage-v8 | 0.8.13 / 7.1.0 / 4.1.11 | Measured in all three codebases, published by CI, gating nothing ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
 | Mutation testing | PIT | 1.19.1 | Answers what coverage cannot: would a test notice this line being wrong? Opt-in profile, not in CI |
@@ -232,36 +269,53 @@ is financial advice.
 | Web runtime | Node | 24 | The major CI runs, pinned in `.nvmrc` and `engines`, because tests pin dates and amounts as that major's ICU data formats them |
 | Web routing | React Router | 8.3.1 | URLs, history and deep links across every screen, in data mode ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
 | Web server state | TanStack Query | 5.102.8 | Caching, request races and invalidating what a mutation changed, instead of fetch hooks written per feature ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
-| Web contract types | @hey-api/openapi-ts | 0.99.0 | Types generated from both committed contracts, and no client; CI fails when they drift ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
+| Web contract types | @hey-api/openapi-ts | 0.99.0 | Types generated from all three committed contracts, and no client; CI fails when they drift ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
 | Web test, lint, format | Vitest + Testing Library + ESLint + Prettier | 4.1 / 16.3 / 10.9 / 3.9 | Type-aware rules; they caught a `HeadersInit` bug before any code used it, and there is now a test for it |
 | Store | PostgreSQL | 18.6 | `NUMERIC` for exact money, and real constraints behind the domain's own |
+| Keycloak's store | PostgreSQL | 17.11 | The newest major Keycloak 26.7 is tested against, kept apart from the ledger's |
 
-Every version above is pinned in `backend/ledger/pom.xml`, `backend/assistant/pyproject.toml`,
-`backend/assistant/uv.lock`, `frontend/web/package.json`, `frontend/web/.nvmrc` or
-`docker-compose.yml` — not in this table.
+Every version above is pinned in `backend/ledger/pom.xml`, `backend/gateway/pom.xml`,
+`backend/assistant/pyproject.toml`, `backend/assistant/uv.lock`, `frontend/web/package.json`,
+`frontend/web/.nvmrc`, `ops/keycloak/Dockerfile` or `docker-compose.yml` — not in this table.
 
 ## Architecture
 
-Two independently deployable backend services, a web client, and a database. The ledger owns
-the records; the assistant reads them through the ledger's API, never its database.
+Three independently deployable backend services, a web client, an identity provider, and two
+databases. The ledger owns the records, and the assistant reads them through the ledger's API,
+never its database. The gateway signs the browser in and relays each of its calls to the service
+that owns the data; Keycloak issues every token. This is the overview diagram from
+[docs/architecture/architecture.md](docs/architecture/architecture.md#architecture-overview),
+which walks through each edge:
 
 ```mermaid
 flowchart LR
-    Owner[Owner] -->|"HTTP, 127.0.0.1:5173"| Web[frontend/web - React SPA]
-    Web -->|HTTP| Assistant[backend/assistant - Python, FastAPI]
-    Assistant -->|HTTP, Published Language| Ledger[backend/ledger - Java, Spring Boot]
-    Web -->|HTTP| Ledger
-    Assistant -->|HTTPS| Claude[Anthropic API]
-    Ledger --> DB[(PostgreSQL 18)]
+    Owner["Owner's browser"] -->|"HTTP, localhost:5173"| Web["frontend/web - React SPA, Vite dev server"]
+    Owner -->|"HTTP, localhost:8081, sign-in and sign-out"| Keycloak["Keycloak 26 - ops/keycloak"]
+    Web -->|"HTTP proxy, /ledger /assistant /bff"| Gateway["backend/gateway - Java, Spring Cloud Gateway"]
+    Gateway -->|"HTTP, bearer token"| Ledger["backend/ledger - Java, Spring Boot"]
+    Gateway -->|"HTTP, bearer token"| Assistant["backend/assistant - Python, FastAPI"]
+    Gateway -->|"HTTP, code exchange and refresh"| Keycloak
+    Ledger -->|"HTTP, JWKS"| Keycloak
+    Assistant -->|"HTTP, JWKS"| Keycloak
+    Ledger -->|JDBC| DB[(db - PostgreSQL 18)]
+    Keycloak -->|JDBC| KeycloakDB[(keycloak-db - PostgreSQL 17)]
+    Assistant -.->|"HTTP, Published Language - no client yet"| Ledger
+    Assistant -.->|"HTTPS - not wired"| Claude["Anthropic API"]
+    Assistant -.->|"HTTPS - not chosen"| Feed["Price feed"]
 ```
 
-`DB`, the ledger and the assistant all run under Compose now, and `Ledger --> DB` is real: the
-ledger serves `/api/v1`, with an OpenAPI document to prove it
-([contracts/ledger-v1.openapi.json](contracts/ledger-v1.openapi.json)). The web client's
-accounting, budgeting and planning screens call it; the assistant does not yet, having no ledger
-client. The assistant serves its own `portfolio` endpoints under `/api/v1` too, published as
-[contracts/assistant-v1.openapi.json](contracts/assistant-v1.openapi.json), and the web client's
-portfolio screens call them.
+A solid edge carries traffic today; a dotted one has no caller yet. **Every call the web client
+makes goes through the gateway**, which keeps the browser's tokens in its server-side session —
+the browser holds only a session cookie and a CSRF token — and attaches the access token to each
+relayed call. The ledger and the assistant each validate that token and decide from their own
+role table what it may do ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md),
+[ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)). Each service publishes a
+contract: the ledger's `/api/v1` as
+[contracts/ledger-v1.openapi.json](contracts/ledger-v1.openapi.json), the assistant's
+`portfolio` endpoints as [contracts/assistant-v1.openapi.json](contracts/assistant-v1.openapi.json),
+and the gateway's own `/bff/me` and `/bff/logout` as
+[contracts/gateway-v1.openapi.json](contracts/gateway-v1.openapi.json). The assistant has no
+ledger client yet.
 
 **Six bounded contexts**, each owned by exactly one service, each one directory
 ([ADR-010](docs/ADRs/ADR-010-bounded-context-map.md), extended by
@@ -287,8 +341,8 @@ In strategic DDD terms the ledger is the upstream **Supplier**, the OpenAPI cont
 assistant's own model. Nothing inward may reach it, and that is asserted per package rather
 than assumed.
 
-Dependency direction is enforced by the build on both sides: ArchUnit in the ledger,
-subprocess import tests in the assistant.
+Dependency direction is enforced by the build in all three codebases: ArchUnit in the ledger,
+source-parsing rules in the assistant, and a walk of the file tree in the web client.
 
 Full description: [docs/architecture/architecture.md](docs/architecture/architecture.md).
 Rationale: [docs/ADRs/](docs/ADRs/).
@@ -304,24 +358,32 @@ backend/ledger/         Java 21 + Spring Boot - full tactical DDD; sole writer o
   budgeting/              same hexagon, its own aggregates
   planning/               domain/{plan,forecast}/ - what is intended, never what happened
   shared/                 Money, Currency - in-language kernel
-  composition/            Spring wiring, and the two cross-context translations
+  composition/            Spring wiring, security, and the two cross-context translations
+backend/gateway/        Java 21 + Spring Cloud Gateway - the backend-for-frontend; no domain
+  composition/            security chain, Keycloak login, Host allow-list, /bff/me, relay errors
 backend/assistant/      Python 3.13 + FastAPI - pure-function cores, no aggregates
   portfolio/              domain/{model,analysis}/ application/{port,usecase}/
                           adapters/{inbound/api,outbound/ledger}/   <- the ACL
   assistance/             ... adapters/outbound/llm/
   marketdata/             ... adapters/outbound/feed/               <- ACL, no feed chosen
   shared/
+  adapters/               the composition root: app, wiring, settings, auth, observability
 frontend/web/           React 19 + Vite 8 - one feature per user-facing context
   src/features/           accounting/ budgeting/ planning/ portfolio/ assistance/
   src/shared/             ui/ api/ lib/
-  src/app/                the only place that knows every feature at once
-contracts/              Versioned OpenAPI contract - the Published Language
+  src/app/                the only place that knows every feature at once; session/ gates it
+contracts/              Versioned OpenAPI contracts - the Published Language, and the gateway's own
+ops/                    Infrastructure configuration, not application code
+  keycloak/               Dockerfile and finassist-realm.json, the realm imported at start-up
+  smoke/                  auth_smoke.py - the opt-in Compose check of the authentication wiring
+  grafana/                dashboards and provisioning; beside it the collector and Prometheus files
 docs/                   requirements/, architecture/, ADRs/ - read before proposing work
 .github/                CI workflow and Dependabot configuration
 ```
 
-Java packages sit under `backend/ledger/src/main/java/io/github/naimelijah/finassist/ledger/`;
-Python packages under `backend/assistant/src/finassist_assistant/`.
+Java packages sit under `backend/ledger/src/main/java/io/github/naimelijah/finassist/ledger/`
+and `backend/gateway/src/main/java/io/github/naimelijah/finassist/gateway/`; Python packages
+under `backend/assistant/src/finassist_assistant/`.
 
 ## Development
 
@@ -333,6 +395,8 @@ pipeline and the local commands cannot drift.
 | Set up | `make setup` | `test -f .env \|\| cp .env.example .env`; `cd backend/ledger && ./mvnw -B -q dependency:go-offline`; `cd backend/gateway && ./mvnw -B -q dependency:go-offline`; `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci` |
 | Run | `make run` | `docker compose up --build` |
 | Run with monitoring | `make run-monitoring` | `docker compose --profile monitoring up --build` |
+| Stop the stack | `make stop` | `docker compose down`, keeping volumes |
+| Stop the monitoring profile too | `make stop-monitoring` | `docker compose --profile monitoring down`, keeping volumes |
 | Run identity only | `make run-identity` | `docker compose up -d keycloak-db keycloak` — for signing in or testing against Keycloak without the rest of the stack |
 | Smoke-test authentication (opt-in) | `make smoke-auth` | `docker compose --profile smoke run --rm auth-smoke` — see [Smoke-testing authentication](#smoke-testing-authentication) below |
 | Test everything | `make test` | the four test rows below; all four measure coverage |
@@ -349,6 +413,9 @@ pipeline and the local commands cannot drift.
 | Re-lock Python deps | `make lock` | `cd backend/assistant && uv lock` |
 | Regenerate the ledger's OpenAPI contract | — | `cd backend/ledger && ./mvnw -B verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running); on a mismatch, copy `target/contracts/ledger-v1.openapi.json` over `contracts/ledger-v1.openapi.json` |
 | Regenerate the assistant's OpenAPI contract | — | `cd backend/assistant && uv run pytest tests/test_contract.py` (no container needed); on a mismatch, copy `.contract-drift/assistant-v1.openapi.json` over `contracts/assistant-v1.openapi.json` |
+| Regenerate the gateway's OpenAPI contract | — | `cd backend/gateway && ./mvnw -B verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=GatewayContractIT` (no container needed); on a mismatch, copy `target/contracts/gateway-v1.openapi.json` over `contracts/gateway-v1.openapi.json` |
+| Run a single test | — | `cd backend/ledger && ./mvnw -B test -Dtest=LedgerArchitectureTest`; `cd backend/assistant && uv run pytest tests/test_architecture.py -k <name>`; `cd frontend/web && npx vitest run -t <name>` |
+| Remove build output | `make clean` | `./mvnw -B -q clean` in `backend/ledger` and `backend/gateway`, then delete the assistant's caches and coverage files and the web client's `dist/` and `coverage/`; `.env` and Docker volumes are left alone |
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
 (`type(scope): imperative subject`, subject under 72 characters); branches are
@@ -392,6 +459,12 @@ It exits non-zero on the first of its eight checks to fail, naming which one and
 never started by a bare `docker compose up`. CI validates that the service definition parses
 (`docker compose --profile smoke config`) and lints the script (`make lint-smoke`); running the
 check against a live stack stays a manual step.
+[ADR-034](docs/ADRs/ADR-034-keep-the-compose-smoke-check-manual.md) records why, and what would
+change that.
+
+It cannot tell a stale realm from a current one. Keycloak imports the realm only into an empty
+`keycloak-db-data` volume, and the login-redirect check compares the gateway's redirect with the
+public URLs Compose configured, not with the redirect URIs Keycloak actually stored.
 
 ## Testing
 
@@ -401,22 +474,26 @@ check against a live stack stays a manual step.
 | Ledger domain | The balancing invariant, the transaction lifecycle, derived balances, budget limits, planned flows, projections and comparison, Money and Currency | `make test-ledger` |
 | Ledger properties | Money's algebraic laws and Recurrence's date arithmetic, over generated inputs from a fixed seed | `make test-ledger` |
 | Ledger store | Every repository against a **real PostgreSQL** in Testcontainers: the ordering both journal queries promise, the unique index that makes an account name atomic, the sealed `Recurrence` and `PlanState` round trips, and `numeric` preserving a JPY amount at scale 0 | `make test-ledger` |
-| Ledger audit trail | The database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states, and a lifecycle change appends rather than overwrites ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)) | `make test-ledger` |
+| Ledger audit trail | The database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states, and a lifecycle change appends rather than overwrites; from `V1_2` onward every new row names who wrote it — `JournalIsAppendOnlyIT` refuses an insert without a recorder, `JdbcTransactionRepositoryIT` keeps each writer on its own row, and `JournalActorMigrationIT` rehearses the upgrade against real rows written before it ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md), [ADR-033](docs/ADRs/ADR-033-the-journal-records-who.md)) | `make test-ledger` |
 | Ledger schema boundaries | No foreign key crosses a schema, so context isolation holds in the database as well as in the bytecode | `make test-ledger` |
 | Ledger smoke | The context loads and the Actuator health, liveness and readiness probes answer `UP` | `make test-ledger` |
+| Ledger authorization | `LedgerAuthorizationIT` boots the ledger against a real PostgreSQL and checks every endpoint the running server maps against a named inventory, so one added without a URL rule fails the build. A missing token is 401 with a bare `Bearer` challenge; a viewer's or the assistant's token may read and never write; the owner's may do both; a token granting nothing is 403; `HEAD` and `OPTIONS` are denied; and each of ten bad tokens — expired, not yet valid, issued in the future, without `iat`, for the wrong audience or issuer, unsigned, HMAC-confused, signed by a foreign key, or tampered — is 401 and never appears in the log. `LedgerTokenValidationTest` pins the 30-second skew at each edge, `LedgerPermissionsTest` the role table, `LedgerKeySourceOutageIT` a JWKS outage as 503, and `ApplicationYmlPlaceholdersTest` every `@Value` placeholder resolving from `application.yml` alone | `make test-ledger` |
 | Ledger HTTP | Each controller in a `@WebMvcTest` slice — `AccountControllerTest`, `TransactionControllerTest`, `BudgetControllerTest`, `CategorisationRuleControllerTest`, `PlannedFlowControllerTest`, `ScenarioControllerTest`, `ProjectionControllerTest` and `ComparisonControllerTest` — for its request validation, including a JSON number refused where the contract requires a decimal string, and each refusal's status and problem `code`; `HostAllowListFilterTest` and `LedgerProblemHandlerTest` for the Host allow-list and the problem+json fallback; `AccountingHttpIT`, `BudgetingHttpIT` and `PlanningHttpIT`, which boot the ledger and drive it over HTTP against a real PostgreSQL; and `LedgerContractIT`, which pins the generated OpenAPI document to `contracts/ledger-v1.openapi.json` | `make test-ledger` |
 | Gateway smoke | `GatewayApplicationIT` boots the backend-for-frontend, asserts its Actuator health endpoint reports `UP`, refuses a foreign `Host` header with a 403 problem, confirms the Host allow-list filter runs first in the chain the server actually built and `springSecurityFilterChain` after it, and reads the real `Set-Cookie` to hold the session cookie `HttpOnly` and `SameSite=Lax`. `HostAllowListFilterTest`, ported from the ledger, pins the allow-list's refusal, its problem shape and its start-up validation of a configured entry holding a port or an IPv6 literal | `make test-gateway` |
 | Gateway sign-in | `GatewaySecurityTest` drives the security chain: an unauthenticated request answers 401 problem+json and never a 302 to Keycloak, no `/login` page is generated, `GET /bff/me` reports the subject, name and only the roles FinAssist knows, a write without the `X-FINASSIST-XSRF-TOKEN` header is refused 403 `CSRF_TOKEN_INVALID`, sign-out ends the session and names the public post-logout URI, the login entry redirects to the public authorization URI with PKCE `S256`, and an unrouted path is denied. `KeycloakRegistrationTest` pins the split between the browser-facing and backchannel URLs, the public issuer, and the gateway's refusal to start without `GATEWAY_CLIENT_SECRET`. `SpaLogoutSuccessHandlerTest` pins its two start-up refusals — no `keycloak` registration, and one with no `end_session_endpoint` ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `make test-gateway` |
 | Gateway relay | `GatewayLoginFlowIT` drives a real code-plus-PKCE sign-in with a JDK `HttpClient` and cookie manager against a fake OpenID provider (a real RSA-signed ID token, no mock) and two fake downstream services: PKCE is sent and the browser lands on the public URL; a relayed call to the ledger carries `Authorization: Bearer <access token>` with its prefix stripped and its `Cookie` and `X-FINASSIST-XSRF-TOKEN` headers removed; the assistant route relays the same way; a downstream problem+json response passes through unchanged; an already-expired access token is refreshed before the call; a refresh Keycloak refuses invalidates the session and answers 401, never a redirect; an unreachable ledger answers 502 `UPSTREAM_UNAVAILABLE`; an ID token from a foreign issuer fails sign-in; and a full login-and-refused-refresh run's captured logs carry no token, code or session value. The callback is deliberately sent to the gateway's own test address rather than the registered `redirect_uri`, pinning that Spring compares only `state` at the callback (R1) | `make test-gateway` |
+| Gateway contract | `GatewayContractIT` pins the generated OpenAPI document — `GET /bff/me`, `POST /bff/logout`, the session-cookie and CSRF security schemes, and a `Problem` schema identical to the ledger's — to `contracts/gateway-v1.openapi.json` | `make test-gateway` |
 | Keycloak realm | `KeycloakRealmTest` reads `ops/keycloak/finassist-realm.json` as data — registration, password reset and remember-me off, brute-force protection on, the password policy, token lifetimes and rotation off, the gateway client's standard-flow-only and exact PKCE/redirect configuration, the assistant client's service-account-only configuration and its `assistant` role, the flat `roles` claim on both clients, each client's audience, the owner's forced `UPDATE_PASSWORD`/`CONFIGURE_TOTP`, the owner's pinned id, and — the one guarantee that matters most — that every secret and credential in the file is an unresolved `${VAR}` placeholder, never a literal, with no `${VAR:default}` anywhere. `KeycloakRealmIT` builds `ops/keycloak/Dockerfile` with Testcontainers `ImageFromDockerfile` and runs the real image against a real PostgreSQL: the discovery document's issuer is the public URL even though the test reaches Keycloak on a random mapped port, and the assistant's client-credentials token carries `iss`, `aud=[finassist-ledger]`, `roles` containing `assistant`, a `sub`, and an RS256 `kid` present in the realm's JWKS | `make test-gateway` |
 | Assistant architecture | Every source file is parsed: no inward module imports a framework or the adapters, no module imports another context, no domain module names `float` or reads the wall clock. The scanner itself is unit-tested | `make test-assistant` |
 | Assistant domain | FIFO cost basis, the grounding rule, quote staleness, Money and Currency | `make test-assistant` |
 | Assistant properties | The same Money laws, plus FIFO conservation, via Hypothesis run derandomised | `make test-assistant` |
+| Assistant authorization | `test_auth.py` drives `TokenVerifier` over the same token-integrity edges — the leeway on `exp`, `nbf` and `iat`, a missing claim, the wrong audience or issuer, the `none` algorithm, HS256 keyed with the public key, an unknown key id and an unreachable key source — and a real `PyJWKClient`. `test_authorization.py` drives the app over HTTP: 401 with the right challenge, 503 for a JWKS outage, a foreign `Host` refused before authentication, `owner` and `viewer` admitted, every other role 403, 403 before 415 on a disposal, and every route declaring exactly one permission | `make test-assistant` |
 | Assistant HTTP | `test_portfolio_api.py` calls the portfolio endpoints over HTTP against a seeded assembly: decimals as strings, camelCase members, 415 for a non-JSON disposal, and no amount in a URL or the access log; `test_problems.py` holds every failure to the ledger's problem shape and codes, a foreign `Host` to the ledger's 403, no exception text on a 5xx, and no rejected input in a 5xx's log line; `test_contract.py` pins the generated OpenAPI document to `contracts/assistant-v1.openapi.json` and holds its `Problem` schema identical to the ledger's | `make test-assistant` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
 | Web architecture | No feature imports another; `shared` imports no feature and nothing from `src/app`; `src/app` imports a feature only through its `index.ts`, and no feature imports `src/app` | `make test-web` |
 | Web unit | The HTTP client's failure contracts and `Accept` header; the shared retry rule, `isRetryable` — a read retried once after a network failure or a 5xx other than a 503, a write never, and "Try again" offered on a failed read by the same rule — with focus moved to what a successful retry restores; a settled mutation cleared when its form is edited, and a pending one left alone; a jsdom render of the app shell; and the shared UI primitives: labelled fields, a pending button, a table region that is a Tab stop only while it overflows, money formatted from its exact decimal string, and dates that never shift with the timezone | `make test-web` |
 | Web sign-in | `SessionGate` renders `SignIn` on a 401 `UNAUTHENTICATED`, a retryable `QueryErrorState` on anything else, and its children — with the resolved session, through `SessionContext` — once the session check succeeds; `SignIn` links to the gateway's OIDC entry as a plain `<a>`, never a `fetch`, and shows an explanation for `?signin=failed`; `UserMenu` shows the signed-in name and a "Read-only" badge for a `viewer`, sends the CSRF header on sign-out, clears the whole query cache and navigates to the URL the gateway answers, sends only one request for two presses before it renders again, and never navigates for a non-`http(s)` URL such as `javascript:`; `browserLocation.assign` refuses a `javascript:`, `data:` or malformed URL outright; `queryClient.ts` rechecks the session once on any other query's or mutation's 401 and never on the session check's own, which would loop | `make test-web` |
+| Web read-only | `writeAccess.test.tsx` and `access.test.ts` pin who may write, and each screen with a control that changes data has a test that a `viewer` is not offered it | `make test-web` |
 | Web accounting | The accounts, account-detail and record-transaction screens end to end against a faked `fetch`: opening an account, recording a transaction by hand — including its two-entry amount mirror and the entry-row mapper's no-arithmetic sign handling — and clearing, reconciling or voiding one, offered only for the states each legally admits | `make test-web` |
 | Web budgeting | The budgets, budget-review and categorisation-rules screens end to end against a faked `fetch`: listing and defining budgets, the month-to-period mapping's calendar arithmetic (including a December rollover) and a non-month period's own display-end arithmetic, reviewing spend with an overspent status and unbudgeted and uncategorised amounts, not-found by problem code, the static `/budgets/rules` route outranking the dynamic `/budgets/:budgetId` one, and adding a rule invalidating the rules list and every cached budget review, proven through the query client's own state | `make test-web` |
 | Web planning | The planned-flows, scenarios, projection and comparison screens end to end against a faked `fetch`: planning a flow and moving it through its lifecycle, defining a scenario, projecting one against chosen accounts with its first shortfall and its chart, comparing scenarios against a baseline, and the account choices `src/app` adapts from accounting | `make test-web` |
@@ -443,11 +520,13 @@ Tests are named `Given<scenario>_When<action>_Then<result>` — the reason Ruff'
 disabled for `tests/**`, with the justification recorded in `backend/assistant/pyproject.toml`.
 
 **What CI gates on:** every push and pull request to `main` and `dev` must pass five jobs —
-the ledger's format check, build and tests; the gateway's format check, build and tests; the
-assistant's lint, format check, `mypy --strict`, tests and `pip-audit`; the web client's
+the ledger's format check, build and tests; the gateway's format check, build and tests,
+`KeycloakRealmIT` included; the assistant's lint, format check, `mypy --strict`, tests and
+`pip-audit`, plus the smoke check's lint and types (`make lint-smoke`); the web client's
 contract types, regenerated from `contracts/` with no changed or new file, then lint, format
 check, typecheck, tests, production build and `npm audit`; and a `docker compose config`
-validation, `monitoring` profile included.
+validation, with the `monitoring` and `smoke` profiles included. No CI job starts the Compose
+stack.
 
 **Coverage is measured everywhere and gates nothing.** JaCoCo, `pytest-cov` and
 `@vitest/coverage-v8` run as part of the test targets, and each CI job publishes its report as
@@ -491,8 +570,8 @@ in the repository, the logs or an error message.
 | Variable | Purpose | Default |
 |---|---|---|
 | `LEDGER_PORT` | Ledger HTTP port | `8080` |
-| `LEDGER_ADDRESS` | Interface the ledger binds. Loopback by default, kept as defence in depth now that the gateway fronts it too ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), carrying [ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)'s loopback rule forward); `0.0.0.0` only inside a container | `127.0.0.1` |
-| `LEDGER_ALLOWED_HOSTS` | Comma-separated host names the ledger answers to. An entry containing a `:`, a `[` or a `]`, which covers a port and every IPv6 literal, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), carrying [ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)'s defence forward) | `localhost,127.0.0.1` |
+| `LEDGER_ADDRESS` | Interface the ledger binds. Loopback by default, kept as defence in depth now that the gateway fronts it too ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)); `0.0.0.0` only inside a container | `127.0.0.1` |
+| `LEDGER_ALLOWED_HOSTS` | Comma-separated host names the ledger answers to. An entry containing a `:`, a `[` or a `]`, which covers a port and every IPv6 literal, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `localhost,127.0.0.1` |
 | `LEDGER_DB_URL` | JDBC URL. Compose sets this itself, to the service name `db`, for the `ledger` container; this default targets a native `./mvnw spring-boot:run` at the Compose `db` service's published port | `jdbc:postgresql://localhost:5432/finassist` |
 | `LEDGER_DB_USERNAME` | Ledger database user | `finassist` |
 | `LEDGER_OIDC_ISSUER` | The issuer every token's `iss` claim must name. Always the public URL a browser signed in against, never an internal one ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), [ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) | `http://localhost:8081/realms/finassist` |
@@ -501,8 +580,8 @@ in the repository, the logs or an error message.
 | `KEYCLOAK_ADMIN_USERNAME` | Keycloak's own bootstrap admin username — not one of FinAssist's own roles | `admin` |
 | `FINASSIST_OWNER_USERNAME` | The owner's sign-in username in the `finassist` realm, seeded with the `owner` role | `owner` |
 | `GATEWAY_PORT` | Gateway HTTP port | `8090` |
-| `GATEWAY_ADDRESS` | Interface the gateway binds. Loopback by default, matching the ledger and the assistant while neither of them enforces authentication yet; `0.0.0.0` only inside a container | `127.0.0.1` |
-| `GATEWAY_ALLOWED_HOSTS` | Comma-separated host names the gateway answers to. An entry containing a `:`, a `[` or a `]`, which covers a port and every IPv6 literal, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), carrying [ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)'s defence forward) | `localhost,127.0.0.1` |
+| `GATEWAY_ADDRESS` | Interface the gateway binds. Loopback by default, matching the ledger and the assistant, kept as defence in depth alongside the OIDC sign-in ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)); `0.0.0.0` only inside a container | `127.0.0.1` |
+| `GATEWAY_ALLOWED_HOSTS` | Comma-separated host names the gateway answers to. An entry containing a `:`, a `[` or a `]`, which covers a port and every IPv6 literal, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `localhost,127.0.0.1` |
 | `GATEWAY_PUBLIC_URL` | The origin the browser reaches FinAssist through — the Vite dev server, which proxies `/bff` to the gateway. Every redirect the gateway issues is absolute and built from this, never from a forwarded header. Open `localhost`, not `127.0.0.1`: cookies are keyed by host name, so the other one cannot find the sign-in's own session | `http://localhost:5173` |
 | `GATEWAY_OIDC_PUBLIC_URL` | Keycloak as the browser sees it. The sign-in and sign-out URLs handed to the browser are built from this, and so is the issuer every token must name | `http://localhost:8081` |
 | `GATEWAY_OIDC_INTERNAL_URL` | Keycloak as the gateway itself reaches it. The same value when running natively; under Compose it is the container name, which the browser cannot resolve — which is why the two are separate | `http://localhost:8081` |
@@ -515,8 +594,8 @@ in the repository, the logs or an error message.
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; each service appends its own signal path | `http://localhost:4318` |
 | `OTEL_EXPORT_ENABLED` | Whether to export telemetry at all — traces, metrics, and the ledger's OTLP log export, which nothing feeds yet. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` |
 | `ASSISTANT_LOG_LEVEL` | Threshold for the assistant's structured logger; one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
-| `ASSISTANT_HOST` | Interface the assistant binds. Loopback by default, kept as defence in depth now that the gateway fronts it too ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), carrying [ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)'s loopback rule forward); `0.0.0.0` only inside a container, where Compose sets it | `127.0.0.1` |
-| `ASSISTANT_ALLOWED_HOSTS` | Comma-separated host names the assistant answers to. An entry containing a `:` or a `[`, which covers a port and every IPv6 literal, or a wildcard, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), carrying [ADR-027](docs/ADRs/ADR-027-defer-authentication-and-bind-to-loopback.md)'s defence forward) | `localhost,127.0.0.1` |
+| `ASSISTANT_HOST` | Interface the assistant binds. Loopback by default, kept as defence in depth now that the gateway fronts it too ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)); `0.0.0.0` only inside a container, where Compose sets it | `127.0.0.1` |
+| `ASSISTANT_ALLOWED_HOSTS` | Comma-separated host names the assistant answers to. An entry containing a `:` or a `[`, which covers a port and every IPv6 literal, or a wildcard, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `localhost,127.0.0.1` |
 | `ASSISTANT_OIDC_ISSUER` | The issuer every bearer token's `iss` claim must name. Always the public URL a browser signed in against, never an internal one ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), [ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) - the same value the ledger is configured with. Refused at start-up unless it is an http(s) URL | `http://localhost:8081/realms/finassist` |
 | `ASSISTANT_OIDC_JWKS_URI` | Where the assistant fetches signing keys, service-to-service. Compose overrides this with the internal address, `http://keycloak:8080/realms/finassist/protocol/openid-connect/certs`; this default targets a native run against Keycloak's own published port. Also refused at start-up unless it is an http(s) URL | `http://localhost:8081/realms/finassist/protocol/openid-connect/certs` |
 | `ASSISTANT_DEV_SEED` | Loads a small set of fictional holdings and quotes at start-up, so the portfolio screens have something to show by hand. Invented data, never meant for real use | `false` |
@@ -543,15 +622,17 @@ Dockerfile.
 
 | Concern | Endpoint or format | State |
 |---|---|---|
-| Liveness | `GET /actuator/health/liveness` (ledger), `GET /health` (assistant) | Live, returns `UP` |
-| Readiness | `GET /actuator/health/readiness` (ledger), `GET /ready` (assistant) | Live, returns `UP` |
-| Metrics | `GET /actuator/metrics`, `GET /actuator/prometheus` | Live, and scraped by the monitoring profile; no domain metric yet |
+| Liveness | `GET /actuator/health/liveness` (ledger and gateway), `GET /health` (assistant) | Live, returns `UP` |
+| Readiness | `GET /actuator/health/readiness` (ledger and gateway), `GET /ready` (assistant); Keycloak's `/health/ready` on its management port, 9000, inside its container only | Live. Compose judges Keycloak ready by that endpoint's HTTP status line alone, and the ledger, the gateway and the assistant wait for it |
+| Metrics | `GET /actuator/metrics`, `GET /actuator/prometheus` (ledger) | Live, and scraped by the monitoring profile; no domain metric yet |
 | Traces | OTLP to `$OTEL_EXPORTER_OTLP_ENDPOINT` | Live when `OTEL_EXPORT_ENABLED=true`; dropped otherwise, and the services start either way |
-| Logs | JSON on stdout, carrying a W3C trace id | Live — ECS in the ledger, structlog in the assistant. Redaction is enforced in the assistant and the web client, where the secrets are; the ledger holds none and does not expose `/actuator/env` |
+| Logs | JSON on stdout, carrying a W3C trace id | Live — ECS in the ledger and the gateway, structlog in the assistant. Redaction is enforced at the assistant's and the web client's logging boundaries; the ledger and the gateway log no credential at all — a refused token as its reason category alone, a failed sign-in as its OAuth2 error code — and the ledger does not expose `/actuator/env` |
 | Dashboards | Grafana, provisioned from `ops/grafana/` | Live under the `monitoring` profile |
 | Audit trail | The append-only journal | Live — the database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states; a lifecycle change appends rather than overwrites ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md), [ADR-024](docs/ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
-| Ledger API | `GET/POST /api/v1/...`; OpenAPI document at `GET /v3/api-docs`, pinned as [`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json) | Live for accounting, budgeting and planning; the web client's screens for all three call it |
-| Assistant API | `GET/POST /api/v1/portfolio/...`; OpenAPI document at `GET /openapi.json`, pinned as [`contracts/assistant-v1.openapi.json`](contracts/assistant-v1.openapi.json) | Live for portfolio, answering from the development seed or from nothing; the web client's portfolio screens call it |
+| Ledger API | `GET/POST /api/v1/...`, each needing a bearer token that grants `ledger:read` or `ledger:write`; OpenAPI document at `GET /v3/api-docs`, pinned as [`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json) | Live for accounting, budgeting and planning; the web client's screens for all three call it, through the gateway |
+| Assistant API | `GET/POST /api/v1/portfolio/...`, each needing a bearer token that grants `portfolio:read`; OpenAPI document at `GET /openapi.json`, pinned as [`contracts/assistant-v1.openapi.json`](contracts/assistant-v1.openapi.json) | Live for portfolio, answering from the development seed or from nothing; the web client's portfolio screens call it, through the gateway |
+| Gateway | The login entry and callback, `GET /bff/me` and `POST /bff/logout` under `/bff/`, and the relays under `/ledger/api/v1/**` and `/assistant/api/v1/**`; its contract is pinned as [`contracts/gateway-v1.openapi.json`](contracts/gateway-v1.openapi.json), and its own `/v3/api-docs` stays denied | Live; the web client's dev proxy sends it every call |
+| Identity | Keycloak at `http://localhost:8081`: the admin console at `/admin`, the owner's account console at `/realms/finassist/account` | Live under Compose, published on `127.0.0.1` only |
 
 Run the telemetry backend with `docker compose --profile monitoring up`: Grafana on
 [localhost:3000](http://localhost:3000), Prometheus on
@@ -617,10 +698,10 @@ HTTP carries no runtime schema, and contract drift is silent until CI compares t
 **Sign-in through a gateway, permissions decided by each service**
 ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md),
 [ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md),
-[ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)) — decided; the gateway's
-sign-in is built, the rest is not. None of the triggers that had deferred authentication had
-fired; the owner chose to build it to a professional standard anyway. The browser signs in with OIDC at a backend-for-frontend
-gateway that keeps access and refresh tokens on the server, a self-hosted Keycloak with its realm
+[ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)) — built. None of the
+triggers that had deferred authentication had fired; the owner chose to build it to a
+professional standard anyway. The browser signs in with OIDC at a backend-for-frontend gateway
+that keeps access and refresh tokens on the server, a self-hosted Keycloak with its realm
 committed as code issues the tokens, and the ledger and the assistant each validate a bearer
 token and decide from their own role table what it may do, denying anything unlisted. Tokens held
 in the browser were rejected because any script on the page could read them, and authorising at
@@ -640,10 +721,14 @@ the database itself refuses to rewrite. **The ledger now serves accounting, budg
 planning over HTTP** under `/api/v1`, behind a Host allow-list and problem+json error handling,
 with its generated OpenAPI document pinned by `LedgerContractIT` and published as
 [`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json); it runs under Compose as
-well as natively. Thirty-four ADRs. Every architecture rule is live rather than dormant, and each
-was confirmed to fail against a planted violation — including dropping the append-only trigger and
-planting a foreign key across a schema boundary. CI gates build, lint, format and dependency audit
-across four jobs, and publishes a coverage report from each.
+well as natively. **Every business request is authenticated**: the browser signs in with OIDC at
+a backend-for-frontend gateway against a self-hosted Keycloak, the ledger and the assistant each
+validate a bearer token and deny by default, and every journal row written from `V1_2` onward
+names who wrote it. Thirty-four ADRs. Every architecture rule is live rather than dormant, and
+each was confirmed to fail against a planted violation — including dropping the append-only
+trigger and planting a foreign key across a schema boundary. CI gates build, lint, format and
+dependency audit across five jobs, and publishes a coverage report from each of the four that
+run tests.
 
 **Four slices now run end to end**: the web client's accounting area opens an account, records a
 transaction by hand, and moves one through `Clear`, `Reconcile` and `Void`; its budgeting area
@@ -658,12 +743,38 @@ ledger client behind its own `LedgerPort`.
 
 Known limitations:
 
-- **The backend HTTP APIs have one caller so far: the web client.** The ledger serves accounting,
-  budgeting and planning under `/api/v1`, with an OpenAPI document pinned by `LedgerContractIT`;
-  the assistant serves `portfolio` under `/api/v1`, pinned by `tests/test_contract.py`. The web
-  client's accounting, budgeting and planning screens call the ledger's, and its portfolio screens
-  the assistant's. The assistant has no ledger client of its own — `LedgerPort` is still an
-  in-memory stand-in.
+- **The backend HTTP APIs have one caller so far: the web client, through the gateway.** The
+  ledger serves accounting, budgeting and planning under `/api/v1`, with an OpenAPI document
+  pinned by `LedgerContractIT`; the assistant serves `portfolio` under `/api/v1`, pinned by
+  `tests/test_contract.py`. The web client's accounting, budgeting and planning screens call the
+  ledger's, and its portfolio screens the assistant's. The assistant has no ledger client of its
+  own — `LedgerPort` is still an in-memory stand-in.
+- **Sessions live in memory.** Restarting the gateway signs everyone out, and a second gateway
+  instance would need a shared session store
+  ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)).
+- **There is no TLS.** Everything is plain HTTP on loopback, which is what makes that acceptable;
+  `GATEWAY_COOKIE_SECURE` must become `true` behind TLS, and a port reachable from a network would
+  carry tokens and cookies in clear text (ADR-030).
+- **A realm change needs a fresh `keycloak-db` volume or `kc.sh import --override`.** Keycloak
+  imports `ops/keycloak/finassist-realm.json` — with the client secrets and the owner's initial
+  password from `.env` — only into an empty `keycloak-db-data` volume, so editing any of them
+  changes nothing for an existing one until that volume is recreated or the realm is re-imported
+  by hand. Never recreate it with `docker compose down -v`, which deletes the ledger's `db-data`
+  volume too. The smoke check cannot tell a stale realm from a current one
+  ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md),
+  [ADR-034](docs/ADRs/ADR-034-keep-the-compose-smoke-check-manual.md)).
+- **Nothing serves the built bundle** ([#61](https://github.com/NaimElijah/FinAssist/issues/61)).
+  `npm run build` produces it, but only the Vite dev and preview servers, with their proxy to the
+  gateway, stand in front of the web client, and no deployment target has been chosen.
+- **Roles refresh only at the next sign-in.** The web client shows the roles `GET /bff/me` reads
+  from the ID token issued at sign-in, so a role changed in Keycloak reaches what it shows and
+  offers only once that person signs in again
+  ([ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)).
+- **Clock drift under WSL2 can refuse a valid token.** The ledger and the assistant check `exp`,
+  `nbf` and `iat` with 30 seconds of leeway. WSL2's virtual machine is known to drift further,
+  typically after the host sleeps, and then a fresh token looks expired or not yet valid: it is
+  answered 401 and logged with the reason `lifetime`. Restarting the virtual machine resyncs its
+  clock: `wsl --shutdown`, then start Docker Desktop again.
 - **The assistant's portfolio data comes only from an opt-in development seed.**
   `ASSISTANT_DEV_SEED`, off by default, loads a small set of fictional lots and quotes from the
   composition root so the endpoints have something to answer by hand; it is a development aid,
@@ -676,8 +787,9 @@ Known limitations:
   ([#63](https://github.com/NaimElijah/FinAssist/issues/63))
   ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md),
   [ADR-033](docs/ADRs/ADR-033-the-journal-records-who.md)).
-- **Docker is required to test the ledger**, not only to run it. The store is tested against a
-  real PostgreSQL, and the suite fails rather than skipping when no daemon answers
+- **Docker is required to test the ledger and the gateway**, not only to run them. The ledger's
+  store is tested against a real PostgreSQL and the gateway's `KeycloakRealmIT` against the real
+  Keycloak image, and both suites fail rather than skip when no daemon answers
   ([ADR-025](docs/ADRs/ADR-025-integration-tests-on-testcontainers.md)).
 - **Domain events have no subscriber.** They are raised, recorded in an append-only in-memory
   log and asserted by tests, and read by no production code. That is the cost
@@ -717,9 +829,10 @@ Known limitations:
   because no price source has been chosen or licence-checked.
 - **TypeScript is one minor behind.** Pinned to 6.0.3 because `typescript-eslint` 8 caps at
   `<6.1.0`; lifts when it supports 7.
-- **The Postgres image tag, and the monitoring services' tags, are bumped by hand.** Dependabot's
-  `docker` ecosystem covers the ledger's and the assistant's own Dockerfiles; there is still no
-  `docker-compose` ecosystem for the image tags named directly in `docker-compose.yml`.
+- **The image tags named directly in `docker-compose.yml` are bumped by hand** — both PostgreSQL
+  tags, the smoke check's Python image and the monitoring services'. Dependabot's `docker`
+  ecosystem covers the ledger's, the gateway's and the assistant's own Dockerfiles and
+  `ops/keycloak/Dockerfile`; there is still no `docker-compose` ecosystem for the rest.
 
 ## Licence
 
