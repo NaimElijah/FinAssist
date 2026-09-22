@@ -11,7 +11,7 @@ a refused token still carries a correlation id only because authentication runs 
 correlation middleware, and a foreign Host is refused with no token present only because the
 Host check runs *before* authentication is even attempted. Both properties would go red if the
 order in ``app.py`` were reversed - which was confirmed by hand and reverted before this file was
-committed, per the plan's "prove the rule fails" step.
+committed, because a rule that has never failed is not evidence.
 """
 
 from __future__ import annotations
@@ -291,7 +291,7 @@ def Given_the_role_table_When_read_Then_owner_and_viewer_grant_portfolio_read() 
 
 
 def Given_the_role_table_When_read_Then_the_assistant_role_is_absent() -> None:
-    """ "assistant" grants nothing (ADR-004, ADR-030's Vocabulary) by being absent from the
+    """ "assistant" grants nothing (ADR-004, ADR-032) by being absent from the
     table, exactly like an unknown role - there is no third branch to keep in step."""
     assert "assistant" not in ROLE_PERMISSIONS
 

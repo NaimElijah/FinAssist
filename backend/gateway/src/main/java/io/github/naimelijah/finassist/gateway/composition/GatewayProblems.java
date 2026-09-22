@@ -13,16 +13,15 @@ import tools.jackson.databind.json.JsonMapper;
  * The gateway's stable RFC 9457 problem codes, and the writer that serialises one in the ledger's
  * shape (ADR-028, extended by ADR-030).
  *
- * <p>Every code the gateway will ever answer was declared here up front, before every task that
- * would come to return one: {@link HostAllowListFilter} answers {@code HOST_NOT_ALLOWED};
- * {@code GatewaySecurityConfiguration}'s entry point answers {@code UNAUTHENTICATED} alone, and
- * its access-denied handler answers both {@code FORBIDDEN} and {@code CSRF_TOKEN_INVALID},
- * branching on whether the denial was a CSRF failure — its sign-in failure handler answers
- * neither, since a failed sign-in redirects the browser rather than answering a problem; and
- * {@code GatewayRelayProblems} answers {@code UPSTREAM_UNAVAILABLE} and {@code INTERNAL_ERROR}
- * for a relay's own failures. Declaring the whole vocabulary up front, rather than letting each
- * task add its own constant, is what kept every later task from inventing a second name for a
- * code this one already fixed.
+ * <p>Every code the gateway answers is declared here, in one place: {@link HostAllowListFilter}
+ * answers {@code HOST_NOT_ALLOWED}; {@code GatewaySecurityConfiguration}'s entry point answers
+ * {@code UNAUTHENTICATED}, and its access-denied handler answers both {@code FORBIDDEN} and {@code
+ * CSRF_TOKEN_INVALID}, branching on whether the denial was a CSRF failure — its sign-in failure
+ * handler answers neither, since a failed sign-in redirects the browser rather than answering a
+ * problem; and {@code GatewayRelayProblems} answers {@code UNAUTHENTICATED} for a refused refresh,
+ * and {@code UPSTREAM_UNAVAILABLE} and {@code INTERNAL_ERROR} for a relay's other failures.
+ * Keeping the whole vocabulary in one class, rather than a constant beside each caller, is what
+ * stops a second name being invented for a code already fixed.
  *
  * <p>{@code title} and {@code detail} are prose for a person and may be reworded; {@code code} is
  * what a client branches on and does not change once served.
@@ -31,9 +30,8 @@ import tools.jackson.databind.json.JsonMapper;
  * gateway has no dispatcher-level problem handler for this failure to reach: a {@code
  * @RestControllerAdvice} only sees a request that reached a controller, and a filter or a
  * security entry point that refuses a request earlier has to write its own body, exactly as the
- * ledger's own {@code HostAllowListFilter} does. One writer, reused by every filter and, from the
- * task that adds Spring Security, every entry point and access-denied handler, is what keeps
- * their bodies in one shape.
+ * ledger's own {@code HostAllowListFilter} does. One writer, reused by every filter, entry point
+ * and access-denied handler, is what keeps their bodies in one shape.
  */
 final class GatewayProblems {
 

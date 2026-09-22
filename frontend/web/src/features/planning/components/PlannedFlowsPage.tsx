@@ -122,7 +122,7 @@ function stateCellId(flowId: string): string {
 /**
  * The buttons offering this status's legal actions, or nothing for a frozen flow or a read-only
  * session (`useWriteAccess`) - Commit, Realise and Cancel all change data, so none is offered to
- * a viewer (Task 16).
+ * a viewer (ADR-032).
  */
 function LifecycleButtons({
     status,
@@ -499,7 +499,7 @@ function PlannedFlowsList({
  * Planning a flow moves focus to its new row's description, once - the one success signal,
  * mirroring `AccountsPage`'s own pattern.
  *
- * A read-only session (`useWriteAccess`) sees neither the form nor a lifecycle action (Task 16).
+ * A read-only session (`useWriteAccess`) sees neither the form nor a lifecycle action (ADR-032).
  */
 export function PlannedFlowsPage() {
     const { canWrite } = useWriteAccess();

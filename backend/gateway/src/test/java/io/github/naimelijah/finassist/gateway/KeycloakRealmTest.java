@@ -181,11 +181,13 @@ class KeycloakRealmTest {
     }
 
     /**
-     * {@code clientScopes} is deliberately absent from the realm (see the Dockerfile and the
-     * task report): declaring one, even to add these three, silently drops Keycloak's own
-     * default scopes - {@code basic} included, which is what carries {@code sub} - so the
-     * mappers below live on each client directly instead. Every scope name the plan settled on
-     * survives as a mapper name, so the vocabulary is unchanged even though the mechanism is not.
+     * {@code clientScopes} is deliberately absent from the realm: declaring one, even to add
+     * these three, silently drops Keycloak's own default scopes - {@code basic} included, which
+     * is what carries {@code sub} - so the mappers below live on each client directly instead.
+     * Each client scope ADR-031 lists survives as a mapper of the same purpose on the clients
+     * whose tokens need it - {@code finassist-roles} on both, and an audience mapper for each
+     * audience a client's tokens carry - so what a token carries is unchanged even though the
+     * mechanism is not.
      */
     @Test
     void Given_the_realm_file_When_read_Then_no_top_level_client_scope_is_declared() {

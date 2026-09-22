@@ -295,8 +295,8 @@ describe('App', () => {
     });
 
     it('Given_a_signed_in_session_When_a_later_ledger_call_answers_401_Then_the_sign_in_screen_returns', async () => {
-        // The gateway's own session can end mid-visit - a restart, or the in-memory session
-        // expiring (R6) - and the next ledger call is what notices it first, not another /bff/me
+        // The gateway's own session can end mid-visit - a restart, or its 30-minute idle timeout
+        // (ADR-030) - and the next ledger call is what notices it first, not another /bff/me
         // poll. queryClient.ts is what turns that into a fresh sign-in screen.
         let meRequests = 0;
         fakeFetch((request) => {

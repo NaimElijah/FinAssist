@@ -52,7 +52,7 @@ _JSON_MEDIA_TYPE: Final = "application/json"
 _NOT_JSON_DETAIL: Final = "The request body must be application/json."
 
 READ_PORTFOLIO: Final = "portfolio:read"
-"""This context's one permission (ADR-030's Vocabulary): every route here only ever reads.
+"""This context's one permission (ADR-032): every route here only ever reads.
 
 Owned by this module, not by the composition root, which keeps its own copy in
 ``adapters.auth.ROLE_PERMISSIONS`` - a context may not import the composition root back, so the

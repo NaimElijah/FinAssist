@@ -39,8 +39,8 @@ import org.springframework.boot.web.server.servlet.context.ServletWebServerAppli
  * {@code server.servlet.session.cookie.same-site} into a {@code CookieSameSiteSupplier} that
  * Tomcat's cookie processor applies as the header is written, so only a real {@code Set-Cookie}
  * proves it. {@code GatewaySecurityTest} covers the chain's own rules with MockMvc, which never
- * builds one. Nothing here exercises a route, because none exists yet - see {@code
- * GatewayApplication}'s Javadoc.
+ * builds one. Nothing here exercises a relay route; {@code GatewayLoginFlowIT} does, against fake
+ * downstream services.
  *
  * <p>Uses the JDK's {@link HttpClient} rather than {@code TestRestTemplate}, which Spring Boot 4
  * moved out of {@code spring-boot-starter-test} into a separate artefact the ledger also declined

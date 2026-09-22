@@ -12,8 +12,9 @@ import styles from './UserMenu.module.css';
  * `Layout`, which renders this, only once that fetch has already succeeded, so a second query
  * here would only add a redundant request on every mount (see `sessionContext.ts`).
  *
- * The "Read-only" badge names what a viewer cannot do here, in place of hiding write controls -
- * that gating is Task 16's; this task only shows who is signed in and lets them leave.
+ * The "Read-only" badge tells a viewer why no control that changes data is offered. Hiding those
+ * controls is each screen's own job, through `useWriteAccess`; this component only shows who is
+ * signed in and lets them leave.
  */
 export function UserMenu() {
     const session = useSignedInSession();

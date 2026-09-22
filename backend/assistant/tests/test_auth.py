@@ -122,7 +122,7 @@ def Given_a_valid_token_When_verified_Then_the_principal_carries_its_subject(
     assert principal == Principal(subject=SUBJECT)
 
 
-# --- roles: read defensively from the already-verified claims (ADR-030's Vocabulary) ----------
+# --- roles: read defensively from the already-verified claims (ADR-032's role table) ----------
 
 
 def Given_a_token_naming_one_role_When_verified_Then_the_principal_carries_it(
@@ -284,7 +284,7 @@ def Given_a_token_with_no_exp_claim_When_verified_Then_it_is_refused(
     static_key_source: KeySource,
     fixed_clock: Clock,
 ) -> None:
-    """Trap 2: turning PyJWT's own ``verify_exp`` off must not turn ``require`` off with it.
+    """Turning PyJWT's own ``verify_exp`` off must not turn ``require`` off with it.
 
     Read from the installed ``jwt.api_jwt`` source: ``_validate_required_claims`` runs
     unconditionally, before any ``verify_*`` flag is inspected, so ``exp`` still has to be
@@ -331,7 +331,7 @@ def Given_a_token_not_yet_valid_within_the_leeway_When_verified_Then_it_is_accep
     assert principal.subject == SUBJECT
 
 
-# --- iat: Trap 1, the check the ledger's first pass omitted entirely --------------------------
+# --- iat: required, and refused from the future - the check a stock validator skips ------------
 
 
 def Given_a_token_issued_beyond_the_leeway_in_the_future_When_verified_Then_it_is_refused(
@@ -367,7 +367,7 @@ def Given_a_token_with_no_issued_at_When_verified_Then_it_is_refused(
     static_key_source: KeySource,
     fixed_clock: Clock,
 ) -> None:
-    """``iat`` is required, not merely checked when present - the other half of Trap 1."""
+    """``iat`` is required, not merely checked when present - the other half of the iat check."""
     private_key, _ = rsa_key_pair
     token = _encode(private_key, _without(_valid_claims(fixed_clock()), "iat"))
 
@@ -608,7 +608,7 @@ def Given_a_blank_token_When_verified_Then_it_is_refused(
     assert refused.value.reason == REASON_MISSING
 
 
-# --- the real PyJWKClient, against a real JWKS endpoint (V17) ----------------------------------
+# --- the real PyJWKClient, against a real JWKS endpoint ----------------------------------------
 
 
 @pytest.fixture
@@ -693,7 +693,7 @@ def Given_no_override_When_settings_are_built_Then_the_oidc_defaults_target_loca
     assert settings.oidc_jwks_uri == f"{ISSUER}/protocol/openid-connect/certs"
 
 
-# --- redaction: the fragments this task adds ----------------------------------------------------
+# --- redaction: the fragments that name authentication's credentials ---------------------------
 
 
 @pytest.mark.parametrize(

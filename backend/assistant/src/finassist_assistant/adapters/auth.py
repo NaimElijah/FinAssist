@@ -102,7 +102,7 @@ computed against.
 """
 
 ASSISTANT_AUDIENCE: Final = "finassist-assistant"
-"""This service's own audience (ADR-032's Vocabulary).
+"""This service's own audience (ADR-032).
 
 Fixed here, not read from the environment: a caller cannot redirect the assistant into accepting
 a token meant for another audience - such as the assistant's own service-account token, whose
@@ -110,10 +110,10 @@ audience names only the ledger - by configuration.
 """
 
 REQUIRED_CLAIMS: Final[tuple[str, ...]] = ("sub", "iss", "aud", "exp", "iat")
-"""ADR-030's Vocabulary: every one of these must be present, not merely valid when present."""
+"""ADR-030's token validation: every one of these must be present, not merely valid when present."""
 
 DEFAULT_LEEWAY: Final = timedelta(seconds=30)
-"""Clock-skew allowance either side of ``exp``, ``nbf`` and ``iat`` (ADR-030's Vocabulary)."""
+"""Clock-skew allowance either side of ``exp``, ``nbf`` and ``iat`` (ADR-030)."""
 
 _JWKS_CACHE_LIFESPAN_SECONDS: Final = 300
 _JWKS_TIMEOUT_SECONDS: Final = 5
@@ -175,7 +175,7 @@ class Principal:
     roles: frozenset[str] = field(default_factory=frozenset)
 
 
-class TokenRefused(Exception):  # noqa: N818 - ADR-030's Vocabulary fixes this exact name
+class TokenRefused(Exception):  # noqa: N818 - ADR-030's own term: a refused token, not an error
     """A bearer token was read but is not valid.
 
     :param reason: one of this module's fixed reason categories - never the token itself and
@@ -187,7 +187,7 @@ class TokenRefused(Exception):  # noqa: N818 - ADR-030's Vocabulary fixes this e
         self.reason = reason
 
 
-class KeySourceUnavailable(Exception):  # noqa: N818 - ADR-030's Vocabulary fixes this name
+class KeySourceUnavailable(Exception):  # noqa: N818 - ADR-030's term: an unreachable key source
     """The JWKS source could not be reached; this token's validity could not be decided.
 
     Deliberately a different exception type from :class:`TokenRefused`, mirroring the ledger's
@@ -321,8 +321,9 @@ class TokenVerifier:
         ``__call__`` already switched PyJWT's own timestamp checks off, so this is the only place
         any of the three is enforced, and it reads the clock this verifier was built with rather
         than the wall clock. ``exp`` and ``iat`` are guaranteed present by this point, because
-        ``require`` already refused a token missing either; ``nbf`` is optional, exactly as
-        ADR-030's Vocabulary leaves it, so it is checked only when present.
+        ``require`` already refused a token missing either; ``nbf`` is optional, since ADR-030
+        does not list it among the claims every token must carry, so it is checked only when
+        present.
         """
         now = self._clock()
         if _as_instant(claims["exp"]) < now - self._leeway:
@@ -339,7 +340,7 @@ class TokenVerifier:
 
 
 def _roles_from(claims: Mapping[str, Any]) -> frozenset[str]:
-    """The already-verified token's ``roles`` claim, read defensively (ADR-030's Vocabulary).
+    """The already-verified token's ``roles`` claim, read defensively (ADR-032's role table).
 
     A missing claim, one that is not a JSON array, and a non-string element each contribute no
     role, exactly as the ledger's ``LedgerPermissions.convert`` reads ``Jwt#getClaim`` rather
@@ -541,10 +542,10 @@ ROLE_PERMISSIONS: Final[Mapping[str, frozenset[str]]] = {
     "owner": frozenset({"portfolio:read"}),
     "viewer": frozenset({"portfolio:read"}),
     # "assistant" is deliberately absent: a service principal has no portfolio permission at all
-    # (ADR-004, ADR-030's Vocabulary), and it falls out of this table exactly as an unknown role
+    # (ADR-004, ADR-032), and it falls out of this table exactly as an unknown role
     # does - there is no third branch to keep in step with the other two.
 }
-"""Every permission a role grants, owned by this service alone (ADR-030's Vocabulary).
+"""Every permission a role grants, owned by this service alone (ADR-032).
 
 The ledger keeps its own copy in ``LedgerPermissions``; neither service reads the other's table.
 The permission string ``"portfolio:read"`` is duplicated from the router's own

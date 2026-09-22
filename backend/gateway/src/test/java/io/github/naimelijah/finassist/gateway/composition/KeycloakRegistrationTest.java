@@ -61,7 +61,7 @@ class KeycloakRegistrationTest {
 
     /**
      * The issuer is the public one because that is what Keycloak writes into every token's
-     * {@code iss} claim, and what the two resource servers will be configured to expect (ADR-030).
+     * {@code iss} claim, and what the two resource servers are configured to expect (ADR-030).
      * Taking it from the backchannel would reject every ID token the gateway received.
      */
     @Test

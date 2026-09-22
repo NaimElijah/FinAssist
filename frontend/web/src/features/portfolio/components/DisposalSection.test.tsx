@@ -93,8 +93,8 @@ function isDisposal(request: RecordedRequest): boolean {
  * Render a holding's page and wait for its position and valuation to show, so the calculator is
  * driven on a page no longer loading.
  *
- * `access` defaults to an owner's, matching `renderRoutes`'s own default, so every test written
- * before Task 16 needs no change; the one test proving the disposal section stays offered to a
+ * `access` defaults to an owner's, matching `renderRoutes`'s own default, so a test that is not
+ * about access passes nothing; the one test proving the disposal section stays offered to a
  * viewer passes `{canWrite: false}` deliberately.
  */
 async function renderSettledHolding(
@@ -159,7 +159,7 @@ afterEach(() => {
 describe('DisposalSection', () => {
     it('Given_a_read_only_session_When_a_holding_page_renders_Then_the_disposal_section_is_still_offered', async () => {
         // Pricing a disposal is a calculation that records nothing, so the assistant grants it
-        // under portfolio:read alone; a viewer must still be offered it (Task 16).
+        // under portfolio:read alone; a viewer must still be offered it (ADR-032).
         fakeFetch(assistant());
 
         await renderSettledHolding('/portfolio/VOO', { canWrite: false });

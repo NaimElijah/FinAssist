@@ -44,7 +44,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * <p>A real context, not a slice: the chain is the thing under test and a slice would load a
  * different one. There is no Keycloak, so {@code oidcLogin()} stands in for a completed sign-in —
  * it builds the same {@code OAuth2AuthenticationToken} the login flow would have stored. What that
- * cannot cover is the sign-in itself; a later task drives a full login against a real realm.
+ * cannot cover is the sign-in itself: {@code GatewayLoginFlowIT} drives the code-plus-PKCE login
+ * against a fake OpenID provider, and a sign-in against the real realm is checked only by hand,
+ * because its first sign-in enrols TOTP (the README's "First sign-in").
  *
  * <p>Every request names a {@code Host} because {@code HostAllowListFilter} still runs first, and a
  * {@code MockHttpServletRequest} sends no {@code Host} header of its own.

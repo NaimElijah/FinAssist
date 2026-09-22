@@ -12,8 +12,8 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 
 /**
- * Grants a permission for each role a token's {@code roles} claim names, from the role table ADR-030's
- * Vocabulary fixes (each service owns its own copy; the assistant's lives in {@code adapters/auth.py}).
+ * Grants a permission for each role a token's {@code roles} claim names, from the role table ADR-032
+ * fixes (each service owns its own copy; the assistant's lives in {@code adapters/auth.py}).
  *
  * <p>An unknown role, a missing {@code roles} claim, or one that is not a list, each grant nothing —
  * denied by default rather than by a caught exception. {@code LedgerSecurityConfiguration} wires this

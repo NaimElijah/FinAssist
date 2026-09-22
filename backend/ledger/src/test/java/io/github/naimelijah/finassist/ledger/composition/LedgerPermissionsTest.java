@@ -9,7 +9,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 
 /**
- * The role table ADR-030's Vocabulary fixes, and the three ways a token grants nothing: an unknown
+ * The role table ADR-032 fixes, and the three ways a token grants nothing: an unknown
  * role, a missing {@code roles} claim, and one that is not a list.
  */
 class LedgerPermissionsTest {

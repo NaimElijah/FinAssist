@@ -35,7 +35,7 @@ export interface SessionGateProps {
  * pending query in this app uses (`AccountsPage`'s "Loading accounts…", for one), rather than a
  * blank screen or a bespoke spinner.
  *
- * It also provides `WriteAccessContext` (Task 16), computed once from the session's roles through
+ * It also provides `WriteAccessContext` (ADR-032), computed once from the session's roles through
  * `writeAccessFor`, so every screen reads whether to offer a control that changes data from the
  * same resolved session rather than each recomputing it. Hiding a control there is a UX courtesy
  * only; the server enforces access regardless of what this context says.

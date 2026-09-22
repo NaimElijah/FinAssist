@@ -44,17 +44,17 @@
 
   <dependencies>
     <!-- Server Web MVC flavour of Spring Cloud Gateway: routes on the servlet stack, not
-         WebFlux, so the gateway's threading model matches the ledger's and the assistant's. No
-         route is declared yet - this task only proves the dependency resolves and boots. -->
+         WebFlux, so the gateway's threading model matches the ledger's and the assistant's. Its
+         two relay routes are declared in application.yml. -->
     <dependency>
       <groupId>org.springframework.cloud</groupId>
       <artifactId>spring-cloud-starter-gateway-server-webmvc</artifactId>
     </dependency>
     <!--
       Spring Security's OAuth2 client: the OIDC authorization-code login, the session that holds
-      the tokens, and the CSRF filter. Deliberately absent until now - this starter alone turns on
-      Boot's authenticate-everything default chain, which would have refused the health probe, so
-      it arrives together with GatewaySecurityConfiguration, which states the real rules.
+      the tokens, and the CSRF filter. This starter alone turns on Boot's authenticate-everything
+      default chain, which would refuse the health probe, so it belongs with
+      GatewaySecurityConfiguration, which states the real rules.
     -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -71,8 +71,8 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-opentelemetry</artifactId>
     </dependency>
-    <!-- Generates the gateway's OpenAPI document from the code, ahead of the /bff endpoints a
-         later task adds (ADR-028's pattern); the -api artifact only, no Swagger UI. -->
+    <!-- Generates the gateway's OpenAPI document of its /bff endpoints from the code (ADR-028's
+         pattern); the -api artifact only, no Swagger UI. -->
     <dependency>
       <groupId>org.springdoc</groupId>
       <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>

@@ -39,18 +39,18 @@ import tools.jackson.databind.json.JsonMapper;
  *   <li>{@code KC_HOSTNAME_BACKCHANNEL_DYNAMIC} does not leak the backchannel address into
  *       {@code iss} - the discovery document's issuer is asserted to be the <em>public</em> URL,
  *       even though this test necessarily reaches Keycloak on a random Testcontainers-mapped
- *       port rather than the fixed one production uses (R2 in the plan's risk list).
+ *       port rather than the fixed one production uses.
  *   <li>the assistant's service-account token actually carries the claims ADR-032 requires:
  *       {@code iss}, {@code aud=[finassist-ledger]}, {@code roles} containing {@code assistant},
  *       a {@code sub}, and an RS256 {@code kid} that is genuinely present in the realm's JWKS.
  * </ul>
  *
  * <p>Every realm placeholder is supplied here as a container environment variable, because the
- * realm has no defaults and Keycloak does not refuse an import over a missing one - see the task
- * report for what was actually observed (a missing variable is imported as the literal,
- * unresolved placeholder text, not blank and not a failure). The variable that matters for a
- * secret is instead enforced one layer up, by {@code :?} in docker-compose.yml, which this test
- * cannot exercise because it never goes through Compose.
+ * realm has no defaults and Keycloak does not refuse an import over a missing one: it imports
+ * the literal, unresolved placeholder text, neither blank nor a failure (observed against the real
+ * image when the realm was first drafted). The variable that matters for a secret is instead
+ * enforced one layer up, by {@code :?} in docker-compose.yml, which this test cannot exercise
+ * because it never goes through Compose.
  *
  * <p><b>What this deliberately does not prove: a real browser user token for the gateway.</b>
  * The assistant's service-account token is easy to mint here because its client permits
@@ -58,9 +58,9 @@ import tools.jackson.databind.json.JsonMapper;
  * standard authorization-code flow, which needs a login form this test does not drive. So
  * {@code basic}'s presence on the gateway's own tokens is checked only statically, in
  * {@link KeycloakRealmTest}'s {@code defaultClientScopes} assertion, never against a real image
- * the way the assistant's is. The end-to-end proof that a real browser sign-in against the
- * gateway actually produces a usable {@code sub} is the plan's final, manual sign-in check
- * (R7), not this test.
+ * the way the assistant's is. That a real browser sign-in against the gateway produces a usable
+ * {@code sub} is checked by hand, not by this test or any other: the owner's first sign-in enrols
+ * TOTP (the README's "First sign-in").
  */
 class KeycloakRealmIT {
 

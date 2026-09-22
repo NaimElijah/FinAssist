@@ -131,9 +131,9 @@ public class GatewaySecurityConfiguration {
                         // hiding a 500 behind a status that means something else entirely.
                         .dispatcherTypeMatchers(DispatcherType.ERROR)
                         .permitAll()
-                        // The login entry and the callback, and nothing else under /bff/. Deny by
-                        // default means anything a later task adds there has to be permitted on
-                        // purpose rather than inherited from a prefix.
+                        // Public: the login entry and the callback - nothing else under /bff/ -
+                        // and the health probes. Deny by default means a new path under /bff/ has
+                        // to be permitted on purpose rather than inherited from a prefix.
                         .requestMatchers(BffRoutes.LOGIN_ENTRY_PATTERN, BffRoutes.CALLBACK_PATTERN, HEALTH_PATTERN)
                         .permitAll()
                         .requestMatchers(BffRoutes.ME)

@@ -137,7 +137,7 @@ function ScenariosList({
  * Defining a scenario resets the form and moves focus to the new scenario's name in the list,
  * once - the one success signal, mirroring `AccountsPage`'s own pattern.
  *
- * A read-only session (`useWriteAccess`) sees the list alone; the form is hidden (Task 16).
+ * A read-only session (`useWriteAccess`) sees the list alone; the form is hidden (ADR-032).
  */
 export function ScenariosPage() {
     const { canWrite } = useWriteAccess();

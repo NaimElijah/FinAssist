@@ -114,8 +114,8 @@ describe('isReadOnly', () => {
     });
 
     it('Given_no_recognised_role_When_checked_Then_it_is_not_read_only', () => {
-        // Neither role is present: nothing this screen shows is a write control yet (Task 16),
-        // so there is nothing to badge as read-only.
+        // Neither role is present, so this is not a viewer and gets no badge; `writeAccessFor`
+        // still offers it no write control, which access.test.ts pins.
         expect(isReadOnly(sessionWithRoles([]))).toBe(false);
     });
 });

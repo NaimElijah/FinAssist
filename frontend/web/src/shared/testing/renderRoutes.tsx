@@ -22,8 +22,8 @@ export type RenderedRoutes = RenderResult & {
 export interface RenderRoutesOptions {
     /**
      * The write access the mounted screen sees. Defaults to an owner's (`{canWrite: true}`), so
-     * every screen test written before Task 16 keeps rendering with write access and needs no
-     * change; a test of a read-only session opts in deliberately.
+     * a screen test that is not about access renders with write access and passes nothing; a test
+     * of a read-only session opts in deliberately.
      */
     readonly access?: WriteAccess;
 }

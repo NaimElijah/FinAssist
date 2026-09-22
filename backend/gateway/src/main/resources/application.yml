@@ -2,9 +2,9 @@
 # relay to the ledger and the assistant, and the observability wiring ADR-019 records.
 server:
   port: ${GATEWAY_PORT:8090}
-  # Loopback by default, matching the ledger and the assistant while neither of them enforces
-  # authentication yet. A container overrides this with 0.0.0.0, because its own loopback is
-  # unreachable from the host.
+  # Loopback by default, matching the ledger and the assistant, and kept as defence in depth
+  # alongside the OIDC sign-in (ADR-030). A container overrides this with 0.0.0.0, because its own
+  # loopback is unreachable from the host.
   address: ${GATEWAY_ADDRESS:127.0.0.1}
   servlet:
     session:
@@ -147,14 +147,17 @@ management:
   endpoints:
     web:
       exposure:
-        # An explicit allow-list, never "*". Only health today: no route exists yet for a metric
-        # or a trace to be worth exposing over HTTP.
+        # An explicit allow-list, never "*". Health alone: the gateway holds a client secret and
+        # every signed-in session's tokens, so it exposes nothing else over HTTP (ADR-030). Its
+        # metrics and traces leave only by OTLP push, when OTEL_EXPORT_ENABLED is true.
         include: health
   endpoint:
     health:
       # Splits health into /actuator/health/liveness and /actuator/health/readiness. Both report
-      # UP from Boot's own liveness/readiness state - there is no downstream dependency yet whose
-      # outage should turn readiness down, the way the ledger's does for its database.
+      # UP from Boot's own liveness/readiness state alone: no readiness group names Keycloak, the
+      # ledger or the assistant, so an outage of any of them does not turn the gateway's readiness
+      # down, unlike the ledger's, which includes its database. A relayed call to an unreachable
+      # service is answered 502 UPSTREAM_UNAVAILABLE instead (GatewayRelayProblems).
       probes:
         enabled: true
   tracing:

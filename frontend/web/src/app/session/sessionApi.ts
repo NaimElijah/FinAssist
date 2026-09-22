@@ -35,8 +35,8 @@ function toSession(wire: SessionResponse): Session {
  * Whether `session` holds only the read-only role: `viewer` without `owner`.
  *
  * A session carrying both is an owner who also happens to have the viewer role, so the wider
- * permission wins; a session carrying neither has nothing to badge, since Task 16 is what makes
- * a role gate any control at all.
+ * permission wins. A session carrying neither is not a viewer and gets no badge, although
+ * `writeAccessFor` offers it no control that changes data either.
  *
  * @param session - the signed-in session.
  */

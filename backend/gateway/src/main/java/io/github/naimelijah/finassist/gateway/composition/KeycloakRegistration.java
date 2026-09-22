@@ -140,8 +140,9 @@ public class KeycloakRegistration {
      * <p>Only two grants are configured: {@code authorization_code}, which adopts the token the
      * login flow already obtained, and {@code refresh_token}. There is deliberately no
      * {@code client_credentials} provider — the gateway acts for the signed-in owner and never for
-     * itself. Nothing relays yet; the manager is declared with the login it belongs to so that the
-     * task adding the routes wires a manager whose grants were decided here.
+     * itself. The relay routes' {@code TokenRelay=} filter looks this manager up from the
+     * context, so the grants a relayed request can use are decided here, beside the login they
+     * belong to.
      *
      * <p>Refresh-token rotation stays off in the realm: the accounts screen refreshes in parallel
      * and Spring does not serialise refreshes for one session, so rotation would sign the owner out

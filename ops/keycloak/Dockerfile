@@ -20,16 +20,19 @@ FROM quay.io/keycloak/keycloak:26.7.4
 COPY --from=builder /opt/keycloak/ /opt/keycloak/
 
 # The realm the container imports at start-up (ADR-031). Every secret and credential in it is a
-# `${VAR}` placeholder with no default - KeycloakRealmTest pins that - so a missing variable
-# never silently becomes a usable one; it is caught earlier still, by `:?` on every placeholder's
-# variable in docker-compose.yml, which refuses to start the container at all.
+# `${VAR}` placeholder with no default - KeycloakRealmTest pins that - so no usable value is ever
+# committed. Keycloak does not refuse a missing variable, though: it imports the literal
+# placeholder text. What stops that is `:?` on each secret's variable in docker-compose.yml, which
+# refuses to start the container at all; the realm's two non-secret placeholders take `:-`
+# defaults there instead.
 #
 # The owner user's `id` inside this file is pinned to a fixed UUID
 # (6c4a4be0-7c38-4145-845f-f4311ef64202), generated once and committed rather than left for
 # Keycloak to assign. A user's `sub` claim is its `id`; leaving it unpinned would hand the owner
-# a new `sub` every time `keycloak-db-data` is recreated (realm import runs only against an empty
-# database - see README), and journal rows a later task attributes to the old `sub` would then
-# name nobody Keycloak still knows (ADR-031's "makes hard" list; ADR-020, ADR-024).
+# a new `sub` every time the realm is imported afresh - into a recreated `keycloak-db-data`, or by
+# `kc.sh import --override`, which deletes the realm first (see README) - and journal rows
+# attributed to the old `sub` would then name nobody Keycloak still knows (ADR-031's "makes hard"
+# list; ADR-020, ADR-024, ADR-033).
 COPY finassist-realm.json /opt/keycloak/data/import/finassist-realm.json
 
 ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]

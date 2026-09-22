@@ -23,7 +23,7 @@ finassist:
     # The internal JWKS URI: fetched service-to-service, so the Compose default is the
     # container-to-container address, never the browser-facing one.
     jwks-uri: ${LEDGER_OIDC_JWKS_URI:http://localhost:8081/realms/finassist/protocol/openid-connect/certs}
-    # Fixed by ADR-030's Vocabulary, not an environment variable: every ledger token names this
+    # Fixed by ADR-030, not an environment variable: every ledger token names this
     # audience or is refused, regardless of which environment issued it.
     audience: finassist-ledger
 

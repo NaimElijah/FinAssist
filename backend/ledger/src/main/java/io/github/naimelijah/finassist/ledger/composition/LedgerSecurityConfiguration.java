@@ -57,7 +57,7 @@ import org.springframework.web.client.RestTemplate;
  *       {@code /error} would itself be answered 403, hiding the real failure behind a status that
  *       means something else. Permitting the dispatcher type rather than the path is tighter: a
  *       direct {@code GET /error} still arrives as {@code DispatcherType.REQUEST} and stays denied,
- *       where the plan's Vocabulary listed the path as public. Nothing legitimate calls {@code
+ *       where ADR-032's URL rules list the path as public. Nothing legitimate calls {@code
  *       /error} directly — it only ever exists as a forward target — so nothing is lost by keeping
  *       it behind {@code denyAll} rather than opening an always-public endpoint an attacker could
  *       poke on purpose;
@@ -99,7 +99,7 @@ import org.springframework.web.client.RestTemplate;
 @EnableWebSecurity
 public class LedgerSecurityConfiguration {
 
-    /** {@code JwtTimestampValidator}'s allowance either side of {@code exp}/{@code nbf} (ADR-030's Vocabulary). */
+    /** {@code JwtTimestampValidator}'s allowance either side of {@code exp}/{@code nbf} (ADR-030). */
     private static final Duration CLOCK_SKEW = Duration.ofSeconds(30);
 
     private static final Duration JWKS_CONNECT_TIMEOUT = Duration.ofSeconds(2);
@@ -135,7 +135,7 @@ public class LedgerSecurityConfiguration {
      * @param issuer the expected {@code iss} ({@code finassist.security.issuer}, from {@code
      *     LEDGER_OIDC_ISSUER})
      * @param audience the expected {@code aud} ({@code finassist.security.audience}) — fixed by
-     *     ADR-030's Vocabulary, not driven by an environment variable, but still read from {@code
+     *     ADR-030, not driven by an environment variable, but still read from {@code
      *     application.yml} so every property this decoder needs comes from the same place
      * @param clock the clock {@link JwtTimestampValidator} checks {@code exp} and {@code nbf}
      *     against
@@ -161,7 +161,7 @@ public class LedgerSecurityConfiguration {
     /**
      * Every check ADR-030 requires beyond signature and algorithm, composed so a caller learns
      * exactly one thing from a failure: which check it failed. Each delegate's {@link OAuth2Error}
-     * carries the reason category from the Vocabulary as its description — {@link
+     * carries the reason category ADR-030 names as its description — {@link
      * ProblemAuthenticationEntryPoint} reads that back to log the reason without ever touching the
      * token — because none of Spring's own validators describe a failure that way on their own.
      */
@@ -197,7 +197,7 @@ public class LedgerSecurityConfiguration {
      * claiming to have been issued in the future, or carrying no {@code iat} whatsoever, would
      * otherwise be admitted. This checks both, against the same injected {@link Clock} and the same
      * {@link #CLOCK_SKEW} the timestamp validator already uses: never a second clock, never a bare
-     * {@link Instant#now()}. ADR-030's Vocabulary requires {@code iat} rather than merely tolerating
+     * {@link Instant#now()}. ADR-030 requires {@code iat} rather than merely tolerating
      * its absence, so a missing claim fails this exactly as a future one does.
      */
     private static OAuth2TokenValidator<Jwt> issuedAtValidator(Clock clock) {

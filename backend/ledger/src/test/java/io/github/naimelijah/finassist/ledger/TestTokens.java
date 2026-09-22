@@ -21,7 +21,7 @@ import java.util.List;
 
 /**
  * Real, signed bearer tokens for {@code LedgerAuthorizationIT} and its siblings, one factory method
- * per scenario the Vocabulary's reason categories exist to describe.
+ * per scenario ADR-030's reason categories exist to describe.
  *
  * <p>Every token is signed against {@link TestJwks#instance()}'s key, except {@link #foreignKey()},
  * which is signed by a key never published there, and {@link #hmacConfused()}, which uses the wrong
@@ -40,7 +40,7 @@ public final class TestTokens {
     /** Matches {@code finassist.security.issuer}'s shipped default, so a valid token needs no override. */
     static final String ISSUER = "http://localhost:8081/realms/finassist";
 
-    /** Matches the ledger's fixed audience (ADR-030's Vocabulary; not a setting). */
+    /** Matches the ledger's fixed audience (ADR-030; not a setting). */
     static final String AUDIENCE = "finassist-ledger";
 
     private static final String WRONG_ISSUER = "http://attacker.example/realms/finassist";
@@ -169,7 +169,7 @@ public final class TestTokens {
 
     /**
      * No {@code iat} claim at all — a real signature, a real issuer and audience, nothing to check
-     * the token's own age against. ADR-030's Vocabulary requires {@code iat}, so its absence alone
+     * the token's own age against. ADR-030 requires {@code iat}, so its absence alone
      * must refuse this token.
      */
     public static String noIssuedAt() {

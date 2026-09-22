@@ -156,7 +156,7 @@ function AccountsList({
  *
  * A read-only session (`useWriteAccess`) sees neither the form nor the link to
  * `RecordTransactionPage`, which it could only reach a read-only state on - a UX courtesy the
- * server enforces regardless (Task 16).
+ * server enforces regardless (ADR-032).
  */
 export function AccountsPage() {
     const { canWrite } = useWriteAccess();

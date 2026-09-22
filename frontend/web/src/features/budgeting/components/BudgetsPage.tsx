@@ -142,7 +142,7 @@ function BudgetsList({
  * list, once - the one success signal, mirroring `AccountsPage`'s own pattern.
  *
  * The link to `CategorisationRulesPage` stays offered to a read-only session (`useWriteAccess`):
- * that screen still has something to read, its own write control hidden the same way (Task 16).
+ * that screen still has something to read, its own write control hidden the same way (ADR-032).
  */
 export function BudgetsPage() {
     const { canWrite } = useWriteAccess();

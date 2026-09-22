@@ -17,9 +17,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * What {@link GatewayRelayProblems#relayFailed} answers for a failure that is neither an {@code
- * OAuth2AuthorizationException} nor a {@code ResourceAccessException} — the one branch a
- * deliberate, reverted ablation proved fires while proving the other two mappings, but that had
- * no standing regression test of its own (Task 5 review, Important finding 2).
+ * OAuth2AuthorizationException} nor a {@code ResourceAccessException} — the one branch
+ * {@code GatewayLoginFlowIT}'s relay tests never reach, so this is its standing regression test.
  *
  * <p>Called directly rather than through a running gateway and a fault-injecting fake: {@code
  * relayFailed} takes only the exception and the response, so it needs neither a route nor a

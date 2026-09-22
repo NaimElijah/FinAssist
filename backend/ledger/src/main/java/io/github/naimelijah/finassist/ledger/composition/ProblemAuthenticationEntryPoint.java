@@ -39,8 +39,8 @@ import tools.jackson.databind.json.JsonMapper;
  * header for that choice, rather than the exception type, is what keeps it correct regardless of
  * which filter raised the exception.
  *
- * <p>Every refusal is logged once at WARN, carrying only the reason category from ADR-030's
- * Vocabulary — never the token, never a claim. The category comes from the decoder's own exception:
+ * <p>Every refusal is logged once at WARN, carrying only one of the reason categories ADR-030
+ * names — never the token, never a claim. The category comes from the decoder's own exception:
  * a {@link JwtValidationException} carries the {@link OAuth2Error} {@code
  * LedgerSecurityConfiguration}'s validators built, whose description already <em>is</em> the
  * category; anything else is read from Nimbus's own (English-language, not machine-typed) failure
@@ -54,7 +54,7 @@ final class ProblemAuthenticationEntryPoint implements AuthenticationEntryPoint 
     /** The key a structured log line carries the reason under; never the token itself. */
     private static final String REASON_KEY = "reason";
 
-    // The reason categories ADR-030's Vocabulary fixes. Package-visible because
+    // The reason categories ADR-030 fixes. Package-visible because
     // LedgerSecurityConfiguration builds its validators' OAuth2Error descriptions from these same
     // constants, so a description this class reads back is always one of the words below and never
     // a validator's own free-text message.

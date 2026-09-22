@@ -29,7 +29,7 @@ import org.springframework.test.context.DynamicPropertySource;
 /**
  * The gateway's relay, proved end to end against a real, running gateway, a real (fake) OpenID
  * provider and a real (fake) downstream service — none of it mocked away — because the property
- * this task exists to guarantee is that an access token leaves this process only where it should
+ * the gateway exists to guarantee is that an access token leaves this process only where it should
  * and never leaves it where it should not (ADR-030).
  *
  * <p>Every test drives the same code-plus-PKCE login a browser would, through a JDK {@link
@@ -37,11 +37,11 @@ import org.springframework.test.context.DynamicPropertySource;
  * fake provider, and carry the {@code code}/{@code state} pair it hands back to the gateway's own
  * callback — at the gateway's <em>real</em> test address rather than the {@code redirect_uri} the
  * {@code ClientRegistration} declares, {@code http://localhost:5173}, which nothing in this test
- * process is listening on. That mismatch is not a workaround; it is R1 from the plan's risk list,
- * proven rather than assumed: Spring's {@code OAuth2AuthorizationCodeGrantRequestEntityConverter}
- * and the authorization-response matcher compare only the {@code state} parameter against the one
- * stored in the session-backed {@code AuthorizationRequest} repository (confirmed against the
- * source in Task 4) — the redirect URI is never compared at the callback. A Vite dev proxy with
+ * process is listening on. That mismatch is not a workaround; it proves, rather than assumes,
+ * that Spring's {@code OAuth2AuthorizationCodeGrantRequestEntityConverter} and the
+ * authorization-response matcher compare only the {@code state} parameter against the one stored
+ * in the session-backed {@code AuthorizationRequest} repository — the redirect URI is never
+ * compared at the callback, and every sign-in below completes regardless. A Vite dev proxy with
  * {@code changeOrigin: true} would produce exactly this mismatch, and sign-in still completes.
  */
 @SpringBootTest(
@@ -134,9 +134,9 @@ class GatewayLoginFlowIT {
 
     /**
      * Walks the browser's half of the login: the entry, the fake provider's authorization
-     * endpoint, and the callback — sent to this test's real gateway address, which is the R1
-     * scenario described in the class Javadoc. Returns the callback's raw response so a caller
-     * can assert either outcome: a completed sign-in, or a failed one.
+     * endpoint, and the callback — sent to this test's real gateway address, which is the
+     * redirect-URI mismatch described in the class Javadoc. Returns the callback's raw response so
+     * a caller can assert either outcome: a completed sign-in, or a failed one.
      */
     private HttpResponse<Void> completeCallback(HttpClient client) throws Exception {
         HttpResponse<Void> entry = getFollowingNothing(client, gatewayUrl("/bff/oauth2/authorization/keycloak"));

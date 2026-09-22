@@ -422,7 +422,7 @@ function RecordTransactionForm({
 }
 
 /**
- * The calm state a read-only session sees instead of the form (Task 16): naming the form it
+ * The calm state a read-only session sees instead of the form (ADR-032): naming the form it
  * cannot submit rather than a route that simply does not work. Skips `useAccounts` entirely, since
  * nothing here would use its data.
  */
