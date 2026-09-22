@@ -7,12 +7,15 @@ LEDGER    := backend/ledger
 GATEWAY   := backend/gateway
 ASSISTANT := backend/assistant
 WEB       := frontend/web
+# ops/smoke as seen from $(ASSISTANT). It has no toolchain of its own, so lint-smoke and format
+# borrow the assistant's pinned ruff and mypy and the rules in its pyproject.toml.
+SMOKE     := ../../ops/smoke
 MVNW      := ./mvnw -B
 UV        := uv
 
 .PHONY: help setup lock run run-monitoring run-identity smoke-auth stop stop-monitoring \
         test test-ledger test-gateway test-assistant test-web mutation-ledger \
-        lint lint-ledger lint-gateway lint-assistant lint-web \
+        lint lint-ledger lint-gateway lint-assistant lint-smoke lint-web \
         build-web generate-web-api format audit audit-assistant audit-web clean
 
 help: ## List available targets
@@ -64,7 +67,7 @@ test-web:
 mutation-ledger: ## Mutation testing over the ledger domain; a diagnostic, gated on nothing (ADR-017)
 	cd $(LEDGER) && $(MVNW) -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
 
-lint: lint-ledger lint-gateway lint-assistant lint-web ## Format check and static analysis; never rewrites a file
+lint: lint-ledger lint-gateway lint-assistant lint-smoke lint-web ## Format check and static analysis; never rewrites a file
 
 lint-ledger:
 	cd $(LEDGER) && $(MVNW) spotless:check
@@ -76,6 +79,11 @@ lint-assistant:
 	cd $(ASSISTANT) && $(UV) run ruff check .
 	cd $(ASSISTANT) && $(UV) run ruff format --check .
 	cd $(ASSISTANT) && $(UV) run mypy src tests
+
+lint-smoke:
+	cd $(ASSISTANT) && $(UV) run ruff check $(SMOKE)
+	cd $(ASSISTANT) && $(UV) run ruff format --check $(SMOKE)
+	cd $(ASSISTANT) && $(UV) run mypy --strict $(SMOKE)
 
 lint-web:
 	cd $(WEB) && npm run lint
@@ -91,8 +99,8 @@ generate-web-api: ## Regenerate the web client's contract types from contracts/*
 format: ## Rewrite sources to match the formatters
 	cd $(LEDGER) && $(MVNW) spotless:apply
 	cd $(GATEWAY) && $(MVNW) spotless:apply
-	cd $(ASSISTANT) && $(UV) run ruff format .
-	cd $(ASSISTANT) && $(UV) run ruff check --fix .
+	cd $(ASSISTANT) && $(UV) run ruff format . $(SMOKE)
+	cd $(ASSISTANT) && $(UV) run ruff check --fix . $(SMOKE)
 	cd $(WEB) && npm run format
 
 audit: audit-assistant audit-web ## Fail on a known vulnerability in a pinned dependency

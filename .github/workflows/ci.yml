@@ -95,6 +95,11 @@ jobs:
       - name: Lint, format check and types
         run: make lint-assistant
 
+      # ops/smoke/auth_smoke.py has no toolchain of its own, so it is linted here, with the
+      # assistant's pinned ruff and mypy and the rules in its pyproject.toml (Refs #38).
+      - name: Lint, format check and types (smoke check)
+        run: make lint-smoke
+
       - name: Test
         run: make test-assistant
 

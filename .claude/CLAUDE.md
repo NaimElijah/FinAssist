@@ -88,10 +88,13 @@ is **not installed** on the development machine, so the raw command is given for
 - Mutation testing (ledger): `make mutation-ledger` — `cd backend/ledger && ./mvnw -B -Pmutation
   test-compile org.pitest:pitest-maven:mutationCoverage`. A diagnostic, gated on nothing (ADR-017)
 - Lint / types: `make lint` — `./mvnw -B spotless:check` (ledger and gateway);
-  `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src tests`; `npm run lint`,
-  `npm run format:check`, `npm run typecheck`
-- Format: `make format` — `./mvnw -B spotless:apply` (ledger and gateway); `uv run ruff format .`,
-  `uv run ruff check --fix .`; `npm run format`
+  `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src tests`; for the smoke
+  check (`make lint-smoke`, its own CI step in the assistant job), `uv run ruff check`,
+  `uv run ruff format --check` and `uv run mypy --strict` over `../../ops/smoke`, all from
+  `backend/assistant`; `npm run lint`, `npm run format:check`, `npm run typecheck`
+- Format: `make format` — `./mvnw -B spotless:apply` (ledger and gateway);
+  `uv run ruff format . ../../ops/smoke`, `uv run ruff check --fix . ../../ops/smoke`;
+  `npm run format`
 - Audit: `make audit` — `uv run pip-audit`; `npm audit --audit-level=high`
 - Re-lock Python deps: `make lock` — `cd backend/assistant && uv lock` (required after any
   `pyproject.toml` dependency edit, or CI's `uv sync --locked` fails)
@@ -217,7 +220,9 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **Nothing writes output except the logging boundary.** No `print` (ruff `T20`), no
   `console.log` (ESLint `no-console`), no `System.out`. Structured JSON on stdout, through
   `adapters/observability.py`, `shared/lib/logger.ts`, or Logback's ECS format (ADR-019).
-  Redaction lives at that boundary, never at a call site.
+  Redaction lives at that boundary, never at a call site. `ops/smoke/auth_smoke.py` is an
+  operator CLI, not a service: its report on stdout is its product, written by one `print`
+  marked `# noqa: T201` with its reason.
 - **Telemetry is a no-op when unconfigured.** A service must start with no collector named. An
   endpoint alone never enables export; `OTEL_EXPORT_ENABLED` does, for every signal — traces,
   metrics, and the ledger's OTLP log export, which nothing feeds until a log appender is added.

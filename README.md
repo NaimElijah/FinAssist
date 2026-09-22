@@ -343,8 +343,8 @@ pipeline and the local commands cannot drift.
 | Build the web bundle | `make build-web` | `cd frontend/web && npm run build` |
 | Regenerate the web client's contract types | `make generate-web-api` | `cd frontend/web && npm run generate:api` |
 | Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
-| Lint and types | `make lint` | `./mvnw -B spotless:check` (ledger and gateway); `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; `npm run lint`, `format:check`, `typecheck` |
-| Format | `make format` | `./mvnw -B spotless:apply` (ledger and gateway); `uv run ruff format .`, `uv run ruff check --fix .`; `npm run format` |
+| Lint and types | `make lint` | `./mvnw -B spotless:check` (ledger and gateway); `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; for the smoke check (`make lint-smoke`), `uv run ruff check`, `ruff format --check` and `mypy --strict` over `../../ops/smoke`, all from `backend/assistant`; `npm run lint`, `format:check`, `typecheck` |
+| Format | `make format` | `./mvnw -B spotless:apply` (ledger and gateway); `uv run ruff format . ../../ops/smoke`, `uv run ruff check --fix . ../../ops/smoke`; `npm run format` |
 | Audit | `make audit` | `cd backend/assistant && uv run pip-audit`; `cd frontend/web && npm audit --audit-level=high` |
 | Re-lock Python deps | `make lock` | `cd backend/assistant && uv lock` |
 | Regenerate the ledger's OpenAPI contract | — | `cd backend/ledger && ./mvnw -B verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running); on a mismatch, copy `target/contracts/ledger-v1.openapi.json` over `contracts/ledger-v1.openapi.json` |
