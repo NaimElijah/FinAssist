@@ -57,6 +57,10 @@ class GatewayLoginFlowIT {
     /** A W3C trace id the client picks, so the value asserted downstream can only have come from it. */
     private static final String CLIENT_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
 
+    /** A disposal request body, shaped like the assistant's, so the relayed POST really carries one. */
+    private static final String DISPOSAL_BODY =
+            "{\"quantity\":\"10\",\"pricePerUnit\":{\"amount\":\"12.34\",\"currency\":\"USD\"}}";
+
     private static FakeOpenIdProvider idp;
     private static FakeService ledger;
     private static FakeService assistant;
@@ -109,8 +113,19 @@ class GatewayLoginFlowIT {
         return "http://localhost:" + port + path;
     }
 
+    /**
+     * The browser's half of every test below, pinned to HTTP/1.1 — which is what a browser speaks
+     * to a cleartext server, since none implements the h2c upgrade. Left at the JDK's {@link
+     * HttpClient.Version#HTTP_2} default, this client would offer one to the gateway on every
+     * request, and {@code HTTP2-Settings} — which Spring Cloud Gateway's hop-by-hop filter does
+     * not strip, unlike {@code Upgrade} and {@code Connection} — would arrive downstream having
+     * come from here rather than from the relay. Pinned, anything an upgrade offer leaves at a
+     * {@link FakeService} can only have been added by the gateway's own outbound client, which is
+     * what {@link #assertNoHttp2UpgradeOffer} is about.
+     */
     private static HttpClient newClient() {
         return HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .cookieHandler(new CookieManager())
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .connectTimeout(TIMEOUT)
@@ -321,6 +336,75 @@ class GatewayLoginFlowIT {
             assertThat(relayed.split("-")[1]).isEqualTo(CLIENT_TRACE_ID);
             assertThat(relayed).isNotEqualTo(traceparent);
         }
+    }
+
+    /**
+     * The relay must not try to upgrade a cleartext connection to HTTP/2.
+     *
+     * <p>The JDK {@code HttpClient} the relay is built on defaults to {@link
+     * HttpClient.Version#HTTP_2}, and over cleartext that means an h2c upgrade offer on every
+     * request: {@code Upgrade: h2c}, an {@code HTTP2-Settings} header, and a {@code Connection}
+     * header naming both. Tomcat ignores them, so the ledger never minded. The assistant runs
+     * uvicorn/h11, which logs "Unsupported upgrade request." and then — for an upgrade request
+     * that <em>also</em> carries a body — "Invalid HTTP request received." and answers 400. Every
+     * POST the gateway relayed to the assistant therefore failed, and pricing a disposal was
+     * unusable from the web client.
+     *
+     * <p>A POST is the case a person sees, so it is asserted against the assistant route this
+     * defect was found on. The offer is made on a GET too, which the test below pins, because
+     * nothing about it depends on there being a body — only uvicorn's refusal does.
+     */
+    @Test
+    void Given_a_signed_in_session_When_it_posts_a_body_to_the_assistant_route_Then_no_http2_upgrade_is_offered()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+            String csrfToken = csrfTokenValue(client);
+
+            HttpResponse<String> response = client.send(
+                    HttpRequest.newBuilder(URI.create(gatewayUrl("/assistant/api/v1/portfolio/holdings/ACME/disposal")))
+                            .timeout(TIMEOUT)
+                            .header("X-FINASSIST-XSRF-TOKEN", csrfToken)
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(DISPOSAL_BODY))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            assertThat(response.statusCode()).isEqualTo(200);
+            FakeService.ReceivedRequest received = assistant.lastRequest();
+            assertThat(received.method()).isEqualTo("POST");
+            assertNoHttp2UpgradeOffer(received);
+        }
+    }
+
+    /** The GET half of the guarantee above: the offer is made with no body to provoke it. */
+    @Test
+    void Given_a_signed_in_session_When_it_gets_the_ledger_route_Then_no_http2_upgrade_is_offered() throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+
+            HttpResponse<String> response = relay(client, "/ledger/api/v1/accounts");
+
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertNoHttp2UpgradeOffer(ledger.lastRequest());
+        }
+    }
+
+    /**
+     * The three headers a JDK {@code HttpClient} sends together when it offers an h2c upgrade.
+     * {@code Connection} is checked by content rather than presence: a relayed request may
+     * legitimately carry one, but never one naming {@code Upgrade}.
+     */
+    private static void assertNoHttp2UpgradeOffer(FakeService.ReceivedRequest received) {
+        assertThat(received.hasHeader("upgrade")).as("Upgrade header").isFalse();
+        assertThat(received.hasHeader("http2-settings"))
+                .as("HTTP2-Settings header")
+                .isFalse();
+        assertThat(received.header("connection"))
+                .as("Connection header")
+                .satisfiesAnyOf(
+                        connection -> assertThat(connection).isNull(),
+                        connection -> assertThat(connection).doesNotContainIgnoringCase("upgrade"));
     }
 
     @Test

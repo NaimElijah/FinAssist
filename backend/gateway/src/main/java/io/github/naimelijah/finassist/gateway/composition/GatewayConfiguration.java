@@ -1,15 +1,18 @@
 package io.github.naimelijah.finassist.gateway.composition;
 
+import java.net.http.HttpClient;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.http.client.JdkClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.autoconfigure.ClientHttpRequestFactoryBuilderCustomizer;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 
 /**
- * Registers what must run before anything else the gateway does: the Host allow-list, ahead of
- * the security chain, every route and every relay.
+ * Registers what wraps everything else the gateway does: the Host allow-list, ahead of the
+ * security chain, every route and every relay; and the HTTP version every outbound call speaks.
  *
  * <p>Mirrors the ledger's {@code LedgerConfiguration}. The gateway has no bounded context of its
  * own — it holds no domain and restates no DTO of the services it relays to (ADR-026) — so every
@@ -38,5 +41,43 @@ public class GatewayConfiguration {
                 new FilterRegistrationBean<>(new HostAllowListFilter(allowedHosts));
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;
+    }
+
+    /**
+     * Pins every outbound call this process makes to HTTP/1.1, so that no cleartext connection
+     * carries an h2c upgrade offer.
+     *
+     * <p>The JDK {@code HttpClient} underneath defaults to {@link HttpClient.Version#HTTP_2}, which
+     * over cleartext means offering an upgrade on every request: {@code Upgrade: h2c}, an {@code
+     * HTTP2-Settings} header, and a {@code Connection} header naming both. Tomcat ignores them, so
+     * relaying to the ledger worked. The assistant runs uvicorn/h11, which rejects an upgrade
+     * request that also carries a body with {@code 400} — so every POST the gateway relayed to the
+     * assistant failed, and pricing a disposal was unusable from the web client.
+     *
+     * <p>Nothing in front of any of these services speaks TLS, so HTTP/2 was never reachable
+     * anyway: the upgrade offer was pure cost, and h2c is the only way the JDK client can try for
+     * it. The day a relayed hop runs over TLS, HTTP/2 becomes worth having again, and it arrives
+     * through ALPN with no upgrade header at all — so this pin can be lifted then, not before.
+     *
+     * <p>Boot exposes no property for the HTTP version: {@code spring.http.clients.*} carries
+     * {@code connect-timeout}, {@code read-timeout}, {@code redirects}, {@code cookie-handling},
+     * {@code ssl.bundle} and {@code imperative.factory}, and nothing else — so a bean it is, and
+     * this is the extension point Boot publishes for exactly that. {@code
+     * ImperativeHttpClientAutoConfiguration} applies it to the detected {@code
+     * ClientHttpRequestFactoryBuilder}, which is the bean {@code spring.http.clients}'s timeouts
+     * are applied on top of, and the bean both the {@code RestClient.Builder} behind the relay's
+     * {@code RestClientProxyExchange} and the {@code RestTemplateBuilder} {@link
+     * KeycloakRegistration} uses are configured from. One bean, every outbound call this process
+     * makes.
+     *
+     * <p>Typed to the JDK builder because that is what Boot detects here — no HttpComponents,
+     * Jetty or Reactor client is on the classpath. If one ever were, Boot would detect it instead
+     * and this customizer would stop applying; {@code GatewayLoginFlowIT}'s two upgrade-offer
+     * assertions are what turns red if that happens.
+     */
+    @Bean
+    ClientHttpRequestFactoryBuilderCustomizer<JdkClientHttpRequestFactoryBuilder> relayHttpVersion() {
+        return builder ->
+                builder.withHttpClientCustomizer(httpClient -> httpClient.version(HttpClient.Version.HTTP_1_1));
     }
 }

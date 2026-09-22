@@ -384,6 +384,13 @@ These are enforced by the build, not by review. Breaking one fails CI.
   `spring.http.clients.*`, so dropping any of these beans silently makes that call unbounded —
   only the relay's own client gets Boot's budget for free. `GatewayKeycloakTimeoutIT` stalls each
   endpoint in turn and fails the build if one stops giving up.
+- **Every outbound call the gateway makes speaks HTTP/1.1.** `GatewayConfiguration`'s
+  `relayHttpVersion` customizer pins the JDK client's version, because its HTTP/2 default offers an
+  h2c upgrade on a cleartext hop and uvicorn answers 400 to an upgrade request that carries a body
+  — every POST relayed to the assistant. Boot exposes no property for this, so a
+  `ClientHttpRequestFactoryBuilderCustomizer` bean is the lever; `GatewayLoginFlowIT` fails the
+  build if an upgrade offer ever reaches an upstream again. Lift it only once a relayed hop runs
+  over TLS, where HTTP/2 arrives by ALPN with no upgrade header at all.
 - **A web DTO's simple name is unique across every context** — `MoneyDto` alone is exempt, one
   identical copy per context on purpose. `web_dto_names_are_unique_across_contexts`;
   `MoneyDtoShapesTest` keeps the copies identical.

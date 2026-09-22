@@ -153,6 +153,13 @@ history; write the commit message well and this file writes itself.
   stopped answering would have parked a Tomcat thread for ever. All three are now built from
   Boot's own builders in `KeycloakRegistration`, and `GatewayKeycloakTimeoutIT` drives that exact
   failure against each.
+- **Every POST the gateway relays to the assistant now arrives.** The relay's JDK HTTP client
+  defaults to HTTP/2, so on a cleartext hop it offered an h2c upgrade — `Upgrade: h2c`, an
+  `HTTP2-Settings` header and a `Connection` header naming both — on every request. Tomcat ignores
+  those, so the ledger never minded; uvicorn refuses an upgrade request that also carries a body
+  with 400, so pricing a disposal from the web client failed every time. The gateway now pins
+  HTTP/1.1 for every outbound call it makes, and `GatewayLoginFlowIT` fails the build if an upgrade
+  offer reaches an upstream again.
 - **`DisposeUnits` sorts lots by acquisition date before consuming them.** `consume_fifo` takes
   them in the order it is given and documents that the ordering is the caller's responsibility,
   so a caller handing it newest-first lots got a LIFO cost basis in silence, with a plausible

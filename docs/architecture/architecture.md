@@ -594,7 +594,10 @@ Spring Security requires an authenticated session for `GET`/`POST /ledger/api/v1
 `Cookie` and `X-FINASSIST-XSRF-TOKEN`, so neither ever leaves this process → `TokenRelay=` asks
 `OAuth2AuthorizedClientManager` for the session's access token, which refreshes it against
 Keycloak first if it has expired, and attaches it as `Authorization: Bearer` → `RestClient`
-proxies the request to `GATEWAY_LEDGER_URI` or `GATEWAY_ASSISTANT_URI`. **A downstream
+proxies the request to `GATEWAY_LEDGER_URI` or `GATEWAY_ASSISTANT_URI`, over **HTTP/1.1**: the JDK
+client underneath defaults to HTTP/2, which on a cleartext hop means offering an h2c upgrade that
+uvicorn refuses outright when the request carries a body, so `GatewayConfiguration` pins the
+version for every outbound call this process makes. **A downstream
 `application/problem+json` response passes back through unchanged** — the gateway's `RestClient`
 call applies no status handler of its own, so the browser sees the ledger's or the assistant's own
 refusal, not a gateway rewrite. **A failure in this path becomes a gateway problem instead**:
