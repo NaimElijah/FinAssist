@@ -44,6 +44,7 @@ from finassist_assistant.adapters.auth import (
     REASON_LIFETIME,
     REASON_MALFORMED,
     REASON_MISSING,
+    REASON_REJECTED,
     REASON_SUBJECT,
     REASON_UNKNOWN_KEY,
     KeySource,
@@ -599,6 +600,62 @@ def Given_a_token_signed_HS256_with_the_public_key_bytes_When_verified_Then_it_i
     with pytest.raises(TokenRefused) as refused:
         _verifier(static_key_source, fixed_clock)(token)
     assert refused.value.reason == REASON_MALFORMED
+
+
+# --- signature: a genuine claim set, signed by the wrong key or edited after signing ----------
+
+
+def Given_a_token_signed_by_a_key_the_verifier_does_not_hold_When_verified_Then_it_is_refused(
+    static_key_source: KeySource,
+    fixed_clock: Clock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Mirrors the ledger's ``TestTokens.foreignKey()``: a well-formed, correctly-signed RS256
+    token, but signed by a key ``static_key_source`` never returns. ``static_key_source``
+    (``conftest.py``) always resolves to the same fixed key regardless of the token it is asked
+    about, so a token signed by any other private key fails signature verification against it -
+    exactly as a real JWKS lookup would find no matching key among the ones it actually
+    publishes.
+    """
+    foreign_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    token = _encode(foreign_key, _valid_claims(fixed_clock()))
+    capsys.readouterr()
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(static_key_source, fixed_clock)(token)
+
+    assert refused.value.reason == REASON_REJECTED
+    assert token not in capsys.readouterr().out
+
+
+def Given_a_tokens_payload_is_swapped_but_its_signature_kept_When_verified_Then_it_is_refused(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    static_key_source: KeySource,
+    fixed_clock: Clock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Mirrors the ledger's ``TestTokens.tamperedSignature()`` - the textbook JWT integrity
+    attack: take a genuine token, then swap in another token's payload while keeping the
+    original header and signature untouched. Both are signed by the same real key with an
+    identical header (both go through ``_encode`` with the same ``key_id`` and algorithm), so the
+    payload segment is the only thing that actually differs between the two combined here -
+    which is exactly why the kept signature no longer verifies against it.
+    """
+    private_key, _ = rsa_key_pair
+    genuine_header, _genuine_payload, genuine_signature = _encode(
+        private_key, _valid_claims(fixed_clock())
+    ).split(".")
+    _tampered_header, tampered_payload, _tampered_signature = _encode(
+        private_key, _valid_claims(fixed_clock(), sub="attacker-user")
+    ).split(".")
+    token = f"{genuine_header}.{tampered_payload}.{genuine_signature}"
+    capsys.readouterr()
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(static_key_source, fixed_clock)(token)
+
+    assert refused.value.reason == REASON_REJECTED
+    assert token not in capsys.readouterr().out
 
 
 # --- the key source itself --------------------------------------------------------------------
