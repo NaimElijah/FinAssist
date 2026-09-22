@@ -31,12 +31,18 @@ export interface BrowserLocation {
     assign(url: string): void;
 }
 
-function isAllowedUrl(url: string): boolean {
+/** Parses *url*, or `undefined` when it does not parse as an absolute URL at all. */
+function parseUrl(url: string): URL | undefined {
     try {
-        return ALLOWED_PROTOCOLS.has(new URL(url).protocol);
+        return new URL(url);
     } catch {
-        return false;
+        return undefined;
     }
+}
+
+function isAllowedUrl(url: string): boolean {
+    const parsed = parseUrl(url);
+    return parsed !== undefined && ALLOWED_PROTOCOLS.has(parsed.protocol);
 }
 
 /**
@@ -47,7 +53,15 @@ function isAllowedUrl(url: string): boolean {
 export const browserLocation: BrowserLocation = {
     assign(url) {
         if (!isAllowedUrl(url)) {
-            log.error('refused to navigate to a non-http(s) url', { url });
+            // Logs the scheme alone, never `url` itself: the one caller that can pass a value
+            // here that is not a fixed constant is the gateway's `logoutUrl`, which carries
+            // `id_token_hint` as a query parameter. `url` is not among logger.ts's redacted key
+            // fragments, and should not be - nearly every other call site in this client logs a
+            // benign API path under that same name, so redacting the field at the boundary would
+            // silence all of them to fix one call site.
+            log.error('refused to navigate to a non-http(s) url', {
+                scheme: parseUrl(url)?.protocol,
+            });
             return;
         }
         window.location.assign(url);

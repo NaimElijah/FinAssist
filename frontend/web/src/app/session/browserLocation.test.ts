@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 // A top-level navigation is a jsdom `window.location` call, which needs a DOM global to exist.
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { type LogRecord, setLogSink } from '@/shared/lib/logger';
 import { browserLocation } from './browserLocation';
 
 /** jsdom's real `Location`, restored after every test so no test leaks a stand-in to the next. */
@@ -28,7 +29,16 @@ function spyOnAssign(): ReturnType<typeof vi.fn> {
 }
 
 describe('browserLocation', () => {
+    let written: LogRecord[] = [];
+    let restoreSink: () => void = () => undefined;
+
+    beforeEach(() => {
+        written = [];
+        restoreSink = setLogSink((record) => written.push(record));
+    });
+
     afterEach(() => {
+        restoreSink();
         Object.defineProperty(window, 'location', {
             value: REAL_LOCATION,
             writable: true,
@@ -109,5 +119,31 @@ describe('browserLocation', () => {
         browserLocation.assign('not a url');
 
         expect(assign).not.toHaveBeenCalled();
+    });
+
+    // The one caller that can pass a value here that is not a fixed constant is the gateway's
+    // `logoutUrl`, which carries `id_token_hint` as a query parameter (ADR-030). This is
+    // unreachable today - `Origin` refuses a non-http(s) base at gateway start-up - but a refused
+    // value must never reach the console verbatim regardless, since `url` is not one of
+    // logger.ts's redacted key fragments (nor should it be: nearly every other call site in this
+    // client logs a benign API path under that same name).
+    it('Given_a_refused_url_carrying_a_token_When_assign_is_called_Then_the_token_never_reaches_the_log', () => {
+        spyOnAssign();
+        const secret = 'super-secret-id-token-value';
+        const tokenBearingUrl = `javascript:alert(1)?id_token_hint=${secret}`;
+
+        browserLocation.assign(tokenBearingUrl);
+
+        expect(JSON.stringify(written)).not.toContain(secret);
+        expect(JSON.stringify(written)).not.toContain(tokenBearingUrl);
+    });
+
+    it('Given_a_refused_url_When_assign_is_called_Then_only_its_scheme_is_logged', () => {
+        spyOnAssign();
+
+        browserLocation.assign('javascript:alert(1)');
+
+        expect(written).toHaveLength(1);
+        expect(written[0]).toMatchObject({ level: 'error', scheme: 'javascript:' });
     });
 });
