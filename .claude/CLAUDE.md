@@ -373,9 +373,11 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **Every `@WebMvcTest` slice imports `WebSliceSecurity`.** A slice loads no scanned configuration
   (ADR-028's convention, extended to ADR-030), so without it a slice would boot with no security at
   all — every request admitted, which is a false pass, not a fast one.
-- **References to ADR-027 in the ledger's code and docs point to ADR-030.** ADR-027 is Superseded;
-  ADR-030 keeps its loopback binding, Host allow-list and JSON-only writes as defence in depth, and
-  is the record to cite for them going forward.
+- **References to ADR-027 in code, configuration and docs point to ADR-030, in every codebase.**
+  ADR-027 is Superseded; ADR-030 keeps its loopback binding, Host allow-lists and JSON-only writes
+  as defence in depth, and is the record to cite for them going forward. ADR-027 is still named
+  only by the ADR files themselves, by a statement of the supersession, and by the history note
+  at the top of `docker-compose.yml`.
 
 The ledger's ten ArchUnit rules are **live**. The `archRule.failOnEmptyShould=false` escape
 hatch was deleted with the first domain class, so a rule matching nothing now fails rather than

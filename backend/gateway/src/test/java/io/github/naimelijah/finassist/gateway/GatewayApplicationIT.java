@@ -127,8 +127,8 @@ class GatewayApplicationIT {
 
     /**
      * DNS rebinding as the gateway sees it: a request that arrives on its loopback port while
-     * naming another host (ADR-030, carrying ADR-027 forward). Actuator is the target because it
-     * is served whatever else exists, and the allow-list covers it too.
+     * naming another host (ADR-030). Actuator is the target because it is served whatever else
+     * exists, and the allow-list covers it too.
      */
     @Test
     void Given_a_request_naming_a_foreign_host_When_it_reaches_the_gateway_Then_it_is_refused_with_403()

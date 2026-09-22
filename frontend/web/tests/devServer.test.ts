@@ -59,8 +59,7 @@ describe('the dev/preview server', () => {
 
     it('Given_the_vite_config_When_read_Then_allowedHosts_is_never_set_to_true', () => {
         // Vite 8's default already refuses any Host but localhost, its subdomains and IP
-        // literals (ADR-030's DNS-rebinding control, carried forward from ADR-027); `true` would
-        // remove that protection.
+        // literals (ADR-030's DNS-rebinding control); `true` would remove that protection.
         expect(viteConfig.server?.allowedHosts).not.toBe(true);
         expect(viteConfig.preview?.allowedHosts).not.toBe(true);
     });

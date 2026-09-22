@@ -18,8 +18,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * The Host allow-list that keeps a DNS-rebound page away from the gateway (ADR-030, carrying
- * ADR-027's defence forward).
+ * The Host allow-list that keeps a DNS-rebound page away from the gateway (ADR-030).
  *
  * <p>Ported from the ledger's {@code HostAllowListFilterTest} — the two deployables share no
  * code, so the filter under test is a deliberate copy rather than an import, and each copy is
@@ -188,7 +187,7 @@ class HostAllowListFilterTest {
      * A request's host is compared with its port dropped, so an entry holding a port, a colon or
      * a bracket could never match, and a gateway started with one would refuse every request
      * under that name. Refused at start-up instead, with the entry named, as the ledger and the
-     * assistant refuse one (ADR-027).
+     * assistant refuse one (ADR-030).
      */
     @ParameterizedTest
     @ValueSource(strings = {"localhost:8090", "::1", "[::1]", "[::1]:8090", "local]host"})

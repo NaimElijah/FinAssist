@@ -19,8 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Refuses every request whose {@code Host} header does not name a host on the allow-list
- * (ADR-030, carrying ADR-027's defence-in-depth forward).
+ * Refuses every request whose {@code Host} header does not name a host on the allow-list (ADR-030).
  *
  * <p><b>This class is a deliberate copy</b> of the ledger's {@code
  * io.github.naimelijah.finassist.ledger.composition.HostAllowListFilter}, configured from {@code

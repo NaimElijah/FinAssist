@@ -48,7 +48,7 @@ final class GatewayProblems {
     /** The extension member carrying a problem's code. */
     private static final String CODE_MEMBER = "code";
 
-    /** The request's {@code Host} header is missing, malformed or not on the allow-list (ADR-030, carrying ADR-027 forward). */
+    /** The request's {@code Host} header is missing, malformed or not on the allow-list (ADR-030). */
     static final String HOST_NOT_ALLOWED = "HOST_NOT_ALLOWED";
 
     /** No session and no bearer token accepted here either — the gateway grants nothing on its own. */
