@@ -268,34 +268,59 @@ def Given_a_token_whose_exp_claim_is_not_numeric_When_verified_Then_it_is_refuse
     assert refused.value.reason == REASON_MALFORMED
 
 
+def _instant_from_platform(exp: float) -> bool:
+    """True when this platform's own ``datetime.fromtimestamp`` turns *exp* into an instant.
+
+    Whether an extreme or pre-epoch timestamp converts is a C-runtime quirk that genuinely
+    differs between platforms (see ``_as_instant``'s docstring in ``auth.py``): Windows refuses
+    a large pre-epoch value with ``OSError`` where another platform's runtime accepts it. This
+    probes the real conversion so the test's expectation is read from what this machine actually
+    does, rather than guessed from ``sys.platform`` - a name check would guess at the cause, not
+    observe it.
+    """
+    try:
+        datetime.fromtimestamp(exp, tz=UTC)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return False
+    return True
+
+
 @pytest.mark.parametrize(
     "exp",
     [1e300, float("inf"), -1e10, float("nan")],
-    ids=["huge", "infinity", "pre_epoch_os_error", "nan"],
+    ids=["huge", "infinity", "pre_epoch", "nan"],
 )
-def Given_a_token_whose_exp_the_platform_cannot_represent_When_verified_Then_it_is_refused(
+def Given_a_token_whose_exp_is_an_extreme_or_non_finite_float_When_verified_Then_it_is_refused(
     exp: float,
     rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
     static_key_source: KeySource,
     fixed_clock: Clock,
 ) -> None:
-    """A validly-signed token whose ``exp`` is a value ``datetime.fromtimestamp`` cannot turn
-    into an instant must be refused, never left to crash the caller with an exception the
-    verifier's contract does not advertise.
+    """A validly-signed token whose ``exp`` is a value no real clock could ever be set to must be
+    refused, never left to crash the caller with an exception the verifier's contract does not
+    advertise. That refusal is unconditional and platform-independent; only its *reason* is not,
+    for one of the four values below, and is derived from ``_instant_from_platform`` rather than
+    hard-coded - see that helper and ``_as_instant``'s own docstring for why.
 
     ``jwt.encode`` serialises the payload with plain ``json.dumps`` (no ``allow_nan=False``), so
     ``float("inf")`` and ``float("nan")`` reach the wire as the genuine JSON literals ``Infinity``
     and ``NaN`` - exactly what a real, misbehaving issuer could sign - not merely as Python
-    values a test happens to construct. ``1e300`` overflows the platform's ``time_t`` on every
-    platform; ``-1e10`` (a pre-epoch timestamp) additionally reproduces the Windows-specific
-    ``OSError`` path, which is distinct from the ``OverflowError`` the other three raise.
+    values a test happens to construct. ``1e300`` overflows every platform's representable range
+    outright, so it is always refused ``malformed``; ``-1e10`` (a pre-epoch timestamp) is the one
+    value here whose fate genuinely differs by platform - refused ``malformed`` where the
+    runtime's own conversion raises, and refused ``lifetime`` (simply very expired) where it
+    instead succeeds and reaches the ordinary expiry check.
     """
     private_key, _ = rsa_key_pair
     token = _encode(private_key, _valid_claims(fixed_clock(), exp=exp))
 
     with pytest.raises(TokenRefused) as refused:
         _verifier(static_key_source, fixed_clock)(token)
-    assert refused.value.reason == REASON_MALFORMED
+
+    # Only the refusal *reason* depends on the platform's own conversion (see docstring); the
+    # refusal itself never does, which is what pytest.raises above already pins unconditionally.
+    expected_reason = REASON_LIFETIME if _instant_from_platform(exp) else REASON_MALFORMED
+    assert refused.value.reason == expected_reason
 
 
 def Given_a_token_with_no_exp_claim_When_verified_Then_it_is_refused(
