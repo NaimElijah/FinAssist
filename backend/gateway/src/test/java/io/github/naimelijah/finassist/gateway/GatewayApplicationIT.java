@@ -63,6 +63,9 @@ class GatewayApplicationIT {
     /** Creates a session without a sign-in: Spring saves the authorization request in one. */
     private static final String LOGIN_ENTRY = "/bff/oauth2/authorization/keycloak";
 
+    /** The same entry naming a registration that does not exist, which only this gateway can answer. */
+    private static final String UNKNOWN_LOGIN_ENTRY = "/bff/oauth2/authorization/not-a-registered-provider";
+
     @LocalServerPort
     private int port;
 
@@ -198,6 +201,30 @@ class GatewayApplicationIT {
                 .contains("HttpOnly")
                 .contains("SameSite=Lax")
                 .doesNotContain("Secure");
+    }
+
+    /**
+     * The half of {@code LoginEntryFailureHandler}'s guarantee that only a real container shows.
+     *
+     * <p>Left at Spring's default, the redirect filter answered this with {@code
+     * sendError(500)}; the container then error-dispatched to {@code /error}, which the chain
+     * permits by dispatcher type, and Boot's {@code BasicErrorController} rendered its own body —
+     * a {@code timestamp}, an {@code error} and the caller's {@code path}, with no {@code code}
+     * member and not {@code application/problem+json}. MockMvc performs no error dispatch, so
+     * {@code GatewaySecurityTest} cannot see that body at all; this does.
+     */
+    @Test
+    void Given_a_login_entry_naming_an_unknown_provider_When_requested_Then_it_answers_a_problem_not_boots_error_page()
+            throws Exception {
+        HttpResponse<String> response = get(UNKNOWN_LOGIN_ENTRY);
+
+        assertThat(response.statusCode()).isEqualTo(401);
+        assertThat(response.headers().firstValue("content-type")).contains("application/problem+json");
+        assertThat(response.body())
+                .contains("\"code\":\"UNAUTHENTICATED\"")
+                .doesNotContain("Internal Server Error")
+                .doesNotContain("\"timestamp\"")
+                .doesNotContain("\"path\"");
     }
 
     /**

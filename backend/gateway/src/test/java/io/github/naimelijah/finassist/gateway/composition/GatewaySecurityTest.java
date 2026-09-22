@@ -18,10 +18,13 @@ import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -57,6 +60,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  */
 @SpringBootTest(properties = "finassist.oidc.client-secret=a-test-client-secret")
 @AutoConfigureMockMvc
+@ExtendWith(OutputCaptureExtension.class)
 class GatewaySecurityTest {
 
     private static final String ALLOWED_HOST = "localhost";
@@ -64,6 +68,14 @@ class GatewaySecurityTest {
     private static final String ME = "/bff/me";
     private static final String LOGOUT = "/bff/logout";
     private static final String LOGIN_ENTRY = "/bff/oauth2/authorization/keycloak";
+
+    /**
+     * A registration id no {@code ClientRegistration} answers to, distinctive enough that finding
+     * it in the log proves the log line came from this request rather than from anywhere else.
+     */
+    private static final String UNKNOWN_PROVIDER_SEGMENT = "not-a-registered-provider";
+
+    private static final String UNKNOWN_LOGIN_ENTRY = "/bff/oauth2/authorization/" + UNKNOWN_PROVIDER_SEGMENT;
     private static final String LEDGER_ACCOUNTS = "/ledger/api/v1/accounts";
 
     private static final String XSRF_COOKIE = "FINASSIST-XSRF-TOKEN";
@@ -299,6 +311,31 @@ class GatewaySecurityTest {
                 .contains("code_challenge=")
                 .contains("redirect_uri=http://localhost:5173/bff/login/oauth2/code/keycloak")
                 .contains("scope=openid%20profile");
+    }
+
+    /**
+     * The other segment the login-entry pattern admits: one that resolves to no registration at
+     * all. {@code OAuth2AuthorizationRequestRedirectFilter} sits ahead of every authorization
+     * rule and refuses it itself, so the answer is that filter's failure handler's, not the
+     * chain's — and left at Spring's default it is {@code sendError(500)}, Boot's error body, and
+     * a stack trace at WARN carrying the segment the caller chose. An unauthenticated caller must
+     * not be able to provoke either.
+     */
+    @Test
+    void Given_no_session_When_a_login_entry_naming_an_unknown_provider_is_requested_Then_it_is_refused_401(
+            CapturedOutput output) throws Exception {
+        mvc.perform(named(get(UNKNOWN_LOGIN_ENTRY)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
+                .andExpect(header().doesNotExist(HttpHeaders.LOCATION));
+
+        assertThat(output.getAll())
+                .doesNotContain(UNKNOWN_PROVIDER_SEGMENT)
+                .doesNotContain("InvalidClientRegistrationIdException")
+                // Nothing at all, not merely nothing incriminating: a line per request is itself
+                // the log-filling this refusal exists to stop.
+                .doesNotContain(LoginEntryFailureHandler.class.getName());
     }
 
     /**

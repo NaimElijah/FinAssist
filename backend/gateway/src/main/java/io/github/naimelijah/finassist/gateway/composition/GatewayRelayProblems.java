@@ -51,8 +51,18 @@ import org.springframework.web.client.ResourceAccessException;
  * produces nothing for. Both arrive here as {@link ErrorResponse} subtypes, and both are answered
  * at their own status, at WARN, because the request is what was wrong. Every other status stays
  * with the catch-all below — a relay route's own methods are fixed by its {@code Method=}
- * predicate and every other path is refused by the security chain long before the dispatcher, so
- * no third status can reach this class without something in this gateway having gone wrong.
+ * predicate and every other path is refused before the dispatcher, so no third status can reach
+ * this class without something in this gateway having gone wrong.
+ *
+ * <p><b>Not every refusal the gateway makes passes through here, though.</b> A request refused
+ * before the dispatcher writes its own body: {@link HostAllowListFilter}, {@link
+ * ProblemAuthenticationEntryPoint}, {@link ProblemAccessDeniedHandler} and {@link
+ * LoginEntryFailureHandler} each do. That last one is the reason this paragraph says "before the
+ * dispatcher" rather than "by the security chain": a login entry naming a registration that does
+ * not exist is refused by {@code OAuth2AuthorizationRequestRedirectFilter}, which runs ahead of
+ * the chain's own authorization rules — and, until that handler was given to it, answered {@code
+ * 500} with Boot's error body instead, reaching neither this class nor any code {@link
+ * GatewayProblems} declares.
  *
  * <p><b>Nothing here logs a token.</b> The refresh failure is logged with a fixed message only,
  * matching {@link SignInFailureHandler}'s rule for the same reason: Keycloak's error description

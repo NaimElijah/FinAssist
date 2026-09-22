@@ -11,6 +11,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.oauth2.client.endpoint.OAuth2AccessTokenResponseClient;
 import org.springframework.security.oauth2.client.endpoint.OAuth2AuthorizationCodeGrantRequest;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -129,7 +130,7 @@ public class GatewaySecurityConfiguration {
             @Value("${server.servlet.session.cookie.name}") String sessionCookieName,
             OAuth2AccessTokenResponseClient<OAuth2AuthorizationCodeGrantRequest> tokenResponseClient)
             throws Exception {
-        return http.authorizeHttpRequests(requests -> requests
+        SecurityFilterChain chain = http.authorizeHttpRequests(requests -> requests
                         // The container's own forward to /error, and only that: a direct request
                         // to /error arrives as DispatcherType.REQUEST and is still denied. Without
                         // this, denyAll would answer 403 for every error the gateway raised,
@@ -171,6 +172,45 @@ public class GatewaySecurityConfiguration {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .build();
+        stopAnsweringAnUnknownLoginEntryWithA500(chain);
+        return chain;
+    }
+
+    /**
+     * Gives {@link OAuth2AuthorizationRequestRedirectFilter} the failure handler it would otherwise
+     * not have, so that a login entry naming a registration that does not exist is refused rather
+     * than answered {@code 500} with Boot's error body and a stack trace in the log (see {@link
+     * LoginEntryFailureHandler}, which says what the answer is and why).
+     *
+     * <p>Three things rule out configuring it instead of correcting the built filter, each read
+     * from Spring Security 7.1.1's own sources rather than assumed:
+     *
+     * <ul>
+     *   <li>{@code oauth2Login().failureHandler(..)} reaches the login filter alone. {@code
+     *       AbstractAuthenticationFilterConfigurer} applies it to {@code this.authFilter} — the
+     *       {@code OAuth2LoginAuthenticationFilter} that handles the callback — and {@code
+     *       OAuth2LoginConfigurer.configure(B http)} never calls {@code
+     *       setAuthenticationFailureHandler} on the redirect filter it builds beside it;
+     *   <li>{@code AuthorizationEndpointConfig}, which configures that redirect filter, exposes
+     *       only {@code baseUri}, {@code authorizationRequestResolver}, {@code
+     *       authorizationRequestRepository} and {@code authorizationRedirectStrategy}. There is no
+     *       failure-handler setter to call;
+     *   <li>narrowing {@link BffRoutes#LOGIN_ENTRY_PATTERN} to the exact login entry would not help
+     *       either: this filter runs far ahead of {@code AuthorizationFilter}, so it throws before
+     *       any authorization rule is evaluated.
+     * </ul>
+     *
+     * <p>Walking the already-{@code build()}-assembled chain and correcting the filter instance is
+     * the shape the ledger already uses for the same class of problem ({@code
+     * LedgerSecurityConfiguration.stopSwallowingJwksOutages}): it acts on the fully built,
+     * already-autowired filter regardless of how this method is ordered.
+     */
+    private static void stopAnsweringAnUnknownLoginEntryWithA500(SecurityFilterChain chain) {
+        for (var filter : chain.getFilters()) {
+            if (filter instanceof OAuth2AuthorizationRequestRedirectFilter redirectFilter) {
+                redirectFilter.setAuthenticationFailureHandler(new LoginEntryFailureHandler());
+            }
+        }
     }
 
     /**

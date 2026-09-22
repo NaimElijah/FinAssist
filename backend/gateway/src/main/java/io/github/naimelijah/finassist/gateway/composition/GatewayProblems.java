@@ -18,7 +18,10 @@ import tools.jackson.databind.json.JsonMapper;
  * {@code UNAUTHENTICATED}, and its access-denied handler answers both {@code FORBIDDEN} and {@code
  * CSRF_TOKEN_INVALID}, branching on whether the denial was a CSRF failure — its sign-in failure
  * handler answers neither, since a failed sign-in redirects the browser rather than answering a
- * problem; and {@code GatewayRelayProblems} answers {@code UNAUTHENTICATED} for a refused refresh,
+ * problem, while {@link LoginEntryFailureHandler}, which refuses a login entry naming a
+ * registration that does not exist, answers {@code UNAUTHENTICATED} through that same entry point
+ * and {@code INTERNAL_ERROR} for anything else that stops a sign-in being started; and {@code
+ * GatewayRelayProblems} answers {@code UNAUTHENTICATED} for a refused refresh,
  * {@code UPSTREAM_UNAVAILABLE} and {@code INTERNAL_ERROR} for a relay's other failures, and
  * {@code METHOD_NOT_ALLOWED} or {@code NOT_ACCEPTABLE} for the two refusals Spring MVC itself can
  * raise here. Each is spelled exactly as the ledger spells the same code, so a client branching on
