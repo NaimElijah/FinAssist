@@ -13,6 +13,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -58,6 +60,9 @@ class GatewayLoginFlowIT {
 
     /** A relayed write, so a refusal below is refusing the request CSRF exists to stop. */
     private static final String LEDGER_TRANSACTIONS = "/ledger/api/v1/transactions";
+
+    /** What {@code SignInFailureHandler} appends when a sign-in does not complete. */
+    private static final String SIGN_IN_FAILED = "/?signin=failed";
 
     /** A W3C trace id the client picks, so the value asserted downstream can only have come from it. */
     private static final String CLIENT_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -200,16 +205,48 @@ class GatewayLoginFlowIT {
 
     /** The second half: the fake provider's authorization endpoint, then the gateway's callback. */
     private HttpResponse<Void> finishLogin(HttpClient client, URI authorizeUri) throws Exception {
+        URI response = authorizationResponse(client, authorizeUri);
+        return sendCallback(client, response.getPath(), response.getQuery());
+    }
+
+    /**
+     * The fake provider's authorization endpoint, and the redirect it answers with — the {@code
+     * code} and {@code state} pair a browser would then carry to the callback. Split out from
+     * {@link #finishLogin} so a test can perturb that pair before it is sent.
+     */
+    private URI authorizationResponse(HttpClient client, URI authorizeUri) throws Exception {
         HttpResponse<Void> authorized = getFollowingNothing(client, authorizeUri.toString());
         assertThat(authorized.statusCode()).isEqualTo(302);
         assertThat(idp.lastAuthorizationRequestHadPkce()).isTrue();
         URI codeRedirect =
                 URI.create(authorized.headers().firstValue("Location").orElseThrow());
         assertThat(codeRedirect.toString()).startsWith(WEB_ORIGIN);
+        return codeRedirect;
+    }
 
-        URI realCallback =
-                new URI("http", null, "localhost", port, codeRedirect.getPath(), codeRedirect.getQuery(), null);
-        return getFollowingNothing(client, realCallback.toString());
+    /**
+     * Sends an authorization response to the gateway's callback at this test's real address rather
+     * than the registered {@code redirect_uri} — the mismatch the class javadoc explains.
+     *
+     * @param query the query as {@link URI#getQuery()} gives it, decoded; the constructor below
+     *     re-encodes it, so a caller manipulating it works in decoded values throughout
+     */
+    private HttpResponse<Void> sendCallback(HttpClient client, String path, String query) throws Exception {
+        return getFollowingNothing(client, new URI("http", null, "localhost", port, path, query, null).toString());
+    }
+
+    /** That same query with one parameter dropped entirely. */
+    private static String without(String query, String name) {
+        return Arrays.stream(query.split("&"))
+                .filter(pair -> !pair.startsWith(name + "="))
+                .collect(Collectors.joining("&"));
+    }
+
+    /** That same query with one parameter's value replaced. */
+    private static String replacing(String query, String name, String value) {
+        return Arrays.stream(query.split("&"))
+                .map(pair -> pair.startsWith(name + "=") ? name + "=" + value : pair)
+                .collect(Collectors.joining("&"));
     }
 
     /** A full, successful sign-in, for tests whose point is what happens afterward. */
@@ -369,6 +406,89 @@ class GatewayLoginFlowIT {
 
             assertThat(sessionCookieValue(client)).isNotEqualTo(beforeSignIn);
         }
+    }
+
+    /**
+     * {@code state} is the only thing binding a callback to the browser that started the flow.
+     * This class's own javadoc argues that, and then relies on it: every sign-in here completes at
+     * an address the {@code ClientRegistration} never declared, because Spring compares the {@code
+     * state} parameter against the session-stored authorization request and nothing else. Nothing
+     * tested the comparison itself, so a callback carrying no {@code state} at all is the first
+     * case.
+     *
+     * <p>Without it, {@code OAuth2LoginAuthenticationFilter} does not recognise the request as an
+     * authorization response and fails the sign-in before any code is redeemed.
+     */
+    @Test
+    void Given_a_callback_carrying_no_state_When_it_arrives_Then_the_sign_in_fails_and_no_session_is_established()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            URI response = authorizationResponse(client, startLogin(client));
+
+            HttpResponse<Void> callback =
+                    sendCallback(client, response.getPath(), without(response.getQuery(), "state"));
+
+            assertSignInFailed(callback);
+            assertNotSignedIn(client);
+        }
+    }
+
+    /**
+     * The same guarantee from the other side: a {@code state} that is present but is not the one
+     * this browser's flow stored. It is the login-CSRF case — an attacker who can make the browser
+     * visit a callback of their choosing must not be able to complete a sign-in with it.
+     */
+    @Test
+    void Given_a_callback_whose_state_is_not_the_browsers_When_it_arrives_Then_the_sign_in_fails_and_no_session()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            URI response = authorizationResponse(client, startLogin(client));
+
+            HttpResponse<Void> callback = sendCallback(
+                    client, response.getPath(), replacing(response.getQuery(), "state", "a-state-nobody-issued"));
+
+            assertSignInFailed(callback);
+            assertNotSignedIn(client);
+        }
+    }
+
+    /**
+     * The same {@code code} and {@code state} used twice, by a browser that did not start the
+     * flow. That is the shape replay actually takes: the pair is useless to anyone but the browser
+     * holding the session the authorization request was stored in, and the first callback consumes
+     * it there.
+     *
+     * <p>Replayed by the <em>same</em> browser the pair would also fail, but that browser is signed
+     * in by then, so "no session is established" could not be asserted of it — which is why the
+     * replay is made from a second, cookie-less client.
+     */
+    @Test
+    void Given_a_code_and_state_already_used_When_another_browser_replays_them_Then_the_sign_in_fails_for_it()
+            throws Exception {
+        try (HttpClient browser = newClient()) {
+            URI response = authorizationResponse(browser, startLogin(browser));
+            HttpResponse<Void> first = sendCallback(browser, response.getPath(), response.getQuery());
+            assertThat(first.statusCode()).isEqualTo(302);
+            assertThat(first.headers().firstValue("Location")).hasValue(WEB_ORIGIN + "/");
+
+            try (HttpClient replaying = newClient()) {
+                HttpResponse<Void> replay = sendCallback(replaying, response.getPath(), response.getQuery());
+
+                assertSignInFailed(replay);
+                assertNotSignedIn(replaying);
+            }
+        }
+    }
+
+    /** A sign-in that did not complete: the browser is sent back to the web client, told so. */
+    private static void assertSignInFailed(HttpResponse<Void> callback) {
+        assertThat(callback.statusCode()).isEqualTo(302);
+        assertThat(callback.headers().firstValue("Location")).hasValue(WEB_ORIGIN + SIGN_IN_FAILED);
+    }
+
+    /** Nothing was signed in: the one endpoint of the gateway's own that needs a session refuses. */
+    private void assertNotSignedIn(HttpClient client) throws Exception {
+        assertThat(relay(client, "/bff/me").statusCode()).isEqualTo(401);
     }
 
     /**
