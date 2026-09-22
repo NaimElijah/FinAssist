@@ -351,6 +351,18 @@ These are enforced by the build, not by review. Breaking one fails CI.
   fallback, runs at the lowest and catches what none of them claimed; a controller-local handler
   answers an id named in a body or query, since the same not-found exception is 404 from a path
   and 422 from a body (ADR-028).
+- **The gateway's catch-all answers a framework refusal at its own status.**
+  `GatewayRelayProblems.relayFailed` peels an `ErrorResponse` off first — 405
+  `METHOD_NOT_ALLOWED` and 406 `NOT_ACCEPTABLE`, the only two `GET /bff/me` can provoke — and
+  logs it at WARN, so ERROR still means a true 5xx. A status with no code in that map stays a
+  500 rather than being passed through under an invented one. `GatewaySecurityTest` and
+  `GatewayRelayProblemsTest` fail the build if either half is lost.
+- **Neither Keycloak client is allowed the realm's full scope.** `fullScopeAllowed: false` on
+  both, plus a realm-level `scopeMappings` entry naming exactly the roles each client's tokens
+  need — `owner` and `viewer` for the gateway, `assistant` for the assistant. Left at Keycloak's
+  default, every role in the realm reaches the `roles` claim. `KeycloakRealmTest` pins the file
+  and `KeycloakRealmIT` reads the scope back from a running Keycloak through its admin API,
+  because the gateway's client permits no grant this build can mint a token with.
 - **Every decimal on the wire is a string, never a JSON number** — money, growth rates and
   quantities alike (ADR-028). The ledger refuses a JSON number in any text member with 400
   through `StrictTextCoercion`, proven against the running ledger by `AccountingHttpIT`. A
