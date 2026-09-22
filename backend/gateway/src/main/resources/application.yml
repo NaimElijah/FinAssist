@@ -137,9 +137,9 @@ spring:
       # wiring is removed.
       #
       # The HTTP version those calls speak is not settable here - Boot's `spring.http.clients.*`
-      # exposes timeouts, redirects, cookie handling, an SSL bundle and the factory, and nothing
-      # else. GatewayConfiguration's `relayHttpVersion` bean pins it to HTTP/1.1 instead, and says
-      # which failure that prevents.
+      # exposes timeouts, redirects, cookie handling, an SSL bundle, the imperative factory and
+      # the reactive connector, and none of them the HTTP version. GatewayConfiguration's
+      # `relayHttpVersion` bean pins it to HTTP/1.1 instead, and says which failure that prevents.
       connect-timeout: 5s
       read-timeout: 10s
 

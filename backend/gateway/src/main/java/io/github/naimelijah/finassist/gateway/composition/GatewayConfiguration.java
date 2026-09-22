@@ -61,8 +61,9 @@ public class GatewayConfiguration {
      *
      * <p>Boot exposes no property for the HTTP version: {@code spring.http.clients.*} carries
      * {@code connect-timeout}, {@code read-timeout}, {@code redirects}, {@code cookie-handling},
-     * {@code ssl.bundle} and {@code imperative.factory}, and nothing else — so a bean it is, and
-     * this is the extension point Boot publishes for exactly that. {@code
+     * {@code ssl.bundle}, {@code imperative.factory} and {@code reactive.connector}, and none of
+     * them names one — so a bean it is, and this is the extension point Boot publishes for
+     * exactly that. {@code
      * ImperativeHttpClientAutoConfiguration} applies it to the detected {@code
      * ClientHttpRequestFactoryBuilder}, which is the bean {@code spring.http.clients}'s timeouts
      * are applied on top of, and the bean both the {@code RestClient.Builder} behind the relay's
@@ -74,6 +75,14 @@ public class GatewayConfiguration {
      * Jetty or Reactor client is on the classpath. If one ever were, Boot would detect it instead
      * and this customizer would stop applying; {@code GatewayLoginFlowIT}'s two upgrade-offer
      * assertions are what turns red if that happens.
+     *
+     * <p>One header this pin does not reach: Spring Cloud Gateway's {@code
+     * RemoveHopByHopRequestHeadersFilter} strips an incoming {@code Upgrade} and {@code
+     * Connection} but not {@code HTTP2-Settings}, so a client-supplied one still reaches the
+     * upstream. Harmless today — nothing in any of the three codebases parses that header, and
+     * neither Tomcat nor h11 acts on an upgrade offer without the {@code Upgrade} and {@code
+     * Connection: upgrade} headers this filter does strip — but it would matter the day an
+     * upstream started treating a bare {@code HTTP2-Settings} header as an offer on its own.
      */
     @Bean
     ClientHttpRequestFactoryBuilderCustomizer<JdkClientHttpRequestFactoryBuilder> relayHttpVersion() {
