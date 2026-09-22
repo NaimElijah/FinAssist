@@ -44,7 +44,7 @@ final class TestJwks {
         return INSTANCE;
     }
 
-    /** The URI {@code finassist.security.jwk-set-uri} is overridden to for every test that extends {@link PostgresFixture}. */
+    /** The URI {@code finassist.security.jwks-uri} is overridden to for every test that extends {@link PostgresFixture}. */
     String jwksUri() {
         return jwksUri;
     }

@@ -89,7 +89,7 @@ public abstract class PostgresFixture {
     @DynamicPropertySource
     static void jwks(DynamicPropertyRegistry registry) {
         registry.add(
-                "finassist.security.jwk-set-uri",
+                "finassist.security.jwks-uri",
                 () -> jwksUriOverride != null
                         ? jwksUriOverride
                         : TestJwks.instance().jwksUri());

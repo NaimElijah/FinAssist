@@ -129,7 +129,7 @@ public class LedgerSecurityConfiguration {
      * even looked up — the classic algorithm-confusion attack finds no algorithm to be confused
      * with.
      *
-     * @param jwkSetUri the internal JWKS URI ({@code finassist.security.jwk-set-uri}, from {@code
+     * @param jwkSetUri the internal JWKS URI ({@code finassist.security.jwks-uri}, from {@code
      *     LEDGER_OIDC_JWKS_URI}). Internal because it is fetched service-to-service; the token's own
      *     {@code iss} is always the public issuer, which is why the two are separate properties
      * @param issuer the expected {@code iss} ({@code finassist.security.issuer}, from {@code
@@ -142,7 +142,7 @@ public class LedgerSecurityConfiguration {
      */
     @Bean
     JwtDecoder jwtDecoder(
-            @Value("${finassist.security.jwk-set-uri}") String jwkSetUri,
+            @Value("${finassist.security.jwks-uri}") String jwkSetUri,
             @Value("${finassist.security.issuer}") String issuer,
             @Value("${finassist.security.audience}") String audience,
             Clock clock) {
