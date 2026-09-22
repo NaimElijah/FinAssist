@@ -127,9 +127,16 @@ that upgrade, and Flyway validates before it migrates, so nothing is expected to
 dump is cheap insurance, not a warning:
 
 ```bash
-docker compose up -d db
+docker compose up -d --wait db
 docker compose exec -T db pg_dump -U finassist finassist > finassist-before-upgrade.sql
 ```
+
+`--wait` blocks until `db`'s healthcheck reports healthy, since Compose otherwise returns as
+soon as the container starts, not once PostgreSQL is ready to accept connections, and `pg_dump`
+run against a starting server fails with "the database system is starting up". Before starting
+the new version, confirm the dump actually has something in it —
+`wc -c finassist-before-upgrade.sql` should report a non-zero byte count; `0` means `pg_dump`
+never got to write anything and the backup must be taken again.
 
 Both names are `POSTGRES_USER` and `POSTGRES_DB` from `.env`; each defaults to `finassist`.
 
