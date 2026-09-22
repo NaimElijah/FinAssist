@@ -30,7 +30,7 @@ COPY --from=builder /opt/keycloak/ /opt/keycloak/
 # (6c4a4be0-7c38-4145-845f-f4311ef64202), generated once and committed rather than left for
 # Keycloak to assign. A user's `sub` claim is its `id`; leaving it unpinned would hand the owner
 # a new `sub` every time the realm is imported afresh - into a recreated `keycloak-db-data`, or by
-# `kc.sh import --override`, which deletes the realm first (see README) - and journal rows
+# `kc.sh import --override true`, which deletes the realm first (see README) - and journal rows
 # attributed to the old `sub` would then name nobody Keycloak still knows (ADR-031's "makes hard"
 # list; ADR-020, ADR-024, ADR-033).
 COPY finassist-realm.json /opt/keycloak/data/import/finassist-realm.json

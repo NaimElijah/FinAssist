@@ -97,8 +97,11 @@ management:
   endpoints:
     web:
       exposure:
-        # An explicit allow-list, never "*". LedgerApplicationIT asserts /actuator/env is 404,
-        # which is what stops this being widened by accident.
+        # An explicit allow-list, never "*". Since ADR-030 the security chain is the guard that
+        # matters: an endpoint not named here matches no permitAll rule, so LedgerApplicationIT's
+        # /actuator/env case is refused 401 with no token and 403 with a real one, never served.
+        # That holds whatever this list says, so widening it is no longer a way in - but keep it
+        # short anyway, because a second guard should not be the only one.
         include: health,info,metrics,prometheus
   endpoint:
     health:
