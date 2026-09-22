@@ -22,8 +22,8 @@ from typing import Any
 
 import jwt
 import pytest
-from fastapi import APIRouter, FastAPI, HTTPException
-from fastapi.routing import APIRoute
+from fastapi import FastAPI, HTTPException
+from fastapi.routing import APIRoute, RouteContext, iter_route_contexts
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
@@ -38,11 +38,8 @@ from finassist_assistant.adapters.auth import (
     _granted_permissions,
 )
 from finassist_assistant.adapters.settings import Settings
-from finassist_assistant.adapters.wiring import Clock, assemble
-from finassist_assistant.portfolio.adapters.inbound.api.router import (
-    READ_PORTFOLIO,
-    portfolio_router,
-)
+from finassist_assistant.adapters.wiring import Clock
+from finassist_assistant.portfolio.adapters.inbound.api.router import READ_PORTFOLIO
 
 HOLDINGS = "/api/v1/portfolio/holdings"
 POSITION_URL = f"{HOLDINGS}/VOO/position"
@@ -296,22 +293,32 @@ def Given_no_permission_and_a_form_body_When_a_disposal_is_priced_Then_403_comes
 # --- coverage: a route or a role table that drifts fails the build ------------------------
 
 
-def _built_router() -> APIRouter:
-    portfolio = assemble().portfolio
-    return portfolio_router(
-        portfolio.view_position,
-        portfolio.value_holding,
-        portfolio.dispose_units,
-        require=RequirePermission,
-    )
+def _api_routes(app: FastAPI) -> list[RouteContext]:
+    """Every route *app* actually answers to, minus the public ones ``BearerAuthentication``
+    never asks a permission of at all (ADR-030).
+
+    ``app.routes`` alone is not enough: FastAPI 0.141.1 mounts a router ``include_router`` brings
+    in behind an internal wrapper (``_IncludedRouter``) rather than flattening its routes onto
+    ``app.routes`` directly, so a plain ``isinstance(route, APIRoute)`` scan of ``app.routes``
+    finds none of ``portfolio_router``'s own routes at all (confirmed against the installed
+    version). ``iter_route_contexts`` is the same walk FastAPI's own OpenAPI generator uses
+    (``fastapi.openapi.utils`` calls it too) to resolve the *effective* route behind any depth of
+    ``include_router`` nesting, dependencies included - so a second router registered in
+    ``create_app`` is covered automatically, exactly like ``portfolio_router`` is today.
+    """
+    return [
+        context
+        for context in iter_route_contexts(app.routes)
+        if isinstance(context.original_route, APIRoute) and context.path not in PUBLIC_PATHS
+    ]
 
 
-def Given_the_portfolio_router_When_routes_are_inspected_Then_each_declares_one_permission() -> (
-    None
-):
+def Given_the_assembled_app_When_routes_are_inspected_Then_each_declares_one_permission(
+    app: FastAPI,
+) -> None:
     """Proven to fail: dropping the permission dependency from one route in ``router.py`` turns
     this red, confirmed by hand and reverted before this file was committed."""
-    routes = [route for route in _built_router().routes if isinstance(route, APIRoute)]
+    routes = _api_routes(app)
 
     assert routes, "no route to check, so this test would pass vacuously"
     for route in routes:
