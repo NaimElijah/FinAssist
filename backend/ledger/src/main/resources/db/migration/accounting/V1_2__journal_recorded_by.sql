@@ -7,8 +7,8 @@
 -- `recorded_by text`, nullable, with no default. A default would stamp a false recorder onto
 -- every historical row the moment this column appeared, which is worse than the row saying
 -- nothing. Its shape mirrors accounting.application.port.in.Actor: a non-blank subject of at
--- most 255 characters (Actor.MAX_SUBJECT_LENGTH) — the two are kept in sync by review, since no
--- constant can be shared across a Java class and a SQL constraint.
+-- most 255 characters (Actor.MAX_SUBJECT_LENGTH). The 255-character limit is kept in sync by
+-- review; the non-blank rule is intentionally stricter in Java, safe since Actor is the only path.
 --
 -- The CHECK is added NOT VALID on purpose. NOT VALID tells PostgreSQL to skip scanning the rows
 -- already in the table, so the historical NULLs above are simply never checked against it, while

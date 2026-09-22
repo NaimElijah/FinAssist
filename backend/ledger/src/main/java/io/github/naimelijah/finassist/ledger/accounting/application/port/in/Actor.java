@@ -15,9 +15,9 @@ import java.util.Objects;
 public record Actor(String subject) {
 
     /**
-     * Matches {@code V1_2__journal_recorded_by.sql}'s {@code CHECK (char_length(recorded_by) <=
-     * 255)}. The two are the same limit kept in sync by review, since no constant can be shared
-     * across a Java class and a SQL constraint.
+     * Mirrors the 255-character length limit in {@code V1_2__journal_recorded_by.sql}, kept in
+     * sync by review. The {@code isBlank()} check is stricter than the SQL constraint, safe
+     * since {@code Actor} is the only path to the database.
      */
     public static final int MAX_SUBJECT_LENGTH = 255;
 
