@@ -206,9 +206,9 @@ services:
       timeout: 3s
       retries: 10
       # Measured on this machine from a fresh volume: ~100s to the first real 200 with the rest
-      # of the stack starting alongside it (Task 18's own run saw ~150s). A probe success inside
-      # start_period still marks the container healthy immediately, so this costs nothing on a
-      # fast start; it only stops a correct, slower check from failing the container outright.
+      # of the stack starting alongside it; a slower run on this machine saw ~150s. A probe success
+      # inside start_period still marks the container healthy immediately, so this costs nothing
+      # on a fast start; it only stops a correct, slower check from failing the container outright.
       start_period: 240s
 
   gateway:
