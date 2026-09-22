@@ -13,8 +13,12 @@ Standard library only, so it runs unmodified from the pinned `python:3.13.8-slim
 with no `pip install` step (the same tag `backend/assistant/Dockerfile` already builds from).
 
 Exits non-zero on the first failed check, naming which one failed and why. Never prints a
-token, a full response body, or anything else that could carry one: every message below names a
-claim, a status code or a header, never a value that might quote a credential back.
+token, a client secret, a cookie, an `Authorization` header or a response body. A failure
+message may quote a non-secret claim value (the token's `alg`, its `aud`, a role name) where the
+failure cannot be diagnosed without it, and a response's status, problem code, or redirect
+target stripped of its query. An error none of the checks anticipated is reported by its type
+alone: a standard-library exception's message can quote its input, and `http.client`'s
+"Invalid header value" quotes the whole rejected header, token included.
 
 Run it with `make smoke-auth` (see README.md, "Smoke-testing authentication"). Refs #38.
 """
@@ -25,6 +29,7 @@ import base64
 import http.client
 import json
 import os
+import re
 import sys
 import urllib.parse
 from collections.abc import Callable
@@ -98,6 +103,11 @@ EMPTY_JSON_BODY: Final = b"{}"
 
 REQUEST_TIMEOUT_SECONDS: Final = 10
 
+# A JWS compact serialisation (RFC 7515, section 7.1): three base64url segments joined by two
+# dots, and nothing else. The token goes into an `Authorization` header, so a character outside
+# this alphabet — a CR or an LF above all — must stop at check 1, not reach `http.client`.
+JWS_COMPACT: Final = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
+
 
 class SmokeCheckError(Exception):
     """Raised by a check that did not get what ADR-030 through ADR-032 promise.
@@ -146,20 +156,23 @@ def _decode_jwt(token: str) -> tuple[dict[str, object], dict[str, object]]:
     Signature verification is each resource server's own job (ADR-030) — proven by
     `KeycloakRealmIT` and the two services' own test suites. This check only inspects claims the
     services have already promised to enforce.
+
+    :param token: already matched against `JWS_COMPACT`, so it has exactly three segments.
+    :raises SmokeCheckError: the header or the payload is not a base64url-encoded JSON object.
     """
-    parts = token.split(".")
-    if len(parts) != 3:
-        raise SmokeCheckError("the token was not a three-part JWT")
+    header, payload, _signature = token.split(".")
 
     def decode_segment(segment: str) -> dict[str, object]:
         padding = "=" * (-len(segment) % 4)
-        decoded = base64.urlsafe_b64decode(segment + padding)
-        parsed = json.loads(decoded)
+        try:
+            parsed = json.loads(base64.urlsafe_b64decode(segment + padding))
+        except ValueError as malformed:
+            raise SmokeCheckError("a JWT segment was not base64url-encoded JSON") from malformed
         if not isinstance(parsed, dict):
             raise SmokeCheckError("a JWT segment did not decode to a JSON object")
         return parsed
 
-    return decode_segment(parts[0]), decode_segment(parts[1])
+    return decode_segment(header), decode_segment(payload)
 
 
 def _status_mismatch(description: str, status: int, expected: int) -> str:
@@ -210,10 +223,17 @@ def check_assistant_token_claims() -> str:
     if status != HTTP_OK:
         raise SmokeCheckError(f"the token endpoint answered {status}, expected {HTTP_OK}")
 
-    token_response = json.loads(body)
-    access_token = token_response.get("access_token")
+    try:
+        token_response = json.loads(body)
+    except ValueError as not_json:
+        raise SmokeCheckError("the token endpoint's 200 carried no JSON body") from not_json
+    access_token = token_response.get("access_token") if isinstance(token_response, dict) else None
     if not isinstance(access_token, str) or not access_token:
         raise SmokeCheckError("the token response carried no access_token")
+    # fullmatch, never match with `$`: `$` also matches just before a trailing newline, the very
+    # character this refuses.
+    if JWS_COMPACT.fullmatch(access_token) is None:
+        raise SmokeCheckError("the access_token was not a JWS compact serialisation")
 
     header, payload = _decode_jwt(access_token)
 
@@ -364,14 +384,16 @@ def check_ledger_health_is_public() -> None:
         raise SmokeCheckError(f"GET {LEDGER_HEALTH_PATH} answered {status}, expected {HTTP_OK}")
 
 
-def _emit(message: str, *, to_stderr: bool = False) -> None:
-    """Writes one line of this CLI's own report — never application logging.
+def _report(line: str) -> None:
+    """Writes one line of this CLI's report to stdout, flushed at once.
 
-    `ops/smoke` is a standalone operator diagnostic, not one of the three services
-    ".claude/CLAUDE.md"'s "nothing writes output except the logging boundary" rule protects;
-    stdout and stderr are its actual interface for a human running `make smoke-auth`.
+    PASS and FAILED lines share one stream on purpose: their order is the report (which checks
+    passed before the one that failed), and two streams would leave that order to buffering and
+    to however a caller joins them. The exit status, not the stream, says the run failed.
     """
-    print(message, file=sys.stderr if to_stderr else sys.stdout)
+    # T201 exists to keep output behind the services' logging boundary (ADR-019). This is an
+    # operator CLI, not a service: the report on stdout is its whole product.
+    print(line, flush=True)  # noqa: T201
 
 
 class _CheckRun:
@@ -400,7 +422,7 @@ class _CheckRun:
         number = self.passed + 1
         self.current = f"{number} ({name})"
         result = step(*args, **kwargs)
-        _emit(f"{number}. {name}: PASS")
+        _report(f"{number}. {name}: PASS")
         self.passed = number
         return result
 
@@ -428,15 +450,20 @@ def main() -> int:
         run.check("the gateway's login entry", check_gateway_login_entry_redirects)
         run.check("GET /actuator/health with no token", check_ledger_health_is_public)
     except SmokeCheckError as failure:
-        _emit(f"FAILED check {run.current}: {failure}", to_stderr=True)
+        _report(f"FAILED check {run.current}: {failure}")
         return 1
     except OSError as error:
         # A service unreachable over the Compose network is exactly the class of wiring
         # fault this script exists to catch, not an internal error to mask.
-        _emit(f"FAILED check {run.current}: could not reach a service — {error}", to_stderr=True)
+        _report(f"FAILED check {run.current}: could not reach a service — {error}")
+        return 1
+    except Exception as error:
+        # Last resort, so that every failure still names its check. The type alone, never the
+        # message, a repr or a traceback: see the module docstring for the one that quotes a token.
+        _report(f"FAILED check {run.current}: unexpected {type(error).__name__}")
         return 1
 
-    _emit(f"{run.passed}/{run.passed} checks passed")
+    _report(f"{run.passed}/{run.passed} checks passed")
     return 0
 
 
