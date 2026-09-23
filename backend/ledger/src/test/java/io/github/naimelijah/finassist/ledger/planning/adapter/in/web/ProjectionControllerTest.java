@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.naimelijah.finassist.ledger.WebSliceSecurity;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanNotFoundException;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.ProjectScenarioCommand;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.ProjectScenarioUseCase;
@@ -37,6 +38,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -54,6 +56,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * a car of 60000.00 lands on 15 February, in the step that closes on 1 March. No growth is assumed, so
  * no rounding enters the figures.
  */
+@Import(WebSliceSecurity.class)
 @WebMvcTest(controllers = ProjectionController.class)
 @ExtendWith(OutputCaptureExtension.class)
 class ProjectionControllerTest {

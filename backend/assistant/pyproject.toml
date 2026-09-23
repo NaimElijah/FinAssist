@@ -22,6 +22,9 @@ dependencies = [
     "opentelemetry-sdk==1.44.0",
     "opentelemetry-exporter-otlp-proto-http==1.44.0",
     "opentelemetry-instrumentation-fastapi==0.65b0",
+    # JWT bearer-token verification (ADR-032). The `crypto` extra brings `cryptography`,
+    # which RS256 needs; the standard library has no JOSE support.
+    "PyJWT[crypto]==2.14.0",
 ]
 
 [project.optional-dependencies]

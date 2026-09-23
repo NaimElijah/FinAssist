@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 
+import { useWriteAccess } from '@/shared/lib/writeAccess';
 import {
     type Column,
     DataTable,
@@ -134,13 +135,17 @@ function BudgetsList({
 }
 
 /**
- * `/budgets`: every budget with its period, currency and total, in the ledger's order, and the
- * form that defines another.
+ * `/budgets`: every budget with its period, currency and total, in the ledger's order, and, for a
+ * session with write access, the form that defines another.
  *
  * Defining a budget resets the form and moves focus to the new budget's "Review" link in the
  * list, once - the one success signal, mirroring `AccountsPage`'s own pattern.
+ *
+ * The link to `CategorisationRulesPage` stays offered to a read-only session (`useWriteAccess`):
+ * that screen still has something to read, its own write control hidden the same way (ADR-032).
  */
 export function BudgetsPage() {
+    const { canWrite } = useWriteAccess();
     const [definedBudgetId, setDefinedBudgetId] = useState<string | undefined>(undefined);
     // Stable, so the link's focus effect does not run again on every render of the page.
     const clearDefinedBudget = useCallback(() => {
@@ -154,11 +159,13 @@ export function BudgetsPage() {
                 <Link to={CATEGORISATION_RULES_PATH}>Categorisation rules</Link>
             </p>
             <BudgetsList focusedBudgetId={definedBudgetId} onFocused={clearDefinedBudget} />
-            <DefineBudgetForm
-                onDefined={(budget) => {
-                    setDefinedBudgetId(budget.id);
-                }}
-            />
+            {canWrite ? (
+                <DefineBudgetForm
+                    onDefined={(budget) => {
+                        setDefinedBudgetId(budget.id);
+                    }}
+                />
+            ) : null}
         </>
     );
 }

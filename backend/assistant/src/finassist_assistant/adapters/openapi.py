@@ -10,6 +10,10 @@ as the ledger's document describes it, and FastAPI's ``422`` goes, together with
 only it referred to. A client generated from the document then carries the problem shape rather
 than a type the wire never holds (ADR-028).
 
+It also adds the ``bearerAuth`` scheme and a global security requirement (ADR-030), identical to
+the ledger's own document: every operation here needs a bearer token too, and one client parses
+both contracts.
+
 It lives in the composition root because it applies to every context's routes at once.
 """
 
@@ -22,7 +26,7 @@ from fastapi import FastAPI
 
 from finassist_assistant.adapters.problems import PROBLEM_MEDIA_TYPE
 
-__all__ = ["PROBLEM_SCHEMA", "document_problems"]
+__all__ = ["BEARER_SECURITY_SCHEME", "PROBLEM_SCHEMA", "document_problems", "document_security"]
 
 PROBLEM_SCHEMA_NAME: Final = "Problem"
 
@@ -62,6 +66,21 @@ _PROBLEM_RESPONSE: Final[dict[str, Any]] = {
 _FASTAPI_VALIDATION_STATUS: Final = "422"
 _FASTAPI_VALIDATION_SCHEMAS: Final = ("HTTPValidationError", "ValidationError")
 
+BEARER_SCHEME_NAME: Final = "bearerAuth"
+
+BEARER_SECURITY_SCHEME: Final[dict[str, Any]] = {
+    "type": "http",
+    "scheme": "bearer",
+    "bearerFormat": "JWT",
+}
+"""Written out rather than generated, exactly like :data:`PROBLEM_SCHEMA`: it has to equal the
+ledger's own scheme byte for byte, and ``tests/test_contract.py`` compares the two."""
+
+_GLOBAL_SECURITY_REQUIREMENT: Final[list[dict[str, list[str]]]] = [{BEARER_SCHEME_NAME: []}]
+"""One requirement for the whole document, as the ledger's ``OpenApiConfiguration`` builds -
+every operation under ``/api/v1`` needs a bearer token, and a generated client should not have
+to be told that once per operation."""
+
 
 def document_problems(app: FastAPI) -> None:
     """Make ``app.openapi()`` describe every failure as a problem.
@@ -97,4 +116,27 @@ def _with_problems(document: dict[str, Any]) -> dict[str, Any]:
     for name in _FASTAPI_VALIDATION_SCHEMAS:
         schemas.pop(name, None)
     schemas[PROBLEM_SCHEMA_NAME] = copy.deepcopy(PROBLEM_SCHEMA)
+    return document
+
+
+def document_security(app: FastAPI) -> None:
+    """Make ``app.openapi()`` require the bearer scheme, identically to the ledger's document.
+
+    Wraps ``app.openapi`` the same way :func:`document_problems` does, so the two compose:
+    whichever is installed first runs first, and each call site installs both (ADR-030).
+
+    :param app: the application to adjust. Call it once, when the app is built.
+    """
+    generate = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        return _with_security(generate())
+
+    app.openapi = openapi  # type: ignore[method-assign]
+
+
+def _with_security(document: dict[str, Any]) -> dict[str, Any]:
+    schemes = document.setdefault("components", {}).setdefault("securitySchemes", {})
+    schemes[BEARER_SCHEME_NAME] = copy.deepcopy(BEARER_SECURITY_SCHEME)
+    document["security"] = copy.deepcopy(_GLOBAL_SECURITY_REQUIREMENT)
     return document

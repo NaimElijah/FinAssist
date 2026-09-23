@@ -1,11 +1,13 @@
 // @vitest-environment node
 // No DOM: these functions only call fetch and map what it returns, and fetch, Headers and
-// Response are Node globals.
+// Response are Node globals. sendJson does read document.cookie for the CSRF header, so
+// stubDocumentCookie stands in for it below rather than pulling in jsdom for the whole file.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiBodyError, ApiError } from '@/shared/api/client';
 import { setLogSink } from '@/shared/lib/logger';
+import { stubDocumentCookie } from '@/shared/testing/stubDocumentCookie';
 
 import {
     clearTransaction,
@@ -61,6 +63,8 @@ let restoreSink: () => void = () => undefined;
 beforeEach(() => {
     // A failing request is logged by the client; that record is not what is under test here.
     restoreSink = setLogSink(() => undefined);
+    // This suite is not exercising the CSRF header, so an absent cookie is the right stand-in.
+    stubDocumentCookie('');
 });
 
 afterEach(() => {

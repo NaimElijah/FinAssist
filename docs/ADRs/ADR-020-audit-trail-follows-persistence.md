@@ -1,6 +1,6 @@
 # ADR-020: The journal is the audit record, and it lands with persistence
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by ADR-033
 - **Date:** 2026-08-31
 
 ## Context

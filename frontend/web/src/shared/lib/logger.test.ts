@@ -46,6 +46,28 @@ describe('redaction', () => {
         });
     });
 
+    it('Given_a_gateway_credential_shaped_field_When_redacted_Then_its_value_is_replaced', () => {
+        // The gateway keeps the browser's session server-side (ADR-030): the cookie, the CSRF
+        // token and the bearer/JWT it relays are all as credential-shaped as apiKey or password.
+        expect(
+            redactFields({
+                cookie: 'FINASSIST_SESSION=abc',
+                xsrfToken: 'abc123',
+                csrfToken: 'abc123',
+                session: 'opaque-session-id',
+                bearerToken: 'abc.def.ghi',
+                jwt: 'abc.def.ghi',
+            }),
+        ).toEqual({
+            cookie: REDACTED,
+            xsrfToken: REDACTED,
+            csrfToken: REDACTED,
+            session: REDACTED,
+            bearerToken: REDACTED,
+            jwt: REDACTED,
+        });
+    });
+
     it('Given_a_secret_nested_in_a_payload_When_redacted_Then_it_is_still_removed', () => {
         const redacted = redactFields({
             request: { headers: { authorization: 'Bearer abc' }, path: '/v1/accounts' },

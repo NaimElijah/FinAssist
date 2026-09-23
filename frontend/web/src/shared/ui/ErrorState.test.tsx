@@ -81,6 +81,28 @@ describe('ErrorState', () => {
         expect(screen.getByRole('alert').textContent).toBe(GENERIC_SENTENCE);
     });
 
+    it('Given_a_FORBIDDEN_problem_with_its_own_detail_When_rendered_Then_the_fixed_sentence_replaces_it', () => {
+        // Neither the server's own detail nor a generic sentence: a viewer must never be told
+        // which permission it was refused for.
+        render(
+            <ErrorState
+                error={apiError(
+                    {
+                        status: 403,
+                        code: 'FORBIDDEN',
+                        title: 'Forbidden',
+                        detail: 'Missing ledger:write',
+                    },
+                    403,
+                )}
+            />,
+        );
+
+        expect(screen.getByRole('alert').textContent).toBe(
+            "You don't have permission to see this.",
+        );
+    });
+
     it('Given_a_plain_Error_When_rendered_Then_the_generic_sentence_is_shown_and_never_its_message_or_stack', () => {
         const error = new Error('Cannot read properties of undefined');
 

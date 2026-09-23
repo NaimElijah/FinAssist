@@ -14,10 +14,12 @@ The use cases are assembled by :func:`~finassist_assistant.adapters.wiring.assem
 package, and the architecture tests fail the build if one does.
 
 Every failure is answered as an RFC 9457 problem, by the handlers in
-:mod:`~finassist_assistant.adapters.problems`, and a request whose ``Host`` names no allowed host
-is refused before anything else runs, by :mod:`~finassist_assistant.adapters.hosts`.
+:mod:`~finassist_assistant.adapters.problems`, a request whose ``Host`` names no allowed host is
+refused before anything else runs, by :mod:`~finassist_assistant.adapters.hosts`, and every other
+request needs a valid bearer token and a permission, checked by
+:mod:`~finassist_assistant.adapters.auth` (ADR-030, ADR-032).
 
-See ADR-019, ADR-021, ADR-026, ADR-027 and ADR-028.
+See ADR-019, ADR-021, ADR-026, ADR-028, ADR-030 and ADR-032.
 """
 
 from __future__ import annotations
@@ -36,6 +38,13 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from finassist_assistant.adapters.auth import (
+    ASSISTANT_AUDIENCE,
+    BearerAuthentication,
+    RequirePermission,
+    TokenVerifier,
+    jwks_key_source,
+)
 from finassist_assistant.adapters.hosts import HostAllowList
 from finassist_assistant.adapters.observability import (
     TRACEPARENT_HEADER,
@@ -45,11 +54,11 @@ from finassist_assistant.adapters.observability import (
     set_correlation_id,
     trace_id_of,
 )
-from finassist_assistant.adapters.openapi import document_problems
+from finassist_assistant.adapters.openapi import document_problems, document_security
 from finassist_assistant.adapters.problems import answer_unexpected, install_problem_handlers
 from finassist_assistant.adapters.seed import SEED_SYMBOLS, seeded_assembly
 from finassist_assistant.adapters.settings import Settings
-from finassist_assistant.adapters.wiring import Assembly, assemble
+from finassist_assistant.adapters.wiring import Assembly, assemble, utc_now
 from finassist_assistant.portfolio.adapters.inbound.api.router import portfolio_router
 
 CORRELATION_ID_HEADER: Final = "X-Correlation-Id"
@@ -81,7 +90,12 @@ def _correlation_id_for(request: Request) -> str:
     return trace_id_of(request.headers.get(TRACEPARENT_HEADER)) or uuid.uuid4().hex
 
 
-def create_app(settings: Settings | None = None, assembly: Assembly | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    assembly: Assembly | None = None,
+    *,
+    token_verifier: TokenVerifier | None = None,
+) -> FastAPI:
     """Build the application.
 
     :param settings: configuration to use. Defaults to reading the environment, which is what
@@ -91,10 +105,24 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
         assembly — which is what the entry point does; a test passes one it has built itself,
         seeded or not, on a fixed clock or the wall clock, and then reaches the very instances
         the app holds.
+    :param token_verifier: decides whether a bearer token is genuine (ADR-030). Defaults to a
+        real :class:`~finassist_assistant.adapters.auth.TokenVerifier` built from *settings* and
+        the wall clock, which is what the entry point does; a test passes one built against a
+        stand-in key source and a fixed clock instead.
     :returns: a configured FastAPI application with logging and tracing already installed, and
         the assembly hung on ``app.state.assembly``.
     """
     resolved = settings if settings is not None else Settings()
+    resolved_verifier = (
+        token_verifier
+        if token_verifier is not None
+        else TokenVerifier(
+            jwks_key_source(resolved.oidc_jwks_uri),
+            resolved.oidc_issuer,
+            ASSISTANT_AUDIENCE,
+            utc_now,
+        )
+    )
 
     configure_logging(resolved)
     configure_tracing(resolved)
@@ -112,6 +140,7 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
     )
     install_problem_handlers(app)
     document_problems(app)
+    document_security(app)
 
     # The readiness probe deliberately does not consult the assembly: every adapter behind it is
     # in-memory, so a check against one would report health that no dependency had been asked about.
@@ -128,9 +157,20 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
 
     portfolio = served.portfolio
     app.include_router(
-        portfolio_router(portfolio.view_position, portfolio.value_holding, portfolio.dispose_units),
+        portfolio_router(
+            portfolio.view_position,
+            portfolio.value_holding,
+            portfolio.dispose_units,
+            require=RequirePermission,
+        ),
         prefix=PORTFOLIO_PREFIX,
     )
+
+    # Added before the correlation middleware, so correlation wraps it and a refused request
+    # still gets a correlation id and a request-answered line (ADR-019, ADR-030): the order is
+    # HostAllowList -> correlate -> auth -> routes, and Starlette runs the last-added middleware
+    # first, so the earliest-added of the three ends up closest to the routes.
+    app.add_middleware(BearerAuthentication, verifier=resolved_verifier)
 
     @app.middleware("http")
     async def correlate(
@@ -161,9 +201,9 @@ def create_app(settings: Settings | None = None, assembly: Assembly | None = Non
         response.headers[CORRELATION_ID_HEADER] = correlation_id
         return response
 
-    # Added after the correlation middleware, so it runs before it: a refused request reaches no
-    # handler and no correlation header is echoed on it (ADR-027). It writes the refusal's request
-    # line itself, with the trace id of the caller's traceparent.
+    # Added after the correlation middleware, so it runs before it and before authentication too:
+    # a refused request reaches no handler and no correlation header is echoed on it (ADR-030). It
+    # writes the refusal's request line itself, with the trace id of the caller's traceparent.
     app.add_middleware(HostAllowList, allowed_hosts=resolved.allowed_hosts)
 
     @app.get("/health", include_in_schema=False)

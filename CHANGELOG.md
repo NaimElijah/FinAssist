@@ -11,6 +11,34 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **A real sign-in, and every business request authenticated.** The browser signs in with OIDC,
+  the authorization-code flow with PKCE, at a new backend-for-frontend, `backend/gateway`
+  (Spring Cloud Gateway Server Web MVC). The gateway keeps the access and refresh tokens in its
+  server-side session, gives the browser only an `HttpOnly` session cookie and a CSRF token, and
+  relays each call to the ledger or the assistant with the access token attached. It answers an
+  unauthenticated request 401, never a redirect, and publishes its own contract,
+  `contracts/gateway-v1.openapi.json`. There is no switch that turns authentication off. See
+  [ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), which supersedes
+  ADR-027.
+- **Keycloak as the identity provider**, self-hosted under Compose with its own PostgreSQL,
+  `keycloak-db`, and its `finassist` realm committed as code in `ops/keycloak/`. The owner's
+  first sign-in sets a new password and enrols TOTP. See
+  [ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md).
+- **The ledger and the assistant are resource servers that deny by default.** Each validates a
+  bearer token against an injected clock and decides what it may do from its own role table:
+  `owner` reads and writes, `viewer` only reads, and the assistant's own `assistant` role only
+  reads the ledger. A ledger endpoint added without a URL rule, or a route added to the
+  assistant's router without a permission, fails the build. See
+  [ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md).
+- **The web client signs in and out**, shows who is signed in, and hides every control that
+  changes data from a `viewer`. The services enforce the same rule regardless.
+- **The journal records who wrote each row**, from `V1_2__journal_recorded_by.sql` onward. Rows
+  written before it honestly name nobody. See
+  [ADR-033](docs/ADRs/ADR-033-the-journal-records-who.md).
+- **An opt-in smoke check of the authentication wiring**, `ops/smoke/auth_smoke.py`, run by hand
+  with `make smoke-auth` against the Compose stack. CI lints it and validates its Compose
+  definition, but never runs it. See
+  [ADR-034](docs/ADRs/ADR-034-keep-the-compose-smoke-check-manual.md).
 - **The ledger's books are stored in PostgreSQL.** Three schemas, one per bounded context, with
   no foreign key crossing one — the storage-layer counterpart of the rule ArchUnit enforces in
   the bytecode, and the answer to whether planned data shares a store with the books: the same
@@ -70,6 +98,12 @@ history; write the commit message well and this file writes itself.
 
 ### Changed
 
+- **The web client's dev proxy sends every call to the gateway**, never straight to the ledger or
+  the assistant, and the app must be opened at `http://localhost:5173`, not `127.0.0.1`, because
+  the session cookie is keyed by host name.
+- **An existing `.env` needs five new secrets** — `KEYCLOAK_ADMIN_PASSWORD`,
+  `KEYCLOAK_DB_PASSWORD`, `FINASSIST_OWNER_INITIAL_PASSWORD`, `GATEWAY_CLIENT_SECRET` and
+  `ASSISTANT_CLIENT_SECRET` — or `docker compose up` refuses to start and names each one missing.
 - **The six in-memory repositories are deleted, not kept behind a profile.** They were a
   development seam while ADR-006 was open; a second implementation satisfying none of the
   persistence requirement is a code path nothing should be able to select by accident. The
@@ -83,6 +117,49 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **The ledger starts against a database that already holds the books.** `V1_2` is numbered below
+  `2.1` and `3.1`, which every existing database has applied, and Flyway refuses an unapplied
+  lower version unless it is told to run out of order — so the ledger would have exited at
+  start-up on the owner's own volume, leaving every screen answering 502. `spring.flyway.out-of-order`
+  is now `true`, which a major version per context requires in any case, and `LedgerUpgradeIT`
+  rebuilds that history from the committed scripts and starts the ledger against it, so the next
+  such migration fails the build instead. See
+  [ADR-035](docs/ADRs/ADR-035-flyway-runs-out-of-order.md).
+- **The ledger refuses a token carrying no `exp`.** Spring's `JwtTimestampValidator` allows a
+  missing expiry unless told otherwise, so a token signed with the realm's key and given no
+  lifetime at all was accepted forever — and answered `200` — while the assistant, which enforces
+  the claim, refused the same token. ADR-030 requires `exp` of both.
+- **Neither Keycloak client is allowed the realm's full scope.** Both defaulted to it, so the
+  gateway client's scope held every role in the realm — `default-roles-finassist`,
+  `offline_access`, `uma_authorization` and even `assistant`, the service principal's own role.
+  Nothing granted anything for them, but a `roles` claim should say what its bearer may do here
+  and nothing else. Each client now names the roles it needs, and `KeycloakRealmIT` reads the
+  scope back from a running Keycloak rather than from the file.
+- **A refusal Spring MVC raised at the gateway keeps its own status.** `POST /bff/me` was
+  answered 500 `INTERNAL_ERROR` and logged at ERROR, because the relay advice's catch-all claimed
+  it before anything read the status the exception already carried. A framework refusal is now
+  answered at that status — 405 `METHOD_NOT_ALLOWED` or 406 `NOT_ACCEPTABLE`, the only two the
+  gateway's one handler method can provoke — and logged at WARN, so only a true 5xx is an ERROR.
+- **An unreachable key source is an ERROR line of its own, on both resource servers.** The ledger
+  and the assistant each logged it at WARN, under the same message as a refused token — so the
+  one failure in which *nobody* can authenticate read like one more caller presenting a bad
+  credential. Both now log it at ERROR, under a message of its own, still naming the reason
+  category and nothing else.
+- **Every call the gateway makes to Keycloak is bounded.** The authorization-code exchange, the
+  `refresh_token` grant and the JWK-set fetch that verifies an ID token each built their own HTTP
+  client from a Spring Security factory that never consults Boot's, so none of them saw
+  `spring.http.clients.*` — the budget the relay has always had, and which the README and
+  `.env.example` both claimed covered them too. A Keycloak that accepted the connection and then
+  stopped answering would have parked a Tomcat thread for ever. All three are now built from
+  Boot's own builders in `KeycloakRegistration`, and `GatewayKeycloakTimeoutIT` drives that exact
+  failure against each.
+- **Every POST the gateway relays to the assistant now arrives.** The relay's JDK HTTP client
+  defaults to HTTP/2, so on a cleartext hop it offered an h2c upgrade — `Upgrade: h2c`, an
+  `HTTP2-Settings` header and a `Connection` header naming both — on every request. Tomcat ignores
+  those, so the ledger never minded; uvicorn refuses an upgrade request that also carries a body
+  with 400, so pricing a disposal from the web client failed every time. The gateway now pins
+  HTTP/1.1 for every outbound call it makes, and `GatewayLoginFlowIT` fails the build if an upgrade
+  offer reaches an upstream again.
 - **`DisposeUnits` sorts lots by acquisition date before consuming them.** `consume_fifo` takes
   them in the order it is given and documents that the ordering is the caller's responsibility,
   so a caller handing it newest-first lots got a LIFO cost basis in silence, with a plausible

@@ -46,6 +46,36 @@ jobs:
           path: backend/ledger/target/site/jacoco
           if-no-files-found: warn
 
+  gateway:
+    name: Gateway (Java)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-java@v6.0.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Format check
+        run: make lint-gateway
+
+      - name: Build and test
+        run: make test-gateway
+
+      # Published for reading, never gated on. See docs/ADRs/ADR-017-test-strategy.md.
+      # always(), because a coverage report is most wanted on the run that failed. Paired
+      # with if-no-files-found: warn, since a job that fell over before its tests legitimately
+      # produces none, and a second red step there would obscure the real failure.
+      - name: Publish coverage
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-gateway
+          path: backend/gateway/target/site/jacoco
+          if-no-files-found: warn
+
   assistant:
     name: Assistant (Python)
     runs-on: ubuntu-latest
@@ -64,6 +94,11 @@ jobs:
 
       - name: Lint, format check and types
         run: make lint-assistant
+
+      # ops/smoke/auth_smoke.py has no toolchain of its own, so it is linted here, with the
+      # assistant's pinned ruff and mypy and the rules in its pyproject.toml (Refs #38).
+      - name: Lint, format check and types (smoke check)
+        run: make lint-smoke
 
       - name: Test
         run: make test-assistant
@@ -141,6 +176,15 @@ jobs:
           sed -i 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=ci-only/' .env
           sed -i 's/^LEDGER_DB_PASSWORD=$/LEDGER_DB_PASSWORD=ci-only/' .env
           sed -i 's/^GRAFANA_ADMIN_PASSWORD=$/GRAFANA_ADMIN_PASSWORD=ci-only/' .env
+          sed -i 's/^KEYCLOAK_ADMIN_PASSWORD=$/KEYCLOAK_ADMIN_PASSWORD=ci-only/' .env
+          sed -i 's/^KEYCLOAK_DB_PASSWORD=$/KEYCLOAK_DB_PASSWORD=ci-only/' .env
+          sed -i 's/^FINASSIST_OWNER_INITIAL_PASSWORD=$/FINASSIST_OWNER_INITIAL_PASSWORD=ci-only-12-chars/' .env
+          sed -i 's/^GATEWAY_CLIENT_SECRET=$/GATEWAY_CLIENT_SECRET=ci-only/' .env
+          sed -i 's/^ASSISTANT_CLIENT_SECRET=$/ASSISTANT_CLIENT_SECRET=ci-only/' .env
           # --profile monitoring, or the three monitoring services are never interpolated and
-          # a broken reference among them validates green.
+          # a broken reference among them validates green. --profile smoke does the same for
+          # ops/smoke/auth_smoke.py's auth-smoke service (Refs #38); running the check itself
+          # stays a manual step (`make smoke-auth`), never a CI job.
           docker compose --profile monitoring config --quiet
+          docker compose --profile smoke config --quiet
+          docker compose --profile monitoring --profile smoke config --quiet

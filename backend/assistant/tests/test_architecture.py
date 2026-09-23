@@ -77,8 +77,17 @@ def _declared_runtime_distributions() -> frozenset[str]:
 # `pydantic_core` is blind for a different reason: it is not declared at all, arriving under
 # pydantic. The composition root maps its ValidationError to a problem, which makes it a name
 # worth reaching for, and an inward module importing it passed this rule until it was listed.
+#
+# `jwt` is blind the same way `opentelemetry` is: the distribution is declared as
+# `PyJWT[crypto]==2.14.0` (ADR-032), and the derivation strips the extra and the version pin
+# but never lowercases, producing the literal `PyJWT` - while code imports `jwt`, matching
+# neither that nor `pyjwt`.
+#
+# `cryptography` is blind for the `pydantic_core` reason, only worse: it is never declared at
+# all. It arrives transitively, through the `crypto` extra on `PyJWT[crypto]`, so no declared
+# runtime dependency's name is ever `cryptography` and the derivation can never produce it.
 FORBIDDEN_FRAMEWORKS = _declared_runtime_distributions() | frozenset(
-    {"opentelemetry", "pydantic_core", "starlette", "sqlalchemy"}
+    {"opentelemetry", "pydantic_core", "starlette", "sqlalchemy", "jwt", "cryptography"}
 )
 
 
@@ -255,6 +264,48 @@ def Given_the_opentelemetry_packages_When_derived_Then_the_derivation_alone_woul
         "may be redundant - check before removing it"
     )
     assert "opentelemetry" in FORBIDDEN_FRAMEWORKS
+
+
+def Given_the_pyjwt_distribution_When_derived_Then_the_derivation_alone_would_miss_it() -> None:
+    """Pins why `jwt` is listed explicitly rather than left to the derivation.
+
+    The distribution is declared as `PyJWT[crypto]==2.14.0` (ADR-032). The derivation splits
+    off the `[crypto]` extra and the version pin but never lowercases, so it produces the
+    literal `PyJWT` - and the code imports `jwt`, matching neither that nor `pyjwt`. Before this
+    entry existed an inward module could import PyJWT under its real import root and the
+    framework rule passed - verified by removing the entry and watching a planted `import jwt`
+    in `portfolio/domain` go green.
+
+    This test fails if someone deletes the explicit entry believing the derivation covers it.
+    """
+    derived = _declared_runtime_distributions()
+
+    assert "PyJWT" in derived, "PyJWT is no longer declared; this test no longer guards anything"
+    assert "jwt" not in derived, (
+        "the derivation now produces the import root on its own, so the explicit entry below "
+        "may be redundant - check before removing it"
+    )
+    assert "jwt" in FORBIDDEN_FRAMEWORKS
+
+
+def Given_the_cryptography_package_When_derived_Then_it_is_unreachable() -> None:
+    """Pins why `cryptography` is listed explicitly: it is never declared at all.
+
+    `PyJWT[crypto]`'s `crypto` extra brings `cryptography` in transitively (ADR-032); no
+    runtime dependency is ever named `cryptography` itself, so the derivation - which reads
+    only the distributions declared in `pyproject.toml` - can never produce it, no matter how
+    it mangles a name. That makes this entry worse than `opentelemetry`'s or `jwt`'s: those are
+    at least declared under a different name, and this one is not declared under any name.
+
+    This test fails if someone deletes the explicit entry believing the derivation covers it.
+    """
+    derived = _declared_runtime_distributions()
+
+    assert "cryptography" not in derived, (
+        "cryptography is now declared as a runtime dependency in its own right; check whether "
+        "the derivation covers it before relying on the explicit entry below"
+    )
+    assert "cryptography" in FORBIDDEN_FRAMEWORKS
 
 
 @pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))

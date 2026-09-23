@@ -47,7 +47,7 @@ final class Problems {
     /** Within an {@code errors} entry: why it was rejected. */
     static final String MESSAGE_MEMBER = "message";
 
-    /** The request's {@code Host} header is missing, malformed or not on the allow-list (ADR-027). */
+    /** The request's {@code Host} header is missing, malformed or not on the allow-list (ADR-030). */
     static final String HOST_NOT_ALLOWED = "HOST_NOT_ALLOWED";
 
     /** Unparseable JSON, a wrong type, a missing or invalid field or parameter: fix the request. */
@@ -62,7 +62,7 @@ final class Problems {
     /** The route cannot produce any media type the {@code Accept} header allows. */
     static final String NOT_ACCEPTABLE = "NOT_ACCEPTABLE";
 
-    /** The body is not {@code application/json}, which every write requires (ADR-027). */
+    /** The body is not {@code application/json}, which every write requires (ADR-030). */
     static final String UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE";
 
     /** A conflict the framework raised, where no context's advice named a more specific code. */
@@ -79,6 +79,15 @@ final class Problems {
 
     /** The ledger failed. Nothing about the request explains it, and the detail says nothing more. */
     static final String INTERNAL_ERROR = "INTERNAL_ERROR";
+
+    /** No token, or one the decoder rejected outright, on a request that needs one (ADR-030). */
+    static final String UNAUTHENTICATED = "UNAUTHENTICATED";
+
+    /** A genuine identity, denied by the permission its role does not hold (ADR-030). */
+    static final String FORBIDDEN = "FORBIDDEN";
+
+    /** The JWKS source could not be reached; nothing here says whether the token would have been valid (ADR-030). */
+    static final String AUTHENTICATION_UNAVAILABLE = "AUTHENTICATION_UNAVAILABLE";
 
     private Problems() {}
 }

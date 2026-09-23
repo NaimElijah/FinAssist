@@ -90,6 +90,22 @@ describe('BudgetsPage', () => {
         ).toEqual([`/budgets/${SEPTEMBER_BUDGET.id}`, `/budgets/${CUSTOM_PERIOD_BUDGET.id}`]);
     });
 
+    it('Given_a_read_only_session_When_the_page_renders_Then_the_define_form_is_not_offered_but_the_list_and_the_rules_link_stay', async () => {
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL
+                ? jsonResponse([SEPTEMBER_BUDGET])
+                : unexpectedRequest(request),
+        );
+
+        renderRoutes(budgetingRoutes, '/budgets', { access: { canWrite: false } });
+
+        await screen.findByRole('heading', { level: 1, name: 'Budgets' });
+        expect(screen.queryByRole('button', { name: 'Define budget' })).toBeNull();
+        expect(screen.queryByLabelText('Month')).toBeNull();
+        expect(await screen.findByRole('link', { name: 'Review' })).toBeDefined();
+        expect(screen.getByRole('link', { name: 'Categorisation rules' })).toBeDefined();
+    });
+
     it('Given_the_page_When_rendered_Then_a_link_reaches_the_categorisation_rules_screen', async () => {
         fakeFetch((request) =>
             request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
@@ -184,7 +200,13 @@ describe('BudgetsPage defining a budget', () => {
         await user.click(screen.getByRole('button', { name: 'Define budget' }));
 
         expect(await screen.findByRole('link', { name: 'Review' })).toBeDefined();
-        const posts = requests.filter((request) => request.method === 'POST');
+        const posts = requests
+            .filter((request) => request.method === 'POST')
+            // Projected before comparing: RecordedRequest also carries headers, which this
+            // assertion is not about, and toEqual demands an exact match on every field it is
+            // given - unlike toMatchObject, which would stop checking body for an unplanned
+            // extra field anywhere in its object graph.
+            .map(({ method, url, body }) => ({ method, url, body }));
         expect(posts).toEqual([
             {
                 method: 'POST',

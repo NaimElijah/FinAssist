@@ -3,9 +3,9 @@
 # code that needs it.
 server:
   port: ${LEDGER_PORT:8080}
-  # Loopback by default. The ledger has no authentication, which is safe only while nothing but
-  # this machine can reach it; a container overrides this with 0.0.0.0, because its own loopback
-  # is unreachable from the host (ADR-027).
+  # Loopback by default, kept as defence in depth now that every business request also needs a
+  # bearer token (ADR-030); a container overrides this with 0.0.0.0, because its own loopback is
+  # unreachable from the host.
   address: ${LEDGER_ADDRESS:127.0.0.1}
 
 finassist:
@@ -13,8 +13,19 @@ finassist:
     # Host names the ledger answers to, compared without the port. Loopback alone does not stop
     # DNS rebinding: a hostile page whose name has been repointed at 127.0.0.1 is same-origin with
     # the ledger, yet every request it sends still names the page's own host. HostAllowListFilter
-    # refuses those with 403, Actuator included (ADR-027).
+    # refuses those with 403, Actuator included (ADR-030).
     allowed-hosts: ${LEDGER_ALLOWED_HOSTS:localhost,127.0.0.1}
+  security:
+    # The issuer a token's iss claim must name. Always the public URL, never the internal one a
+    # container reaches Keycloak by, because a token's iss can only name one and the browser is
+    # the one that signed in (ADR-030, ADR-031).
+    issuer: ${LEDGER_OIDC_ISSUER:http://localhost:8081/realms/finassist}
+    # The internal JWKS URI: fetched service-to-service, so the Compose default is the
+    # container-to-container address, never the browser-facing one.
+    jwks-uri: ${LEDGER_OIDC_JWKS_URI:http://localhost:8081/realms/finassist/protocol/openid-connect/certs}
+    # Fixed by ADR-030, not an environment variable: every ledger token names this
+    # audience or is refused, regardless of which environment issued it.
+    audience: finassist-ledger
 
 springdoc:
   api-docs:
@@ -56,6 +67,19 @@ spring:
     # so the three can never collide on a version or share a file, and the history table stays
     # single (ADR-024).
     enabled: true
+    # Required by ADR-024's own scheme, not a convenience: one history table ordered by version,
+    # with a major version per context, means the next migration for any context but the highest
+    # arrives below the highest version already applied. Flyway classes such a migration IGNORED
+    # and refuses to start (FlywayValidateException, "Detected resolved migration not applied to
+    # database"), so left false, accounting and budgeting could never gain another migration at
+    # all. Safe because no foreign key crosses a schema (SchemaBoundariesIT), so order between
+    # contexts carries no meaning; order within a context is unchanged. Never set this to false:
+    # LedgerUpgradeIT rebuilds the real applied history and starts the ledger against it, and is
+    # what turns red if it is (ADR-035).
+    #
+    # Not ignoreMigrationPatterns: that would start the ledger while skipping the migration, and
+    # every journal write would then fail on the missing recorded_by column.
+    out-of-order: true
 
 logging:
   structured:
@@ -73,8 +97,11 @@ management:
   endpoints:
     web:
       exposure:
-        # An explicit allow-list, never "*". LedgerApplicationIT asserts /actuator/env is 404,
-        # which is what stops this being widened by accident.
+        # An explicit allow-list, never "*". Since ADR-030 the security chain is the guard that
+        # matters: an endpoint not named here matches no permitAll rule, so LedgerApplicationIT's
+        # /actuator/env case is refused 401 with no token and 403 with a real one, never served.
+        # That holds whatever this list says, so widening it is no longer a way in - but keep it
+        # short anyway, because a second guard should not be the only one.
         include: health,info,metrics,prometheus
   endpoint:
     health:

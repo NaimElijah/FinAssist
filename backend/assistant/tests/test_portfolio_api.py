@@ -24,6 +24,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from uvicorn.protocols.utils import get_client_addr, get_path_with_query_string
 
 from finassist_assistant.adapters.app import create_app
+from finassist_assistant.adapters.auth import RequirePermission, TokenVerifier
 from finassist_assistant.adapters.settings import Settings
 from finassist_assistant.adapters.wiring import Assembly, assemble
 from finassist_assistant.marketdata.adapters.outbound.feed import InMemoryQuoteFeed
@@ -102,13 +103,13 @@ def assembly() -> Assembly:
 
 
 @pytest.fixture
-def app(settings: Settings, assembly: Assembly) -> FastAPI:
-    return create_app(settings, assembly=assembly)
+def app(settings: Settings, assembly: Assembly, token_verifier: TokenVerifier) -> FastAPI:
+    return create_app(settings, assembly=assembly, token_verifier=token_verifier)
 
 
 @pytest.fixture
-def client(app: FastAPI) -> Iterator[TestClient]:
-    with TestClient(app) as running:
+def client(app: FastAPI, owner_headers: dict[str, str]) -> Iterator[TestClient]:
+    with TestClient(app, headers=owner_headers) as running:
         yield running
 
 
@@ -352,7 +353,7 @@ def Given_a_decimal_in_non_ascii_digits_When_a_disposal_is_priced_Then_it_is_a_m
 def Given_a_body_that_is_not_json_When_a_disposal_is_priced_Then_it_is_unsupported_media_type(
     client: TestClient, sent: dict[str, Any]
 ) -> None:
-    """JSON only, as every ledger POST is (ADR-027). A cross-site form cannot send JSON without a
+    """JSON only, as every ledger POST is (ADR-030). A cross-site form cannot send JSON without a
     preflight, and no CORS configuration exists to approve one."""
     response = client.post(DISPOSAL_URL, **sent)
 
@@ -373,7 +374,7 @@ def Given_a_disposal_priced_by_get_with_query_parameters_When_requested_Then_it_
 
 
 def Given_proceeds_with_a_recognisable_amount_When_a_disposal_is_priced_Then_no_log_line_holds_it(
-    app: FastAPI, capsys: pytest.CaptureFixture[str]
+    app: FastAPI, capsys: pytest.CaptureFixture[str], owner_headers: dict[str, str]
 ) -> None:
     """Money never travels in a URL. A URL is written to trace attributes, by any proxy on the way
     and by any server access log left on, and keeping the amount out of the URL keeps it out of all
@@ -387,7 +388,7 @@ def Given_proceeds_with_a_recognisable_amount_When_a_disposal_is_priced_Then_no_
     scopes: list[Any] = []
     app.add_middleware(_ScopeRecorder, scopes=scopes)
 
-    with TestClient(app) as running:
+    with TestClient(app, headers=owner_headers) as running:
         capsys.readouterr()
         response = running.post(DISPOSAL_URL, json=_disposal(amount=RECOGNISABLE_AMOUNT))
         received = scopes[-1]
@@ -449,7 +450,10 @@ def Given_the_portfolio_routes_When_inspected_Then_none_is_a_coroutine(assembly:
     """
     portfolio = assembly.portfolio
     router = portfolio_router(
-        portfolio.view_position, portfolio.value_holding, portfolio.dispose_units
+        portfolio.view_position,
+        portfolio.value_holding,
+        portfolio.dispose_units,
+        require=RequirePermission,
     )
     routes = [route for route in router.routes if isinstance(route, APIRoute)]
 

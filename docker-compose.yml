@@ -1,20 +1,26 @@
 # The one entry point for running FinAssist locally and in CI (see docs/ADRs/ADR-005).
-# Both backend services run here now that each has something to serve. `./mvnw spring-boot:run`
-# and `uv run python -m finassist_assistant.adapters` against the Compose `db` still work, for
-# the faster native inner loop.
+# The ledger, the gateway and the assistant all run here now, plus Keycloak and its own
+# database. `./mvnw spring-boot:run` and `uv run python -m finassist_assistant.adapters` against
+# the Compose `db` still work, for the faster native inner loop.
 #
-# Every published port binds the host's loopback only, as `127.0.0.1:<port>` (ADR-027). The
-# ledger, the assistant, the collector and Prometheus authenticate no caller, and PostgreSQL and
-# Grafana stand behind a password alone, so no port may be reachable from another machine.
-# Containers still reach one another by service name on the Compose network, which this leaves
-# untouched.
+# Every published port binds the host's loopback only, as `127.0.0.1:<port>` (ADR-030, carrying
+# ADR-027's loopback rule forward now that the services authenticate). PostgreSQL and Grafana
+# stand behind a password alone, `keycloak-db` publishes no port at all, and the ledger and the
+# assistant still bind loopback in front of a bearer-token check rather than none, so no port may
+# be reachable from another machine either way. Containers still reach one another by service
+# name on the Compose network, which this leaves untouched.
 #
 # The monitoring services sit behind a `monitoring` profile, so `docker compose up` stays
-# database-and-both-services-only and `docker compose --profile monitoring up` adds the
-# telemetry backend (ADR-019). Both services push OTLP; the ledger is also scraped directly by
-# Prometheus, by its Compose service name — a natively-run ledger bound to loopback (ADR-027) is
-# not reachable that way. The assistant exposes no metrics endpoint yet, so only its OTLP push
-# is collected.
+# database-and-every-service-only and `docker compose --profile monitoring up` adds the
+# telemetry backend (ADR-019). The ledger, the gateway and the assistant push OTLP; the ledger is
+# also scraped directly by Prometheus, by its Compose service name — a natively-run ledger bound to
+# loopback (ADR-030) is not reachable that way. The assistant exposes no metrics endpoint yet, so
+# only its OTLP push is collected.
+#
+# `smoke` is a second, unrelated profile: `auth-smoke` (ops/smoke/auth_smoke.py) checks the
+# authentication and RBAC wiring end to end against the services actually running in this
+# network. Also never started by a bare `docker compose up`; run it by hand with `make
+# smoke-auth` after `make run` reports every service healthy (Refs #38).
 name: finassist
 
 services:
@@ -41,21 +47,28 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Loopback only, per ADR-027 — the ledger has no authentication, so the published port must
-    # not be reachable from outside this machine even though the container itself binds every
-    # interface (see LEDGER_ADDRESS below).
+      keycloak:
+        condition: service_healthy
+    # Loopback only, kept as defence in depth now that every business request also needs a
+    # bearer token (ADR-030) — the published port must not be reachable from outside this
+    # machine even though the container itself binds every interface (see LEDGER_ADDRESS below).
     ports:
       - "127.0.0.1:${LEDGER_PORT:-8080}:8080"
     environment:
       # The container's own loopback is unreachable from outside the container, so the interface
       # it binds has to be every one of them; the host-side port mapping above is what stays on
-      # 127.0.0.1 (ADR-027).
+      # 127.0.0.1 (ADR-030).
       LEDGER_ADDRESS: 0.0.0.0
       # `ledger` — this service's own Compose DNS name — lets Prometheus scrape it below.
       LEDGER_ALLOWED_HOSTS: localhost,127.0.0.1,ledger
       LEDGER_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-finassist}
       LEDGER_DB_USERNAME: ${LEDGER_DB_USERNAME:-finassist}
       LEDGER_DB_PASSWORD: ${LEDGER_DB_PASSWORD:?set LEDGER_DB_PASSWORD in .env}
+      # A token's iss is always the public URL a browser signed in against (ADR-030, ADR-031).
+      LEDGER_OIDC_ISSUER: http://localhost:${KEYCLOAK_PORT:-8081}/realms/finassist
+      # Fetched service-to-service, so this is the container-to-container address, never the
+      # published port — "localhost" inside a container means the container itself.
+      LEDGER_OIDC_JWKS_URI: http://keycloak:8080/realms/finassist/protocol/openid-connect/certs
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_EXPORT_ENABLED: ${OTEL_EXPORT_ENABLED:-false}
     healthcheck:
@@ -69,15 +82,18 @@ services:
 
   assistant:
     build: ./backend/assistant
-    # Loopback only, per ADR-027 — the assistant has no authentication either, so the published
-    # port must not be reachable from outside this machine even though the container itself
-    # binds every interface (see ASSISTANT_HOST below).
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    # Loopback only, kept as defence in depth now that every business request also needs a
+    # bearer token (ADR-030) — the published port must not be reachable from outside this
+    # machine even though the container itself binds every interface (see ASSISTANT_HOST below).
     ports:
       - "127.0.0.1:${ASSISTANT_PORT:-8000}:8000"
     environment:
       # The container's own loopback is unreachable from outside the container, so the interface
       # it binds has to be every one of them; the host-side port mapping above is what stays on
-      # 127.0.0.1 (ADR-027).
+      # 127.0.0.1 (ADR-030).
       ASSISTANT_HOST: 0.0.0.0
       ASSISTANT_PORT: 8000
       # `assistant` — this service's own Compose DNS name, so a request reaching it that way
@@ -86,6 +102,11 @@ services:
       ASSISTANT_ALLOWED_HOSTS: localhost,127.0.0.1,assistant
       ASSISTANT_DEV_SEED: ${ASSISTANT_DEV_SEED:-false}
       ASSISTANT_LOG_LEVEL: ${ASSISTANT_LOG_LEVEL:-INFO}
+      # A token's iss is always the public URL a browser signed in against (ADR-030, ADR-031).
+      ASSISTANT_OIDC_ISSUER: http://localhost:${KEYCLOAK_PORT:-8081}/realms/finassist
+      # Fetched service-to-service, so this is the container-to-container address, never the
+      # published port — "localhost" inside a container means the container itself.
+      ASSISTANT_OIDC_JWKS_URI: http://keycloak:8080/realms/finassist/protocol/openid-connect/certs
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_EXPORT_ENABLED: ${OTEL_EXPORT_ENABLED:-false}
       # No ANTHROPIC_API_KEY: nothing reads it at start-up today. `assistance` is written and
@@ -94,7 +115,7 @@ services:
     healthcheck:
       # python:3.13-slim carries no curl; the interpreter already in the image is enough. The
       # Host header urllib sends is `localhost:8000`, which ASSISTANT_ALLOWED_HOSTS admits — the
-      # check compares only the text before the header's first colon (ADR-027).
+      # check compares only the text before the header's first colon (ADR-030).
       test:
         [
           "CMD",
@@ -107,9 +128,132 @@ services:
       retries: 10
       start_period: 5s
 
+  # --- Identity (ADR-030, ADR-031) ----------------------------------------------------------
+  keycloak-db:
+    # A PostgreSQL major Keycloak 26.7 supports (confirmed tested up to 17 on
+    # keycloak.org/server/supported-configurations); the ledger's own `db` is on 18, which
+    # Keycloak has not been tested against, so the two intentionally run different majors
+    # rather than share one image tag by coincidence.
+    image: postgres:17.11-trixie
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
+    # No published port: nothing outside this network ever calls it directly, and it shares no
+    # role, no backup and no failure domain with the ledger's own database (ADR-031). No init
+    # script either, so the owner's existing `db-data` volume is never touched by this service —
+    # `keycloak-db-data` is its own, separate volume.
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    build: ./ops/keycloak
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    environment:
+      # The browser reaches Keycloak here; every token's `iss` names this address, never the
+      # backchannel one (ADR-031). `KC_HOSTNAME_BACKCHANNEL_DYNAMIC` is confirmed in Keycloak's
+      # own hostname documentation: it lets a container reach the same realm at its own service
+      # name, `http://keycloak:8080`, without moving the issuer.
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8081}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      # Plain HTTP: everything here stays on loopback, exactly like the ledger and the assistant
+      # (ADR-030). sslRequired: external in the realm itself still refuses a non-loopback caller
+      # without TLS.
+      KC_HTTP_ENABLED: "true"
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
+      # Every placeholder ops/keycloak/finassist-realm.json names. The three secrets -
+      # GATEWAY_CLIENT_SECRET, ASSISTANT_CLIENT_SECRET and FINASSIST_OWNER_INITIAL_PASSWORD - are
+      # required through `:?`: Keycloak itself imports a missing one as the literal, unresolved
+      # placeholder text rather than refusing to start (observed against the real image when this
+      # file was drafted), so this `:?` is the control that actually stops that, not the realm
+      # file. GATEWAY_PUBLIC_URL and FINASSIST_OWNER_USERNAME are not secret and take `:-`
+      # defaults instead, so they are always set too.
+      GATEWAY_CLIENT_SECRET: ${GATEWAY_CLIENT_SECRET:?set GATEWAY_CLIENT_SECRET in .env}
+      ASSISTANT_CLIENT_SECRET: ${ASSISTANT_CLIENT_SECRET:?set ASSISTANT_CLIENT_SECRET in .env}
+      GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-http://localhost:5173}
+      FINASSIST_OWNER_USERNAME: ${FINASSIST_OWNER_USERNAME:-owner}
+      FINASSIST_OWNER_INITIAL_PASSWORD: ${FINASSIST_OWNER_INITIAL_PASSWORD:?set FINASSIST_OWNER_INITIAL_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:-8081}:8080"
+    healthcheck:
+      # The image carries no curl, but it does carry bash (confirmed against the built image),
+      # so the management port's readiness probe is read with bash's own `/dev/tcp`, the same
+      # technique the ledger's own tests use to write a request by hand. Judge readiness by the
+      # HTTP status line, not the body: `/health/ready`'s body lists sub-checks, and "Graceful
+      # Shutdown" reports UP within seconds of boot while "Keycloak Initialized" is still DOWN
+      # and the realm import hasn't run — a body grep for any `"status":"UP"` matches that
+      # sub-check and calls the container healthy long before it can issue a token. Reading only
+      # the status line agrees with `KeycloakRealmIT.java`'s own
+      # `Wait.forHttp("/health/ready").forStatusCode(200)`.
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          head -1 <&3 | grep -Eq '^HTTP/[0-9.]+ 200'
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      # Measured on this machine from a fresh volume: ~100s to the first real 200 with the rest
+      # of the stack starting alongside it; a slower run on this machine saw ~150s. A probe success
+      # inside start_period still marks the container healthy immediately, so this costs nothing
+      # on a fast start; it only stops a correct, slower check from failing the container outright.
+      start_period: 240s
+
+  gateway:
+    build: ./backend/gateway
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    # Loopback only (ADR-030) — the gateway is what the browser talks to directly, so its
+    # published port carries exactly the same defence as the ledger's and the assistant's.
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-8090}:8090"
+    environment:
+      # The container's own loopback is unreachable from the host, so the interface it binds has
+      # to be every one of them; the host-side port mapping above is what stays on 127.0.0.1.
+      GATEWAY_ADDRESS: 0.0.0.0
+      # `gateway` — this service's own Compose DNS name — so a relayed call the ledger or the
+      # assistant logs by Host still resolves, and so the web client's own dev proxy can add it
+      # once it reaches the gateway that way.
+      GATEWAY_ALLOWED_HOSTS: localhost,127.0.0.1,gateway
+      GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-http://localhost:5173}
+      GATEWAY_OIDC_PUBLIC_URL: http://localhost:${KEYCLOAK_PORT:-8081}
+      # The gateway's own HTTP client reaches Keycloak by its Compose service name, never the
+      # published port — "localhost" inside a container means the container itself (ADR-031).
+      GATEWAY_OIDC_INTERNAL_URL: http://keycloak:8080
+      GATEWAY_CLIENT_SECRET: ${GATEWAY_CLIENT_SECRET:?set GATEWAY_CLIENT_SECRET in .env}
+      GATEWAY_COOKIE_SECURE: ${GATEWAY_COOKIE_SECURE:-false}
+      GATEWAY_LEDGER_URI: http://ledger:8080
+      GATEWAY_ASSISTANT_URI: http://assistant:8000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORT_ENABLED: ${OTEL_EXPORT_ENABLED:-false}
+    healthcheck:
+      # The runtime image is eclipse-temurin's Ubuntu Noble base, which carries curl already.
+      test: ["CMD", "curl", "-f", "http://localhost:8090/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
   # --- Monitoring (profile: monitoring) ---------------------------------------------------
-  # Receives OTLP from both services and re-exposes metrics for Prometheus to scrape. The
-  # services talk OTLP and nothing else, so replacing this backend never touches their code.
+  # Receives OTLP from the ledger, the gateway and the assistant, and re-exposes metrics for
+  # Prometheus to scrape. The services talk OTLP and nothing else, so replacing this backend never
+  # touches their code.
   otel-collector:
     profiles: [monitoring]
     image: otel/opentelemetry-collector-contrib:0.139.0
@@ -149,7 +293,50 @@ services:
     depends_on:
       - prometheus
 
+  # --- Smoke test (profile: smoke) ---------------------------------------------------------
+  # ops/smoke/auth_smoke.py, run once by hand (`make smoke-auth`), never as part of `docker
+  # compose up`. It reaches Keycloak, the ledger, the assistant and the gateway by their Compose
+  # DNS names, on the network this service joins by being declared here, which is the point: it
+  # checks the wiring this file gives them (service names and ports, issuers, JWKS URIs, Host
+  # allow-lists, public URLs), which each service's own suite, booted alone with its own test
+  # settings, never sees (Refs #38).
+  auth-smoke:
+    profiles: [smoke]
+    # The exact tag backend/assistant/Dockerfile already builds from, so it is proven to exist
+    # and the two stay pinned to the same Debian trixie generation of Python 3.13.
+    image: python:3.13.8-slim-trixie
+    # nobody:nogroup. The script needs no privilege, and this container holds a client secret,
+    # so it runs as a user that owns nothing, as the three application images already drop to a
+    # system user of their own.
+    user: "65534:65534"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      ledger:
+        condition: service_healthy
+      assistant:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    volumes:
+      - ./ops/smoke/auth_smoke.py:/auth_smoke.py:ro
+    environment:
+      # Fetches the one client-credentials token every check after the first reuses.
+      ASSISTANT_CLIENT_SECRET: ${ASSISTANT_CLIENT_SECRET:?set ASSISTANT_CLIENT_SECRET in .env}
+      # The public bases a browser uses, which `.env` can move. Not secret. Built from exactly
+      # the expressions KC_HOSTNAME, the two issuers and the gateway's GATEWAY_PUBLIC_URL use
+      # above, so the check expects what this stack was actually configured with. Service names
+      # and the ports they listen on inside this network are fixed here, so the script keeps
+      # those as constants.
+      KEYCLOAK_PUBLIC_URL: http://localhost:${KEYCLOAK_PORT:-8081}
+      GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-http://localhost:5173}
+      # Nothing here should be written, and this user could not write it anyway: the script's
+      # own mount is read-only. So bytecode caching is switched off outright.
+      PYTHONDONTWRITEBYTECODE: "1"
+    command: ["python", "/auth_smoke.py"]
+
 volumes:
   db-data:
+  keycloak-db-data:
   prometheus-data:
   grafana-data:

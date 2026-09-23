@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.accounting.adapter.out.persistence;
 
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.out.TransactionRepository;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Entry;
@@ -84,8 +85,8 @@ public class JdbcTransactionRepository implements TransactionRepository {
     private static final String IN_RANGE = "t.occurred_on >= :fromInclusive AND t.occurred_on < :toExclusive";
 
     private static final String INSERT_TRANSACTION = """
-            INSERT INTO accounting.journal_transaction (id, occurred_on, description, currency)
-            VALUES (:id, :occurredOn, :description, :currency)
+            INSERT INTO accounting.journal_transaction (id, occurred_on, description, currency, recorded_by)
+            VALUES (:id, :occurredOn, :description, :currency, :recordedBy)
             """;
 
     private static final String INSERT_ENTRY = """
@@ -95,8 +96,8 @@ public class JdbcTransactionRepository implements TransactionRepository {
 
     private static final String INSERT_STATE = """
             INSERT INTO accounting.journal_transaction_state
-                   (transaction_id, sequence, state, effective_on, reason)
-            VALUES (:transactionId, :sequence, :state, :effectiveOn, :reason)
+                   (transaction_id, sequence, state, effective_on, reason, recorded_by)
+            VALUES (:transactionId, :sequence, :state, :effectiveOn, :reason, :recordedBy)
             """;
 
     private static final String SELECT_CURRENT_STATE = """
@@ -153,29 +154,36 @@ public class JdbcTransactionRepository implements TransactionRepository {
      * statements describing one fact: a half-written transaction would be an unbalanced one, which
      * the deferred constraint refuses at commit anyway.
      *
+     * <p>{@code recordedBy} lands on the transaction row only when this call is the one that inserts
+     * it; a later call — a transition — writes it only onto the new state row that call appends, so
+     * {@code journal_transaction.recorded_by} never changes after the first insert while each {@code
+     * journal_transaction_state} row keeps naming whoever wrote it (ADR-033).
+     *
      * @throws IllegalStateException if the entries differ from those already recorded. Rewriting a
      *     posted entry is what ADR-020 forbids, and failing loudly is the only honest answer -
      *     ignoring the difference would leave the caller believing a correction had been stored.
      */
     @Override
     @Transactional
-    public void save(Transaction transaction) {
+    public void save(Transaction transaction, Actor recordedBy) {
         Objects.requireNonNull(transaction, "transaction");
+        Objects.requireNonNull(recordedBy, "recordedBy");
         Optional<Sequenced> current = currentState(transaction.id());
         if (current.isEmpty()) {
-            insert(transaction);
+            insert(transaction, recordedBy);
             return;
         }
         refuseChangedEntries(transaction);
-        appendStateIfChanged(transaction, current.get());
+        appendStateIfChanged(transaction, current.get(), recordedBy);
     }
 
-    private void insert(Transaction transaction) {
+    private void insert(Transaction transaction, Actor recordedBy) {
         jdbc.sql(INSERT_TRANSACTION)
                 .param("id", transaction.id().value())
                 .param("occurredOn", transaction.occurredOn())
                 .param("description", transaction.description())
                 .param("currency", transaction.currency().name())
+                .param("recordedBy", recordedBy.subject())
                 .update();
 
         List<Entry> entries = transaction.entries();
@@ -190,7 +198,7 @@ public class JdbcTransactionRepository implements TransactionRepository {
                     .update();
         }
 
-        insertState(transaction.id(), FIRST_STATE, StoredState.of(transaction.state()));
+        insertState(transaction.id(), FIRST_STATE, StoredState.of(transaction.state()), recordedBy);
     }
 
     private void refuseChangedEntries(Transaction transaction) {
@@ -213,20 +221,21 @@ public class JdbcTransactionRepository implements TransactionRepository {
         }
     }
 
-    private void appendStateIfChanged(Transaction transaction, Sequenced current) {
+    private void appendStateIfChanged(Transaction transaction, Sequenced current, Actor recordedBy) {
         StoredState wanted = StoredState.of(transaction.state());
         if (!wanted.equals(current.state())) {
-            insertState(transaction.id(), current.sequence() + 1, wanted);
+            insertState(transaction.id(), current.sequence() + 1, wanted, recordedBy);
         }
     }
 
-    private void insertState(TransactionId id, int sequence, StoredState state) {
+    private void insertState(TransactionId id, int sequence, StoredState state, Actor recordedBy) {
         jdbc.sql(INSERT_STATE)
                 .param("transactionId", id.value())
                 .param("sequence", sequence)
                 .param("state", state.state())
                 .param("effectiveOn", state.effectiveOn())
                 .param("reason", state.reason())
+                .param("recordedBy", recordedBy.subject())
                 .update();
     }
 

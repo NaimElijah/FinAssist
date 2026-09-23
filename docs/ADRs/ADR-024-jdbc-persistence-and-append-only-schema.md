@@ -1,6 +1,6 @@
 # ADR-024: Hand-written SQL over `JdbcClient`, and an append-only journal schema
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by ADR-033 and ADR-035
 - **Date:** 2026-09-06
 
 ## Context

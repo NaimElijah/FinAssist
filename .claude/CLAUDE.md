@@ -4,51 +4,66 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## State of the repository
 
-Three codebases — a Java ledger, a Python assistant, a React web client — all building and
-CI-gated. **All six bounded contexts have a domain layer and an application layer**, with tests.
-Use cases sit behind ports and are wired by constructor. **The ledger's repository ports are
-backed by PostgreSQL** (ADR-006, ratified 2026-09-06): hand-written SQL over `JdbcClient`, Flyway
-migrations, a schema per bounded context, and a journal the database refuses to rewrite
-(ADR-024). **The ledger now has an inbound HTTP adapter for each of its three contexts**
-(accounting, budgeting, planning) under `/api/v1`, behind a `HostAllowListFilter` and
-problem+json error handling, and an OpenAPI document generated from the code and committed at
+Four codebases — a Java ledger, a Java gateway, a Python assistant, a React web client — all
+building and CI-gated. **All six bounded contexts have a domain layer and an application layer**,
+with tests. Use cases sit behind ports and are wired by constructor. **The ledger's repository
+ports are backed by PostgreSQL** (ADR-006, ratified 2026-09-06): hand-written SQL over
+`JdbcClient`, Flyway migrations, a schema per bounded context, and a journal the database refuses
+to rewrite (ADR-024). **The ledger now has an inbound HTTP adapter for each of its three contexts**
+(accounting, budgeting, planning) under `/api/v1`, behind a `HostAllowListFilter` and problem+json
+error handling, and an OpenAPI document generated from the code and committed at
 `contracts/ledger-v1.openapi.json`, pinned by `LedgerContractIT`. ADR-004 is Accepted. **The
 assistant now serves `portfolio` under `/api/v1` too**, behind `HostAllowList` and its own
-problem+json handling in `adapters/problems.py`, with its OpenAPI document generated from the
-code and committed at `contracts/assistant-v1.openapi.json`, pinned by `tests/test_contract.py`.
-An opt-in, off-by-default development seed (`ASSISTANT_DEV_SEED`, `adapters/seed.py`) loads
-fictional holdings and quotes so those endpoints have something to answer by hand; the assistant
-still has no store, no ledger client and no price feed. **The web client has its accounting
-area**: `AccountsPage` opens an account and lists every one with its derived balance,
+problem+json handling in `adapters/problems.py`, with its OpenAPI document generated from the code
+and committed at `contracts/assistant-v1.openapi.json`, pinned by `tests/test_contract.py`. An
+opt-in, off-by-default development seed (`ASSISTANT_DEV_SEED`, `adapters/seed.py`) loads fictional
+holdings and quotes so those endpoints have something to answer by hand; the assistant still has no
+store, no ledger client and no price feed. **The web client has its accounting area**:
+`AccountsPage` opens an account and lists every one with its derived balance,
 `RecordTransactionPage` records a transaction by hand at the static route
 `/accounts/transactions/new`, and `AccountDetailPage` shows one account's transactions and moves
 each through `Clear`, `Reconcile` or `Void`, offering only the transitions its status legally
-admits. **It also has its budgeting area**: `BudgetsPage` lists every budget and defines one for
-a calendar month with a limit per category, `BudgetReviewPage` (`/budgets/:budgetId`) shows spend
-by category — overspent, unbudgeted and uncategorised — taking the budget's own period and
-currency from the cached list rather than a single-item read, and `CategorisationRulesPage`, at
-the static route `/budgets/rules`, lists rules in the order they are tried and adds another;
-`/budgets/rules` outranks the dynamic `/budgets/:budgetId` at the same depth by React Router's
-own static-over-dynamic ranking. **It also has its planning area**: `PlannedFlowsPage` plans flows
-and moves each through its lifecycle, `ScenariosPage` defines scenarios, `ProjectionPage`
-(`/planning/projection`) charts a scenario's projection, with its first shortfall, against the
-cash and invested accounts the owner chooses, and `ComparisonPage` (`/planning/compare`) compares
-two or more scenarios against a baseline in tables. Planning's account choices come from
-accounting through `PlanningAccountsBridge` in `src/app`, the web client's one cross-feature
-translation. All three areas call the ledger through the dev proxy, mapping generated wire types
-onto each feature's own in `api/`. **It also has its portfolio area**, calling the assistant
-through the same proxy (ADR-026): `PortfolioPage` looks a holding up by symbol, and `HoldingPage`
-(`/portfolio/:symbol`) shows its position and valuation — nothing held and no usable price as calm
-empty states rather than errors — and prices a disposal as a calculation that records nothing. All
-four screen areas now exist; only "ask a question" is deliberately left out.
-Observability is live (ADR-019): the ledger answers Actuator probes and now traces its business
-endpoints too, and the assistant serves `/health` and `/ready` and assembles its use cases at
-start-up. Both services emit structured JSON logs and OTLP traces. Both services run under
-Compose (`docker compose up`) as well as natively.
+admits. **It also has its budgeting area**: `BudgetsPage` lists every budget and defines one for a
+calendar month with a limit per category, `BudgetReviewPage` (`/budgets/:budgetId`) shows spend by
+category — overspent, unbudgeted and uncategorised — taking the budget's own period and currency
+from the cached list rather than a single-item read, and `CategorisationRulesPage`, at the static
+route `/budgets/rules`, lists rules in the order they are tried and adds another; `/budgets/rules`
+outranks the dynamic `/budgets/:budgetId` at the same depth by React Router's own
+static-over-dynamic ranking. **It also has its planning area**: `PlannedFlowsPage` plans flows and
+moves each through its lifecycle, `ScenariosPage` defines scenarios, `ProjectionPage`
+(`/planning/projection`) charts a scenario's projection, with its first shortfall, against the cash
+and invested accounts the owner chooses, and `ComparisonPage` (`/planning/compare`) compares two or
+more scenarios against a baseline in tables. Planning's account choices come from accounting
+through `PlanningAccountsBridge` in `src/app`, the web client's one cross-feature translation. All
+three areas call the ledger through the dev proxy and the gateway, mapping generated wire types
+onto each feature's own in `api/`. **It also has its portfolio area**, calling the assistant the
+same way (ADR-026, extended by ADR-030): `PortfolioPage` looks a holding up by symbol, and
+`HoldingPage` (`/portfolio/:symbol`) shows its position and valuation — nothing held and no usable
+price as calm empty states rather than errors — and prices a disposal as a calculation that records
+nothing. All four screen areas now exist; only "ask a question" is deliberately left out.
+Observability is live (ADR-019): the ledger and the gateway answer Actuator probes, the ledger
+traces its business endpoints too, and the assistant serves `/health` and `/ready` and assembles
+its use cases at start-up. The ledger, the gateway and the assistant emit structured JSON logs
+and OTLP traces, and all three run under Compose (`docker compose up`) as well as natively.
+**Authentication and authorisation are built**: OIDC through a backend-for-frontend gateway
+(ADR-030, which supersedes ADR-027), Keycloak (ADR-031), and role-based permissions owned by each
+service (ADR-032).
+`backend/gateway` signs the browser in against a self-hosted Keycloak (`ops/keycloak/`, with its
+own `keycloak-db`), keeps every token in its server-side session, and relays each call to the
+ledger or the assistant with `TokenRelay`; the browser holds only an `HttpOnly` session cookie and
+a CSRF token, and the web client's dev proxy sends every call to the gateway. The ledger is a
+resource server that validates bearer tokens and denies by default (`LedgerSecurityConfiguration`,
+proven by `LedgerAuthorizationIT`); the assistant requires a bearer token and `portfolio:read` on
+every business route, leaving `/health`, `/ready` and `/openapi.json` public
+(`BearerAuthentication` and `RequirePermission` in `adapters/auth.py`). The web client gates
+every screen on a session (`SessionGate`, `SessionContext`) and hides write controls from a
+`viewer` (`useWriteAccess`), and every journal row written from `V1_2` onward records the token's
+`sub` as `recorded_by` (ADR-033). `ops/smoke/auth_smoke.py` checks the wiring between them against
+the running Compose stack, by hand and never in CI (ADR-034).
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
-Proposed today — all 29 are Accepted — and the requirements are still deliberately `TODO` in
-places rather than inferred from code.
+Proposed today. Of all 36, ADR-027 is Superseded by ADR-030 and the other 35 are Accepted. The
+requirements are still deliberately `TODO` in places rather than inferred from code.
 
 ## Commands
 
@@ -57,36 +72,70 @@ is **not installed** on the development machine, so the raw command is given for
 
 - Build / setup: `make setup` — `test -f .env || cp .env.example .env`;
   `cd backend/ledger && ./mvnw -B -q dependency:go-offline`;
+  `cd backend/gateway && ./mvnw -B -q dependency:go-offline`;
   `cd backend/assistant && uv sync --locked --extra dev`; `cd frontend/web && npm ci`
-- Run: `make run` — `docker compose up --build` (starts PostgreSQL, the ledger and the
-  assistant; every published port binds `127.0.0.1` only, per ADR-027). For the native inner loop:
+- Run: `make run` — `docker compose up --build` (starts PostgreSQL, Keycloak and its own
+  database, the ledger, the gateway and the assistant; every published port binds `127.0.0.1`
+  only, per ADR-030; `keycloak-db` publishes none at all). For the native inner loop:
   `cd backend/ledger && ./mvnw spring-boot:run` — it needs the database up first
-  (`docker compose up -d db`) and applies its Flyway migrations at start-up;
+  (`docker compose up -d db`), applies its Flyway migrations at start-up, and needs Keycloak up
+  to verify a token, though not to start (no service runs OIDC discovery, ADR-030);
+  `cd backend/gateway && ./mvnw spring-boot:run` — it needs Keycloak up first
+  (`docker compose up -d keycloak-db keycloak`, or `make run-identity`);
   `cd backend/assistant && uv run python -m finassist_assistant.adapters`; the web client with
   `cd frontend/web && npm run dev`
+- Stop: `make stop` — `docker compose down`, keeping volumes. Never `docker compose down -v`
+  against the owner's own project: it deletes `db-data` along with `keycloak-db-data`
 - Test (all): `make test`
-- Test (ledger): `cd backend/ledger && ./mvnw -B verify`
-- Test (assistant): `cd backend/assistant && uv run pytest --cov --cov-report=term-missing
-  --cov-report=xml`
-- Test (web): `cd frontend/web && npm run test:coverage`
+- Test (ledger): `make test-ledger` — `cd backend/ledger && ./mvnw -B verify`
+- Test (gateway): `make test-gateway` — `cd backend/gateway && ./mvnw -B verify`
+- Test (assistant): `make test-assistant` — `cd backend/assistant && uv run pytest --cov
+  --cov-report=term-missing --cov-report=xml`
+- Test (web): `make test-web` — `cd frontend/web && npm run test:coverage`
 - Test (single, ledger): `cd backend/ledger && ./mvnw -B test -Dtest=LedgerArchitectureTest`
-- **Docker must be running for `make test-ledger`.** `*IT` tests drive the store against a real
-  PostgreSQL in Testcontainers and fail rather than skip without it (ADR-025). Surefire (the
-  unit suite) needs no Docker; failsafe does.
+- **Docker must be running for `make test-ledger` and `make test-gateway`.** The ledger's `*IT`
+  tests drive the store against a real PostgreSQL in Testcontainers, and the gateway's
+  `KeycloakRealmIT` builds `ops/keycloak/Dockerfile` and runs it against a real PostgreSQL; both
+  fail rather than skip without Docker (ADR-025). Surefire (the unit suites) needs no Docker;
+  failsafe does. `ApplicationYmlPlaceholdersTest` is a surefire test, so the ledger's `@Value`
+  placeholder guard runs without Docker.
 - Test (single, assistant): `cd backend/assistant && uv run pytest tests/test_architecture.py -k <name>`
 - Test (single, web): `cd frontend/web && npx vitest run -t <name>`
+- Build the web bundle: `make build-web` — `cd frontend/web && npm run build`
 - Mutation testing (ledger): `make mutation-ledger` — `cd backend/ledger && ./mvnw -B -Pmutation
   test-compile org.pitest:pitest-maven:mutationCoverage`. A diagnostic, gated on nothing (ADR-017)
-- Lint / types: `make lint` — `./mvnw -B spotless:check`; `uv run ruff check .`,
-  `uv run ruff format --check .`, `uv run mypy src tests`; `npm run lint`,
-  `npm run format:check`, `npm run typecheck`
-- Format: `make format` — `./mvnw -B spotless:apply`; `uv run ruff format .`,
-  `uv run ruff check --fix .`; `npm run format`
+- Lint / types: `make lint` — `./mvnw -B spotless:check` (ledger and gateway);
+  `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src tests`; for the smoke
+  check (`make lint-smoke`, its own CI step in the assistant job), `uv run ruff check`,
+  `uv run ruff format --check` and `uv run mypy --strict` over `../../ops/smoke`, all from
+  `backend/assistant`; `npm run lint`, `npm run format:check`, `npm run typecheck`
+- Format: `make format` — `./mvnw -B spotless:apply` (ledger and gateway);
+  `uv run ruff format . ../../ops/smoke`, `uv run ruff check --fix . ../../ops/smoke`;
+  `npm run format`
 - Audit: `make audit` — `uv run pip-audit`; `npm audit --audit-level=high`
 - Re-lock Python deps: `make lock` — `cd backend/assistant && uv lock` (required after any
   `pyproject.toml` dependency edit, or CI's `uv sync --locked` fails)
 - Run with telemetry: `make run-monitoring` — `docker compose --profile monitoring up --build`
   (collector, Prometheus, Grafana). `make stop-monitoring` tears the profile down
+- Run identity only: `make run-identity` — `docker compose up -d keycloak-db keycloak`, for
+  signing in or testing against Keycloak without the rest of the stack. Its realm
+  (`ops/keycloak/finassist-realm.json`) imports only into an empty `keycloak-db-data` volume —
+  edit it, or a secret it takes from `.env`, and nothing changes for an existing one until the
+  realm is imported again. The README's "Changing the realm or its secrets" gives both recipes, a
+  re-import with `kc.sh import --override true` or a recreated `keycloak-db-data`, and both delete
+  the realm's users
+- Smoke-test authentication (opt-in, manual): `make smoke-auth` — `docker compose --profile
+  smoke run --rm auth-smoke`, after `make run` reports every service healthy (run cold, `compose
+  run` starts the stack itself, but from existing images, without building). Runs
+  `ops/smoke/auth_smoke.py` — standard library only, as an unprivileged user — inside the
+  Compose network. Each service's own suite already tests its logic alone; this checks the
+  wiring Compose gives them together, through the issuer Keycloak puts in a token fetched over
+  the backchannel, the ledger's read and write rules for the assistant's token, the assistant's
+  refusal of a token with the ledger's audience (there is no positive assistant check: that
+  needs an interactive sign-in), and the gateway's 401-not-302 and login redirect (ADR-030
+  through ADR-032). Never started by `docker compose up`; CI validates the service definition
+  (`--profile smoke config`) and lints the script (`make lint-smoke`) but never runs the check
+  itself
 - Regenerate the ledger's OpenAPI contract: `cd backend/ledger && ./mvnw -B verify -Dtest=NONE
   -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running); on a
   mismatch, copy `target/contracts/ledger-v1.openapi.json` over
@@ -95,8 +144,15 @@ is **not installed** on the development machine, so the raw command is given for
   tests/test_contract.py` (no container needed); on a mismatch, copy
   `.contract-drift/assistant-v1.openapi.json` over `contracts/assistant-v1.openapi.json`. Run
   this after every endpoint change
+- Regenerate the gateway's OpenAPI contract: `cd backend/gateway && ./mvnw -B verify -Dtest=NONE
+  -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=GatewayContractIT` (no container needed); on
+  a mismatch, copy `target/contracts/gateway-v1.openapi.json` over
+  `contracts/gateway-v1.openapi.json`. Run this after every endpoint change
 - Regenerate the web client's contract types: `make generate-web-api` —
   `cd frontend/web && npm run generate:api`
+- Clean: `make clean` — `./mvnw -B -q clean` in `backend/ledger` and `backend/gateway`, then
+  delete the assistant's caches and coverage files and the web client's `dist/` and `coverage/`;
+  `.env` and Docker volumes are left alone
 
 Keep this list in sync with the Development table in `README.md`.
 
@@ -109,15 +165,45 @@ so it can be extracted by moving it (ADR-010).
   `planning/`, each with `domain/`, `application/{port/in,port/out,service}/`,
   `adapter/{in/web,out/persistence,out/event}/`, plus a top-level `shared/` kernel, a
   `composition/` root and `LedgerApplication`.
+- `backend/gateway/` — Java 21, Spring Boot, Spring Cloud Gateway Server Web MVC. The
+  backend-for-frontend: it signs the browser in with OIDC (code flow, PKCE) against Keycloak,
+  keeps the access and refresh tokens in its in-memory session, and relays `GET`/`POST
+  /ledger/api/v1/**` and `/assistant/api/v1/**` with `StripPrefix`, `RemoveRequestHeader` and
+  `TokenRelay` — routes declared in `application.yml`. It holds no bounded context: everything is
+  in its `composition/` root, which is, in full: `GatewayConfiguration` (registers the Host
+  allow-list first), `HostAllowListFilter` (a deliberate copy of the ledger's, configured by
+  `GATEWAY_ALLOWED_HOSTS`), `GatewaySecurityConfiguration` (the one security chain, deny by
+  default, 401 never 302, renamed CSRF cookie and header), `BffRoutes` (every `/bff/` path, in one
+  place), `KeycloakRegistration` (the `ClientRegistration` built by hand, public and backchannel
+  URLs split, and the client manager `TokenRelay` uses), `SessionController` (`GET /bff/me`),
+  `SignInFailureHandler` (a failed sign-in back to `?signin=failed`),
+  `SpaLogoutSuccessHandler` (`POST /bff/logout`), `ProblemAuthenticationEntryPoint` (401) and
+  `ProblemAccessDeniedHandler` (403), `GatewayProblems` (the problem codes and writer),
+  `GatewayRelayProblems` (a relay's failures), `GatewayOpenApiConfiguration` (the committed
+  contract's shape), and the records `Origin`, `SessionResponse` and `LogoutResponse`. Its own
+  Maven wrapper, so it builds standalone like the ledger.
 - `backend/assistant/` — Python 3.13, FastAPI. Contexts `portfolio/`, `assistance/`,
   `marketdata/`, each with `domain/`, `application/{port,usecase}/`, `adapters/`, plus
   `shared/` and the composition root `adapters/` (`app.py`, `wiring.py`, `settings.py`,
-  `observability.py`).
+  `observability.py`, `auth.py`, `problems.py`).
 - `frontend/web/` — React 19, Vite 8, TypeScript. `src/features/` holds one directory per
-  user-facing context; `src/shared/`; `src/app/` composes them.
-- `contracts/` — the versioned OpenAPI contract. Holds `ledger-v1.openapi.json`, generated by
-  springdoc and pinned by `LedgerContractIT`, and `assistant-v1.openapi.json`, generated by
-  FastAPI and pinned by `tests/test_contract.py`.
+  user-facing context; `src/shared/`; `src/app/` composes them, and `src/app/session/` gates the
+  app on a signed-in session. `vite.config.ts` proxies `/ledger`, `/assistant` and `/bff` to the
+  gateway.
+- `contracts/` — the versioned OpenAPI contracts. Holds `ledger-v1.openapi.json`, generated by
+  springdoc and pinned by `LedgerContractIT`; `assistant-v1.openapi.json`, generated by FastAPI
+  and pinned by `tests/test_contract.py`; and `gateway-v1.openapi.json`, generated by springdoc
+  and pinned by `GatewayContractIT`.
+- `ops/` — infrastructure that is not this repository's application code: the collector,
+  Prometheus and Grafana provisioning the `monitoring` Compose profile mounts, and
+  `ops/keycloak/` — `Dockerfile` (builds the optimized Keycloak image that `docker-compose.yml`
+  runs) and `finassist-realm.json` (the `finassist` realm, imported at start-up; every secret
+  and credential in it is a `${VAR}` placeholder, pinned by `KeycloakRealmTest`, and the whole
+  file is proved against a real Keycloak by `KeycloakRealmIT`, both in the gateway module).
+  `ops/smoke/auth_smoke.py` is the only file behind the `smoke` Compose profile: a
+  standard-library-only, opt-in smoke check of the authentication and RBAC wiring, run by hand
+  with `make smoke-auth`, never by `docker compose up` and never by CI (ADR-034), and linted by
+  `make lint-smoke`.
 - `docs/ADRs/` — one file per decision, `ADR-NNN-short-kebab-title.md`, zero-padded and
   monotonically increasing. Append-only: supersede, never rewrite.
 - `docs/requirements/` — what the system must do. `docs/architecture/` — what it actually is.
@@ -175,7 +261,9 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **Nothing writes output except the logging boundary.** No `print` (ruff `T20`), no
   `console.log` (ESLint `no-console`), no `System.out`. Structured JSON on stdout, through
   `adapters/observability.py`, `shared/lib/logger.ts`, or Logback's ECS format (ADR-019).
-  Redaction lives at that boundary, never at a call site.
+  Redaction lives at that boundary, never at a call site. `ops/smoke/auth_smoke.py` is an
+  operator CLI, not a service: its report on stdout is its product, written by one `print`
+  marked `# noqa: T201` with its reason.
 - **Telemetry is a no-op when unconfigured.** A service must start with no collector named. An
   endpoint alone never enables export; `OTEL_EXPORT_ENABLED` does, for every signal — traces,
   metrics, and the ledger's OTLP log export, which nothing feeds until a log appender is added.
@@ -185,7 +273,16 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **Adding a Python dependency can widen an architecture rule silently.** The forbidden list is
   derived from `pyproject.toml` and mangles `-` to `_`, so a distribution whose import root
   differs from its name (`opentelemetry-sdk` → `opentelemetry`) is missed unless named in the
-  explicit set in `tests/test_architecture.py`.
+  explicit set in `tests/test_architecture.py`. `jwt` and `cryptography` are named there for the
+  same reason: `PyJWT[crypto]` mangles to the literal `PyJWT`, which matches neither `jwt` (the
+  real import root) nor `pyjwt`, and `cryptography` arrives only transitively through the
+  `crypto` extra, so no declared dependency name can ever produce it at all (ADR-030, ADR-032).
+- **A refused token is WARN; an unreachable key source is ERROR, on both resource servers.** The
+  first is one caller's problem, the second is an outage in which nobody can authenticate, so it
+  gets a message of its own rather than the refusal line's — still the reason category alone,
+  never the token. `ProblemAuthenticationEntryPoint.reportOutage` and
+  `BearerAuthentication._report_unavailable`; pinned by `ProblemAuthenticationEntryPointTest`,
+  `LedgerKeySourceOutageIT` and `tests/test_authorization.py`. Keep the two services symmetric.
 - **Logs are diagnostics, never the audit trail.** They are dropped when no collector is
   attached. The append-only journal is the audit record (ADR-020).
 - **The application layer imports no framework, in either language.** No `@Service`, no
@@ -219,6 +316,22 @@ These are enforced by the build, not by review. Breaking one fails CI.
   current state. Do not add an `UPDATE` to `JdbcTransactionRepository` — the database will refuse
   it, which is the point (ADR-020, ADR-024). `budgeting` and `planning` are ordinary mutable
   tables: ADR-020 binds the record of what happened, and ADR-015 puts intent in another context.
+- **Every journal insert names `recorded_by`; never validate the constraints.** `V1_2` added a
+  nullable `recorded_by` and a `CHECK (...) NOT VALID` on `journal_transaction` and
+  `journal_transaction_state`, so a row written before it honestly stays `NULL` while every new
+  one must name a non-blank subject. `JdbcTransactionRepository` writes it on every `INSERT`;
+  never run `ALTER TABLE ... VALIDATE CONSTRAINT` on either — it would scan the historical `NULL`
+  rows and fail, and the append-only triggers forbid the `UPDATE` a fix would need (ADR-033).
+- **`spring.flyway.out-of-order` stays `true`; never turn it off.** One history table with a major
+  version per context (ADR-024) means the next migration for any context but the highest arrives
+  below a version already applied, which Flyway classes `IGNORED` and refuses to start over — so
+  with it false, `accounting` and `budgeting` could never gain another migration at all. Safe
+  because no foreign key crosses a schema, so order between contexts means nothing; order within
+  one is unchanged, and checksum validation is untouched. `LedgerUpgradeIT` is what turns red:
+  it rebuilds the history a real database holds (`1.1`, `2.1`, `3.1`) from the committed scripts,
+  byte for byte, then starts the ledger's own context against it. Extend it when the applied set
+  changes, and never reach for `ignoreMigrationPatterns`, which would start the ledger with the
+  column missing (ADR-035).
 - **No foreign key crosses a schema.** `SchemaBoundariesIT` fails the build if one does. It is
   the storage-layer half of `contexts_do_not_depend_on_each_other`, which reads bytecode and so
   stops at the edge of the JVM.
@@ -238,6 +351,18 @@ These are enforced by the build, not by review. Breaking one fails CI.
   fallback, runs at the lowest and catches what none of them claimed; a controller-local handler
   answers an id named in a body or query, since the same not-found exception is 404 from a path
   and 422 from a body (ADR-028).
+- **The gateway's catch-all answers a framework refusal at its own status.**
+  `GatewayRelayProblems.relayFailed` peels an `ErrorResponse` off first — 405
+  `METHOD_NOT_ALLOWED` and 406 `NOT_ACCEPTABLE`, the only two `GET /bff/me` can provoke — and
+  logs it at WARN, so ERROR still means a true 5xx. A status with no code in that map stays a
+  500 rather than being passed through under an invented one. `GatewaySecurityTest` and
+  `GatewayRelayProblemsTest` fail the build if either half is lost.
+- **Neither Keycloak client is allowed the realm's full scope.** `fullScopeAllowed: false` on
+  both, plus a realm-level `scopeMappings` entry naming exactly the roles each client's tokens
+  need — `owner` and `viewer` for the gateway, `assistant` for the assistant. Left at Keycloak's
+  default, every role in the realm reaches the `roles` claim. `KeycloakRealmTest` pins the file
+  and `KeycloakRealmIT` reads the scope back from a running Keycloak through its admin API,
+  because the gateway's client permits no grant this build can mint a token with.
 - **Every decimal on the wire is a string, never a JSON number** — money, growth rates and
   quantities alike (ADR-028). The ledger refuses a JSON number in any text member with 400
   through `StrictTextCoercion`, proven against the running ledger by `AccountingHttpIT`. A
@@ -248,10 +373,24 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **A create answers `201` with the created representation and no `Location` header** — there is
   no single-item read for one to name (ADR-028).
 - **Every POST `consumes` `application/json`.** A form post from a cross-site page is refused 415
-  before a handler runs (ADR-027).
+  before a handler runs (ADR-030).
 - **The Host allow-list lives in `composition`.** `HostAllowListFilter`, at the highest filter
   precedence, refuses a `Host` outside `LEDGER_ALLOWED_HOSTS` with 403 — before Actuator, and
-  before any controller (ADR-027).
+  before any controller (ADR-030).
+- **Every gateway call to Keycloak is built from Boot's own HTTP builders**, in
+  `KeycloakRegistration`: the authorization-code client and the `refresh_token` client from
+  `RestClient.Builder`, and the ID token's `JwtDecoderFactory` from `RestTemplateBuilder`. Spring
+  Security's defaults for all three build their client from a static factory that never sees
+  `spring.http.clients.*`, so dropping any of these beans silently makes that call unbounded —
+  only the relay's own client gets Boot's budget for free. `GatewayKeycloakTimeoutIT` stalls each
+  endpoint in turn and fails the build if one stops giving up.
+- **Every outbound call the gateway makes speaks HTTP/1.1.** `GatewayConfiguration`'s
+  `relayHttpVersion` customizer pins the JDK client's version, because its HTTP/2 default offers an
+  h2c upgrade on a cleartext hop and uvicorn answers 400 to an upgrade request that carries a body
+  — every POST relayed to the assistant. Boot exposes no property for this, so a
+  `ClientHttpRequestFactoryBuilderCustomizer` bean is the lever; `GatewayLoginFlowIT` fails the
+  build if an upgrade offer ever reaches an upstream again. Lift it only once a relayed hop runs
+  over TLS, where HTTP/2 arrives by ALPN with no upgrade header at all.
 - **A web DTO's simple name is unique across every context** — `MoneyDto` alone is exempt, one
   identical copy per context on purpose. `web_dto_names_are_unique_across_contexts`;
   `MoneyDtoShapesTest` keeps the copies identical.
@@ -262,6 +401,18 @@ These are enforced by the build, not by review. Breaking one fails CI.
   alike, ledger-wide (`spring.jackson.deserialization.accept-float-as-int: false`).
 - **The assistant's router is a factory taking use cases, and never reads `app.state`.** Its
   handlers are `def`, never `async def` — every port behind them is synchronous (ADR-021).
+- **Every assistant route declares exactly one permission dependency, built through the
+  `require` factory the composition root passes into the router** (ADR-030, ADR-032) —
+  `Depends(require(READ_PORTFOLIO))` on each of `portfolio_router`'s three routes, checked by a
+  coverage test in `tests/test_authorization.py` that fails the build if a route is added
+  without one. `RequirePermission`, the factory `app.py` passes as `require`, reads the
+  `Principal` `BearerAuthentication` already verified from `request.scope`; it is never imported
+  by the router itself, which would be the composition-root import the slice rule forbids.
+- **`BearerAuthentication` runs inside the correlation middleware, not outside it** — added to
+  the app before `correlate`, so Starlette's last-added-runs-first rule puts `correlate` outside
+  it and a refused request still gets a correlation id and a request-answered line. The order is
+  `HostAllowList` → correlate → auth → routes; `HostAllowList` stays outermost, added last, so a
+  foreign `Host` is refused before authentication is even attempted.
 - **The assistant's problem handlers live in the composition root**, `adapters/problems.py` —
   the one assistant package allowed to see every context's exceptions, mirroring
   `LedgerProblemHandler`.
@@ -284,11 +435,33 @@ These are enforced by the build, not by review. Breaking one fails CI.
   configured. The wire models' `hide_input_in_errors=True` is defence in depth for anything else
   that prints a pydantic `ValidationError`, not the guarantee. A 503 `PRICE_UNAVAILABLE` logs the
   event and the symbol only, never a traceback.
-- **Both Host allow-lists refuse, at start-up, an entry naming a port or an IPv6 literal**:
-  `ASSISTANT_ALLOWED_HOSTS` refuses one containing a `:` or a `[`, and
-  `HostAllowListFilter` refuses a `:`, a `[` or a `]` in `LEDGER_ALLOWED_HOSTS`.
-- **Neither service serves a `/docs` or `/redoc` UI.** `/openapi.json` (and the ledger's own
-  OpenAPI route) stays.
+- **All three Host allow-lists refuse, at start-up, an entry naming a port or an IPv6 literal**:
+  `ASSISTANT_ALLOWED_HOSTS` refuses one containing a `:` or a `[`, and each `HostAllowListFilter`
+  — the ledger's and the gateway's copy — refuses a `:`, a `[` or a `]` in `LEDGER_ALLOWED_HOSTS`
+  or `GATEWAY_ALLOWED_HOSTS`.
+- **No service serves an API UI**: no `/docs` or `/redoc` on the assistant, and no Swagger UI on
+  the ledger or the gateway, which depend on springdoc's `-api` starter alone. `/openapi.json`
+  (and the ledger's own OpenAPI route) stays; the gateway's `/v3/api-docs` is denied by its
+  security chain.
+- **The ledger validates a bearer token and denies by default on every request** (ADR-030).
+  `LedgerAuthorizationIT` checks this against an explicit, named inventory of every endpoint the
+  running server answers to — plus springdoc's own and the container's error forward — so an
+  endpoint added without a matching URL rule fails the build rather than shipping open.
+- **Security lives in `composition`, never in a top-level `security` package.** A new context-shaped
+  package would be treated as a bounded context by the slice rule and fail
+  `contexts_do_not_depend_on_each_other`. `LedgerSecurityConfiguration`, `LedgerPermissions`,
+  `ProblemAuthenticationEntryPoint` and `ProblemAccessDeniedHandler` all live there; a controller
+  still touches only `java.security.Principal`.
+- **Every `@WebMvcTest` slice imports `WebSliceSecurity`.** A slice loads no scanned configuration
+  (ADR-028's convention, extended to ADR-030), so without it a slice would boot with no security at
+  all — every request admitted, which is a false pass, not a fast one. Enforced by
+  `WebSliceSecurityImportTest`, which reads the compiled test classes and fails the build for a
+  slice that omits the import.
+- **References to ADR-027 in code, configuration and docs point to ADR-030, in every codebase.**
+  ADR-027 is Superseded; ADR-030 keeps its loopback binding, Host allow-lists and JSON-only writes
+  as defence in depth, and is the record to cite for them going forward. ADR-027 is still named
+  only by the ADR files themselves, by a statement of the supersession, and by the history note
+  at the top of `docker-compose.yml`.
 
 The ledger's ten ArchUnit rules are **live**. The `archRule.failOnEmptyShould=false` escape
 hatch was deleted with the first domain class, so a rule matching nothing now fails rather than
@@ -365,3 +538,14 @@ consistent rather than because a test would catch a deviation.
   shared `QueryErrorState` from `src/shared/ui`, which renders its `RetryButton`, never a copy of
   its own; moves focus to what a successful retry restores with `useRetryFocus`; and checks a
   problem's code with `hasProblemCode`, beside `ApiError`.
+- **A write control reads `useWriteAccess` before it renders, and the server enforces access
+  regardless.** `WriteAccessContext` (`src/shared/lib/writeAccess.ts`) is a UX courtesy alone,
+  never a security boundary; `SessionGate` provides it from `writeAccessFor(session.roles)`
+  (`src/app/session/access.ts`), and `renderRoutes`'s `access` option defaults to
+  `{canWrite: true}` so a screen test written before this convention needs no change. A viewer
+  sees every area but no control that changes data — `OpenAccountForm`, `RecordTransactionPage`,
+  Clear/Reconcile/Void, `DefineBudgetForm`, `AddCategorisationRuleForm`, `PlanFlowForm`,
+  Commit/Realise/Cancel, and `DefineScenarioForm` all hide themselves this way — except
+  `DisposalSection`, which stays offered because pricing a disposal is a read. A `FORBIDDEN`
+  problem is rendered by `ErrorState` with a fixed sentence rather than the server's own detail,
+  through the same `hasProblemCode` machinery, never a bespoke check.

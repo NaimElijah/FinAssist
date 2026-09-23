@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useWriteAccess } from '@/shared/lib/writeAccess';
 import { EmptyState, QueryErrorState, useRetryFocus } from '@/shared/ui';
 
 import { useCategorisationRules } from '../hooks/budgetQueries';
@@ -98,15 +99,18 @@ function RulesList({
 }
 
 /**
- * `/budgets/rules`: every categorisation rule, in the order it is tried, and the form that adds
- * another.
+ * `/budgets/rules`: every categorisation rule, in the order it is tried, and, for a session with
+ * write access, the form that adds another.
  *
  * Adding a rule resets the form and moves focus to the new rule's list item, once - the one
  * success signal, mirroring `AccountsPage` and `BudgetsPage`'s own pattern. When the refetch the
  * add triggered fails, `RulesList` cannot tell which item is the new rule, so focus falls back to
  * the add form's own first field instead of landing on a stale row.
+ *
+ * A read-only session (`useWriteAccess`) still sees the list; only the add form is hidden.
  */
 export function CategorisationRulesPage() {
+    const { canWrite } = useWriteAccess();
     const [awaitingFocus, setAwaitingFocus] = useState(false);
     const [fallbackFocusRequested, setFallbackFocusRequested] = useState(false);
 
@@ -126,13 +130,15 @@ export function CategorisationRulesPage() {
             <h1>Categorisation rules</h1>
             <p className={styles.hint}>{HINT}</p>
             <RulesList awaitingFocus={awaitingFocus} onAdded={handleAdded} />
-            <AddCategorisationRuleForm
-                onAdded={() => {
-                    setAwaitingFocus(true);
-                }}
-                focusRequested={fallbackFocusRequested}
-                onFocusRequestHandled={clearFallbackFocus}
-            />
+            {canWrite ? (
+                <AddCategorisationRuleForm
+                    onAdded={() => {
+                        setAwaitingFocus(true);
+                    }}
+                    focusRequested={fallbackFocusRequested}
+                    onFocusRequestHandled={clearFallbackFocus}
+                />
+            ) : null}
         </>
     );
 }

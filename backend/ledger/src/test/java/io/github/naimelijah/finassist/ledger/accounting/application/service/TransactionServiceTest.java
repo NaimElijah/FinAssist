@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import io.github.naimelijah.finassist.ledger.accounting.adapter.out.event.InMemoryAccountingEvents;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.AccountNotFoundException;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.EntryCurrencyMismatchException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.RecordTransactionCommand;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.TransactionNotFoundException;
@@ -50,6 +51,8 @@ class TransactionServiceTest {
     private static final LocalDate MARCH_3 = LocalDate.of(2026, 3, 3);
     private static final LocalDate MARCH_5 = LocalDate.of(2026, 3, 5);
 
+    private static final Actor RECORDER = new Actor("owner-user");
+
     private final AccountRepository accounts = mock(AccountRepository.class);
     private final TransactionRepository transactions = mock(TransactionRepository.class);
     private final InMemoryAccountingEvents events = new InMemoryAccountingEvents();
@@ -63,7 +66,7 @@ class TransactionServiceTest {
         Transaction recorded = service.record(groceryPurchase("12.50"));
 
         assertThat(recorded.state()).isEqualTo(new TransactionState.Pending());
-        verify(transactions).save(recorded);
+        verify(transactions).save(recorded, RECORDER);
     }
 
     @Test
@@ -74,7 +77,8 @@ class TransactionServiceTest {
         assertThatThrownBy(() -> service.record(new RecordTransactionCommand(
                         MARCH_1,
                         "Groceries",
-                        List.of(new Entry(unknown, ils("12.50")), new Entry(cash.id(), ils("-12.50"))))))
+                        List.of(new Entry(unknown, ils("12.50")), new Entry(cash.id(), ils("-12.50"))),
+                        RECORDER)))
                 .isInstanceOf(AccountNotFoundException.class)
                 .hasMessageContaining(unknown.toString());
     }
@@ -88,7 +92,8 @@ class TransactionServiceTest {
                         "Transfer",
                         List.of(
                                 new Entry(dollars.id(), Money.of("40.00", Currency.ILS)),
-                                new Entry(cash.id(), ils("-40.00"))))))
+                                new Entry(cash.id(), ils("-40.00"))),
+                        RECORDER)))
                 .isInstanceOf(EntryCurrencyMismatchException.class)
                 .hasMessageContaining("US savings")
                 .hasMessageContaining("no conversion");
@@ -100,7 +105,8 @@ class TransactionServiceTest {
         assertThatThrownBy(() -> service.record(new RecordTransactionCommand(
                         MARCH_1,
                         "Groceries",
-                        List.of(new Entry(groceries.id(), ils("12.50")), new Entry(cash.id(), ils("-10.00"))))))
+                        List.of(new Entry(groceries.id(), ils("12.50")), new Entry(cash.id(), ils("-10.00"))),
+                        RECORDER)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("would not balance");
     }
@@ -113,10 +119,11 @@ class TransactionServiceTest {
         assertThatThrownBy(() -> service.record(new RecordTransactionCommand(
                         MARCH_1,
                         "Groceries",
-                        List.of(new Entry(unknown, ils("1.00")), new Entry(cash.id(), ils("-1.00"))))))
+                        List.of(new Entry(unknown, ils("1.00")), new Entry(cash.id(), ils("-1.00"))),
+                        RECORDER)))
                 .isInstanceOf(AccountNotFoundException.class);
 
-        verify(transactions, never()).save(any());
+        verify(transactions, never()).save(any(), any());
         assertThat(events.published()).noneMatch(AccountingEvent.TransactionRecorded.class::isInstance);
     }
 
@@ -124,21 +131,21 @@ class TransactionServiceTest {
     void Given_a_recorded_transaction_When_cleared_Then_the_new_state_is_stored() {
         Transaction recorded = stored(service.record(groceryPurchase("12.50")));
 
-        Transaction cleared = service.clear(recorded.id(), MARCH_3);
+        Transaction cleared = service.clear(recorded.id(), MARCH_3, RECORDER);
 
         assertThat(cleared.state()).isEqualTo(new TransactionState.Cleared(MARCH_3));
-        verify(transactions).save(cleared);
+        verify(transactions).save(cleared, RECORDER);
     }
 
     @Test
     void Given_a_cleared_transaction_When_reconciled_Then_it_is_frozen() {
         Transaction recorded = stored(service.record(groceryPurchase("12.50")));
-        Transaction cleared = stored(service.clear(recorded.id(), MARCH_3));
+        Transaction cleared = stored(service.clear(recorded.id(), MARCH_3, RECORDER));
 
-        Transaction reconciled = stored(service.reconcile(cleared.id(), MARCH_5));
+        Transaction reconciled = stored(service.reconcile(cleared.id(), MARCH_5, RECORDER));
 
         assertThat(reconciled.state()).isEqualTo(new TransactionState.Reconciled(MARCH_5));
-        assertThatThrownBy(() -> service.markVoided(recorded.id(), MARCH_5, "changed my mind"))
+        assertThatThrownBy(() -> service.markVoided(recorded.id(), MARCH_5, "changed my mind", RECORDER))
                 .isInstanceOf(IllegalTransitionException.class);
     }
 
@@ -146,7 +153,7 @@ class TransactionServiceTest {
     void Given_a_pending_transaction_When_reconciled_Then_it_is_refused() {
         Transaction recorded = stored(service.record(groceryPurchase("12.50")));
 
-        assertThatThrownBy(() -> service.reconcile(recorded.id(), MARCH_3))
+        assertThatThrownBy(() -> service.reconcile(recorded.id(), MARCH_3, RECORDER))
                 .isInstanceOf(IllegalTransitionException.class);
     }
 
@@ -155,9 +162,11 @@ class TransactionServiceTest {
         TransactionId unknown = TransactionId.generate();
         when(transactions.findById(unknown)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.clear(unknown, MARCH_3)).isInstanceOf(TransactionNotFoundException.class);
-        assertThatThrownBy(() -> service.reconcile(unknown, MARCH_3)).isInstanceOf(TransactionNotFoundException.class);
-        assertThatThrownBy(() -> service.markVoided(unknown, MARCH_3, "typo"))
+        assertThatThrownBy(() -> service.clear(unknown, MARCH_3, RECORDER))
+                .isInstanceOf(TransactionNotFoundException.class);
+        assertThatThrownBy(() -> service.reconcile(unknown, MARCH_3, RECORDER))
+                .isInstanceOf(TransactionNotFoundException.class);
+        assertThatThrownBy(() -> service.markVoided(unknown, MARCH_3, "typo", RECORDER))
                 .isInstanceOf(TransactionNotFoundException.class);
     }
 
@@ -173,8 +182,8 @@ class TransactionServiceTest {
     @Test
     void Given_each_transition_When_it_succeeds_Then_its_event_is_published_in_order() {
         Transaction recorded = stored(service.record(groceryPurchase("12.50")));
-        Transaction cleared = stored(service.clear(recorded.id(), MARCH_3));
-        service.reconcile(cleared.id(), MARCH_5);
+        Transaction cleared = stored(service.clear(recorded.id(), MARCH_3, RECORDER));
+        service.reconcile(cleared.id(), MARCH_5, RECORDER);
 
         assertThat(events.published())
                 .endsWith(
@@ -187,11 +196,44 @@ class TransactionServiceTest {
     void Given_a_padded_void_reason_When_voided_Then_the_event_carries_the_stored_form() {
         Transaction recorded = stored(service.record(groceryPurchase("12.50")));
 
-        Transaction voided = service.markVoided(recorded.id(), MARCH_3, "  duplicate entry  ");
+        Transaction voided = service.markVoided(recorded.id(), MARCH_3, "  duplicate entry  ", RECORDER);
 
         assertThat(voided.state()).isEqualTo(new TransactionState.Voided(MARCH_3, "duplicate entry"));
         assertThat(events.published())
                 .contains(new AccountingEvent.TransactionVoided(recorded.id(), MARCH_3, "duplicate entry"));
+    }
+
+    /**
+     * Each transition can be made by someone other than whoever recorded the transaction — a clerk
+     * records it, an auditor reconciles it — and the store must be told each writer, not only the
+     * first one (ADR-033).
+     */
+    @Test
+    void
+            Given_different_actors_When_a_transaction_is_recorded_cleared_and_reconciled_Then_each_write_names_its_own_actor() {
+        Actor recorder = new Actor("owner-user");
+        Actor clearer = new Actor("clerk-user");
+        Actor reconciler = new Actor("auditor-user");
+        Transaction recorded = stored(service.record(groceryPurchase("12.50", recorder)));
+
+        Transaction cleared = stored(service.clear(recorded.id(), MARCH_3, clearer));
+        Transaction reconciled = service.reconcile(cleared.id(), MARCH_5, reconciler);
+
+        verify(transactions).save(recorded, recorder);
+        verify(transactions).save(cleared, clearer);
+        verify(transactions).save(reconciled, reconciler);
+    }
+
+    /** Voiding is a transition like the others: the store is told whoever voided it, not whoever recorded it. */
+    @Test
+    void Given_a_different_actor_When_a_pending_transaction_is_voided_Then_the_store_is_told_that_writer() {
+        Actor recorder = new Actor("owner-user");
+        Actor voider = new Actor("viewer-user");
+        Transaction recorded = stored(service.record(groceryPurchase("12.50", recorder)));
+
+        Transaction voided = service.markVoided(recorded.id(), MARCH_3, "duplicate", voider);
+
+        verify(transactions).save(voided, voider);
     }
 
     /**
@@ -208,7 +250,8 @@ class TransactionServiceTest {
                 List.of(
                         new Entry(rent.id(), ils("2000.00")),
                         new Entry(cash.id(), ils("-1500.00")),
-                        new Entry(cash.id(), ils("-500.00")))));
+                        new Entry(cash.id(), ils("-500.00"))),
+                RECORDER));
 
         assertThat(events.published())
                 .contains(new AccountingEvent.TransactionRecorded(
@@ -216,10 +259,15 @@ class TransactionServiceTest {
     }
 
     private RecordTransactionCommand groceryPurchase(String amount) {
+        return groceryPurchase(amount, RECORDER);
+    }
+
+    private RecordTransactionCommand groceryPurchase(String amount, Actor recordedBy) {
         return new RecordTransactionCommand(
                 MARCH_1,
                 "Groceries",
-                List.of(new Entry(groceries.id(), ils(amount)), new Entry(cash.id(), ils("-" + amount))));
+                List.of(new Entry(groceries.id(), ils(amount)), new Entry(cash.id(), ils("-" + amount))),
+                recordedBy);
     }
 
     /** An account the store knows about, so the service can resolve it and read its currency. */

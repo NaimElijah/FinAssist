@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.naimelijah.finassist.ledger.WebSliceSecurity;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.AddCategorisationRuleUseCase;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.in.ListCategorisationRulesUseCase;
 import io.github.naimelijah.finassist.ledger.budgeting.domain.category.CategorisationRule;
@@ -18,6 +19,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -29,6 +31,7 @@ import org.springframework.test.web.servlet.MockMvc;
  *
  * <p>The same slice shape as {@code BudgetControllerTest}, over {@link CategorisationRuleController}.
  */
+@Import(WebSliceSecurity.class)
 @WebMvcTest(controllers = CategorisationRuleController.class)
 class CategorisationRuleControllerTest {
 
@@ -90,7 +93,7 @@ class CategorisationRuleControllerTest {
         verifyNoInteractions(adder);
     }
 
-    /** A cross-site page can post a form without a preflight, so a write refuses anything but JSON (ADR-027). */
+    /** A cross-site page can post a form without a preflight, so a write refuses anything but JSON (ADR-030). */
     @Test
     void Given_a_form_encoded_body_When_adding_a_rule_Then_it_is_a_415_problem() throws Exception {
         mvc.perform(post(RULES)

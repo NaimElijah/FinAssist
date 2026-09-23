@@ -29,6 +29,7 @@ from finassist_assistant.adapters.app import (
     _correlation_id_for,
     create_app,
 )
+from finassist_assistant.adapters.auth import TokenVerifier
 from finassist_assistant.adapters.observability import (
     REDACTED,
     configure_logging,
@@ -56,7 +57,7 @@ def settings() -> Settings:
         OTEL_EXPORTER_OTLP_ENDPOINT=None,
         OTEL_EXPORT_ENABLED=False,
         ASSISTANT_LOG_LEVEL="INFO",
-        # TestClient sends `Host: testserver`, which the allow-list must admit (ADR-027).
+        # TestClient sends `Host: testserver`, which the allow-list must admit (ADR-030).
         ASSISTANT_ALLOWED_HOSTS=["testserver"],
         # A plain string is what the environment supplies; pydantic coerces it.
         ANTHROPIC_API_KEY=SECRET,  # type: ignore[arg-type]
@@ -64,8 +65,11 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-def client(settings: Settings) -> Iterator[TestClient]:
-    with TestClient(create_app(settings)) as running:
+def client(
+    settings: Settings, token_verifier: TokenVerifier, owner_headers: dict[str, str]
+) -> Iterator[TestClient]:
+    app = create_app(settings, token_verifier=token_verifier)
+    with TestClient(app, headers=owner_headers) as running:
         yield running
 
 
@@ -105,12 +109,12 @@ def Given_the_app_When_readiness_is_requested_Then_it_reports_up(client: TestCli
 
 
 def Given_an_assembly_When_the_app_is_built_with_it_Then_the_app_holds_that_assembly(
-    settings: Settings,
+    settings: Settings, token_verifier: TokenVerifier
 ) -> None:
     """A test seeds an assembly's in-memory adapters, so the app must serve those instances."""
     assembly = assemble()
 
-    app = create_app(settings, assembly=assembly)
+    app = create_app(settings, assembly=assembly, token_verifier=token_verifier)
 
     assert app.state.assembly is assembly
 
@@ -187,9 +191,10 @@ def Given_an_active_span_When_the_correlation_id_is_chosen_Then_the_span_wins() 
 
 
 def Given_a_request_When_it_is_logged_Then_the_header_and_the_log_line_agree(
-    settings: Settings, capsys: pytest.CaptureFixture[str]
+    settings: Settings, token_verifier: TokenVerifier, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    with TestClient(create_app(settings)) as running:
+    app = create_app(settings, token_verifier=token_verifier)
+    with TestClient(app) as running:
         capsys.readouterr()
         response = running.get(
             "/health", headers={"traceparent": f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"}
@@ -240,6 +245,8 @@ def Given_a_traceparent_When_a_request_is_served_Then_one_request_line_carries_i
 )
 def Given_a_refused_unknown_or_failing_request_When_answered_Then_one_info_request_line_is_written(
     settings: Settings,
+    token_verifier: TokenVerifier,
+    owner_headers: dict[str, str],
     capsys: pytest.CaptureFixture[str],
     path: str,
     headers: dict[str, str],
@@ -252,7 +259,7 @@ def Given_a_refused_unknown_or_failing_request_When_answered_Then_one_info_reque
 
     A refused Host carries the id as well. When the UI is loaded under a name the list does not
     admit, the refusal looks like an outage, and the web client's log of the 403 can be joined to
-    the assistant's side only by the trace id both lines hold (ADR-019, ADR-027).
+    the assistant's side only by the trace id both lines hold (ADR-019, ADR-030).
     """
     failing = APIRouter()
 
@@ -260,9 +267,9 @@ def Given_a_refused_unknown_or_failing_request_When_answered_Then_one_info_reque
     def fails() -> None:
         raise RuntimeError("an unexpected failure")
 
-    app = create_app(settings)
+    app = create_app(settings, token_verifier=token_verifier)
     app.include_router(failing)
-    with TestClient(app) as running:
+    with TestClient(app, headers=owner_headers) as running:
         capsys.readouterr()
         response = running.get(path, headers={"traceparent": TRACEPARENT, **headers})
 
@@ -280,6 +287,8 @@ def Given_a_refused_unknown_or_failing_request_When_answered_Then_one_info_reque
 )
 def Given_the_middleware_itself_fails_When_a_request_is_served_Then_one_request_line_records_a_500(
     settings: Settings,
+    token_verifier: TokenVerifier,
+    owner_headers: dict[str, str],
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
     broken: str,
@@ -301,9 +310,9 @@ def Given_the_middleware_itself_fails_When_a_request_is_served_Then_one_request_
     def fails() -> None:
         raise RuntimeError("an unexpected failure")
 
-    app = create_app(settings)
+    app = create_app(settings, token_verifier=token_verifier)
     app.include_router(failing)
-    with TestClient(app, raise_server_exceptions=False) as running:
+    with TestClient(app, headers=owner_headers, raise_server_exceptions=False) as running:
         capsys.readouterr()
         response = running.get("/fails")
 

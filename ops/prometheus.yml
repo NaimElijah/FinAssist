@@ -18,7 +18,7 @@ scrape_configs:
       - targets: ['otel-collector:8889']
 
   # The monitoring profile scrapes the Compose ledger, by its service name on the shared Compose
-  # network. A natively-run ledger bound to loopback (ADR-027, `./mvnw spring-boot:run`) is not
+  # network. A natively-run ledger bound to loopback (ADR-030, `./mvnw spring-boot:run`) is not
   # reachable this way and is not scraped.
   - job_name: finassist-ledger
     metrics_path: /actuator/prometheus

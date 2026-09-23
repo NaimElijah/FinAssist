@@ -1,6 +1,6 @@
 # ADR-027: Authentication deferred, and every service bound to loopback
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-030](ADR-030-oidc-authentication-through-a-bff-gateway.md)
 - **Date:** 2026-09-14
 
 ## Context

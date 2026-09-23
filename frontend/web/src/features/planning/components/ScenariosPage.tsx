@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useWriteAccess } from '@/shared/lib/writeAccess';
 import { type Column, DataTable, EmptyState, QueryErrorState, useRetryFocus } from '@/shared/ui';
 
 import { useScenarios } from '../hooks/planQueries';
@@ -131,12 +132,15 @@ function ScenariosList({
 
 /**
  * `/planning/scenarios`: every scenario with its currency, flow count and growth rate per step,
- * in the ledger's order, and the form that defines another.
+ * in the ledger's order, and, for a session with write access, the form that defines another.
  *
  * Defining a scenario resets the form and moves focus to the new scenario's name in the list,
  * once - the one success signal, mirroring `AccountsPage`'s own pattern.
+ *
+ * A read-only session (`useWriteAccess`) sees the list alone; the form is hidden (ADR-032).
  */
 export function ScenariosPage() {
+    const { canWrite } = useWriteAccess();
     const [definedScenarioId, setDefinedScenarioId] = useState<string | undefined>(undefined);
     // Stable, so the row's focus effect does not run again on every render of the page.
     const clearDefinedScenario = useCallback(() => {
@@ -146,11 +150,13 @@ export function ScenariosPage() {
     return (
         <>
             <ScenariosList focusedScenarioId={definedScenarioId} onFocused={clearDefinedScenario} />
-            <DefineScenarioForm
-                onDefined={(scenario) => {
-                    setDefinedScenarioId(scenario.id);
-                }}
-            />
+            {canWrite ? (
+                <DefineScenarioForm
+                    onDefined={(scenario) => {
+                        setDefinedScenarioId(scenario.id);
+                    }}
+                />
+            ) : null}
         </>
     );
 }

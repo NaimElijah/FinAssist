@@ -30,7 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>An open answers 201 with the account and no {@code Location} header, because there is no
  * single-item read for one to name. Writes accept {@code application/json} only, so a form post from a
- * cross-site page is refused with 415 before this runs (ADR-027). {@link AccountingProblemAdvice} maps
+ * cross-site page is refused with 415 before this runs (ADR-030). {@link AccountingProblemAdvice} maps
  * the failures.
  *
  * <p>Handler names are unique across the ledger, not only within this class. springdoc makes each one

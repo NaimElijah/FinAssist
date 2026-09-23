@@ -1,4 +1,4 @@
-"""The Host allow-list: ADR-027's defence against DNS rebinding.
+"""The Host allow-list: ADR-030's defence against DNS rebinding.
 
 Binding to loopback does not keep out a hostile page in the owner's own browser. DNS rebinding
 repoints the page's own name at ``127.0.0.1`` after it has loaded, so the browser treats the
@@ -47,7 +47,7 @@ async def _discard(message: Message) -> None:
 class HostAllowList:
     """Refuses a request whose ``Host`` header names no allowed host, as the ledger refuses it.
 
-    The decision is Starlette's ``TrustedHostMiddleware``, which ADR-027 names. Only its refusal
+    The decision is Starlette's ``TrustedHostMiddleware``, which ADR-030 names. Only its refusal
     is replaced. It answers 400 in plain text, and the ledger answers 403 with a
     ``HOST_NOT_ALLOWED`` problem (ADR-028); one client handles both services (ADR-026), so the
     refusal has to be the ledger's.

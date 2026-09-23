@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>It calls in-ports only and is component-scanned, for the reasons {@link BudgetController} gives.
  * An add answers 201 with the rule and no {@code Location} header — a rule has no id at all, because
  * a review matches by fragment rather than by looking one up. Writes accept {@code application/json}
- * only (ADR-027).
+ * only (ADR-030).
  *
  * <p>Handler names are unique across the ledger, not only within this class, for the reason {@code
  * AccountController} gives.

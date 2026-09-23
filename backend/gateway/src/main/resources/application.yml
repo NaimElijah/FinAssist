@@ -1,0 +1,210 @@
+# A configurable port, a health endpoint with probes, the Host allow-list, the OIDC sign-in, the
+# relay to the ledger and the assistant, and the observability wiring ADR-019 records.
+server:
+  port: ${GATEWAY_PORT:8090}
+  # Loopback by default, matching the ledger and the assistant, and kept as defence in depth
+  # alongside the OIDC sign-in (ADR-030). A container overrides this with 0.0.0.0, because its own
+  # loopback is unreachable from the host.
+  address: ${GATEWAY_ADDRESS:127.0.0.1}
+  servlet:
+    session:
+      # An idle session, not an absolute lifetime: 30 minutes without a request signs the owner
+      # out (ADR-030). Sessions live in this process's memory, so a restart signs them out too.
+      timeout: 30m
+      cookie:
+        # Renamed from JSESSIONID for the same reason as the CSRF cookie: cookies ignore ports, so
+        # every application on localhost shares one jar and the default name would collide with
+        # another local application's (ADR-030).
+        name: FINASSIST_SESSION
+        # Unreadable by script. This cookie is the only thing standing between a page and the
+        # owner's tokens, which never leave this process.
+        http-only: true
+        # Lax, not None: the cookie rides a top-level navigation, which is what the return from
+        # Keycloak is, and not a cross-site request a hostile page made.
+        same-site: lax
+        # False by default because development is plain HTTP on loopback and Safari refuses a
+        # Secure cookie over it. Must be true behind TLS.
+        secure: ${finassist.http.cookie-secure}
+
+finassist:
+  http:
+    # Host names the gateway answers to, compared without the port. Loopback alone does not stop
+    # DNS rebinding: a hostile page whose name has been repointed at 127.0.0.1 is same-origin with
+    # the gateway, yet every request it sends still names the page's own host. HostAllowListFilter
+    # refuses those with 403, Actuator included (ADR-030).
+    allowed-hosts: ${GATEWAY_ALLOWED_HOSTS:localhost,127.0.0.1}
+    # Read twice - by the session cookie above, and by the CSRF cookie in
+    # GatewaySecurityConfiguration - so the two can never disagree about whether TLS is in front.
+    cookie-secure: ${GATEWAY_COOKIE_SECURE:false}
+  web:
+    # The origin the browser reaches FinAssist through: the Vite dev server, which proxies /bff to
+    # this gateway. Every redirect the gateway issues is absolute and built from this, never from a
+    # forwarded header, which says only what its sender claims (ADR-030).
+    public-url: ${GATEWAY_PUBLIC_URL:http://localhost:5173}
+  oidc:
+    # Keycloak as the browser sees it. The authorization and end-session URIs are built from this,
+    # and so is the issuer every token's `iss` claim must name (ADR-031).
+    public-url: ${GATEWAY_OIDC_PUBLIC_URL:http://localhost:8081}
+    # Keycloak as this gateway reaches it. The token and JWK set URIs are built from this. Running
+    # natively the two are the same; under Compose this becomes the container name, which the
+    # browser cannot resolve - which is exactly why they are separate.
+    internal-url: ${GATEWAY_OIDC_INTERNAL_URL:http://localhost:8081}
+    # Deliberately no default: an unset GATEWAY_CLIENT_SECRET is an unresolvable placeholder, so
+    # the gateway refuses to start rather than failing at the owner's first sign-in.
+    client-secret: ${GATEWAY_CLIENT_SECRET}
+  relay:
+    # Where the relay routes below send a request whose path they matched. Native defaults; a
+    # container overrides both with the service names Compose gives the ledger and the assistant,
+    # because "localhost" inside a container means the container itself, not another one.
+    ledger-uri: ${GATEWAY_LEDGER_URI:http://localhost:8080}
+    assistant-uri: ${GATEWAY_ASSISTANT_URI:http://localhost:8000}
+
+springdoc:
+  api-docs:
+    # Serving the document is a deliberate choice, not springdoc's default, matching the ledger
+    # (ADR-028's pattern). Left unset, springdoc 3.1.1 serves it anyway and warns at every
+    # start-up that the endpoint "is enabled by default"; set, that warning is gone. The switch
+    # only controls whether the endpoint exists; GatewayContractIT never calls it over HTTP, and
+    # the security chain still denies it (GatewayOpenApiConfiguration explains why).
+    enabled: true
+  # GatewayContractIT compares the generated document with contracts/gateway-v1.openapi.json, so
+  # it must be deterministic and hold only the gateway's own contract (ADR-028, ADR-029). Sorted
+  # keys keep a regenerated file's diff down to what actually changed.
+  writer-with-order-by-keys: true
+  # Everything the gateway serves itself lives under /bff (BffRoutes); the relay routes are a
+  # transparent proxy to services that publish their own contracts and must never be described
+  # here too (GatewayOpenApiConfiguration's javadoc says why).
+  paths-to-match: /bff/**
+
+spring:
+  application:
+    # Becomes OpenTelemetry's service.name. Fixed per service on purpose: one shared name across
+    # every service would merge their telemetry into one stream (ADR-019).
+    name: finassist-gateway
+  cloud:
+    gateway:
+      server:
+        webmvc:
+          # Spring Cloud Gateway *Server Web MVC* 5.0.3 - the servlet-stack flavour, not the
+          # reactive one most examples online describe. Its property path, predicates and
+          # filters were confirmed against the installed jar's sources before use: `Path=` and
+          # `Method=` (org.springframework.cloud.gateway.server.mvc.predicate.GatewayRequestPredicates),
+          # `StripPrefix=` and `RemoveRequestHeader=`
+          # (org.springframework.cloud.gateway.server.mvc.filter.BeforeFilterFunctions), and
+          # `TokenRelay=` (org.springframework.cloud.gateway.server.mvc.filter.TokenRelayFilterFunctions),
+          # registered under this exact prefix
+          # (org.springframework.cloud.gateway.server.mvc.config.GatewayMvcProperties.PREFIX).
+          routes:
+            - id: ledger
+              uri: ${finassist.relay.ledger-uri}
+              predicates:
+                - Path=/ledger/api/v1/**
+                - Method=GET,POST
+              filters:
+                # Order matters: the prefix is gone before the relay call is authorised or made,
+                # and the browser's own headers are gone before either.
+                - StripPrefix=1
+                - RemoveRequestHeader=Cookie
+                - RemoveRequestHeader=X-FINASSIST-XSRF-TOKEN
+                # Authorization is removed rather than left to be overwritten. TokenRelay's
+                # setBearerAuth replaces, so a browser-supplied header is overwritten on the
+                # ordinary path - but that same filter falls through to the unmodified request
+                # when there is no authorized client, and on that path a header the browser chose
+                # would reach the service untouched. Removing it makes the guarantee this
+                # gateway's rather than a library's choice of `set` over `add`.
+                - RemoveRequestHeader=Authorization
+                # No client-registration id: TokenRelayFilterFunctions reads it from the
+                # signed-in OAuth2AuthenticationToken, which is the only kind of principal that
+                # ever reaches this route - the security chain requires authentication first.
+                - TokenRelay=
+            - id: assistant
+              uri: ${finassist.relay.assistant-uri}
+              predicates:
+                - Path=/assistant/api/v1/**
+                - Method=GET,POST
+              filters:
+                - StripPrefix=1
+                - RemoveRequestHeader=Cookie
+                - RemoveRequestHeader=X-FINASSIST-XSRF-TOKEN
+                - RemoveRequestHeader=Authorization
+                - TokenRelay=
+  http:
+    clients:
+      # Server MVC's proxy has no timeout property of its own (confirmed absent from
+      # org.springframework.cloud.gateway.server.mvc.config.GatewayMvcProperties by reading the
+      # installed sources jar): its RestClient is Boot's own auto-configured one, so these are
+      # the only lever.
+      #
+      # They bound every outbound call this process makes - a relayed request, and the gateway's
+      # own three calls to Keycloak: the authorization-code exchange, the refresh_token grant and
+      # the JWK-set fetch that verifies an ID token. Only the relay gets that for free. Spring
+      # Security builds each of the other three from a static factory that never consults Boot's
+      # builder, so KeycloakRegistration rebuilds all three from it deliberately; without that
+      # they are unbounded, and a Keycloak that accepts a connection and then stops answering
+      # parks a Tomcat thread for ever. GatewayKeycloakTimeoutIT is what turns red if that
+      # wiring is removed.
+      #
+      # The HTTP version those calls speak is not settable here - Boot's `spring.http.clients.*`
+      # exposes timeouts, redirects, cookie handling, an SSL bundle, the imperative factory and
+      # the reactive connector, and none of them the HTTP version. GatewayConfiguration's
+      # `relayHttpVersion` bean pins it to HTTP/1.1 instead, and says which failure that prevents.
+      connect-timeout: 5s
+      read-timeout: 10s
+
+logging:
+  structured:
+    format:
+      # JSON on stdout, never a log file. Rotation and shipping belong to whatever runs the
+      # container (ADR-019). ECS carries MDC entries, which is how the trace id reaches a line.
+      console: ecs
+  pattern:
+    # Only used when the structured format is turned off; kept so a plain-text run still
+    # correlates rather than silently losing the ids.
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-}] "
+  include-application-name: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # An explicit allow-list, never "*". Health alone: the gateway holds a client secret and
+        # every signed-in session's tokens, so it exposes nothing else over HTTP (ADR-030). Its
+        # metrics and traces leave only by OTLP push, when OTEL_EXPORT_ENABLED is true.
+        include: health
+  endpoint:
+    health:
+      # Splits health into /actuator/health/liveness and /actuator/health/readiness. Both report
+      # UP from Boot's own liveness/readiness state alone: no readiness group names Keycloak, the
+      # ledger or the assistant, so an outage of any of them does not turn the gateway's readiness
+      # down, unlike the ledger's, which includes its database. A relayed call to an unreachable
+      # service is answered 502 UPSTREAM_UNAVAILABLE instead (GatewayRelayProblems).
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      # Single-owner system with no traffic: sampling would trade a resource nobody is short
+      # of for gaps in the only traces that exist.
+      probability: 1.0
+    export:
+      otlp:
+        # The OTLP exporter's own switch, deliberately not management.tracing.export.enabled.
+        # Spring Boot documents that global one as "export and propagate": off, it removes both
+        # W3C propagators and leaves a no-op one, so every request would start a new trace
+        # instead of continuing the caller's traceparent. Correlation holds with export off
+        # (ADR-019); only export is opt-in.
+        enabled: ${OTEL_EXPORT_ENABLED:false}
+  otlp:
+    metrics:
+      export:
+        enabled: ${OTEL_EXPORT_ENABLED:false}
+  logging:
+    export:
+      otlp:
+        # Nothing feeds this until an OpenTelemetry log appender is added; this keeps log export
+        # opt-in for the day one is, matching the ledger.
+        enabled: ${OTEL_EXPORT_ENABLED:false}
+
+# The OTLP endpoint is deliberately not set here. Spring Boot 4.1 registers
+# OpenTelemetryEnvironmentVariableEnvironmentPostProcessor, which maps the standard
+# OTEL_EXPORTER_OTLP_ENDPOINT onto these properties itself, with addFirst. A hand-built value
+# here would be discarded whenever the variable is set.
