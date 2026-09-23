@@ -2,6 +2,8 @@ package io.github.naimelijah.finassist.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
@@ -29,6 +31,13 @@ import org.springframework.context.annotation.Import;
  * {@link JavaClass}, so nothing here depends on a class being loadable. It lives in its own class
  * rather than in {@code LedgerArchitectureTest}, whose {@code @AnalyzeClasses} deliberately
  * excludes the test tree this rule is about.
+ *
+ * <p>Both checks use {@code isMetaAnnotatedWith}, not {@code isAnnotatedWith}: Spring resolves
+ * {@code @WebMvcTest} and {@code @Import} through the meta-annotation graph, so a slice that used
+ * a composed annotation — one itself meta-annotated {@code @WebMvcTest}, with no direct {@code
+ * @Import} of its own — would be invisible to a check that only reads direct annotations. It
+ * would then boot with no {@code SecurityFilterChain} while the scan below found nothing to flag,
+ * the exact false pass this rule exists to stop.
  */
 class WebSliceSecurityImportTest {
 
@@ -51,7 +60,7 @@ class WebSliceSecurityImportTest {
 
         List<JavaClass> slices = new ArrayList<>();
         for (JavaClass candidate : tests) {
-            if (candidate.isAnnotatedWith(WebMvcTest.class)) {
+            if (candidate.isMetaAnnotatedWith(WebMvcTest.class)) {
                 slices.add(candidate);
             }
         }
@@ -82,14 +91,25 @@ class WebSliceSecurityImportTest {
                 .isEmpty();
     }
 
-    private static boolean importsWebSliceSecurity(JavaClass slice) {
-        if (!slice.isAnnotatedWith(Import.class)) {
+    /**
+     * Matches an {@code @Import} annotation, wherever it sits in the meta-annotation graph, that
+     * names {@link WebSliceSecurity} among the classes it imports. Handed to {@code
+     * isMetaAnnotatedWith} rather than walked by hand, so ArchUnit's own cycle-safe traversal
+     * covers a composed annotation at any depth.
+     */
+    private static final DescribedPredicate<JavaAnnotation<?>> IMPORTS_WEB_SLICE_SECURITY = DescribedPredicate.describe(
+            "imports " + WebSliceSecurity.class.getSimpleName(), WebSliceSecurityImportTest::namesWebSliceSecurity);
+
+    private static boolean namesWebSliceSecurity(JavaAnnotation<?> annotation) {
+        if (!annotation.getRawType().isEquivalentTo(Import.class)) {
             return false;
         }
-        Object imported = slice.getAnnotationOfType(Import.class.getName())
-                .get(IMPORTED_CLASSES)
-                .orElse(new JavaClass[0]);
+        Object imported = annotation.get(IMPORTED_CLASSES).orElse(new JavaClass[0]);
         return Arrays.stream((JavaClass[]) imported)
                 .anyMatch(configuration -> configuration.getName().equals(WebSliceSecurity.class.getName()));
+    }
+
+    private static boolean importsWebSliceSecurity(JavaClass slice) {
+        return slice.isMetaAnnotatedWith(IMPORTS_WEB_SLICE_SECURITY);
     }
 }
