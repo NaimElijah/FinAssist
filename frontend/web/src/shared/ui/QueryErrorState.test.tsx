@@ -88,6 +88,26 @@ describe('QueryErrorState', () => {
         });
     }
 
+    it('Given_a_FORBIDDEN_problem_When_rendered_Then_the_alert_shows_the_fixed_sentence_and_offers_no_retry', () => {
+        render(
+            <QueryErrorState
+                error={
+                    new ApiError(403, URL, 'Forbidden', {
+                        status: 403,
+                        code: 'FORBIDDEN',
+                        detail: 'Missing ledger:read',
+                    })
+                }
+                retrying={false}
+                onRetry={vi.fn<() => void>()}
+            />,
+        );
+
+        const alert = screen.getByRole('alert');
+        expect(alert.textContent).toBe("You don't have permission to see this.");
+        expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+    });
+
     it('Given_a_network_failure_When_rendered_Then_the_alert_offers_a_retry', () => {
         render(
             <QueryErrorState

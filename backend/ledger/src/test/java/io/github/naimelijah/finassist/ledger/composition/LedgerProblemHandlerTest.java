@@ -25,6 +25,8 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.ErrorResponseException;
@@ -159,7 +161,7 @@ class LedgerProblemHandlerTest {
 
     /**
      * The media types a cross-site page can post without a CORS preflight. Refusing them before a
-     * controller runs is the second control ADR-027 requires.
+     * controller runs is the second control ADR-030 requires.
      */
     @ParameterizedTest
     @ValueSource(strings = {MediaType.TEXT_PLAIN_VALUE, MediaType.APPLICATION_FORM_URLENCODED_VALUE})
@@ -235,6 +237,31 @@ class LedgerProblemHandlerTest {
         assertThat(body).doesNotContain(MARKER);
     }
 
+    /**
+     * A denial raised from inside a handler must answer 403, never fall through to the catch-all and
+     * become a 500. Nothing in this codebase throws {@link AccessDeniedException} from inside a
+     * controller today — the security filter chain answers every denial it raises itself — so this
+     * proves the handler exists for the day a method-level check does.
+     */
+    @Test
+    void Given_an_access_denial_raised_inside_a_handler_When_handled_Then_it_is_a_403_problem_not_a_500()
+            throws Exception {
+        mvc.perform(get("/access-denied"))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    /** The same guarantee, for an authentication failure raised from inside a handler. */
+    @Test
+    void Given_an_authentication_failure_raised_inside_a_handler_When_handled_Then_it_is_a_401_problem_not_a_500()
+            throws Exception {
+        mvc.perform(get("/unauthenticated"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+    }
+
     /** The fallback fills in what a problem lacks, and does not overwrite what a raiser chose. */
     @Test
     void Given_a_problem_that_names_its_own_type_When_handled_Then_the_type_is_kept_and_a_code_is_added()
@@ -283,6 +310,16 @@ class LedgerProblemHandlerTest {
         @GetMapping("/unavailable")
         void unavailable() {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, MARKER);
+        }
+
+        @GetMapping("/access-denied")
+        void accessDenied() {
+            throw new AccessDeniedException(MARKER);
+        }
+
+        @GetMapping("/unauthenticated")
+        void unauthenticated() {
+            throw new BadCredentialsException(MARKER);
         }
 
         @GetMapping("/typed")

@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>A define answers 201 with the budget and no {@code Location} header, because there is no
  * single-item read for one to name. Writes accept {@code application/json} only, so a form post from a
- * cross-site page is refused with 415 before this runs (ADR-027). {@link BudgetingProblemAdvice} maps
+ * cross-site page is refused with 415 before this runs (ADR-030). {@link BudgetingProblemAdvice} maps
  * the failures a budget id in the path can raise; a rule the domain refuses reaches the composition
  * fallback as 422 {@code RULE_VIOLATED}.
  *

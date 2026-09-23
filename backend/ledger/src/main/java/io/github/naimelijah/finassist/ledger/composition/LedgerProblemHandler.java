@@ -14,6 +14,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -78,7 +80,9 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
             HttpStatus.NOT_ACCEPTABLE.value(), Problems.NOT_ACCEPTABLE,
             HttpStatus.CONFLICT.value(), Problems.CONFLICT,
             HttpStatus.CONTENT_TOO_LARGE.value(), Problems.CONTENT_TOO_LARGE,
-            HttpStatus.UNSUPPORTED_MEDIA_TYPE.value(), Problems.UNSUPPORTED_MEDIA_TYPE);
+            HttpStatus.UNSUPPORTED_MEDIA_TYPE.value(), Problems.UNSUPPORTED_MEDIA_TYPE,
+            HttpStatus.UNAUTHORIZED.value(), Problems.UNAUTHENTICATED,
+            HttpStatus.FORBIDDEN.value(), Problems.FORBIDDEN);
 
     /** A well-formed request broke a rule, which the domain or an inbound adapter enforces. */
     @ExceptionHandler(IllegalArgumentException.class)
@@ -97,6 +101,38 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
                 exception,
                 ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, exception.getMessage()),
                 Problems.CURRENCY_MISMATCH,
+                request);
+    }
+
+    /**
+     * A denial raised from inside a handler — a future method-level permission check, say — must
+     * never fall through to {@link #handleUnexpected}: {@code LedgerSecurityConfiguration}'s own
+     * {@code ProblemAccessDeniedHandler} answers every denial the filter chain itself raises, which
+     * is every one today, but this handler is what stops a denial thrown by a controller becoming a
+     * 500 instead of a 403 the day one exists.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    ResponseEntity<Object> handleAccessDenied(AccessDeniedException exception, WebRequest request) {
+        return respond(
+                exception,
+                ProblemDetail.forStatusAndDetail(
+                        HttpStatus.FORBIDDEN, "This token does not grant the permission this request needs."),
+                Problems.FORBIDDEN,
+                request);
+    }
+
+    /**
+     * The security filter chain answers every authentication failure itself, through {@code
+     * ProblemAuthenticationEntryPoint}, before a controller is ever reached. This handler exists for
+     * the same reason {@link #handleAccessDenied} does: so that if an {@link AuthenticationException}
+     * is ever raised from inside one, the catch-all below cannot turn it into a 500.
+     */
+    @ExceptionHandler(AuthenticationException.class)
+    ResponseEntity<Object> handleUnauthenticated(AuthenticationException exception, WebRequest request) {
+        return respond(
+                exception,
+                ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "This request needs a valid bearer token."),
+                Problems.UNAUTHENTICATED,
                 request);
     }
 

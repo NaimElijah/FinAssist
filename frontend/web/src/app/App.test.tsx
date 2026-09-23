@@ -12,6 +12,7 @@ import {
     fakeFetch,
     jsonResponse,
     pendingResponse,
+    problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
 
@@ -30,7 +31,28 @@ const AREAS = [
 const ACCOUNTS_URL = '/ledger/api/v1/accounts';
 const BUDGETS_URL = '/ledger/api/v1/budgets';
 const PLANNED_FLOWS_URL = '/ledger/api/v1/planned-flows';
+const SCENARIOS_URL = '/ledger/api/v1/scenarios';
+const RULES_URL = '/ledger/api/v1/categorisation-rules';
 const HOLDINGS_URL = '/assistant/api/v1/portfolio/holdings';
+const ME_URL = '/bff/me';
+
+/** The signed-in owner every test in this file runs as, unless a test overrides the session. */
+const OWNER_SESSION = { subject: 'sub-owner', name: 'Naim', roles: ['owner'] };
+
+/** The signed-in viewer the read-only test in this file runs as. */
+const VIEWER_SESSION = { subject: 'sub-viewer', name: 'A Viewer', roles: ['viewer'] };
+
+/**
+ * Answer the session check as a signed-in owner, and delegate everything else to `answer`.
+ *
+ * The whole shell now sits behind `SessionGate` (ADR-030), so every one of this file's existing
+ * `FetchAnswer`s - written before that gate existed - would otherwise see their first request
+ * answered 401 and never reach the screen they were written to exercise. Wrapping once, in
+ * `renderAt`, keeps every existing answer and its assertions unchanged.
+ */
+function withOwnerSession(answer: FetchAnswer): FetchAnswer {
+    return (request) => (request.url === ME_URL ? jsonResponse(OWNER_SESSION) : answer(request));
+}
 
 const CHECKING = {
     id: '0b7d2a4e-4d8c-4f3a-9a61-2f1c5e0d9b11',
@@ -90,7 +112,7 @@ const SEPTEMBER_BUDGET_ONLY: FetchAnswer = (request) => {
  * with the ledger faked by `answer`.
  */
 function renderAt(path: string, answer: FetchAnswer = NO_ACCOUNTS) {
-    fakeFetch(answer);
+    fakeFetch(withOwnerSession(answer));
     const router = createMemoryRouter(routes, { initialEntries: [path] });
     render(<App router={router} queryClient={createQueryClient()} />);
     return router;
@@ -254,5 +276,87 @@ describe('App', () => {
 
         await screen.findByRole('heading', { level: 1, name: 'Budgets' });
         expect(document.activeElement).toBe(screen.getByRole('main'));
+    });
+
+    it('Given_nobody_is_signed_in_When_the_shell_renders_Then_the_sign_in_screen_shows_instead_of_any_area', async () => {
+        // Not using renderAt/withOwnerSession here: this is the one test proving what happens
+        // without the session every other test in this file is given.
+        fakeFetch((request) =>
+            request.url === ME_URL
+                ? problemResponse({ status: 401, code: 'UNAUTHENTICATED' })
+                : unexpectedRequest(request),
+        );
+        const router = createMemoryRouter(routes, { initialEntries: ['/accounts'] });
+        render(<App router={router} queryClient={createQueryClient()} />);
+
+        expect(await screen.findByRole('link', { name: /sign in/i })).toBeDefined();
+        expect(screen.queryByRole('heading', { level: 1, name: 'Accounts' })).toBeNull();
+        expect(screen.queryByRole('navigation', { name: 'Primary' })).toBeNull();
+    });
+
+    it('Given_a_signed_in_session_When_a_later_ledger_call_answers_401_Then_the_sign_in_screen_returns', async () => {
+        // The gateway's own session can end mid-visit - a restart, or its 30-minute idle timeout
+        // (ADR-030) - and the next ledger call is what notices it first, not another /bff/me
+        // poll. queryClient.ts is what turns that into a fresh sign-in screen.
+        let meRequests = 0;
+        fakeFetch((request) => {
+            if (request.url === ME_URL) {
+                meRequests += 1;
+                return meRequests === 1
+                    ? jsonResponse(OWNER_SESSION)
+                    : problemResponse({ status: 401, code: 'UNAUTHENTICATED' });
+            }
+            if (request.url === ACCOUNTS_URL) {
+                return problemResponse({ status: 401, code: 'UNAUTHENTICATED' });
+            }
+            return unexpectedRequest(request);
+        });
+        const router = createMemoryRouter(routes, { initialEntries: ['/accounts'] });
+        render(<App router={router} queryClient={createQueryClient()} />);
+        await screen.findByRole('heading', { level: 1, name: 'Accounts' });
+
+        expect(await screen.findByRole('link', { name: /sign in/i })).toBeDefined();
+        expect(screen.queryByRole('heading', { level: 1, name: 'Accounts' })).toBeNull();
+    });
+
+    it('Given_a_signed_in_viewer_When_every_area_is_visited_Then_no_write_control_is_offered_and_the_header_says_read_only', async () => {
+        fakeFetch((request) => {
+            if (request.url === ME_URL) return jsonResponse(VIEWER_SESSION);
+            if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+            if (request.url === BUDGETS_URL) return jsonResponse([]);
+            if (request.url === RULES_URL) return jsonResponse([]);
+            if (request.url === PLANNED_FLOWS_URL) return jsonResponse([]);
+            if (request.url === SCENARIOS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        const router = createMemoryRouter(routes, { initialEntries: ['/accounts'] });
+        render(<App router={router} queryClient={createQueryClient()} />);
+        const user = userEvent.setup();
+
+        await screen.findByRole('heading', { level: 1, name: 'Accounts' });
+        expect(screen.getByText('Read-only')).toBeDefined();
+        expect(screen.queryByRole('button', { name: 'Open account' })).toBeNull();
+        expect(screen.queryByRole('link', { name: 'Record transaction' })).toBeNull();
+
+        await user.click(screen.getByRole('link', { name: 'Budgets' }));
+        await screen.findByRole('heading', { level: 1, name: 'Budgets' });
+        expect(screen.queryByRole('button', { name: 'Define budget' })).toBeNull();
+
+        await user.click(screen.getByRole('link', { name: 'Categorisation rules' }));
+        await screen.findByRole('heading', { level: 1, name: 'Categorisation rules' });
+        expect(screen.queryByRole('button', { name: 'Add rule' })).toBeNull();
+
+        await user.click(screen.getByRole('link', { name: 'Planning' }));
+        await screen.findByRole('heading', { level: 1, name: 'Planning' });
+        expect(screen.queryByRole('button', { name: 'Plan flow' })).toBeNull();
+
+        await user.click(screen.getByRole('link', { name: 'Scenarios' }));
+        await screen.findByText(
+            'No scenarios yet — the do-nothing baseline is a scenario with no flows',
+        );
+        expect(screen.queryByRole('button', { name: 'Define scenario' })).toBeNull();
+
+        await user.click(screen.getByRole('link', { name: 'Portfolio' }));
+        expect(await screen.findByRole('heading', { level: 1, name: 'Portfolio' })).toBeDefined();
     });
 });

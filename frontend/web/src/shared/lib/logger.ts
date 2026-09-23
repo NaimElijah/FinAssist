@@ -33,7 +33,8 @@ export const REDACTED = '[redacted]';
  */
 // Deliberately no bare 'token': the assistance feature's whole job is to report LLM usage,
 // and `inputTokens` is the natural way to log it. A fragment that redacted a token count would
-// destroy the measurement while protecting nothing.
+// destroy the measurement while protecting nothing. None of the fragments below is a substring
+// of 'inputtokens' or 'outputtokens' either, so that measurement survives this list too.
 const SECRET_KEY_FRAGMENTS = [
     'apikey',
     'authtoken',
@@ -44,6 +45,15 @@ const SECRET_KEY_FRAGMENTS = [
     'password',
     'refreshtoken',
     'secret',
+    // The gateway (ADR-030) keeps the browser's tokens server-side: the session and CSRF
+    // cookies it sets, the header that echoes the CSRF one back, and the bearer/JWT it relays
+    // to the ledger and the assistant are exactly as credential-shaped as the fragments above.
+    'cookie',
+    'xsrf',
+    'csrf',
+    'session',
+    'bearer',
+    'jwt',
 ] as const;
 
 /** Guards against a cyclic structure turning redaction into an infinite descent. */

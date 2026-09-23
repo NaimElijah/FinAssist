@@ -15,6 +15,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpHeaders;
 import tools.jackson.core.util.DefaultIndenter;
 import tools.jackson.core.util.DefaultPrettyPrinter;
 import tools.jackson.core.util.Separators;
@@ -182,8 +183,11 @@ class LedgerContractIT extends PostgresFixture {
     }
 
     private String served(String path) throws IOException, InterruptedException {
+        // /v3/api-docs is public (ADR-030), so this token is not load-bearing here; sent anyway so
+        // every request this class makes matches the pattern the other RANDOM_PORT ITs use.
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + path))
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
                 .timeout(TIMEOUT)
                 .GET()
                 .build();

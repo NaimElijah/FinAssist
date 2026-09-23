@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router';
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { todayIsoDate } from '@/shared/lib/today';
+import { useWriteAccess } from '@/shared/lib/writeAccess';
 import {
     Button,
     DateField,
@@ -421,12 +422,36 @@ function RecordTransactionForm({
 }
 
 /**
- * `/accounts/transactions/new`: the form that records a transaction by hand (ADR-029).
+ * The calm state a read-only session sees instead of the form (ADR-032): naming the form it
+ * cannot submit rather than a route that simply does not work. Skips `useAccounts` entirely, since
+ * nothing here would use its data.
+ */
+function ReadOnlyRecordTransaction() {
+    return (
+        <>
+            <h1>Record a transaction</h1>
+            <p className={styles.placeholder}>Your access is read-only.</p>
+        </>
+    );
+}
+
+/**
+ * `/accounts/transactions/new`: the form that records a transaction by hand (ADR-029), or the
+ * calm read-only state above it for a session without write access.
  *
  * The account list must be loaded first, since every row's currency comes from the chosen
  * account rather than being asked for separately.
  */
 export function RecordTransactionPage() {
+    const { canWrite } = useWriteAccess();
+    if (!canWrite) {
+        return <ReadOnlyRecordTransaction />;
+    }
+    return <RecordTransactionScreen />;
+}
+
+/** The data-loading half of `RecordTransactionPage`, mounted only once write access is known. */
+function RecordTransactionScreen() {
     const accounts = useAccounts();
     const { targetRef, onRetry } = useRetryFocus<HTMLHeadingElement>(
         accounts.error,

@@ -15,6 +15,13 @@ import { onTestFinished, vi } from 'vitest';
 export interface RecordedRequest {
     readonly method: string;
     readonly url: string;
+    /**
+     * Every header the request carried, keyed by lower-cased name. HTTP header names are
+     * case-insensitive, and the `Headers` interface already normalises them that way, so a
+     * test asserting on, say, `x-finassist-xsrf-token` cannot pass or fail on whatever
+     * capitalisation the caller happened to use.
+     */
+    readonly headers: Readonly<Record<string, string>>;
     /** The parsed JSON body, or `undefined` for a request without one. */
     readonly body: unknown;
 }
@@ -27,6 +34,11 @@ function urlOf(input: RequestInfo | URL): string {
         return input;
     }
     return input instanceof URL ? input.href : input.url;
+}
+
+/** Builds the lower-cased header map `RecordedRequest.headers` carries, from `init.headers`. */
+function headersOf(init: RequestInit | undefined): Readonly<Record<string, string>> {
+    return Object.fromEntries(new Headers(init?.headers).entries());
 }
 
 /**
@@ -79,7 +91,12 @@ export function fakeFetch(answer: FetchAnswer): readonly RecordedRequest[] {
             const method = init?.method ?? 'GET';
             const url = urlOf(input);
             const label = `${method} ${url}`;
-            const request: RecordedRequest = { method, url, body: parsedBody(init?.body, label) };
+            const request: RecordedRequest = {
+                method,
+                url,
+                headers: headersOf(init),
+                body: parsedBody(init?.body, label),
+            };
             requests.push(request);
             try {
                 return await answer(request);

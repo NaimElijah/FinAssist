@@ -25,6 +25,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.tomcat.TomcatWebServer;
 import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
+import org.springframework.http.HttpHeaders;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -38,7 +39,7 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>It asserts the wiring and the edge rather than any business behaviour: that the context loads
  * with every context's domain on the classpath, that {@code application.yml} parses, that the three
  * probes the file configures are exposed, that springdoc serves an OpenAPI document (ADR-028), that a
- * foreign {@code Host} is refused by a filter that runs first (ADR-027), and that an unknown route is
+ * foreign {@code Host} is refused by a filter that runs first (ADR-030), and that an unknown route is
  * answered as a problem (ADR-028).
  *
  * <p>Uses the JDK's {@link HttpClient} rather than {@code TestRestTemplate}, which Spring Boot 4
@@ -70,12 +71,18 @@ class LedgerApplicationIT extends PostgresFixture {
     }
 
     private HttpResponse<String> get(String path) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder()
+        return get(path, TestTokens.owner());
+    }
+
+    private HttpResponse<String> get(String path, String token) throws IOException, InterruptedException {
+        HttpRequest.Builder request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + path))
                 .timeout(TIMEOUT)
-                .GET()
-                .build();
-        return CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+                .GET();
+        if (token != null) {
+            request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        }
+        return CLIENT.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     /**
@@ -112,12 +119,15 @@ class LedgerApplicationIT extends PostgresFixture {
     }
 
     /**
-     * The exposure list in {@code application.yml} is deliberately short. This is what would fail
-     * if someone widened it to {@code "*"} without meaning to.
+     * The exposure list in {@code application.yml} is deliberately short. Widening it to {@code "*"}
+     * without meaning to would still not serve this: it matches no {@code permitAll} rule, so the
+     * security chain refuses it before Actuator's own routing ever runs (ADR-030) — 401 with no
+     * token, 403 with a real one that simply names no route this chain admits.
      */
     @Test
     void Given_the_application_When_an_unexposed_endpoint_is_requested_Then_it_is_not_served() throws Exception {
-        assertThat(get("/actuator/env").statusCode()).isEqualTo(404);
+        assertThat(get("/actuator/env", null).statusCode()).isEqualTo(401);
+        assertThat(get("/actuator/env").statusCode()).isEqualTo(403);
     }
 
     /**
@@ -136,7 +146,7 @@ class LedgerApplicationIT extends PostgresFixture {
 
     /**
      * DNS rebinding as the ledger sees it: a request that arrives on its loopback port while naming
-     * another host (ADR-027). Actuator is the target because it is served whatever else exists, and
+     * another host (ADR-030). Actuator is the target because it is served whatever else exists, and
      * the allow-list covers it too. The other cases here send {@code Host: localhost:<port>}, which is
      * why they still pass.
      */
@@ -147,22 +157,47 @@ class LedgerApplicationIT extends PostgresFixture {
     }
 
     /**
-     * The Host allow-list must see a request before any other filter does (ADR-027), and its
-     * registration alone does not guarantee that. Spring's character-encoding filter has the same order,
-     * {@code Integer.MIN_VALUE}, and the allow-list comes first only because Spring Boot adds
-     * registration beans ahead of the filters it adapts and sorts them stably. A Boot upgrade or a new
-     * filter could change that silently, so this reads the chain the running server actually built.
+     * The Host allow-list must see a request before any other filter does (ADR-030), and its
+     * registration alone does not guarantee that. Its {@code FilterRegistrationBean} sets {@code
+     * Ordered.HIGHEST_PRECEDENCE} ({@code Integer.MIN_VALUE}) explicitly, which already sits strictly
+     * before {@code SecurityFilterAutoConfiguration}'s own default order for {@code
+     * springSecurityFilterChain} ({@code SecurityProperties.DEFAULT_FILTER_ORDER}, {@code -100}); no
+     * tie-break decides that relationship.
+     *
+     * <p>Spring's own character-encoding filter is a different case, and worth naming here because an
+     * earlier version of this comment got it wrong: {@code OrderedCharacterEncodingFilter} is a plain
+     * {@code @Bean Filter}, which Boot adapts directly into the servlet context rather than wrapping in
+     * an {@code AbstractFilterRegistrationBean} at all, so it was never actually compared against this
+     * filter's order by the same mechanism in the first place — restating it as "the same order,
+     * tie-broken by registration order" described a mechanism that does not exist. A Boot upgrade or a
+     * new filter could still change what the running server builds silently, so this reads the actual
+     * chain rather than trusting either explanation.
      */
     @Test
-    void Given_the_running_ledger_When_its_filter_chain_is_read_Then_the_host_allow_list_is_first() {
+    void Given_the_running_ledger_When_its_filter_chain_is_read_Then_the_host_allow_list_runs_before_spring_security() {
         TomcatWebServer server = (TomcatWebServer) context.getWebServer();
-        List<String> chain = Arrays.stream(server.getTomcat().getHost().findChildren())
+        Context tomcatContext = Arrays.stream(server.getTomcat().getHost().findChildren())
                 .map(Context.class::cast)
-                .flatMap(web -> Arrays.stream(web.findFilterMaps())
-                        .map(map -> web.findFilterDef(map.getFilterName()).getFilterClass()))
+                .findFirst()
+                .orElseThrow();
+        List<String> filterClasses = Arrays.stream(tomcatContext.findFilterMaps())
+                .map(map -> tomcatContext.findFilterDef(map.getFilterName()).getFilterClass())
+                .toList();
+        List<String> filterNames = Arrays.stream(tomcatContext.findFilterMaps())
+                .map(map -> map.getFilterName())
                 .toList();
 
-        assertThat(chain).first().isEqualTo(HostAllowListFilter.class.getName());
+        assertThat(filterClasses).first().isEqualTo(HostAllowListFilter.class.getName());
+        // "springSecurityFilterChain" is the fixed bean name both SecurityFilterAutoConfiguration and
+        // Spring Security's own DelegatingFilterProxyRegistrationBean use, so matching by name — not by
+        // a registration-bean class prefix such as DelegatingFilterProxyRegistrationBean, which any
+        // filter registered through that bean type would also satisfy — is what actually identifies
+        // this filter rather than merely a filter shaped like it. The Host allow-list's own index is 0,
+        // proven by the assertion just above.
+        int springSecurityIndex = filterNames.indexOf("springSecurityFilterChain");
+        assertThat(springSecurityIndex)
+                .as("springSecurityFilterChain must be registered")
+                .isGreaterThan(0);
     }
 
     /**

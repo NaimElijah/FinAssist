@@ -8,7 +8,7 @@ They also hold the log line a 5xx leaves to the rule that the owner's money is n
 The routes that raise are added here, not served by the app. They exercise the mapping for every
 exception the table names without depending on which endpoint happens to raise which today.
 
-The Host tests hold ADR-027's defence against DNS rebinding, refused in the ledger's shape.
+The Host tests hold ADR-030's defence against DNS rebinding, refused in the ledger's shape.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from finassist_assistant.adapters.app import CORRELATION_ID_HEADER, create_app
+from finassist_assistant.adapters.auth import TokenVerifier
 from finassist_assistant.adapters.settings import Settings
 from finassist_assistant.portfolio.adapters.inbound.api.models import MoneyModel
 from finassist_assistant.portfolio.application.port import (
@@ -122,6 +123,10 @@ def _failing_routes() -> APIRouter:
     def framework_bad_request() -> None:
         raise HTTPException(status_code=400)
 
+    @router.get("/framework-unauthenticated")
+    def framework_unauthenticated() -> None:
+        raise HTTPException(status_code=401)
+
     @router.get("/malformed-query")
     def malformed_query(n: Annotated[str, Query(pattern=r"^\d+$")]) -> str:
         return n
@@ -157,15 +162,15 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-def app(settings: Settings) -> FastAPI:
-    built = create_app(settings)
+def app(settings: Settings, token_verifier: TokenVerifier) -> FastAPI:
+    built = create_app(settings, token_verifier=token_verifier)
     built.include_router(_failing_routes())
     return built
 
 
 @pytest.fixture
-def client(app: FastAPI) -> Iterator[TestClient]:
-    with TestClient(app) as running:
+def client(app: FastAPI, owner_headers: dict[str, str]) -> Iterator[TestClient]:
+    with TestClient(app, headers=owner_headers) as running:
         yield running
 
 
@@ -385,6 +390,18 @@ def Given_a_framework_bad_request_When_answered_Then_it_is_coded_as_a_malformed_
     problem = _problem(response)
     assert response.status_code == 400
     assert problem["code"] == "MALFORMED_REQUEST"
+
+
+def Given_a_framework_401_When_answered_Then_it_is_coded_as_unauthenticated(
+    client: TestClient,
+) -> None:
+    """A framework-raised 401 is ``UNAUTHENTICATED``, not its reason phrase's ``UNAUTHORIZED``
+    (ADR-030) - the pair a naive mapping from ``HTTPStatus.name`` would confuse."""
+    response = client.get("/boom/framework-unauthenticated")
+
+    problem = _problem(response)
+    assert response.status_code == 401
+    assert problem["code"] == "UNAUTHENTICATED"
 
 
 def Given_an_unknown_path_When_requested_Then_it_is_a_404_problem(client: TestClient) -> None:

@@ -110,6 +110,21 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
+describe('RecordTransactionPage read-only session', () => {
+    it('Given_a_read_only_session_When_the_page_renders_Then_a_calm_message_shows_instead_of_the_form', () => {
+        // Nothing is fetched: the read-only branch never mounts the accounts-dependent form.
+        fakeFetch(unexpectedRequest);
+
+        renderRoutes(accountingRoutes, RECORD_TRANSACTION_PATH, { access: { canWrite: false } });
+
+        expect(
+            screen.getByRole('heading', { level: 1, name: 'Record a transaction' }),
+        ).toBeDefined();
+        expect(screen.getByText('Your access is read-only.')).toBeDefined();
+        expect(screen.queryByLabelText('Description')).toBeNull();
+    });
+});
+
 describe('RecordTransactionPage routing', () => {
     it('Given_the_two_segment_record_transaction_path_When_matched_Then_it_does_not_collide_with_the_single_segment_account_route', async () => {
         fakeFetch(ledger());
@@ -252,7 +267,13 @@ describe('RecordTransactionPage submission', () => {
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));
 
         await screen.findByRole('heading', { level: 1, name: 'Checking' });
-        const posts = requests.filter((request) => request.method === 'POST');
+        const posts = requests
+            .filter((request) => request.method === 'POST')
+            // Projected before comparing: RecordedRequest also carries headers, which this
+            // assertion is not about, and toEqual demands an exact match on every field it is
+            // given - unlike toMatchObject, which would stop checking body for an unplanned
+            // extra field anywhere in its object graph.
+            .map(({ method, url, body }) => ({ method, url, body }));
         expect(posts).toEqual([
             {
                 method: 'POST',

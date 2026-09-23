@@ -1,11 +1,13 @@
 package io.github.naimelijah.finassist.ledger.accounting.adapter.in.web;
 
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.AccountNotFoundException;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.RecordTransactionUseCase;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.TransitionTransactionUseCase;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.ViewTransactionsUseCase;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.TransactionId;
 import jakarta.validation.Valid;
+import java.security.Principal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
@@ -31,7 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>It calls in-ports only and is component-scanned, for the reasons {@link AccountController} gives.
  * A record answers 201 with the transaction and no {@code Location} header. A lifecycle change is a
  * {@code POST} to a sub-resource carrying its date in the body, because no server reads a clock, and
- * answers the updated transaction. Every write accepts {@code application/json} only (ADR-027).
+ * answers the updated transaction. Every write accepts {@code application/json} only (ADR-030).
  *
  * <p>{@link AccountingProblemAdvice} maps the lifecycle's failures: an unknown transaction in the path is
  * 404 {@code TRANSACTION_NOT_FOUND}, and a change the current state does not allow is 409 {@code
@@ -45,6 +47,13 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Handler names are unique across the ledger, not only within this class. springdoc makes each one
  * an {@code operationId}, and a second context's {@code listTransactions} would be renamed {@code
  * listTransactions_1} in whatever order the controllers were scanned.
+ *
+ * <p>Every write takes a {@link Principal} and builds an {@link Actor} from {@code
+ * principal.getName()} — the token's {@code sub} ({@code LedgerSecurityConfiguration} sets it as
+ * the principal claim) — so the journal can name who wrote each row (ADR-033). {@code Principal} is
+ * the JDK's own type, not a Spring Security one: this context imports no framework type, and
+ * springdoc's {@code AbstractRequestService} ignores a {@code java.security.Principal} parameter by
+ * default, so it never appears in the published contract.
  */
 @RestController
 @RequestMapping(path = "/api/v1/transactions", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -70,8 +79,9 @@ public class TransactionController {
      */
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
-    public TransactionResponse recordTransaction(@Valid @RequestBody RecordTransactionRequest request) {
-        return TransactionResponse.from(recorder.record(request.toCommand()));
+    public TransactionResponse recordTransaction(
+            @Valid @RequestBody RecordTransactionRequest request, Principal principal) {
+        return TransactionResponse.from(recorder.record(request.toCommand(new Actor(principal.getName()))));
     }
 
     /**
@@ -94,21 +104,26 @@ public class TransactionController {
 
     /** Clears a pending transaction on the date given. */
     @PostMapping(path = "/{id}/clear", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public TransactionResponse clearTransaction(@PathVariable UUID id, @Valid @RequestBody TransitionRequest request) {
-        return TransactionResponse.from(lifecycle.clear(new TransactionId(id), request.on()));
+    public TransactionResponse clearTransaction(
+            @PathVariable UUID id, @Valid @RequestBody TransitionRequest request, Principal principal) {
+        return TransactionResponse.from(
+                lifecycle.clear(new TransactionId(id), request.on(), new Actor(principal.getName())));
     }
 
     /** Reconciles a cleared transaction on the date given. */
     @PostMapping(path = "/{id}/reconcile", consumes = MediaType.APPLICATION_JSON_VALUE)
     public TransactionResponse reconcileTransaction(
-            @PathVariable UUID id, @Valid @RequestBody TransitionRequest request) {
-        return TransactionResponse.from(lifecycle.reconcile(new TransactionId(id), request.on()));
+            @PathVariable UUID id, @Valid @RequestBody TransitionRequest request, Principal principal) {
+        return TransactionResponse.from(
+                lifecycle.reconcile(new TransactionId(id), request.on(), new Actor(principal.getName())));
     }
 
     /** Voids a pending or cleared transaction on the date given, for the reason given. */
     @PostMapping(path = "/{id}/void", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public TransactionResponse voidTransaction(@PathVariable UUID id, @Valid @RequestBody VoidRequest request) {
-        return TransactionResponse.from(lifecycle.markVoided(new TransactionId(id), request.on(), request.reason()));
+    public TransactionResponse voidTransaction(
+            @PathVariable UUID id, @Valid @RequestBody VoidRequest request, Principal principal) {
+        return TransactionResponse.from(lifecycle.markVoided(
+                new TransactionId(id), request.on(), request.reason(), new Actor(principal.getName())));
     }
 
     /** An entry names an account that does not exist: the request is well-formed and refused (ADR-028). */

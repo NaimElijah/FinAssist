@@ -209,6 +209,15 @@ describe('ScenariosPage', () => {
 });
 
 describe('ScenariosPage define-scenario form', () => {
+    it('Given_a_read_only_session_When_the_page_renders_Then_the_define_form_is_not_offered_but_the_list_stays', async () => {
+        fakeFetch(ledger([], [BASELINE]));
+        renderRoutes(planningRoutes, '/planning/scenarios', { access: { canWrite: false } });
+
+        expect(await screen.findByText('Baseline')).toBeDefined();
+        expect(screen.queryByRole('heading', { level: 2, name: 'Define a scenario' })).toBeNull();
+        expect(screen.queryByLabelText('Name')).toBeNull();
+    });
+
     it('Given_flows_in_two_currencies_When_ILS_is_the_chosen_currency_Then_only_the_ILS_flow_is_offered', async () => {
         fakeFetch(ledger([RENT_ILS, SALARY_USD], []));
         renderScenarios();

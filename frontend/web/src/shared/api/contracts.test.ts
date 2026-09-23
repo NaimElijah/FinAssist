@@ -22,6 +22,7 @@ import type {
     PositionModel,
     Problem as AssistantProblem,
 } from './contracts/assistant/types.gen';
+import type { LogoutResponse, SessionResponse } from './contracts/gateway/types.gen';
 
 describe('generated contract types', () => {
     it('Given_either_services_Problem_When_reading_its_code_Then_it_is_a_string', () => {
@@ -53,5 +54,18 @@ describe('generated contract types', () => {
         // required in FastAPI's schema.
         expectTypeOf<PositionModel['symbol']>().toEqualTypeOf<string>();
         expectTypeOf<PositionModel['quantity']>().toEqualTypeOf<string>();
+    });
+
+    it('Given_the_gateways_session_response_When_generated_Then_every_member_is_required', () => {
+        // The gateway document marks subject, name and roles required (ADR-030): a session with
+        // an absent name would otherwise type-check while UserMenu has nothing to show.
+        expectTypeOf<SessionResponse['subject']>().toEqualTypeOf<string>();
+        expectTypeOf<SessionResponse['name']>().toEqualTypeOf<string>();
+        expectTypeOf<SessionResponse['roles']>().toEqualTypeOf<string[]>();
+    });
+
+    it('Given_the_gateways_logout_response_When_generated_Then_logoutUrl_is_required', () => {
+        // browserLocation.assign has nothing to navigate to if this were optional.
+        expectTypeOf<LogoutResponse['logoutUrl']>().toEqualTypeOf<string>();
     });
 });

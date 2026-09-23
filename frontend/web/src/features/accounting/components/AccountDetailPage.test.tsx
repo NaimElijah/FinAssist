@@ -460,6 +460,19 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         expect(within(row).queryByRole('button', { name: 'Clear' })).toBeNull();
     });
 
+    it('Given_a_read_only_session_When_rendered_Then_no_row_offers_Clear_Reconcile_or_Void', async () => {
+        fakeFetch(lifecycleLedger(() => [PENDING_TX, CLEARED_TX], unexpectedRequest));
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`, {
+            access: { canWrite: false },
+        });
+
+        await screen.findByRole('table', { name: 'Transactions' });
+
+        expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Reconcile' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Void' })).toBeNull();
+    });
+
     it('Given_a_reconciled_or_a_voided_transaction_When_rendered_Then_neither_row_offers_any_action', async () => {
         fakeFetch(lifecycleLedger(() => [RECONCILED_TX, VOIDED_TX], unexpectedRequest));
         renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);

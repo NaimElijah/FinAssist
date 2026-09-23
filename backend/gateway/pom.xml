@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.1.1</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>io.github.naimelijah.finassist</groupId>
+  <artifactId>gateway</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <name>FinAssist Gateway</name>
+  <description>Backend-for-frontend: keeps the browser's tokens server-side and relays to the ledger and the assistant</description>
+
+  <properties>
+    <!-- Toolchain pin. Same JDK as the ledger, for one JVM version across the Java codebases. -->
+    <java.version>21</java.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <spotless.version>3.10.1</spotless.version>
+    <palantir-java-format.version>2.97.0</palantir-java-format.version>
+    <jacoco.version>0.8.13</jacoco.version>
+    <springdoc.version>3.1.1</springdoc.version>
+    <!-- Not a literal Spring Cloud Gateway version: the BOM below pins
+         spring-cloud-gateway.version to 5.0.3, which is what the starter dependency inherits. -->
+    <spring-cloud.version>2025.1.3</spring-cloud.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- Brings spring-cloud-gateway.version (5.0.3) and every other Spring Cloud module version
+           into scope, so the starter dependency below can declare no <version> of its own. -->
+      <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-dependencies</artifactId>
+        <version>${spring-cloud.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- Server Web MVC flavour of Spring Cloud Gateway: routes on the servlet stack, not
+         WebFlux, so the gateway's threading model matches the ledger's and the assistant's. Its
+         two relay routes are declared in application.yml. -->
+    <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-gateway-server-webmvc</artifactId>
+    </dependency>
+    <!--
+      Spring Security's OAuth2 client: the OIDC authorization-code login, the session that holds
+      the tokens, and the CSRF filter. This starter alone turns on Boot's authenticate-everything
+      default chain, which would refuse the health probe, so it belongs with
+      GatewaySecurityConfiguration, which states the real rules.
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security-oauth2-client</artifactId>
+    </dependency>
+    <!-- Health and readiness endpoints are a baseline requirement, not a later addition. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <!-- OTLP traces and metrics. Exports nothing when OTEL_EXPORTER_OTLP_ENDPOINT is unset,
+         which is the contract .env.example publishes (ADR-019). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-opentelemetry</artifactId>
+    </dependency>
+    <!-- Generates the gateway's OpenAPI document of its /bff endpoints from the code (ADR-028's
+         pattern); the -api artifact only, no Swagger UI. -->
+    <dependency>
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+      <version>${springdoc.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- MockMvc; spring-boot-starter-test alone does not provide it on Boot 4, as on the ledger. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- SecurityMockMvcRequestPostProcessors.oidcLogin(): a signed-in session with no Keycloak. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- KeycloakRealmTest parses finassist-realm.json and docker-compose.yml as YAML directly.
+         It only ever reached the module transitively, through spring-boot-starter's compile
+         scope, which a future Boot release is free to stop providing. -->
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      The same Testcontainers already justified for the ledger's real-PostgreSQL suites
+      (ADR-025), used here for a real Keycloak: `KeycloakRealmIT` builds `ops/keycloak/Dockerfile`
+      with `ImageFromDockerfile` and runs it, plus a plain PostgreSQL container on the same
+      network, so the realm file is proved against the real image rather than assumed. No Boot
+      or JUnit5 integration module is needed - the container's lifecycle is managed by hand,
+      exactly as the ledger's own `PostgresFixture` does, so only the core artifact is added.
+    -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+
+      <!-- Formatter is authoritative: `spotless:check` gates CI, `spotless:apply` fixes. -->
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>${spotless.version}</version>
+        <configuration>
+          <java>
+            <palantirJavaFormat>
+              <version>${palantir-java-format.version}</version>
+            </palantirJavaFormat>
+            <removeUnusedImports/>
+            <importOrder/>
+          </java>
+          <pom>
+            <sortPom>
+              <expandEmptyElements>false</expandEmptyElements>
+            </sortPom>
+          </pom>
+        </configuration>
+      </plugin>
+
+      <!--
+        Coverage is a diagnostic, not a target: `report` only, and deliberately no `check`
+        goal, matching the ledger (docs/ADRs/ADR-017-test-strategy.md).
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <goals>
+              <goal>report</goal>
+            </goals>
+            <phase>verify</phase>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        The shared contracts and ops directories live outside this module, so their paths are
+        injected by Maven rather than resolved from the working directory: ${project.basedir} is
+        correct however the build was invoked. KeycloakRealmTest and KeycloakRealmIT read
+        finassist.ops.dir to find ops/keycloak/finassist-realm.json, the same way the ledger's
+        own *IT suites read finassist.contracts.dir. finassist.repo.dir is the repository root,
+        which KeycloakRealmTest reads docker-compose.yml from: an unresolved realm placeholder
+        imports as literal text, so the realm's placeholders and the environment Compose gives
+        Keycloak have to be compared, and neither file lives in this module.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <finassist.contracts.dir>${project.basedir}/../../contracts</finassist.contracts.dir>
+            <finassist.ops.dir>${project.basedir}/../../ops</finassist.ops.dir>
+            <finassist.repo.dir>${project.basedir}/../..</finassist.repo.dir>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+
+      <!--
+        Mirrors the ledger's split (ADR-025): surefire runs the unit suite, failsafe runs
+        everything named *IT. It earns its keep here: KeycloakRealmIT builds ops/keycloak and runs
+        the real image against a real PostgreSQL in Testcontainers, so `verify` needs Docker while
+        `test` does not. The context-booting ITs beside it - GatewayApplicationIT,
+        GatewayLoginFlowIT, GatewayKeycloakTimeoutIT and GatewayContractIT - need none.
+
+        `verify` is bound as well as `integration-test` on purpose - without it failsafe records
+        failures and never reports them, and the build goes green over a red suite.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <finassist.contracts.dir>${project.basedir}/../../contracts</finassist.contracts.dir>
+            <finassist.ops.dir>${project.basedir}/../../ops</finassist.ops.dir>
+            <finassist.repo.dir>${project.basedir}/../..</finassist.repo.dir>
+          </systemPropertyVariables>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+</project>

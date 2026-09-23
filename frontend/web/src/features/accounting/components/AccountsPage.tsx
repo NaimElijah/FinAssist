@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 
+import { useWriteAccess } from '@/shared/lib/writeAccess';
 import {
     type Column,
     DataTable,
@@ -147,13 +148,18 @@ function AccountsList({
 
 /**
  * `/accounts`: every account with its type, currency and derived balance, in the ledger's order,
- * and the form that opens another.
+ * and, for a session with write access, the form that opens another.
  *
  * Opening an account resets the form and moves focus to the new account's link in the list, once.
  * That is the one success signal: the link names the account, and focus there also rescues
  * keyboard focus from the submit button, which is disabled while the request is pending.
+ *
+ * A read-only session (`useWriteAccess`) sees neither the form nor the link to
+ * `RecordTransactionPage`, which it could only reach a read-only state on - a UX courtesy the
+ * server enforces regardless (ADR-032).
  */
 export function AccountsPage() {
+    const { canWrite } = useWriteAccess();
     const [openedAccountId, setOpenedAccountId] = useState<string | undefined>(undefined);
     // Stable, so the link's focus effect does not run again on every render of the page.
     const clearOpenedAccount = useCallback(() => {
@@ -163,15 +169,19 @@ export function AccountsPage() {
     return (
         <>
             <h1>Accounts</h1>
-            <p className={styles.actions}>
-                <Link to={RECORD_TRANSACTION_PATH}>Record transaction</Link>
-            </p>
+            {canWrite ? (
+                <p className={styles.actions}>
+                    <Link to={RECORD_TRANSACTION_PATH}>Record transaction</Link>
+                </p>
+            ) : null}
             <AccountsList focusedAccountId={openedAccountId} onFocused={clearOpenedAccount} />
-            <OpenAccountForm
-                onOpened={(account) => {
-                    setOpenedAccountId(account.id);
-                }}
-            />
+            {canWrite ? (
+                <OpenAccountForm
+                    onOpened={(account) => {
+                        setOpenedAccountId(account.id);
+                    }}
+                />
+            ) : null}
         </>
     );
 }

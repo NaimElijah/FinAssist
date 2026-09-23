@@ -1,0 +1,21 @@
+.menu {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.name {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-strong);
+}
+
+/* A role indicator, not a lifecycle status, so it is styled here rather than reused from
+   StateBadge, which exists for a status that varies across a fixed set (see its own doc
+   comment) - "Read-only" never varies, so a tone table for it would carry only one entry. */
+.badge {
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-control);
+    background: var(--color-surface-raised);
+    color: var(--color-on-chrome);
+    font-size: var(--font-size-sm);
+}

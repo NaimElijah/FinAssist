@@ -23,7 +23,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Refuses every request whose {@code Host} header does not name a host on the allow-list (ADR-027).
+ * Refuses every request whose {@code Host} header does not name a host on the allow-list (ADR-030).
  *
  * <p>Binding to loopback does not keep out a hostile page in the owner's own browser. DNS rebinding
  * repoints the page's own name at {@code 127.0.0.1} after it has loaded, so the browser treats the

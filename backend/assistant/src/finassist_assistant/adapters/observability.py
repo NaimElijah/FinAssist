@@ -52,6 +52,17 @@ _SECRET_KEY_FRAGMENTS: Final = frozenset(
         "password",
         "refresh_token",
         "secret",
+        # Bearer-token authentication (ADR-030, ADR-032): the encoded JWT itself if it ever ends
+        # up under a key by this name, and the cookie and CSRF material the gateway holds so
+        # neither leaks from a field this service logs about a request it relayed. None of the
+        # six is a substring of `input_tokens`, so the token-count measurement above still
+        # survives - `jwks` in particular does not contain `jwt`.
+        "cookie",
+        "xsrf",
+        "csrf",
+        "session",
+        "bearer",
+        "jwt",
     }
 )
 

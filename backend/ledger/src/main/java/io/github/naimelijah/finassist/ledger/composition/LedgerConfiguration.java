@@ -54,7 +54,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * <p>The services are called by the controllers in a context's {@code adapter.in.web}, which are
  * component-scanned rather than built here. That is the one bounded exception ADR-028 makes, so that a
  * {@code @WebMvcTest} slice loads them. What every request passes through first is built here: the Host
- * allow-list that refuses a DNS-rebound page (ADR-027).
+ * allow-list that refuses a DNS-rebound page (ADR-030).
  */
 @Configuration
 public class LedgerConfiguration {
@@ -65,7 +65,7 @@ public class LedgerConfiguration {
     // ---- web --------------------------------------------------------------------------------
 
     /**
-     * The Host allow-list, registered at the highest filter precedence (ADR-027). A refused request
+     * The Host allow-list, registered at the highest filter precedence (ADR-030). A refused request
      * is answered before any filter that traces, logs or dispatches has handled it.
      */
     @Bean

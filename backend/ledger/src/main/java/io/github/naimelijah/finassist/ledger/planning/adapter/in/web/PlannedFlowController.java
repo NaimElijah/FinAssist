@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
  * read for one to name. A lifecycle change is a {@code POST} to a sub-resource carrying its date in the
  * body, because no server reads a clock, and answers the updated flow. Every write accepts {@code
  * application/json} only, so a form post from a cross-site page is refused with 415 before this runs
- * (ADR-027).
+ * (ADR-030).
  *
  * <p>A plan is not a fact (ADR-015): the amount travels positive and the direction carries the sign, in
  * both directions. Nothing here negates an amount.

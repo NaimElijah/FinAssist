@@ -10,6 +10,10 @@ import java.time.LocalDate;
  * <p>One interface for three transitions rather than three interfaces, because they share a subject,
  * a service and a caller. Each takes its date as an argument; none reads a clock.
  *
+ * <p>Each also takes the {@link Actor} making the change — who cleared, reconciled or voided the
+ * transaction may differ from who first recorded it, and each new {@code
+ * journal_transaction_state} row names its own writer (ADR-033).
+ *
  * @see io.github.naimelijah.finassist.ledger.accounting.domain.entry.TransactionState
  */
 public interface TransitionTransactionUseCase {
@@ -19,19 +23,19 @@ public interface TransitionTransactionUseCase {
      * @throws io.github.naimelijah.finassist.ledger.accounting.domain.entry.IllegalTransitionException
      *     if the transaction is not {@code Pending}
      */
-    Transaction clear(TransactionId transaction, LocalDate clearedOn);
+    Transaction clear(TransactionId transaction, LocalDate clearedOn, Actor recordedBy);
 
     /**
      * @throws TransactionNotFoundException if no such transaction exists
      * @throws io.github.naimelijah.finassist.ledger.accounting.domain.entry.IllegalTransitionException
      *     if the transaction is not {@code Cleared}
      */
-    Transaction reconcile(TransactionId transaction, LocalDate reconciledOn);
+    Transaction reconcile(TransactionId transaction, LocalDate reconciledOn, Actor recordedBy);
 
     /**
      * @throws TransactionNotFoundException if no such transaction exists
      * @throws io.github.naimelijah.finassist.ledger.accounting.domain.entry.IllegalTransitionException
      *     if the transaction is already {@code Reconciled} or {@code Voided}
      */
-    Transaction markVoided(TransactionId transaction, LocalDate voidedOn, String reason);
+    Transaction markVoided(TransactionId transaction, LocalDate voidedOn, String reason, Actor recordedBy);
 }

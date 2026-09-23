@@ -213,6 +213,13 @@
         "title": "ValuationModel",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
     }
   },
   "info": {
@@ -223,7 +230,7 @@
   "paths": {
     "/api/v1/portfolio/holdings/{symbol}/disposal": {
       "post": {
-        "description": "What selling a quantity of units for the given proceeds would realise, oldest lot first.\n\nA calculation that records nothing: no lot is consumed, so it is safe to repeat. It is a\nPOST only so that the proceeds, an amount of money, never enter a URL.",
+        "description": "What selling a quantity of units for the given proceeds would realise, oldest lot first.\n\nA calculation that records nothing: no lot is consumed, so it is safe to repeat. It is a\nPOST only so that the proceeds, an amount of money, never enter a URL. Pricing a\ndisposal still needs ``portfolio:read``, and nothing more: it records nothing, so no\nwrite permission exists for it to need.",
         "operationId": "priceDisposal",
         "parameters": [
           {
@@ -352,6 +359,11 @@
       }
     }
   },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
   "servers": [
     {
       "url": "/"

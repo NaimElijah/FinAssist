@@ -13,13 +13,21 @@ The profile is registered here rather than in ``pyproject.toml`` because ``--str
 rejects ini keys pytest does not define, and ``hypothesis_profile`` is not one of them.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
+from typing import Any, Final
 
+import jwt
 import pytest
 import structlog
+from cryptography.hazmat.primitives.asymmetric import rsa
 from hypothesis import HealthCheck, Verbosity, settings
+from jwt import PyJWK
+from jwt.algorithms import RSAAlgorithm
 
+from finassist_assistant.adapters.auth import ASSISTANT_AUDIENCE, KeySource, TokenVerifier
 from finassist_assistant.adapters.observability import forget_secrets, reset_logging
+from finassist_assistant.adapters.wiring import Clock
 
 settings.register_profile(
     "finassist",
@@ -50,3 +58,124 @@ def _reset_observability() -> Iterator[None]:
     forget_secrets()
     structlog.reset_defaults()
     reset_logging()
+
+
+# --- token verification (tests/test_auth.py) ------------------------------------------------
+#
+# Shared here rather than in the test module itself, so a real key pair is generated once per
+# module instead of once per test: real keys, a static key source and a fixed clock, so a
+# boundary test moves a token's own claims rather than the wall clock.
+
+FIXED_NOW: Final[datetime] = datetime(2026, 1, 1, tzinfo=UTC)
+"""The instant :func:`fixed_clock` reports. A leeway boundary is proven by moving a token's own
+claims relative to this fixed point, never by moving the clock itself or sleeping."""
+
+
+@pytest.fixture(scope="module")
+def rsa_key_pair() -> tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]:
+    """One RSA key pair, generated once per test module rather than once per test.
+
+    Nothing under test depends on a fresh key for each case, and generating a 2048-bit key -
+    the floor :class:`jwt.algorithms.RSAAlgorithm` itself enforces - is the slowest thing in the
+    whole suite.
+    """
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return private_key, private_key.public_key()
+
+
+@pytest.fixture
+def fixed_clock() -> Clock:
+    """A :data:`~finassist_assistant.adapters.wiring.Clock` that always reports
+    :data:`FIXED_NOW`."""
+    return lambda: FIXED_NOW
+
+
+@pytest.fixture
+def static_key_source(rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]) -> KeySource:
+    """A :data:`~finassist_assistant.adapters.auth.KeySource` that returns one fixed key
+    regardless of the token it is asked about.
+
+    Stands in for a real JWKS lookup in every test that is not itself testing that lookup; the
+    real ``PyJWKClient`` path is exercised separately, against a real ``http.server``.
+    """
+    _, public_key = rsa_key_pair
+    jwk = PyJWK.from_dict(RSAAlgorithm.to_jwk(public_key, as_dict=True))
+    return lambda _token: jwk
+
+
+# --- authorization (tests/test_authorization.py, and every create_app caller) ----------------
+#
+# Every existing `create_app` caller in the suite needs a token_verifier that accepts no real
+# network call, and most need a valid credential to reach a route BearerAuthentication now
+# guards by default. Shared here rather than per module, so "the owner" always means the same
+# signed token wherever a test asks for one.
+
+ISSUER: Final = "http://localhost:8081/realms/finassist"
+"""The issuer every fixture-minted token below names, matching ``Settings``' own default."""
+
+
+def _signed_token(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    now: datetime,
+    *,
+    roles: list[str] | None,
+    subject: str = "test-subject",
+) -> str:
+    """Signs a token valid as of *now*, naming *roles* - the shape ``BearerAuthentication`` reads.
+
+    ``roles=None`` omits the claim entirely, which :class:`TokenVerifier` already treats as
+    granting no role at all; a caller wanting that exact case passes it explicitly rather than an
+    empty list, so the two "grants nothing" shapes stay distinguishable to whichever test is
+    exercising the difference.
+    """
+    private_key, _ = rsa_key_pair
+    claims: dict[str, Any] = {
+        "sub": subject,
+        "iss": ISSUER,
+        "aud": ASSISTANT_AUDIENCE,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(hours=1)).timestamp()),
+    }
+    if roles is not None:
+        claims["roles"] = roles
+    return jwt.encode(claims, private_key, algorithm="RS256")
+
+
+@pytest.fixture
+def token_verifier(static_key_source: KeySource, fixed_clock: Clock) -> TokenVerifier:
+    """A real :class:`TokenVerifier`, backed by a stand-in key source and a fixed clock.
+
+    Every ``create_app`` caller in this suite passes this rather than letting the default build
+    one pointed at a real JWKS endpoint: no test may depend on the network, and every fixture
+    below mints a token this exact verifier accepts.
+    """
+    return TokenVerifier(static_key_source, ISSUER, ASSISTANT_AUDIENCE, fixed_clock)
+
+
+@pytest.fixture
+def headers_for(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey], fixed_clock: Clock
+) -> Callable[[list[str] | None], dict[str, str]]:
+    """Builds an ``Authorization`` header naming *roles*, signed against :func:`fixed_clock`.
+
+    A callable rather than a single header dict, so one test can ask for more than one role
+    shape - the owner, the viewer, the assistant, an unknown role, or no ``roles`` claim at all -
+    without a fixture per shape.
+    """
+
+    def _build(roles: list[str] | None) -> dict[str, str]:
+        token = _signed_token(rsa_key_pair, fixed_clock(), roles=roles)
+        return {"Authorization": f"Bearer {token}"}
+
+    return _build
+
+
+@pytest.fixture
+def owner_headers(headers_for: Callable[[list[str] | None], dict[str, str]]) -> dict[str, str]:
+    """A valid ``Authorization`` header for the ``owner`` role.
+
+    The default credential most of this suite gives a ``TestClient``: a test exercising the
+    portfolio endpoints themselves, rather than authentication or authorization, needs a caller
+    admitted on every route without knowing which permission each one needs.
+    """
+    return headers_for(["owner"])

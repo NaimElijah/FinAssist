@@ -258,6 +258,17 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         expect(within(rowOf('Salary')).queryByRole('button')).toBeNull();
     });
 
+    it('Given_a_read_only_session_When_rendered_Then_no_row_offers_Commit_Realise_or_Cancel', async () => {
+        fakeFetch(ledger([RENT, SALARY]));
+        renderRoutes(planningRoutes, '/planning/flows', { access: { canWrite: false } });
+
+        await screen.findByRole('table', { name: 'Planned flows' });
+
+        expect(screen.queryByRole('button', { name: 'Commit' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Realise' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    });
+
     it('Given_a_planned_flow_When_committed_Then_it_posts_on_and_the_row_shows_the_Committed_badge_and_invalidates_only_flows', async () => {
         const today = TODAY;
         let flows: readonly unknown[] = [RENT];
@@ -529,6 +540,15 @@ describe('PlannedFlowsPage lifecycle actions', () => {
 });
 
 describe('PlannedFlowsPage plan-flow form', () => {
+    it('Given_a_read_only_session_When_the_page_renders_Then_the_plan_flow_form_is_not_offered_but_the_list_stays', async () => {
+        fakeFetch(ledger([RENT]));
+        renderRoutes(planningRoutes, '/planning/flows', { access: { canWrite: false } });
+
+        expect(await screen.findByText('Rent')).toBeDefined();
+        expect(screen.queryByRole('heading', { level: 2, name: 'Plan a flow' })).toBeNull();
+        expect(screen.queryByLabelText('Description')).toBeNull();
+    });
+
     it('Given_the_Repeats_field_When_Until_a_date_is_chosen_Then_cadence_interval_and_until_are_shown_but_not_times', async () => {
         fakeFetch(ledger([]));
         renderFlows();

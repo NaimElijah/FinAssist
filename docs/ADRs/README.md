@@ -25,16 +25,23 @@ append-only history: to change course, add a new record and mark the old one
 | [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted |
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
 | [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted |
-| [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted |
+| [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, extended by 033 |
 | [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted |
 | [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted |
 | [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted |
-| [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted |
+| [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033 and 035 |
 | [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted |
-| [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted |
-| [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Accepted |
-| [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted |
-| [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted |
+| [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted, extended by 030 |
+| [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
+| [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030 |
+| [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030 |
+| [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted |
+| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 |
+| [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted |
+| [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035 |
+| [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted |
+| [035](ADR-035-flyway-runs-out-of-order.md) | Flyway runs out of order, because every context owns a major version | Accepted |
+| [036](ADR-036-least-privilege-keycloak-client-scoping.md) | Deny each Keycloak client the realm's full scope | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -47,3 +54,30 @@ tested.
 and the ledger's first controllers both need a settled contract to be built against. 026
 records how the web client uses the contracts, and 028 the wire conventions both services
 follow.
+
+030 superseded 027 on 2026-09-16, although none of 027's revisit triggers had fired: the owner
+chose to build authentication to a professional standard before the threat model asked for it.
+030 keeps 027's loopback binding, Host allow-lists and JSON-only writes as defence in depth. 031
+records the identity provider it relies on, and 032 the authorisation model.
+
+033 extends 020 and 024 on 2026-09-22, once authentication existed to discharge the "who" both
+records had deferred: every journal row now names the authenticated subject that wrote it, from
+`V1_2__journal_recorded_by.sql` onward. 021's rule that identity is generated inside the service
+still holds — an actor travels beside a command, never inside one.
+
+034 records, on 2026-09-22, why `ops/smoke/auth_smoke.py` is run by hand and never by CI, and
+weighs the evidence against that choice: the check's first real run found a defect no CI job
+would have caught, whose class a cheap unit test now guards.
+
+035 corrects 024 and 033 on 2026-09-22, after review found that `V1_2` would have stopped the
+owner's ledger from starting: a major version per context means a new migration for any context
+but the highest arrives below a version already applied, which Flyway refuses unless it is told
+to run out of order. `LedgerUpgradeIT` now starts the ledger against the history a real database
+actually holds.
+
+036 extends 031 on 2026-09-22: a run against the real Keycloak image showed both clients carrying
+the realm's full scope by Keycloak's own default, rather than only the roles each one's tokens
+need. Nothing was exploitable — every consumer already ignores a role it does not recognise — but
+the claim's meaning was wrong. `fullScopeAllowed: false` plus an explicit `scopeMappings` entry
+per client is the fix, pinned statically by `KeycloakRealmTest` and against a running Keycloak by
+`KeycloakRealmIT`.

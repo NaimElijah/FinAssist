@@ -1,6 +1,6 @@
 import type { ReactNode, Ref } from 'react';
 
-import { ApiError } from '../api/client';
+import { ApiError, hasProblemCode } from '../api/client';
 import styles from './ErrorState.module.css';
 
 /**
@@ -9,6 +9,16 @@ import styles from './ErrorState.module.css';
  */
 const GENERIC_SENTENCE =
     'Something went wrong. Try again, and reload the page if it keeps happening.';
+
+/** ADR-030's problem code for "signed in, but not permitted" - all three services answer it. */
+const FORBIDDEN = 'FORBIDDEN';
+
+/**
+ * Shown for a `FORBIDDEN` problem in place of the server's own `detail` or `title`, so a viewer
+ * is never told which permission it was refused for. `isRetryable` already excludes every 4xx, a
+ * 403 included, so no retry is offered without this component naming the status itself.
+ */
+const FORBIDDEN_SENTENCE = "You don't have permission to see this.";
 
 /** Whatever was thrown or rejected, and optionally what the owner can do about it. */
 export interface ErrorStateProps {
@@ -29,7 +39,9 @@ export interface ErrorStateProps {
  *
  * For an `ApiError` carrying a problem, shows the problem's `detail`, falling back to its `title`,
  * followed by one line per field error when the problem lists any (ADR-028). For anything else -
- * an `ApiError` with no problem, a plain `Error`, a thrown string - shows one generic sentence.
+ * an `ApiError` with no problem, a plain `Error`, a thrown string - shows one generic sentence. A
+ * `FORBIDDEN` problem (ADR-030) is a third case, shown with `FORBIDDEN_SENTENCE` rather than
+ * either the server's own prose or the generic one, so a viewer is never told what it lacked.
  * An `action`, when given, follows the message, so a screen can offer a retry without inventing
  * its own error layout.
  *
@@ -40,7 +52,9 @@ export interface ErrorStateProps {
  */
 export function ErrorState({ error, action, ref }: ErrorStateProps) {
     const problem = error instanceof ApiError ? error.problem : undefined;
-    const message = problem?.detail ?? problem?.title ?? GENERIC_SENTENCE;
+    const message = hasProblemCode(error, FORBIDDEN)
+        ? FORBIDDEN_SENTENCE
+        : (problem?.detail ?? problem?.title ?? GENERIC_SENTENCE);
     const fieldErrors = problem?.errors ?? [];
 
     return (
