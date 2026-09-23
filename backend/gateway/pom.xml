@@ -96,6 +96,14 @@
       <artifactId>spring-boot-starter-security-test</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- KeycloakRealmTest parses finassist-realm.json and docker-compose.yml as YAML directly.
+         It only ever reached the module transitively, through spring-boot-starter's compile
+         scope, which a future Boot release is free to stop providing. -->
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <scope>test</scope>
+    </dependency>
     <!--
       The same Testcontainers already justified for the ledger's real-PostgreSQL suites
       (ADR-025), used here for a real Keycloak: `KeycloakRealmIT` builds `ops/keycloak/Dockerfile`
