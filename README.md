@@ -666,7 +666,7 @@ in the repository, the logs or an error message.
 | `GATEWAY_OIDC_PUBLIC_URL` | Keycloak as the browser sees it. The sign-in and sign-out URLs handed to the browser are built from this, and so is the issuer every token must name | `http://localhost:8081` |
 | `GATEWAY_OIDC_INTERNAL_URL` | Keycloak as the gateway itself reaches it. The same value when running natively; under Compose it is the container name, which the browser cannot resolve — which is why the two are separate | `http://localhost:8081` |
 | `GATEWAY_COOKIE_SECURE` | Whether the session and CSRF cookies carry `Secure`. `false` for development, which is plain HTTP on loopback; must be `true` behind TLS | `false` |
-| `GATEWAY_LEDGER_URI` | Where the gateway relays a request under `/ledger/api/v1/**`, once its prefix is stripped, the access token attached and the browser's `Cookie` and CSRF header removed | `http://localhost:8080` |
+| `GATEWAY_LEDGER_URI` | Where the gateway relays a request under `/ledger/api/v1/**`, once its prefix is stripped, the browser's `Authorization`, `Cookie` and CSRF header removed and the session's own access token attached | `http://localhost:8080` |
 | `GATEWAY_ASSISTANT_URI` | The same, for `/assistant/api/v1/**` | `http://localhost:8000` |
 | `ASSISTANT_PORT` | Assistant HTTP port | `8000` |
 | `LEDGER_BASE_URL` | Where the assistant reaches the ledger | `http://ledger:8080` |
