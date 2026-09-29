@@ -14,9 +14,9 @@ import org.junit.jupiter.api.Test;
 /**
  * The customizer that documents the problem shape on every operation (ADR-028).
  *
- * <p>{@code LedgerContractIT} pins the whole document, but until a controller exists that document
- * has no operation for the {@code default} response to land on. This drives the customizer against
- * operations built by hand, so the rule is checked before the first endpoint relies on it.
+ * <p>{@code LedgerContractIT} pins the whole generated document, but as a failsafe test that needs
+ * Docker. This drives the customizer against operations built by hand, including one with no
+ * responses at all, so the unit suite checks the rule without a container.
  */
 class OpenApiConfigurationTest {
 

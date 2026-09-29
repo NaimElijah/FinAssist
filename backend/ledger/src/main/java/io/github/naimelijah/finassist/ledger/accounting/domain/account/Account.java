@@ -15,8 +15,9 @@ import java.util.Objects;
  * <p>One account, one currency (ADR-012). That an entry matches its account's currency is
  * <strong>not</strong> checked here and cannot be: an {@code Entry} holds an {@code AccountId}, not
  * an {@code Account}, so nothing in the domain can look the currency up. Enforcing it needs a
- * repository, and belongs to the application layer that does not exist yet. Until then a
- * mis-currencied entry is caught later and less helpfully, when a balance is taken.
+ * repository, so it belongs to the application layer: {@code RecordTransactionUseCase} refuses a
+ * mis-currencied entry with {@code EntryCurrencyMismatchException} before anything is stored, and
+ * {@code V1_1__accounting_schema.sql}'s deferred balancing trigger refuses one again at commit.
  */
 public record Account(AccountId id, String name, AccountType type, Currency currency) {
 
