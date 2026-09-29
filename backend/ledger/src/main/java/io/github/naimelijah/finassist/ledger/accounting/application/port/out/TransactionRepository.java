@@ -14,8 +14,9 @@ import java.util.Optional;
  * <p><strong>There is no delete, and entries are never edited.</strong> A lifecycle change is stored by
  * saving the aggregate in its new state, which is what {@link Transaction} produces — every transition
  * returns a new value rather than mutating one. Voiding keeps the entries and stops them counting. That
- * is ADR-020's append-only requirement expressed as a port shape rather than deferred to a schema that
- * does not exist yet. See ADR-021.
+ * is ADR-020's append-only requirement expressed as a port shape (ADR-021), and the schema enforces it
+ * as well: {@code V1_1__accounting_schema.sql} puts a trigger on each journal table that refuses an
+ * {@code UPDATE} or a {@code DELETE} (ADR-024).
  */
 public interface TransactionRepository {
 
