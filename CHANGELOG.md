@@ -169,6 +169,16 @@ history; write the commit message well and this file writes itself.
 - **`AccountId`'s Javadoc no longer contradicts the rule it cites.** It claimed budgeting holds
   `AccountId` values; `contexts_do_not_depend_on_each_other` forbids budgeting from naming any
   accounting type, which is why `AccountRef` exists.
+- **Two more ledger Javadocs stop describing layers as unbuilt.** `Account` said the check that an
+  entry matches its account's currency awaited "the application layer that does not exist yet";
+  `TransactionService` has refused a mismatch since that layer landed. `TransactionRepository`
+  expressed the append-only rule as a port shape "rather than deferred to a schema that does not
+  exist yet"; that schema exists, and its triggers have refused an `UPDATE` or a `DELETE` since
+  ADR-024.
+- **`.env.example` carries `POSTGRES_PORT`.** `docker-compose.yml` publishes the database on it
+  and the README documents it, but `make setup` copies `.env.example` verbatim, so a first run got
+  the default 5432 without ever seeing the knob that moves it off a port a native PostgreSQL
+  already owns.
 
 - Observability across all three codebases: JSON logs on stdout carrying a W3C trace id, OTLP
   trace export that degrades to a no-op when no collector is configured, and Prometheus metrics
