@@ -102,9 +102,9 @@ describe('createQueryClient', () => {
             queryClient.query({ queryKey: ['under-test'], queryFn, retryDelay: 0 }),
         ).rejects.toBeInstanceOf(ApiError);
 
-        await vi.waitFor(() => {
-            expect(invalidateSpy).toHaveBeenCalledExactlyOnceWith({ queryKey: sessionKeys.me });
-        });
+        // Asserted at once, never polled: this is what proves the query cache's onError has run by
+        // the time query() rejects, which the negative test below relies on to mean anything.
+        expect(invalidateSpy).toHaveBeenCalledExactlyOnceWith({ queryKey: sessionKeys.me });
     });
 
     it('Given_the_session_checks_own_401_When_it_fails_Then_the_session_is_not_invalidated_again', async () => {
@@ -118,9 +118,8 @@ describe('createQueryClient', () => {
             queryClient.query({ queryKey: sessionKeys.me, queryFn, retryDelay: 0 }),
         ).rejects.toBeInstanceOf(ApiError);
 
-        // There is no success condition to await for "nothing happens", so this gives any
-        // queued microtask a turn before asserting the negative.
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        // No timer: the query cache calls onError before query() rejects, so an invalidation
+        // would already be recorded here. The test above fails if that order ever changes.
         expect(invalidateSpy).not.toHaveBeenCalled();
     });
 
