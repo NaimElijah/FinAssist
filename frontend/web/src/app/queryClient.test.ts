@@ -132,8 +132,7 @@ describe('createQueryClient', () => {
 
         await expect(observer.mutate()).rejects.toBe(failure);
 
-        await vi.waitFor(() => {
-            expect(invalidateSpy).toHaveBeenCalledExactlyOnceWith({ queryKey: sessionKeys.me });
-        });
+        // The mutation cache's onError is awaited before mutate() rejects, so no poll is needed.
+        expect(invalidateSpy).toHaveBeenCalledExactlyOnceWith({ queryKey: sessionKeys.me });
     });
 });
