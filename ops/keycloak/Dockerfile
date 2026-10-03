@@ -4,7 +4,7 @@
 # builds and runs an "optimized" image from one image, unlike a JDK-build/JRE-run split, because
 # `kc.sh build` and `kc.sh start --optimized` are the same distribution at two points in its own
 # lifecycle.
-FROM quay.io/keycloak/keycloak:26.7.4 AS builder
+FROM quay.io/keycloak/keycloak:26.8.0 AS builder
 
 # Baked in at build time, not passed at start-up: `kc.sh build` freezes the database vendor and
 # the enabled features into the optimized artifact the runtime stage copies out, and Keycloak
@@ -13,7 +13,7 @@ ENV KC_HEALTH_ENABLED=true
 ENV KC_DB=postgres
 RUN /opt/keycloak/bin/kc.sh build
 
-FROM quay.io/keycloak/keycloak:26.7.4
+FROM quay.io/keycloak/keycloak:26.8.0
 # The whole optimized distribution, not a jar: `kc.sh build`'s output is a reconfigured
 # Quarkus tree under /opt/keycloak, and a narrower copy would leave `start --optimized` unable
 # to find what it built (confirmed against the running image while drafting this file).
