@@ -225,6 +225,8 @@ public final class FakeOpenIdProvider implements AutoCloseable {
 
     private void handleAuthorize(HttpExchange exchange) throws IOException {
         Map<String, String> query = parseFormEncoded(exchange.getRequestURI().getRawQuery());
+        // A new flow starts here, so the exchange flag must not still describe the previous one.
+        lastTokenRequestPassedPkce = false;
         lastAuthorizationRequestHadPkce =
                 query.get("code_challenge") != null && "S256".equals(query.get("code_challenge_method"));
         String code = "fake-auth-code-" + UUID.randomUUID();
@@ -254,9 +256,17 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     }
 
     private void handleAuthorizationCodeGrant(HttpExchange exchange, Map<String, String> form) throws IOException {
-        PendingAuthorization pending = pendingByCode.remove(form.get("code"));
-        lastTokenRequestPassedPkce = pending != null && s256Matches(form.get("code_verifier"), pending.codeChallenge());
-        if (!lastTokenRequestPassedPkce) {
+        String code = form.get("code");
+        // ConcurrentHashMap refuses a null key, so a request carrying no code is answered here
+        // rather than dropped by the exception; Keycloak refuses a missing and an unknown code alike.
+        PendingAuthorization pending = code == null ? null : pendingByCode.remove(code);
+        if (pending == null) {
+            respondJson(exchange, 400, "{\"error\":\"invalid_grant\",\"error_description\":\"Code not valid\"}");
+            return;
+        }
+        boolean passed = s256Matches(form.get("code_verifier"), pending.codeChallenge());
+        lastTokenRequestPassedPkce = passed;
+        if (!passed) {
             respondJson(
                     exchange, 400, "{\"error\":\"invalid_grant\",\"error_description\":\"PKCE verification failed\"}");
             return;
