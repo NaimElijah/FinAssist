@@ -16,9 +16,13 @@ import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Date;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +33,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -54,13 +59,18 @@ import tools.jackson.databind.json.JsonMapper;
  *       already-expired access token, so the very next relay must refresh it first.
  *   <li>{@link #refuseNextRefresh()} — the next {@code refresh_token} grant is answered
  *       {@code invalid_grant}, once, then reverts to succeeding.
- *   <li>{@link #lastAuthorizationRequestHadPkce()} and {@link
- *       #lastTokenRequestHadCodeVerifier()} — whether the two halves of PKCE actually arrived.
+ *   <li>{@link #lastAuthorizationRequestHadPkce()} and {@link #lastTokenRequestPassedPkce()} —
+ *       whether the current flow's authorization request carried an {@code S256} challenge, and
+ *       whether its code exchange presented a verifier that hashed to that same challenge. An
+ *       exchange whose verifier does not, or whose code was never issued or is already spent, is
+ *       refused {@code invalid_grant}, as Keycloak refuses it, so the sign-in itself fails rather
+ *       than a flag alone recording the mismatch.
  *   <li>{@link #lastAccessToken()}, {@link #lastRefreshToken()} and {@link #lastIdToken()} — the
  *       exact values last issued, for the log sweep to search for.
  *   <li>{@link #stall(Endpoint)} and {@link #releaseStalledRequests()} — the endpoint accepts the
  *       connection and then never answers, which is what an unbounded HTTP client hangs on
- *       forever (see {@code GatewayKeycloakTimeoutIT}).
+ *       forever (see {@code GatewayKeycloakTimeoutIT}). {@link #stalledArrivals(Endpoint)} says
+ *       whether the call meant to be stranded actually arrived.
  * </ul>
  *
  * <p>Each exchange is handled on its own thread, so one stalled request does not also stop the
@@ -89,15 +99,19 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     private final HttpServer server;
     private final ExecutorService exchanges = Executors.newCachedThreadPool();
     private final RSAKey rsaKey;
-    private final Map<String, String> nonceByCode = new ConcurrentHashMap<>();
+    private final Map<String, PendingAuthorization> pendingByCode = new ConcurrentHashMap<>();
     private final Set<Endpoint> stalled = ConcurrentHashMap.newKeySet();
+    // An EnumMap is not thread-safe, but this one is filled once here and never changed again; only
+    // the counters it holds are, and they are atomic.
+    private final Map<Endpoint, AtomicInteger> stalledArrivals =
+            new EnumMap<>(Map.of(Endpoint.TOKEN, new AtomicInteger(), Endpoint.CERTS, new AtomicInteger()));
     private final AtomicReference<CountDownLatch> release = new AtomicReference<>(new CountDownLatch(1));
 
     private final AtomicReference<String> lastAccessToken = new AtomicReference<>();
     private final AtomicReference<String> lastRefreshToken = new AtomicReference<>();
     private final AtomicReference<String> lastIdToken = new AtomicReference<>();
     private volatile boolean lastAuthorizationRequestHadPkce;
-    private volatile boolean lastTokenRequestHadCodeVerifier;
+    private volatile boolean lastTokenRequestPassedPkce;
 
     private volatile String issuerOverride;
     private volatile long accessTokenExpiresInSeconds = 300;
@@ -177,7 +191,28 @@ public final class FakeOpenIdProvider implements AutoCloseable {
      */
     public void releaseStalledRequests() {
         stalled.clear();
+        stalledArrivals.values().forEach(count -> count.set(0));
         release.getAndSet(new CountDownLatch(1)).countDown();
+    }
+
+    /**
+     * How many requests have reached {@code endpoint} while it was stalled, since the last {@link
+     * #releaseStalledRequests()}. A flow that fails fast before ever making the stalled call answers
+     * just as quickly as a bounded client giving up on it, so a timeout test needs this to tell the
+     * two apart.
+     */
+    public int stalledArrivals(Endpoint endpoint) {
+        return stalledArrivals.get(endpoint).get();
+    }
+
+    /** Strands this exchange if {@code endpoint} is stalled, counting it first; {@code false} when it is not. */
+    private boolean strandIfStalled(Endpoint endpoint) throws IOException {
+        if (!stalled.contains(endpoint)) {
+            return false;
+        }
+        stalledArrivals.get(endpoint).incrementAndGet();
+        awaitRelease();
+        return true;
     }
 
     /** Blocks this exchange until the test releases it, or {@link #STALL_LIMIT} passes. */
@@ -190,12 +225,19 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         }
     }
 
+    /** Whether the last authorization request carried a {@code code_challenge} with method {@code S256}. */
     public boolean lastAuthorizationRequestHadPkce() {
         return lastAuthorizationRequestHadPkce;
     }
 
-    public boolean lastTokenRequestHadCodeVerifier() {
-        return lastTokenRequestHadCodeVerifier;
+    /**
+     * Whether the current flow's code exchange presented an issued, unspent code whose {@code
+     * code_verifier} hashes to that code's {@code S256} challenge. Reset to {@code false} when a
+     * flow starts at the authorization endpoint, so it stays {@code false} for a flow whose exchange
+     * never arrives or names an unknown code; a {@code refresh_token} grant never touches it.
+     */
+    public boolean lastTokenRequestPassedPkce() {
+        return lastTokenRequestPassedPkce;
     }
 
     public String lastAccessToken() {
@@ -219,10 +261,12 @@ public final class FakeOpenIdProvider implements AutoCloseable {
 
     private void handleAuthorize(HttpExchange exchange) throws IOException {
         Map<String, String> query = parseFormEncoded(exchange.getRequestURI().getRawQuery());
+        // A new flow starts here, so the exchange flag must not still describe the previous one.
+        lastTokenRequestPassedPkce = false;
         lastAuthorizationRequestHadPkce =
                 query.get("code_challenge") != null && "S256".equals(query.get("code_challenge_method"));
         String code = "fake-auth-code-" + UUID.randomUUID();
-        nonceByCode.put(code, query.get("nonce"));
+        pendingByCode.put(code, new PendingAuthorization(query.get("nonce"), query.get("code_challenge")));
         String location =
                 query.get("redirect_uri") + "?code=" + urlEncode(code) + "&state=" + urlEncode(query.get("state"));
         exchange.getResponseHeaders().add("Location", location);
@@ -231,8 +275,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     }
 
     private void handleToken(HttpExchange exchange) throws IOException {
-        if (stalled.contains(Endpoint.TOKEN)) {
-            awaitRelease();
+        if (strandIfStalled(Endpoint.TOKEN)) {
             return;
         }
         Map<String, String> form =
@@ -248,10 +291,45 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     }
 
     private void handleAuthorizationCodeGrant(HttpExchange exchange, Map<String, String> form) throws IOException {
-        String verifier = form.get("code_verifier");
-        lastTokenRequestHadCodeVerifier = verifier != null && !verifier.isBlank();
-        String nonce = nonceByCode.remove(form.get("code"));
-        issueTokens(exchange, nonce);
+        String code = form.get("code");
+        // ConcurrentHashMap refuses a null key, so a request carrying no code is answered here
+        // rather than dropped by the exception; Keycloak refuses a missing and an unknown code alike.
+        PendingAuthorization pending = code == null ? null : pendingByCode.remove(code);
+        if (pending == null) {
+            respondJson(exchange, 400, "{\"error\":\"invalid_grant\",\"error_description\":\"Code not valid\"}");
+            return;
+        }
+        boolean passed = s256Matches(form.get("code_verifier"), pending.codeChallenge());
+        lastTokenRequestPassedPkce = passed;
+        if (!passed) {
+            respondJson(
+                    exchange, 400, "{\"error\":\"invalid_grant\",\"error_description\":\"PKCE verification failed\"}");
+            return;
+        }
+        issueTokens(exchange, pending.nonce());
+    }
+
+    /**
+     * RFC 7636 §4.6: an {@code S256} challenge is {@code BASE64URL(SHA256(ASCII(code_verifier)))},
+     * unpadded. Derived here independently of Spring Security, whose {@code
+     * OAuth2AuthorizationRequestCustomizers} derives the gateway's challenge, so a mistake in that
+     * derivation cannot be agreed with. Both rest on the same JDK primitives, which this does not
+     * claim to check.
+     */
+    private static boolean s256Matches(String verifier, String challenge) {
+        if (verifier == null || challenge == null) {
+            return false;
+        }
+        byte[] digest = sha256().digest(verifier.getBytes(StandardCharsets.US_ASCII));
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(digest).equals(challenge);
+    }
+
+    private static MessageDigest sha256() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException missing) {
+            throw new IllegalStateException("every Java platform is required to provide SHA-256", missing);
+        }
     }
 
     private void handleRefreshTokenGrant(HttpExchange exchange) throws IOException {
@@ -308,8 +386,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     }
 
     private void handleCerts(HttpExchange exchange) throws IOException {
-        if (stalled.contains(Endpoint.CERTS)) {
-            awaitRelease();
+        if (strandIfStalled(Endpoint.CERTS)) {
             return;
         }
         Map<String, Object> jwkSet = new com.nimbusds.jose.jwk.JWKSet(rsaKey.toPublicJWK()).toJSONObject();
@@ -345,4 +422,10 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     private static String urlEncode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
+
+    /**
+     * What an issued code was bound to at the authorization endpoint: the nonce its ID token must
+     * carry, for the gateway to check, and the PKCE challenge its exchange must satisfy here.
+     */
+    private record PendingAuthorization(String nonce, String codeChallenge) {}
 }

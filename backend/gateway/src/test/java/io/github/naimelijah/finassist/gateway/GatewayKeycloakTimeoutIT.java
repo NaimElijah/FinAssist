@@ -177,6 +177,7 @@ class GatewayKeycloakTimeoutIT {
                 assertThat(callback.statusCode()).isEqualTo(302);
                 assertThat(callback.headers().firstValue("Location")).contains(SIGN_IN_FAILED);
             });
+            assertStallReached(FakeOpenIdProvider.Endpoint.TOKEN);
         }
     }
 
@@ -192,6 +193,7 @@ class GatewayKeycloakTimeoutIT {
                 assertThat(callback.statusCode()).isEqualTo(302);
                 assertThat(callback.headers().firstValue("Location")).contains(SIGN_IN_FAILED);
             });
+            assertStallReached(FakeOpenIdProvider.Endpoint.CERTS);
         }
     }
 
@@ -215,6 +217,18 @@ class GatewayKeycloakTimeoutIT {
                 assertThat(relayed.statusCode()).isEqualTo(401);
                 assertThat(relayed.body()).contains("UNAUTHENTICATED");
             });
+            assertStallReached(FakeOpenIdProvider.Endpoint.TOKEN);
         }
+    }
+
+    /**
+     * The call this case meant to strand really arrived. Without it a flow that failed fast for some
+     * other reason — a refused exchange, say — would answer inside the limit just the same, and the
+     * case would pass without the budget ever being tested.
+     */
+    private static void assertStallReached(FakeOpenIdProvider.Endpoint endpoint) {
+        assertThat(idp.stalledArrivals(endpoint))
+                .as("requests that reached the stalled %s endpoint", endpoint)
+                .isPositive();
     }
 }
