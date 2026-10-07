@@ -263,12 +263,18 @@ class GatewayLoginFlowIT {
                 .collect(Collectors.joining("&"));
     }
 
-    /** A full, successful sign-in, for tests whose point is what happens afterward. */
+    /**
+     * A full, successful sign-in, for tests whose point is what happens afterward. PKCE is asserted
+     * first: a verifier the fake provider refuses also lands on a failed sign-in's redirect, and
+     * this way the failure names the cause rather than the symptom.
+     */
     private void signIn(HttpClient client) throws Exception {
         HttpResponse<Void> callback = completeCallback(client);
+        assertThat(idp.lastTokenRequestPassedPkce())
+                .as("the token request's code_verifier hashes to the authorization request's S256 challenge")
+                .isTrue();
         assertThat(callback.statusCode()).isEqualTo(302);
         assertThat(callback.headers().firstValue("Location")).contains(WEB_ORIGIN + "/");
-        assertThat(idp.lastTokenRequestHadCodeVerifier()).isTrue();
     }
 
     private static String queryParam(URI uri, String name) {

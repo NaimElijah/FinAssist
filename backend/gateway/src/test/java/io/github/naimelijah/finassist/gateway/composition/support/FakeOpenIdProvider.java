@@ -16,8 +16,11 @@ import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -54,8 +57,11 @@ import tools.jackson.databind.json.JsonMapper;
  *       already-expired access token, so the very next relay must refresh it first.
  *   <li>{@link #refuseNextRefresh()} — the next {@code refresh_token} grant is answered
  *       {@code invalid_grant}, once, then reverts to succeeding.
- *   <li>{@link #lastAuthorizationRequestHadPkce()} and {@link
- *       #lastTokenRequestHadCodeVerifier()} — whether the two halves of PKCE actually arrived.
+ *   <li>{@link #lastAuthorizationRequestHadPkce()} and {@link #lastTokenRequestPassedPkce()} —
+ *       whether the authorization request carried an {@code S256} challenge, and whether the
+ *       token request's verifier hashed to that same challenge. A code exchange whose verifier
+ *       does not is refused {@code invalid_grant}, as Keycloak refuses it, so the sign-in itself
+ *       fails rather than a flag alone recording the mismatch.
  *   <li>{@link #lastAccessToken()}, {@link #lastRefreshToken()} and {@link #lastIdToken()} — the
  *       exact values last issued, for the log sweep to search for.
  *   <li>{@link #stall(Endpoint)} and {@link #releaseStalledRequests()} — the endpoint accepts the
@@ -89,7 +95,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     private final HttpServer server;
     private final ExecutorService exchanges = Executors.newCachedThreadPool();
     private final RSAKey rsaKey;
-    private final Map<String, String> nonceByCode = new ConcurrentHashMap<>();
+    private final Map<String, PendingAuthorization> pendingByCode = new ConcurrentHashMap<>();
     private final Set<Endpoint> stalled = ConcurrentHashMap.newKeySet();
     private final AtomicReference<CountDownLatch> release = new AtomicReference<>(new CountDownLatch(1));
 
@@ -97,7 +103,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     private final AtomicReference<String> lastRefreshToken = new AtomicReference<>();
     private final AtomicReference<String> lastIdToken = new AtomicReference<>();
     private volatile boolean lastAuthorizationRequestHadPkce;
-    private volatile boolean lastTokenRequestHadCodeVerifier;
+    private volatile boolean lastTokenRequestPassedPkce;
 
     private volatile String issuerOverride;
     private volatile long accessTokenExpiresInSeconds = 300;
@@ -194,8 +200,8 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         return lastAuthorizationRequestHadPkce;
     }
 
-    public boolean lastTokenRequestHadCodeVerifier() {
-        return lastTokenRequestHadCodeVerifier;
+    public boolean lastTokenRequestPassedPkce() {
+        return lastTokenRequestPassedPkce;
     }
 
     public String lastAccessToken() {
@@ -222,7 +228,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         lastAuthorizationRequestHadPkce =
                 query.get("code_challenge") != null && "S256".equals(query.get("code_challenge_method"));
         String code = "fake-auth-code-" + UUID.randomUUID();
-        nonceByCode.put(code, query.get("nonce"));
+        pendingByCode.put(code, new PendingAuthorization(query.get("nonce"), query.get("code_challenge")));
         String location =
                 query.get("redirect_uri") + "?code=" + urlEncode(code) + "&state=" + urlEncode(query.get("state"));
         exchange.getResponseHeaders().add("Location", location);
@@ -248,10 +254,35 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     }
 
     private void handleAuthorizationCodeGrant(HttpExchange exchange, Map<String, String> form) throws IOException {
-        String verifier = form.get("code_verifier");
-        lastTokenRequestHadCodeVerifier = verifier != null && !verifier.isBlank();
-        String nonce = nonceByCode.remove(form.get("code"));
-        issueTokens(exchange, nonce);
+        PendingAuthorization pending = pendingByCode.remove(form.get("code"));
+        lastTokenRequestPassedPkce = pending != null && s256Matches(form.get("code_verifier"), pending.codeChallenge());
+        if (!lastTokenRequestPassedPkce) {
+            respondJson(
+                    exchange, 400, "{\"error\":\"invalid_grant\",\"error_description\":\"PKCE verification failed\"}");
+            return;
+        }
+        issueTokens(exchange, pending.nonce());
+    }
+
+    /**
+     * RFC 7636 §4.6: an {@code S256} challenge is {@code BASE64URL(SHA256(ASCII(code_verifier)))},
+     * unpadded. Derived here with the JDK alone rather than through any library the gateway itself
+     * uses, so a mistake in how the gateway derives its challenge cannot be agreed with.
+     */
+    private static boolean s256Matches(String verifier, String challenge) {
+        if (verifier == null || challenge == null) {
+            return false;
+        }
+        byte[] digest = sha256().digest(verifier.getBytes(StandardCharsets.US_ASCII));
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(digest).equals(challenge);
+    }
+
+    private static MessageDigest sha256() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException missing) {
+            throw new IllegalStateException("every Java platform is required to provide SHA-256", missing);
+        }
     }
 
     private void handleRefreshTokenGrant(HttpExchange exchange) throws IOException {
@@ -345,4 +376,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     private static String urlEncode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
+
+    /** What an issued code was bound to at the authorization endpoint, and must be checked against at the token endpoint. */
+    private record PendingAuthorization(String nonce, String codeChallenge) {}
 }
