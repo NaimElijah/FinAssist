@@ -45,11 +45,14 @@ class LedgerKeySourceOutageIT extends PostgresFixture {
      * Exists as much for its side effect on the test-context cache as for its body: Spring keys a
      * cached {@code ApplicationContext} partly by the <em>set</em> of {@code @DynamicPropertySource}
      * methods a test class contributes, not by what they return, so a class that inherited only
-     * {@code PostgresFixture}'s own two methods would be handed back {@code LedgerAuthorizationIT}'s
-     * already-built context — {@code JwtDecoder} bean and all — whose JWKS URI was resolved long
-     * before {@link #pointJwksAtAClosedPort} ever ran. Declaring one more method here is what forces
-     * a context built fresh for this class, so the override below is actually read while the
-     * decoder is being constructed rather than after.
+     * {@code PostgresFixture}'s own two methods would be handed back any already-built context of
+     * the same configuration — a MOCK {@code @SpringBootTest} with {@code @AutoConfigureMockMvc} and
+     * nothing more — {@code JwtDecoder} bean and all, whose JWKS URI was resolved long before {@link
+     * #pointJwksAtAClosedPort} ever ran. {@code LedgerAuthorizationIT} was that context until it
+     * gained {@code @AutoConfigureMetrics}; this method keeps the outage test from depending on a
+     * sibling's annotations happening to differ. Declaring one more method here is what forces a
+     * context built fresh for this class, so the override below is actually read while the decoder
+     * is being constructed rather than after.
      */
     @DynamicPropertySource
     static void forceAFreshContext(DynamicPropertyRegistry registry) {

@@ -775,6 +775,67 @@ def Given_a_real_PyJWKClient_with_a_dead_port_When_verified_Then_it_is_unavailab
         _verifier(key_source, fixed_clock)(token)
 
 
+@pytest.fixture
+def jwks_server_that_hangs_up() -> Iterator[str]:
+    """A JWKS endpoint that accepts the connection, reads the request, and closes it unanswered.
+
+    Unlike a closed port, the connection succeeds, so the failure arrives as
+    ``http.client.RemoteDisconnected`` from reading the response - an ``HTTPException`` that
+    PyJWT 2.14.0 let escape ``PyJWKClient.fetch_data`` and 2.15.0 wraps as
+    ``PyJWKClientConnectionError``.
+    """
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.close_connection = True
+            self.connection.shutdown(socket.SHUT_RDWR)
+
+        def log_message(self, _format: str, *_args: Any) -> None:
+            pass  # silences http.server's default stderr access log during the test run
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/certs"
+    finally:
+        server.shutdown()
+        thread.join()
+
+
+def Given_a_JWKS_endpoint_that_hangs_up_unanswered_When_verified_Then_it_is_unavailable(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    jwks_server_that_hangs_up: str,
+    fixed_clock: Clock,
+) -> None:
+    """An outage, answered 503 with the outage's ERROR line, never a 500: on PyJWT 2.14.0 the
+    disconnect escaped the key source unwrapped, and ``BearerAuthentication`` catches only
+    :class:`TokenRefused` and :class:`KeySourceUnavailable`."""
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock()))
+
+    with pytest.raises(KeySourceUnavailable):
+        _verifier(jwks_key_source(jwks_server_that_hangs_up), fixed_clock)(token)
+
+
+def Given_a_payload_nested_too_deeply_When_the_real_client_reads_it_Then_it_is_malformed(
+    jwks_server: str, fixed_clock: Clock
+) -> None:
+    """``PyJWKClient.get_signing_key_from_jwt`` decodes the whole token without checking its
+    signature, payload included, to find its ``kid`` - so this is reachable by a caller holding no
+    key at all. PyJWT 2.14.0 let the parser's ``RecursionError`` escape, which answered 500;
+    2.15.0 raises ``DecodeError``, refused like any other malformed token. A nested *header* was
+    already a ``DecodeError`` on both versions, so the payload is the segment that proves it."""
+    depth = 100_000
+    header = json.dumps({"alg": "RS256", "kid": KEY_ID}).encode()
+    payload = ('{"x":' + "[" * depth + "]" * depth + "}").encode()
+    token = ".".join([_b64url(header), _b64url(payload), _b64url(b"not-a-signature")])
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(jwks_key_source(jwks_server), fixed_clock)(token)
+    assert refused.value.reason == REASON_MALFORMED
+
+
 # --- the verifier create_app builds when a test does not supply one ---------------------------
 
 

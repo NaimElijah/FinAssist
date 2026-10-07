@@ -68,6 +68,12 @@ class GatewayLoginFlowIT {
     /** What {@code SignInFailureHandler} appends when a sign-in does not complete. */
     private static final String SIGN_IN_FAILED = "/?signin=failed";
 
+    /**
+     * Shaped like a real {@code S256} challenge — 43 base64url characters — but derived from no
+     * verifier the gateway holds, so only the provider's comparison can tell it apart.
+     */
+    private static final String FOREIGN_CODE_CHALLENGE = "A".repeat(43);
+
     /** A bearer the browser supplied itself, which no downstream service may ever be shown. */
     private static final String BROWSER_SUPPLIED_BEARER = "Bearer a-token-the-browser-chose";
 
@@ -263,12 +269,19 @@ class GatewayLoginFlowIT {
                 .collect(Collectors.joining("&"));
     }
 
-    /** A full, successful sign-in, for tests whose point is what happens afterward. */
+    /**
+     * A full, successful sign-in, for tests whose point is what happens afterward. PKCE is asserted
+     * first because a refused verifier ends in the same 302 to {@code ?signin=failed} as any other
+     * failed sign-in; checked first, the failure names its cause rather than an unexpected {@code
+     * Location}.
+     */
     private void signIn(HttpClient client) throws Exception {
         HttpResponse<Void> callback = completeCallback(client);
+        assertThat(idp.lastTokenRequestPassedPkce())
+                .as("the token request's code_verifier hashes to the authorization request's S256 challenge")
+                .isTrue();
         assertThat(callback.statusCode()).isEqualTo(302);
         assertThat(callback.headers().firstValue("Location")).contains(WEB_ORIGIN + "/");
-        assertThat(idp.lastTokenRequestHadCodeVerifier()).isTrue();
     }
 
     private static String queryParam(URI uri, String name) {
@@ -305,8 +318,9 @@ class GatewayLoginFlowIT {
     }
 
     @Test
-    void Given_a_browser_signing_in_When_it_completes_the_code_flow_Then_pkce_is_sent_and_it_lands_on_the_public_url()
-            throws Exception {
+    void
+            Given_a_browser_signing_in_When_it_completes_the_code_flow_Then_pkce_is_verified_and_it_lands_on_the_public_url()
+                    throws Exception {
         try (HttpClient client = newClient()) {
             signIn(client);
         }
@@ -532,6 +546,35 @@ class GatewayLoginFlowIT {
         }
     }
 
+    /**
+     * The threat PKCE exists for: an authorization request altered on its way through the browser.
+     * The challenge the provider then holds is not the one the gateway derived from its verifier,
+     * so the code it issues must not be redeemable with that verifier — the provider refuses the
+     * exchange and the sign-in fails. Before #101 the fake checked only that both halves arrived,
+     * and this sign-in would have succeeded.
+     */
+    @Test
+    void Given_a_code_challenge_altered_on_its_way_to_the_provider_When_the_code_is_exchanged_Then_the_sign_in_fails()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            URI authorizeUri = startLogin(client);
+            URI altered = new URI(
+                    authorizeUri.getScheme(),
+                    null,
+                    authorizeUri.getHost(),
+                    authorizeUri.getPort(),
+                    authorizeUri.getPath(),
+                    replacing(authorizeUri.getQuery(), "code_challenge", FOREIGN_CODE_CHALLENGE),
+                    null);
+
+            HttpResponse<Void> callback = finishLogin(client, altered);
+
+            assertThat(idp.lastTokenRequestPassedPkce()).isFalse();
+            assertSignInFailed(callback);
+            assertNotSignedIn(client);
+        }
+    }
+
     /** A sign-in that did not complete: the browser is sent back to the web client, told so. */
     private static void assertSignInFailed(HttpResponse<Void> callback) {
         assertThat(callback.statusCode()).isEqualTo(302);
@@ -723,6 +766,9 @@ class GatewayLoginFlowIT {
 
             HttpResponse<Void> callback = completeCallback(client);
 
+            assertThat(idp.lastTokenRequestPassedPkce())
+                    .as("the code exchange itself succeeded, so only the ID token can have failed the sign-in")
+                    .isTrue();
             assertThat(callback.statusCode()).isEqualTo(302);
             assertThat(callback.headers().firstValue("Location")).contains(WEB_ORIGIN + "/?signin=failed");
         }
