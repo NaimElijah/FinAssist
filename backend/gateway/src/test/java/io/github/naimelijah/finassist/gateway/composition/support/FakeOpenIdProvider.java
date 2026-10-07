@@ -58,10 +58,11 @@ import tools.jackson.databind.json.JsonMapper;
  *   <li>{@link #refuseNextRefresh()} — the next {@code refresh_token} grant is answered
  *       {@code invalid_grant}, once, then reverts to succeeding.
  *   <li>{@link #lastAuthorizationRequestHadPkce()} and {@link #lastTokenRequestPassedPkce()} —
- *       whether the authorization request carried an {@code S256} challenge, and whether the
- *       token request's verifier hashed to that same challenge. A code exchange whose verifier
- *       does not is refused {@code invalid_grant}, as Keycloak refuses it, so the sign-in itself
- *       fails rather than a flag alone recording the mismatch.
+ *       whether the current flow's authorization request carried an {@code S256} challenge, and
+ *       whether its code exchange presented a verifier that hashed to that same challenge. An
+ *       exchange whose verifier does not, or whose code was never issued or is already spent, is
+ *       refused {@code invalid_grant}, as Keycloak refuses it, so the sign-in itself fails rather
+ *       than a flag alone recording the mismatch.
  *   <li>{@link #lastAccessToken()}, {@link #lastRefreshToken()} and {@link #lastIdToken()} — the
  *       exact values last issued, for the log sweep to search for.
  *   <li>{@link #stall(Endpoint)} and {@link #releaseStalledRequests()} — the endpoint accepts the
@@ -196,10 +197,17 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         }
     }
 
+    /** Whether the last authorization request carried a {@code code_challenge} with method {@code S256}. */
     public boolean lastAuthorizationRequestHadPkce() {
         return lastAuthorizationRequestHadPkce;
     }
 
+    /**
+     * Whether the current flow's code exchange presented an issued, unspent code whose {@code
+     * code_verifier} hashes to that code's {@code S256} challenge. Reset to {@code false} when a
+     * flow starts at the authorization endpoint, so it stays {@code false} for a flow whose exchange
+     * never arrives or names an unknown code; a {@code refresh_token} grant never touches it.
+     */
     public boolean lastTokenRequestPassedPkce() {
         return lastTokenRequestPassedPkce;
     }
@@ -276,8 +284,10 @@ public final class FakeOpenIdProvider implements AutoCloseable {
 
     /**
      * RFC 7636 §4.6: an {@code S256} challenge is {@code BASE64URL(SHA256(ASCII(code_verifier)))},
-     * unpadded. Derived here with the JDK alone rather than through any library the gateway itself
-     * uses, so a mistake in how the gateway derives its challenge cannot be agreed with.
+     * unpadded. Derived here independently of Spring Security, whose {@code
+     * OAuth2AuthorizationRequestCustomizers} derives the gateway's challenge, so a mistake in that
+     * derivation cannot be agreed with. Both rest on the same JDK primitives, which this does not
+     * claim to check.
      */
     private static boolean s256Matches(String verifier, String challenge) {
         if (verifier == null || challenge == null) {
@@ -387,6 +397,9 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
-    /** What an issued code was bound to at the authorization endpoint, and must be checked against at the token endpoint. */
+    /**
+     * What an issued code was bound to at the authorization endpoint: the nonce its ID token must
+     * carry, for the gateway to check, and the PKCE challenge its exchange must satisfy here.
+     */
     private record PendingAuthorization(String nonce, String codeChallenge) {}
 }

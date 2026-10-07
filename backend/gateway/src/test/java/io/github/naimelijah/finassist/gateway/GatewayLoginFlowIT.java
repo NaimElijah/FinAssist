@@ -271,8 +271,9 @@ class GatewayLoginFlowIT {
 
     /**
      * A full, successful sign-in, for tests whose point is what happens afterward. PKCE is asserted
-     * first: a verifier the fake provider refuses also lands on a failed sign-in's redirect, and
-     * this way the failure names the cause rather than the symptom.
+     * first because a refused verifier ends in the same 302 to {@code ?signin=failed} as any other
+     * failed sign-in; checked first, the failure names its cause rather than an unexpected {@code
+     * Location}.
      */
     private void signIn(HttpClient client) throws Exception {
         HttpResponse<Void> callback = completeCallback(client);
@@ -317,8 +318,9 @@ class GatewayLoginFlowIT {
     }
 
     @Test
-    void Given_a_browser_signing_in_When_it_completes_the_code_flow_Then_pkce_is_sent_and_it_lands_on_the_public_url()
-            throws Exception {
+    void
+            Given_a_browser_signing_in_When_it_completes_the_code_flow_Then_pkce_is_verified_and_it_lands_on_the_public_url()
+                    throws Exception {
         try (HttpClient client = newClient()) {
             signIn(client);
         }
