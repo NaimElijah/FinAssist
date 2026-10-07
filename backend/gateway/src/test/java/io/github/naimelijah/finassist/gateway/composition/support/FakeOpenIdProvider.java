@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +33,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -67,7 +69,8 @@ import tools.jackson.databind.json.JsonMapper;
  *       exact values last issued, for the log sweep to search for.
  *   <li>{@link #stall(Endpoint)} and {@link #releaseStalledRequests()} — the endpoint accepts the
  *       connection and then never answers, which is what an unbounded HTTP client hangs on
- *       forever (see {@code GatewayKeycloakTimeoutIT}).
+ *       forever (see {@code GatewayKeycloakTimeoutIT}). {@link #stalledArrivals(Endpoint)} says
+ *       whether the call meant to be stranded actually arrived.
  * </ul>
  *
  * <p>Each exchange is handled on its own thread, so one stalled request does not also stop the
@@ -98,6 +101,10 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     private final RSAKey rsaKey;
     private final Map<String, PendingAuthorization> pendingByCode = new ConcurrentHashMap<>();
     private final Set<Endpoint> stalled = ConcurrentHashMap.newKeySet();
+    // An EnumMap is not thread-safe, but this one is filled once here and never changed again; only
+    // the counters it holds are, and they are atomic.
+    private final Map<Endpoint, AtomicInteger> stalledArrivals =
+            new EnumMap<>(Map.of(Endpoint.TOKEN, new AtomicInteger(), Endpoint.CERTS, new AtomicInteger()));
     private final AtomicReference<CountDownLatch> release = new AtomicReference<>(new CountDownLatch(1));
 
     private final AtomicReference<String> lastAccessToken = new AtomicReference<>();
@@ -184,7 +191,28 @@ public final class FakeOpenIdProvider implements AutoCloseable {
      */
     public void releaseStalledRequests() {
         stalled.clear();
+        stalledArrivals.values().forEach(count -> count.set(0));
         release.getAndSet(new CountDownLatch(1)).countDown();
+    }
+
+    /**
+     * How many requests have reached {@code endpoint} while it was stalled, since the last {@link
+     * #releaseStalledRequests()}. A flow that fails fast before ever making the stalled call answers
+     * just as quickly as a bounded client giving up on it, so a timeout test needs this to tell the
+     * two apart.
+     */
+    public int stalledArrivals(Endpoint endpoint) {
+        return stalledArrivals.get(endpoint).get();
+    }
+
+    /** Strands this exchange if {@code endpoint} is stalled, counting it first; {@code false} when it is not. */
+    private boolean strandIfStalled(Endpoint endpoint) throws IOException {
+        if (!stalled.contains(endpoint)) {
+            return false;
+        }
+        stalledArrivals.get(endpoint).incrementAndGet();
+        awaitRelease();
+        return true;
     }
 
     /** Blocks this exchange until the test releases it, or {@link #STALL_LIMIT} passes. */
@@ -247,8 +275,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     }
 
     private void handleToken(HttpExchange exchange) throws IOException {
-        if (stalled.contains(Endpoint.TOKEN)) {
-            awaitRelease();
+        if (strandIfStalled(Endpoint.TOKEN)) {
             return;
         }
         Map<String, String> form =
@@ -359,8 +386,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     }
 
     private void handleCerts(HttpExchange exchange) throws IOException {
-        if (stalled.contains(Endpoint.CERTS)) {
-            awaitRelease();
+        if (strandIfStalled(Endpoint.CERTS)) {
             return;
         }
         Map<String, Object> jwkSet = new com.nimbusds.jose.jwk.JWKSet(rsaKey.toPublicJWK()).toJSONObject();
