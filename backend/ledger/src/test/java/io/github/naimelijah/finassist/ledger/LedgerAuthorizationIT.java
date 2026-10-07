@@ -25,6 +25,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
@@ -49,9 +50,15 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * one fewer than that list plus the three routes {@link #KNOWN_NON_BUSINESS_ENDPOINTS} names. A test
  * that only checked the endpoints it already knew about would never notice a new one arriving
  * unprotected.
+ *
+ * <p>{@link AutoConfigureMetrics} restores the Prometheus registry Spring Boot 4 leaves out of a
+ * test by default, exactly as {@code LedgerObservabilityIT} does. Without it {@code
+ * /actuator/prometheus} is not served at all, and the public-path case could only assert that it is
+ * not refused, never that it answers.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
+@AutoConfigureMetrics
 @ExtendWith(OutputCaptureExtension.class)
 class LedgerAuthorizationIT extends PostgresFixture {
 
@@ -291,6 +298,10 @@ class LedgerAuthorizationIT extends PostgresFixture {
      * /actuator/metrics/jvm.memory.used} is there for the wildcard half of {@code
      * /actuator/metrics/**}: the bare path alone would pass whether the pattern ended in {@code
      * /**} or not.
+     *
+     * <p>Each must answer 200, not merely escape 401 and 403: a 404 escapes both, so a rule that
+     * survived while its endpoint disappeared — an Actuator exposure dropped, springdoc removed —
+     * would otherwise still pass (#100).
      */
     @ParameterizedTest
     @ValueSource(
@@ -305,10 +316,8 @@ class LedgerAuthorizationIT extends PostgresFixture {
                 "/v3/api-docs",
                 "/v3/api-docs.yaml"
             })
-    void Given_a_public_path_When_requested_with_no_token_Then_it_answers(String path) throws Exception {
-        MvcResult result = mvc.perform(withHost(get(path))).andReturn();
-
-        assertThat(result.getResponse().getStatus()).isNotIn(401, 403);
+    void Given_a_public_path_When_requested_with_no_token_Then_it_serves_200(String path) throws Exception {
+        mvc.perform(withHost(get(path))).andExpect(status().isOk());
     }
 
     /**
