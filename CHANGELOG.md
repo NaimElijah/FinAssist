@@ -250,4 +250,11 @@ history; write the commit message well and this file writes itself.
 - The ledger's ArchUnit rules are no longer dormant: `archRule.failOnEmptyShould=false` was
   deleted with the first domain class, and all five now run against real code.
 
+### Security
+
+- **The assistant verifies tokens with PyJWT 2.15.0**, past two advisories against 2.14.0
+  (`PYSEC-2026-4141`, `PYSEC-2026-4183`). urllib3, which the OTLP exporter reaches through
+  `requests`, moves from 2.7.0 to 2.8.0, past three more (`PYSEC-2026-4175` to `4177`). The web client's toolchain takes
+  patched `brace-expansion`, `source-map-js` and `undici`; none of the three ships in the bundle.
+
 [Unreleased]: https://github.com/NaimElijah/FinAssist/commits/main
