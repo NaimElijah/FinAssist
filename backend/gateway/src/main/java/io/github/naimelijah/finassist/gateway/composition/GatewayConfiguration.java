@@ -76,13 +76,13 @@ public class GatewayConfiguration {
      * and this customizer would stop applying; {@code GatewayLoginFlowIT}'s two upgrade-offer
      * assertions are what turns red if that happens.
      *
-     * <p>One header this pin does not reach: Spring Cloud Gateway's {@code
-     * RemoveHopByHopRequestHeadersFilter} strips an incoming {@code Upgrade} and {@code
-     * Connection} but not {@code HTTP2-Settings}, so a client-supplied one still reaches the
-     * upstream. Harmless today — nothing in any of the three codebases parses that header, and
-     * neither Tomcat nor h11 acts on an upgrade offer without the {@code Upgrade} and {@code
-     * Connection: upgrade} headers this filter does strip — but it would matter the day an
-     * upstream started treating a bare {@code HTTP2-Settings} header as an offer on its own.
+     * <p>One header this pin does not reach is the client's own {@code HTTP2-Settings}. Spring
+     * Cloud Gateway's {@code RemoveHopByHopRequestHeadersFilter} strips an incoming {@code Upgrade}
+     * and {@code Connection} but not that one, so each relay route in {@code application.yml}
+     * removes it with a {@code RemoveRequestHeader} filter of its own (#98). Nothing upstream acts on
+     * a bare {@code HTTP2-Settings} today, and neither Tomcat nor h11 acts on an upgrade offer
+     * without the other two headers. The filter means no upstream that ever did would be handed one.
+     * {@code GatewayLoginFlowIT} proves it never arrives on either route.
      */
     @Bean
     ClientHttpRequestFactoryBuilderCustomizer<JdkClientHttpRequestFactoryBuilder> relayHttpVersion() {

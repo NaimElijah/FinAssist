@@ -117,6 +117,12 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **The gateway no longer relays a browser's `HTTP2-Settings` header.** Spring Cloud Gateway's
+  hop-by-hop filter strips an incoming `Upgrade` and `Connection`, but not `HTTP2-Settings`, so a
+  client-supplied one reached the ledger or the assistant as sent. Nothing upstream acted on it
+  without the other two headers. Both relay routes now remove it with their own
+  `RemoveRequestHeader` filter, and `GatewayLoginFlowIT` sends one through each and fails the build
+  if it arrives ([#98](https://github.com/NaimElijah/FinAssist/issues/98)).
 - **The assistant answers 503, not 500, when the JWKS endpoint answers a body that is not JSON.**
   PyJWT's `PyJWKClient` wraps only transport failures, so a `200` whose body `json.load` could not
   read, such as a proxy's maintenance page or bytes that are not UTF-8, escaped `TokenVerifier`
