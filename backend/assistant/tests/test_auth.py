@@ -7,7 +7,7 @@ clock itself, so "just inside the leeway" and "just outside" are proven rather t
 way the ledger's own ``LedgerTokenValidationTest`` proves the same boundaries in Java.
 
 Most scenarios use ``static_key_source``, a stand-in that returns one fixed key regardless of the
-token. Two scenarios near the bottom of this file use the real ``PyJWKClient`` (via
+token. The scenarios near the bottom of this file use the real ``PyJWKClient`` (via
 :func:`~finassist_assistant.adapters.auth.jwks_key_source`) against a real ``http.server`` running
 in a background thread, because a stand-in cannot prove the wrapper around a real dependency is
 wired correctly.
@@ -818,6 +818,57 @@ def Given_a_JWKS_endpoint_that_hangs_up_unanswered_When_verified_Then_it_is_unav
         _verifier(jwks_key_source(jwks_server_that_hangs_up), fixed_clock)(token)
 
 
+@pytest.fixture(
+    params=[b"<html><body>Down for maintenance</body></html>", b"\x80\x81"],
+    ids=["not-json", "not-utf-8"],
+)
+def jwks_server_answering_garbage(request: pytest.FixtureRequest) -> Iterator[str]:
+    """A JWKS endpoint that answers ``200`` with a body ``json.load`` cannot read (#121).
+
+    Both bodies get through ``PyJWKClient.fetch_data``'s ``try`` unwrapped, because it wraps
+    transport failures only. One is not JSON at all, such as a proxy's maintenance page, and
+    raises ``json.JSONDecodeError``. The other is not even UTF-8 and raises
+    ``UnicodeDecodeError`` before parsing starts. Both hold on PyJWT 2.15.0.
+    """
+    body: bytes = request.param
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format: str, *_args: Any) -> None:
+            pass  # silences http.server's default stderr access log during the test run
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/certs"
+    finally:
+        server.shutdown()
+        thread.join()
+
+
+def Given_a_JWKS_endpoint_answering_a_body_that_is_not_JSON_When_verified_Then_it_is_unavailable(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    jwks_server_answering_garbage: str,
+    fixed_clock: Clock,
+) -> None:
+    """The key source answered, but with nothing a key can be read from. Nothing here says
+    whether the token was good, so this is the same outage as an unreachable source, never a
+    refusal. Before #121 the decoding error escaped unwrapped and the request answered 500."""
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock()))
+
+    with pytest.raises(KeySourceUnavailable) as unavailable:
+        _verifier(jwks_key_source(jwks_server_answering_garbage), fixed_clock)(token)
+    assert unavailable.value.reason == REASON_KEY_SOURCE
+
+
 def Given_a_payload_nested_too_deeply_When_the_real_client_reads_it_Then_it_is_malformed(
     jwks_server: str, fixed_clock: Clock
 ) -> None:
@@ -889,6 +940,22 @@ def Given_no_token_verifier_When_create_app_builds_its_own_Then_it_refuses_a_for
 
     assert response.status_code == 401
     assert response.json()["code"] == "UNAUTHENTICATED"
+
+
+def Given_no_token_verifier_and_a_JWKS_answering_non_JSON_When_a_route_is_requested_Then_it_is_503(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey], jwks_server_answering_garbage: str
+) -> None:
+    """The case #121 reported, seen at the HTTP boundary: 503 ``AUTHENTICATION_UNAVAILABLE``,
+    where the unwrapped decoding error used to reach the generic handler as a 500."""
+    private_key, _ = rsa_key_pair
+    app = create_app(_live_settings(jwks_server_answering_garbage))
+    token = _encode(private_key, _live_claims())
+
+    with TestClient(app, headers={"Authorization": f"Bearer {token}"}) as client:
+        response = client.get(_POSITION_URL)
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "AUTHENTICATION_UNAVAILABLE"
 
 
 # --- settings: the issuer and JWKS URI are validated as http(s) at start-up --------------------

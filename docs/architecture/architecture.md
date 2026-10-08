@@ -328,9 +328,9 @@ identity provider and the `finassist` realm it imports at start-up (ADR-031); an
 - **Ledger and assistant to Keycloak** — HTTP, fetching the signing keys a bearer token is
   verified against from an explicit, internal JWKS URI: `LEDGER_OIDC_JWKS_URI` and
   `ASSISTANT_OIDC_JWKS_URI`, `http://keycloak:8080/realms/finassist/protocol/openid-connect/certs`
-  under Compose. Neither runs OIDC discovery at start-up (ADR-030). An unreachable key source is
-  answered 503 `AUTHENTICATION_UNAVAILABLE`, never 401 (`LedgerKeySourceOutageIT`,
-  `test_authorization.py`).
+  under Compose. Neither runs OIDC discovery at start-up (ADR-030). An unreachable key source, or
+  one that answers a body that is not JSON, is answered 503 `AUTHENTICATION_UNAVAILABLE`, never 401
+  (`LedgerKeySourceOutageIT`, `LedgerJwksBodyTest`, `test_authorization.py`, `test_auth.py`).
 - **Keycloak to `keycloak-db`** — JDBC, to its own PostgreSQL on the Compose network. That
   database publishes no port and shares no role, volume or failure domain with the ledger's `db`
   (ADR-031).

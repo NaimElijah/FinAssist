@@ -39,6 +39,7 @@ and four tests in ``tests/test_auth.py`` guard the exact-match boundary - so do 
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -188,7 +189,8 @@ class TokenRefused(Exception):  # noqa: N818 - ADR-030's own term: a refused tok
 
 
 class KeySourceUnavailable(Exception):  # noqa: N818 - ADR-030's term: an unreachable key source
-    """The JWKS source could not be reached; this token's validity could not be decided.
+    """The JWKS source could not be reached, or answered a body that is not JSON; this token's
+    validity could not be decided.
 
     Deliberately a different exception type from :class:`TokenRefused`, mirroring the ledger's
     own split between a rejected token and an unreachable key source: nothing here says whether
@@ -257,8 +259,8 @@ class TokenVerifier:
 
         :raises TokenRefused: the token is blank, malformed, unsigned by a key this service
             trusts, or fails a required claim.
-        :raises KeySourceUnavailable: the JWKS source could not be reached, so this token's
-            validity could not be decided at all.
+        :raises KeySourceUnavailable: the JWKS source could not be reached, or answered a body
+            that is not JSON, so this token's validity could not be decided at all.
         """
         if not token.strip():
             raise TokenRefused(REASON_MISSING)
@@ -267,6 +269,13 @@ class TokenVerifier:
             signing_key = self._key_source(token)
         except jwt.PyJWKClientConnectionError as unreachable:
             raise KeySourceUnavailable from unreachable
+        except (json.JSONDecodeError, UnicodeDecodeError) as unreadable:
+            # PyJWKClient.fetch_data wraps transport failures only, so a 200 whose body json.load
+            # cannot read arrives here raw. The key source answered, but with nothing a key can
+            # be read from: an outage like an unreachable one, never the caller's fault (#121).
+            # Neither type can come from the token: PyJWT turns its own parse errors into
+            # DecodeError.
+            raise KeySourceUnavailable from unreadable
         except jwt.PyJWKClientError as unmatched:
             raise TokenRefused(REASON_UNKNOWN_KEY) from unmatched
         except jwt.PyJWTError as malformed:
