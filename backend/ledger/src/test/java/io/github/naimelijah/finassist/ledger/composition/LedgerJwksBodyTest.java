@@ -7,7 +7,6 @@ import com.sun.net.httpserver.HttpServer;
 import io.github.naimelijah.finassist.ledger.TestTokens;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -47,6 +46,14 @@ class LedgerJwksBodyTest {
     private static final String ISSUER = "http://localhost:8081/realms/finassist";
     private static final String AUDIENCE = "finassist-ledger";
     private static final String CERTS_PATH = "/certs";
+
+    /**
+     * The one address the server binds and the decoder dials. Named rather than taken from {@code
+     * InetAddress.getLoopbackAddress()}, which is {@code ::1} under {@code
+     * java.net.preferIPv6Addresses=true}, so the two can never disagree.
+     */
+    private static final String LOOPBACK = "127.0.0.1";
+
     private static final String HTML = "text/html";
     private static final String JSON = "application/json";
 
@@ -76,7 +83,7 @@ class LedgerJwksBodyTest {
     void Given_a_jwks_endpoint_answering_a_body_that_is_not_a_key_set_When_a_token_is_decoded_Then_it_is_an_outage(
             String description, String contentType, byte[] body) throws IOException {
         AtomicInteger served = new AtomicInteger();
-        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        HttpServer server = HttpServer.create(new InetSocketAddress(LOOPBACK, 0), 0);
         server.createContext(CERTS_PATH, exchange -> {
             served.incrementAndGet();
             exchange.getResponseHeaders().add("Content-Type", contentType);
@@ -87,7 +94,7 @@ class LedgerJwksBodyTest {
         });
         server.start();
         try {
-            String jwksUri = "http://127.0.0.1:" + server.getAddress().getPort() + CERTS_PATH;
+            String jwksUri = "http://" + LOOPBACK + ":" + server.getAddress().getPort() + CERTS_PATH;
             JwtDecoder decoder = new LedgerSecurityConfiguration().jwtDecoder(jwksUri, ISSUER, AUDIENCE, FIXED_CLOCK);
             String token = TestTokens.owner();
 
