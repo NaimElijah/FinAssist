@@ -819,16 +819,19 @@ def Given_a_JWKS_endpoint_that_hangs_up_unanswered_When_verified_Then_it_is_unav
 
 
 @pytest.fixture(
-    params=[b"<html><body>Down for maintenance</body></html>", b"\x80\x81"],
-    ids=["not-json", "not-utf-8"],
+    params=[b"<html><body>Down for maintenance</body></html>", b"\x80\x81", b"[" * 100_000],
+    ids=["not-json", "not-utf-8", "nested-too-deep"],
 )
 def jwks_server_answering_garbage(request: pytest.FixtureRequest) -> Iterator[str]:
-    """A JWKS endpoint that answers ``200`` with a body ``json.load`` cannot read (#121).
+    """A JWKS endpoint that answers ``200`` with a body that is not JSON (#121).
 
-    Both bodies get through ``PyJWKClient.fetch_data``'s ``try`` unwrapped, because it wraps
-    transport failures only. One is not JSON at all, such as a proxy's maintenance page, and
-    raises ``json.JSONDecodeError``. The other is not even UTF-8 and raises
-    ``UnicodeDecodeError`` before parsing starts. Both hold on PyJWT 2.15.0.
+    Each body gets through ``PyJWKClient.fetch_data``'s ``try`` unwrapped, because it wraps
+    transport failures only:
+    - a proxy's maintenance page is not JSON at all, and raises ``json.JSONDecodeError``;
+    - bytes that are not even UTF-8 raise ``UnicodeDecodeError`` before parsing starts;
+    - brackets nested past the parser's recursion limit raise ``RecursionError``, which is not a
+      ``ValueError`` at all.
+    All three hold on PyJWT 2.15.0.
     """
     body: bytes = request.param
 

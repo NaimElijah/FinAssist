@@ -124,9 +124,9 @@ history; write the commit message well and this file writes itself.
   `RemoveRequestHeader` filter, and `GatewayLoginFlowIT` sends one through each and fails the build
   if it arrives ([#98](https://github.com/NaimElijah/FinAssist/issues/98)).
 - **The assistant answers 503, not 500, when the JWKS endpoint answers a body that is not JSON.**
-  PyJWT's `PyJWKClient` wraps only transport failures, so a `200` whose body `json.load` could not
-  read, such as a proxy's maintenance page or bytes that are not UTF-8, escaped `TokenVerifier`
-  unwrapped and every authenticated request answered 500 `INTERNAL_ERROR`. It is now the same
+  PyJWT's `PyJWKClient` wraps only transport failures, so a `200` whose body was not JSON text,
+  was not UTF-8, or nested brackets too deep to parse escaped `TokenVerifier` unwrapped. Any request
+  whose signing key was not already cached then answered 500 `INTERNAL_ERROR`. It is now the same
   outage as an unreachable key source: 503 `AUTHENTICATION_UNAVAILABLE`, logged at ERROR, which
   is what the ledger already answered for the same body. Pinned in `test_auth.py` through the real
   client and the assembled app ([#121](https://github.com/NaimElijah/FinAssist/issues/121)).

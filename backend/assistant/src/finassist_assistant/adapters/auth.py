@@ -269,12 +269,13 @@ class TokenVerifier:
             signing_key = self._key_source(token)
         except jwt.PyJWKClientConnectionError as unreachable:
             raise KeySourceUnavailable from unreachable
-        except (json.JSONDecodeError, UnicodeDecodeError) as unreadable:
-            # PyJWKClient.fetch_data wraps transport failures only, so a 200 whose body json.load
-            # cannot read arrives here raw. The key source answered, but with nothing a key can
-            # be read from: an outage like an unreachable one, never the caller's fault (#121).
-            # Neither type can come from the token: PyJWT turns its own parse errors into
-            # DecodeError.
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as unreadable:
+            # PyJWKClient.fetch_data wraps transport failures only. A 200 whose body is not JSON
+            # text, is not UTF-8, or nests too deep to parse therefore arrives here raw. The key
+            # source answered, but with nothing a key can be read from: an outage like an
+            # unreachable one, never the caller's fault (#121). The token cannot raise any of
+            # the three: PyJWT turns every parse error in a token's own header or payload into
+            # DecodeError, which the last arm below reports as malformed.
             raise KeySourceUnavailable from unreadable
         except jwt.PyJWKClientError as unmatched:
             raise TokenRefused(REASON_UNKNOWN_KEY) from unmatched

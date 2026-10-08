@@ -59,6 +59,8 @@ class LedgerJwksBodyTest {
                         HTML,
                         "<html><body>Down for maintenance</body></html>".getBytes(StandardCharsets.UTF_8)),
                 Arguments.of("not UTF-8", HTML, new byte[] {(byte) 0x80, (byte) 0x81}),
+                Arguments.of(
+                        "nested too deep to parse", HTML, "[".repeat(100_000).getBytes(StandardCharsets.UTF_8)),
                 Arguments.of("a JSON array", JSON, "[]".getBytes(StandardCharsets.UTF_8)),
                 Arguments.of("a JSON object with no keys member", JSON, "{}".getBytes(StandardCharsets.UTF_8)));
     }
