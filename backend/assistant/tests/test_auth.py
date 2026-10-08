@@ -24,7 +24,7 @@ import threading
 from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, NamedTuple
 
 import jwt
 import pytest
@@ -818,11 +818,24 @@ def Given_a_JWKS_endpoint_that_hangs_up_unanswered_When_verified_Then_it_is_unav
         _verifier(jwks_key_source(jwks_server_that_hangs_up), fixed_clock)(token)
 
 
+class _UnreadableJwks(NamedTuple):
+    """A running JWKS endpoint, and the error its body makes ``json.load`` raise."""
+
+    uri: str
+    provokes: type[Exception]
+
+
 @pytest.fixture(
-    params=[b"<html><body>Down for maintenance</body></html>", b"\x80\x81", b"[" * 100_000],
-    ids=["not-json", "not-utf-8", "nested-too-deep"],
+    params=[
+        pytest.param(
+            (b"<html><body>Down for maintenance</body></html>", json.JSONDecodeError),
+            id="not-json",
+        ),
+        pytest.param((b"\x80\x81", UnicodeDecodeError), id="not-utf-8"),
+        pytest.param((b"[" * 100_000, RecursionError), id="nested-too-deep"),
+    ],
 )
-def jwks_server_answering_garbage(request: pytest.FixtureRequest) -> Iterator[str]:
+def jwks_server_answering_garbage(request: pytest.FixtureRequest) -> Iterator[_UnreadableJwks]:
     """A JWKS endpoint that answers ``200`` with a body that is not JSON (#121).
 
     Each body gets through ``PyJWKClient.fetch_data``'s ``try`` unwrapped, because it wraps
@@ -833,7 +846,9 @@ def jwks_server_answering_garbage(request: pytest.FixtureRequest) -> Iterator[st
       ``ValueError`` at all.
     All three hold on PyJWT 2.15.0.
     """
-    body: bytes = request.param
+    body: bytes
+    provokes: type[Exception]
+    body, provokes = request.param
 
     class _Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
@@ -850,7 +865,7 @@ def jwks_server_answering_garbage(request: pytest.FixtureRequest) -> Iterator[st
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}/certs"
+        yield _UnreadableJwks(f"http://127.0.0.1:{server.server_port}/certs", provokes)
     finally:
         server.shutdown()
         thread.join()
@@ -858,18 +873,23 @@ def jwks_server_answering_garbage(request: pytest.FixtureRequest) -> Iterator[st
 
 def Given_a_JWKS_endpoint_answering_a_body_that_is_not_JSON_When_verified_Then_it_is_unavailable(
     rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
-    jwks_server_answering_garbage: str,
+    jwks_server_answering_garbage: _UnreadableJwks,
     fixed_clock: Clock,
 ) -> None:
     """The key source answered, but with nothing a key can be read from. Nothing here says
     whether the token was good, so this is the same outage as an unreachable source, never a
-    refusal. Before #121 the decoding error escaped unwrapped and the request answered 500."""
+    refusal. Before #121 the decoding error escaped unwrapped and the request answered 500.
+
+    The cause is asserted, not just the type: a fixture that stopped answering ``200`` would
+    raise ``KeySourceUnavailable`` through the connection-error arm instead, and would pass
+    without the arm this test exists for."""
     private_key, _ = rsa_key_pair
     token = _encode(private_key, _valid_claims(fixed_clock()))
+    key_source = jwks_key_source(jwks_server_answering_garbage.uri)
 
     with pytest.raises(KeySourceUnavailable) as unavailable:
-        _verifier(jwks_key_source(jwks_server_answering_garbage), fixed_clock)(token)
-    assert unavailable.value.reason == REASON_KEY_SOURCE
+        _verifier(key_source, fixed_clock)(token)
+    assert isinstance(unavailable.value.__cause__, jwks_server_answering_garbage.provokes)
 
 
 def Given_a_payload_nested_too_deeply_When_the_real_client_reads_it_Then_it_is_malformed(
@@ -946,12 +966,13 @@ def Given_no_token_verifier_When_create_app_builds_its_own_Then_it_refuses_a_for
 
 
 def Given_no_token_verifier_and_a_JWKS_answering_non_JSON_When_a_route_is_requested_Then_it_is_503(
-    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey], jwks_server_answering_garbage: str
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    jwks_server_answering_garbage: _UnreadableJwks,
 ) -> None:
     """The case #121 reported, seen at the HTTP boundary: 503 ``AUTHENTICATION_UNAVAILABLE``,
     where the unwrapped decoding error used to reach the generic handler as a 500."""
     private_key, _ = rsa_key_pair
-    app = create_app(_live_settings(jwks_server_answering_garbage))
+    app = create_app(_live_settings(jwks_server_answering_garbage.uri))
     token = _encode(private_key, _live_claims())
 
     with TestClient(app, headers={"Authorization": f"Bearer {token}"}) as client:
