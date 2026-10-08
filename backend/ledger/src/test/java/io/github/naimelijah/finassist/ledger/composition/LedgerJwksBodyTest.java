@@ -34,12 +34,13 @@ import org.springframework.security.oauth2.jwt.JwtException;
  * JwtAuthenticationProvider} wraps only the former in {@code AuthenticationServiceException}, which
  * {@link ProblemAuthenticationEntryPoint} answers 503 {@code AUTHENTICATION_UNAVAILABLE} with the
  * outage's ERROR line. {@code LedgerKeySourceOutageIT} proves that last step over HTTP for an
- * unreachable source; this class proves an unreadable one reaches the same branch.
+ * unreachable source; this class proves an unreadable one raises the type that selects the same
+ * branch.
  *
- * <p>The two JSON bodies, {@code []} and {@code {}}, are where the services still differ: the
- * assistant answers both 401, because PyJWT raises its generic key-client errors for them — the
- * same types it raises for a token naming an unknown key. They are pinned here so that difference
- * is recorded against the ledger's actual behaviour rather than a reading of its sources.
+ * <p>The two JSON bodies, {@code []} and {@code {}}, are where the services differ until #126 is
+ * closed: the assistant answers both 401, because PyJWT raises its generic key-client errors for
+ * them — the same types it raises for a token naming an unknown key. They are pinned here so that
+ * difference is recorded against the ledger's actual behaviour rather than a reading of its sources.
  */
 class LedgerJwksBodyTest {
 
