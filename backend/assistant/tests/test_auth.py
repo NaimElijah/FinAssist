@@ -892,6 +892,29 @@ def Given_a_JWKS_endpoint_answering_a_body_that_is_not_JSON_When_verified_Then_i
     assert isinstance(unavailable.value.__cause__, jwks_server_answering_garbage.provokes)
 
 
+@pytest.mark.parametrize(
+    "header",
+    [b"<html><body>Down for maintenance</body></html>", b"\x80\x81", b"[" * 100_000],
+    ids=["not-json", "not-utf-8", "nested-too-deep"],
+)
+def Given_a_token_whose_header_is_not_JSON_When_the_real_client_reads_it_Then_it_is_malformed(
+    header: bytes, jwks_server: str, fixed_clock: Clock
+) -> None:
+    """The premise of the key-source arm for unreadable JWKS bodies, pinned.
+
+    That arm turns ``json.JSONDecodeError``, ``UnicodeDecodeError`` and ``RecursionError`` into a
+    503 outage. It is only safe because none of the three can come from the token: PyJWT parses a
+    token's header inside ``get_signing_key_from_jwt`` and turns each failure into ``DecodeError``.
+    A token whose header provokes each one must therefore stay a 401 refusal. If a PyJWT upgrade
+    stopped converting them, any caller holding no key at all could raise a false outage page."""
+    payload = json.dumps(_valid_claims(fixed_clock())).encode()
+    token = ".".join([_b64url(header), _b64url(payload), _b64url(b"not-a-signature")])
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(jwks_key_source(jwks_server), fixed_clock)(token)
+    assert refused.value.reason == REASON_MALFORMED
+
+
 def Given_a_payload_nested_too_deeply_When_the_real_client_reads_it_Then_it_is_malformed(
     jwks_server: str, fixed_clock: Clock
 ) -> None:
