@@ -317,12 +317,12 @@ identity provider and the `finassist` realm it imports at start-up (ADR-031); an
   Security's defaults for all three build theirs from a static factory that never sees those
   settings, and `GatewayKeycloakTimeoutIT` drives a Keycloak that accepts the connection and then
   never answers to prove each gives up.
-- **Gateway to ledger, and gateway to assistant** — HTTP, relaying `GET`/`POST
-  /ledger/api/v1/**` and `/assistant/api/v1/**` once each request is authenticated. A Spring
-  Cloud Gateway Server Web MVC route strips the gateway's own path prefix, removes the browser's
-  `Authorization`, `Cookie` and `X-FINASSIST-XSRF-TOKEN` headers, and attaches the session's own
-  access token — refreshed first if it had expired. **The ledger and the assistant each validate
-  that token themselves and deny by default**, deciding what it may do from their own role tables
+- **Gateway to ledger, and gateway to assistant** — HTTP, relaying `GET`/`POST /ledger/api/v1/**`
+  and `/assistant/api/v1/**` once each request is authenticated. A Spring Cloud Gateway Server Web
+  MVC route strips the gateway's own path prefix, removes the browser's `Authorization`, `Cookie`,
+  `X-FINASSIST-XSRF-TOKEN` and `HTTP2-Settings` headers, and attaches the session's own access
+  token — refreshed first if it had expired. **The ledger and the assistant each validate that
+  token themselves and deny by default**, deciding what it may do from their own role tables
   (ADR-032). One access token carries both audiences, `finassist-ledger` and `finassist-assistant`,
   so the one session serves both relays.
 - **Ledger and assistant to Keycloak** — HTTP, fetching the signing keys a bearer token is
