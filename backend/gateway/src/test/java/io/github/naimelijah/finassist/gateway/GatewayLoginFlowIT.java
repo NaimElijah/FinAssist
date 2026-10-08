@@ -77,6 +77,12 @@ class GatewayLoginFlowIT {
     /** A bearer the browser supplied itself, which no downstream service may ever be shown. */
     private static final String BROWSER_SUPPLIED_BEARER = "Bearer a-token-the-browser-chose";
 
+    /**
+     * A well-formed h2c settings payload, base64url-encoded as RFC 7540 §3.2.1 has an upgrade send
+     * it: MAX_CONCURRENT_STREAMS 100, INITIAL_WINDOW_SIZE 2^30 and ENABLE_PUSH 0.
+     */
+    private static final String CLIENT_HTTP2_SETTINGS = "AAMAAABkAARAAAAAAAIAAAAA";
+
     /** A W3C trace id the client picks, so the value asserted downstream can only have come from it. */
     private static final String CLIENT_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
 
@@ -149,11 +155,11 @@ class GatewayLoginFlowIT {
      * The browser's half of every test below, pinned to HTTP/1.1 — which is what a browser speaks
      * to a cleartext server, since none implements the h2c upgrade. Left at the JDK's {@link
      * HttpClient.Version#HTTP_2} default, this client would offer one to the gateway on every
-     * request, and {@code HTTP2-Settings} — which Spring Cloud Gateway's hop-by-hop filter does
-     * not strip, unlike {@code Upgrade} and {@code Connection} — would arrive downstream having
-     * come from here rather than from the relay. Pinned, anything an upgrade offer leaves at a
-     * {@link FakeService} can only have been added by the gateway's own outbound client, which is
-     * what {@link #assertNoHttp2UpgradeOffer} is about.
+     * request. The relay strips all three of that offer's headers: Spring Cloud Gateway's hop-by-hop
+     * filter takes {@code Upgrade} and {@code Connection}, and each route's own filter takes {@code
+     * HTTP2-Settings} (#98). The pin keeps the upgrade-offer tests from depending on that, though.
+     * Pinned, anything an upgrade offer leaves at a {@link FakeService} can only have been added by
+     * the gateway's own outbound client, which is what {@link #assertNoHttp2UpgradeOffer} is about.
      */
     private static HttpClient newClient() {
         return HttpClient.newBuilder()
@@ -362,7 +368,10 @@ class GatewayLoginFlowIT {
      *
      * <p>The set is closed, and both routes are checked, because it is the whole list that is the
      * decision: a removal dropped from one route and not the other is exactly the asymmetry that
-     * would otherwise go unnoticed.
+     * would otherwise go unnoticed. {@code HTTP2-Settings} is on it because Spring Cloud Gateway's
+     * own hop-by-hop filter leaves it alone (#98); {@link
+     * #Given_a_signed_in_session_When_a_relayed_request_carries_HTTP2_Settings_Then_neither_upstream_receives_it}
+     * proves it never arrives.
      */
     @Test
     void Given_the_shipped_relay_routes_When_their_filters_are_read_Then_each_strips_the_browsers_own_headers() {
@@ -371,7 +380,7 @@ class GatewayLoginFlowIT {
         for (RouteProperties route : routes.getRoutes()) {
             assertThat(removedHeaders(route))
                     .as("headers the %s route removes", route.getId())
-                    .containsExactlyInAnyOrder("Cookie", XSRF_HEADER, "Authorization");
+                    .containsExactlyInAnyOrder("Cookie", XSRF_HEADER, "Authorization", "HTTP2-Settings");
         }
     }
 
@@ -668,6 +677,42 @@ class GatewayLoginFlowIT {
 
             assertThat(response.statusCode()).isEqualTo(200);
             assertNoHttp2UpgradeOffer(ledger.lastRequest());
+        }
+    }
+
+    /**
+     * A client-supplied {@code HTTP2-Settings} header stops at the gateway, on both routes (#98).
+     *
+     * <p>Spring Cloud Gateway's {@code RemoveHopByHopRequestHeadersFilter} strips an incoming
+     * {@code Upgrade} and {@code Connection}, but its removal set omits {@code HTTP2-Settings}, so
+     * without a route filter of its own the header reaches the upstream as the browser sent it.
+     * Nothing upstream acts on it alone today. The guarantee is that nothing upstream ever gets the
+     * chance, so each route is asserted separately and neither can lose its filter unnoticed.
+     */
+    @Test
+    void Given_a_signed_in_session_When_a_relayed_request_carries_HTTP2_Settings_Then_neither_upstream_receives_it()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+
+            for (String path :
+                    List.of("/ledger/api/v1/accounts", "/assistant/api/v1/portfolio/holdings/ACME/position")) {
+                HttpResponse<String> response = client.send(
+                        HttpRequest.newBuilder(URI.create(gatewayUrl(path)))
+                                .timeout(TIMEOUT)
+                                .header("HTTP2-Settings", CLIENT_HTTP2_SETTINGS)
+                                .GET()
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+                assertThat(response.statusCode()).as(path).isEqualTo(200);
+            }
+
+            assertThat(ledger.lastRequest().hasHeader("http2-settings"))
+                    .as("HTTP2-Settings at the ledger")
+                    .isFalse();
+            assertThat(assistant.lastRequest().hasHeader("http2-settings"))
+                    .as("HTTP2-Settings at the assistant")
+                    .isFalse();
         }
     }
 

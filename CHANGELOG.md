@@ -117,6 +117,19 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **The gateway no longer relays a browser's `HTTP2-Settings` header.** Spring Cloud Gateway's
+  hop-by-hop filter strips an incoming `Upgrade` and `Connection`, but not `HTTP2-Settings`, so a
+  client-supplied one reached the ledger or the assistant as sent. Nothing upstream acted on it
+  without the other two headers. Both relay routes now remove it with their own
+  `RemoveRequestHeader` filter, and `GatewayLoginFlowIT` sends one through each and fails the build
+  if it arrives ([#98](https://github.com/NaimElijah/FinAssist/issues/98)).
+- **The assistant answers 503, not 500, when the JWKS endpoint answers a body that is not JSON.**
+  PyJWT's `PyJWKClient` wraps only transport failures, so a `200` whose body was not JSON text,
+  was not UTF-8, or nested brackets too deep to parse escaped `TokenVerifier` unwrapped. Any request
+  whose signing key was not already cached then answered 500 `INTERNAL_ERROR`. It is now the same
+  outage as an unreachable key source: 503 `AUTHENTICATION_UNAVAILABLE`, logged at ERROR, which
+  is what the ledger already answered for the same body. Pinned in `test_auth.py` through the real
+  client and the assembled app ([#121](https://github.com/NaimElijah/FinAssist/issues/121)).
 - **The ledger starts against a database that already holds the books.** `V1_2` is numbered below
   `2.1` and `3.1`, which every existing database has applied, and Flyway refuses an unapplied
   lower version unless it is told to run out of order — so the ledger would have exited at
