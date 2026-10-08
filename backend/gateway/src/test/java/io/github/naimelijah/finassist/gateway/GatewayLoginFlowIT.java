@@ -369,7 +369,9 @@ class GatewayLoginFlowIT {
      * <p>The set is closed, and both routes are checked, because it is the whole list that is the
      * decision: a removal dropped from one route and not the other is exactly the asymmetry that
      * would otherwise go unnoticed. {@code HTTP2-Settings} is on it because Spring Cloud Gateway's
-     * own hop-by-hop filter leaves it alone (#98); the test below proves it never arrives.
+     * own hop-by-hop filter leaves it alone (#98); {@link
+     * #Given_a_signed_in_session_When_a_relayed_request_carries_HTTP2_Settings_Then_neither_upstream_receives_it}
+     * proves it never arrives.
      */
     @Test
     void Given_the_shipped_relay_routes_When_their_filters_are_read_Then_each_strips_the_browsers_own_headers() {

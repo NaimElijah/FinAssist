@@ -79,10 +79,10 @@ public class GatewayConfiguration {
      * <p>One header this pin does not reach is the client's own {@code HTTP2-Settings}. Spring
      * Cloud Gateway's {@code RemoveHopByHopRequestHeadersFilter} strips an incoming {@code Upgrade}
      * and {@code Connection} but not that one, so each relay route in {@code application.yml}
-     * removes it with a {@code RemoveRequestHeader} filter of its own (#98). Nothing upstream acts on
-     * a bare {@code HTTP2-Settings} today, and neither Tomcat nor h11 acts on an upgrade offer
-     * without the other two headers. The filter means no upstream that ever did would be handed one.
-     * {@code GatewayLoginFlowIT} proves it never arrives on either route.
+     * removes it with a {@code RemoveRequestHeader} filter of its own (#98). Neither Tomcat nor
+     * uvicorn acts on an upgrade offer without the other two headers, so nothing upstream acts on a
+     * bare {@code HTTP2-Settings} today; the filter keeps it that way if one ever would. {@code
+     * GatewayLoginFlowIT} proves it never arrives on either route.
      */
     @Bean
     ClientHttpRequestFactoryBuilderCustomizer<JdkClientHttpRequestFactoryBuilder> relayHttpVersion() {
