@@ -193,8 +193,9 @@ class KeySourceUnavailable(Exception):  # noqa: N818 - ADR-030's term: an unreac
     validity could not be decided.
 
     Deliberately a different exception type from :class:`TokenRefused`, mirroring the ledger's
-    own split between a rejected token and an unreachable key source: nothing here says whether
-    the token would have been valid, so a caller must answer 503, never 401.
+    own split between a rejected token and an unusable key source, whether unreachable or
+    unreadable: nothing here says whether the token would have been valid, so a caller must
+    answer 503, never 401.
     """
 
     reason: Final[str] = REASON_KEY_SOURCE
@@ -536,13 +537,19 @@ class BearerAuthentication:
     async def _report_unavailable(
         self, reason: str, scope: Scope, receive: Receive, send: Send
     ) -> None:
-        """503: the JWKS source could not be reached, so nothing here says the token was bad.
+        """503: the JWKS source could not be reached, or answered nothing a key can be read from,
+        so nothing here says the token was bad.
 
         Logged at ERROR, under an event of its own rather than :meth:`_refuse`'s, because this is
-        the one failure here that is nobody's caller's fault: while the key source is unreachable
-        *no* request can be authenticated, which is "actionable now". Still the reason category
-        alone, never the token. The ledger's ``ProblemAuthenticationEntryPoint`` draws the same
-        line in the same place, so a rule written against one service reads the other.
+        the one failure here that is nobody's caller's fault: until the key source serves a key
+        set again, *no* request can be authenticated, which is "actionable now". Still the reason
+        category alone, never the token. The ledger's ``ProblemAuthenticationEntryPoint`` draws the
+        same line in the same place, so a rule written against one service reads the other.
+
+        The message says "could not reach" even for an unreadable body, on purpose. The ledger
+        logs its equivalent line for the same bodies. And a JWKS URI that answers a page that is
+        not a key set almost always means something answered in the key source's place, such as
+        a proxy with Keycloak down behind it, so the operator's next step is the same.
         """
         _log.error(
             "could not reach the authentication key source; "
