@@ -22,7 +22,8 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Answers every request that reaches the ledger with no valid identity: {@code 401} {@code
  * UNAUTHENTICATED} for a missing or rejected token, or {@code 503} {@code
- * AUTHENTICATION_UNAVAILABLE} when the JWKS source itself could not be reached (ADR-030).
+ * AUTHENTICATION_UNAVAILABLE} when the JWKS source itself could not be reached, or answered a body
+ * no key set can be parsed from (ADR-030; the second case is pinned by {@code LedgerJwksBodyTest}).
  *
  * <p>The 503 branch is why this class exists rather than the default {@code
  * BearerTokenAuthenticationEntryPoint}: a JWKS outage must never look like a bad token, because

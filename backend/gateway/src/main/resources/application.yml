@@ -113,6 +113,11 @@ spring:
                 # would reach the service untouched. Removing it makes the guarantee this
                 # gateway's rather than a library's choice of `set` over `add`.
                 - RemoveRequestHeader=Authorization
+                # The hop-by-hop filter Spring Cloud Gateway runs on every relay strips Upgrade and
+                # Connection but not HTTP2-Settings (its removal set omits it, read from the 5.0.3
+                # sources), so a browser-supplied one would reach the service as sent. Nothing
+                # upstream acts on it alone, and nothing upstream is given the chance to (#98).
+                - RemoveRequestHeader=HTTP2-Settings
                 # No client-registration id: TokenRelayFilterFunctions reads it from the
                 # signed-in OAuth2AuthenticationToken, which is the only kind of principal that
                 # ever reaches this route - the security chain requires authentication first.
@@ -127,6 +132,7 @@ spring:
                 - RemoveRequestHeader=Cookie
                 - RemoveRequestHeader=X-FINASSIST-XSRF-TOKEN
                 - RemoveRequestHeader=Authorization
+                - RemoveRequestHeader=HTTP2-Settings
                 - TokenRelay=
   http:
     clients:

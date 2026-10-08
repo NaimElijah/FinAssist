@@ -39,6 +39,7 @@ and four tests in ``tests/test_auth.py`` guard the exact-match boundary - so do 
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -188,11 +189,13 @@ class TokenRefused(Exception):  # noqa: N818 - ADR-030's own term: a refused tok
 
 
 class KeySourceUnavailable(Exception):  # noqa: N818 - ADR-030's term: an unreachable key source
-    """The JWKS source could not be reached; this token's validity could not be decided.
+    """The JWKS source could not be reached, or answered a body that is not JSON; this token's
+    validity could not be decided.
 
     Deliberately a different exception type from :class:`TokenRefused`, mirroring the ledger's
-    own split between a rejected token and an unreachable key source: nothing here says whether
-    the token would have been valid, so a caller must answer 503, never 401.
+    own split between a rejected token and an unusable key source, whether unreachable or
+    unreadable: nothing here says whether the token would have been valid, so a caller must
+    answer 503, never 401.
     """
 
     reason: Final[str] = REASON_KEY_SOURCE
@@ -257,8 +260,8 @@ class TokenVerifier:
 
         :raises TokenRefused: the token is blank, malformed, unsigned by a key this service
             trusts, or fails a required claim.
-        :raises KeySourceUnavailable: the JWKS source could not be reached, so this token's
-            validity could not be decided at all.
+        :raises KeySourceUnavailable: the JWKS source could not be reached, or answered a body
+            that is not JSON, so this token's validity could not be decided at all.
         """
         if not token.strip():
             raise TokenRefused(REASON_MISSING)
@@ -267,6 +270,14 @@ class TokenVerifier:
             signing_key = self._key_source(token)
         except jwt.PyJWKClientConnectionError as unreachable:
             raise KeySourceUnavailable from unreachable
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as unreadable:
+            # PyJWKClient.fetch_data wraps transport failures only. A 200 whose body is not JSON
+            # text, is not UTF-8, or nests too deep to parse therefore arrives here raw. The key
+            # source answered, but with nothing a key can be read from: an outage like an
+            # unreachable one, never the caller's fault (#121). The token cannot raise any of
+            # the three: PyJWT turns every parse error in a token's own header or payload into
+            # DecodeError, which the last arm below reports as malformed.
+            raise KeySourceUnavailable from unreadable
         except jwt.PyJWKClientError as unmatched:
             raise TokenRefused(REASON_UNKNOWN_KEY) from unmatched
         except jwt.PyJWTError as malformed:
@@ -526,13 +537,19 @@ class BearerAuthentication:
     async def _report_unavailable(
         self, reason: str, scope: Scope, receive: Receive, send: Send
     ) -> None:
-        """503: the JWKS source could not be reached, so nothing here says the token was bad.
+        """503: the JWKS source could not be reached, or answered nothing a key can be read from,
+        so nothing here says the token was bad.
 
         Logged at ERROR, under an event of its own rather than :meth:`_refuse`'s, because this is
-        the one failure here that is nobody's caller's fault: while the key source is unreachable
-        *no* request can be authenticated, which is "actionable now". Still the reason category
-        alone, never the token. The ledger's ``ProblemAuthenticationEntryPoint`` draws the same
-        line in the same place, so a rule written against one service reads the other.
+        the one failure here that is nobody's caller's fault: until the key source serves a key
+        set again, *no* request can be authenticated, which is "actionable now". Still the reason
+        category alone, never the token. The ledger's ``ProblemAuthenticationEntryPoint`` draws the
+        same line in the same place, so a rule written against one service reads the other.
+
+        The message says "could not reach" even for an unreadable body, on purpose. The ledger
+        logs its equivalent line for the same bodies. And a JWKS URI that answers a page that is
+        not a key set almost always means something answered in the key source's place, such as
+        a proxy with Keycloak down behind it, so the operator's next step is the same.
         """
         _log.error(
             "could not reach the authentication key source; "
