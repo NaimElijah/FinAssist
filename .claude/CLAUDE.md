@@ -283,9 +283,9 @@ These are enforced by the build, not by review. Breaking one fails CI.
   never the token. `ProblemAuthenticationEntryPoint.reportOutage` and
   `BearerAuthentication._report_unavailable`; pinned by `ProblemAuthenticationEntryPointTest`,
   `LedgerKeySourceOutageIT` and `tests/test_authorization.py`. Keep the two services symmetric.
-  **A key source that answers nothing a token can be verified against is that same outage**:
-  not JSON, JSON that is not a key set, or a set left with no key at all — while a set lacking
-  only the token's key stays a refusal (ADR-037). Tell the two apart where they are raised, never
+  **A key source that answers something that cannot be read as a key set, or a set with no key
+  at all, is that same outage** — while a set that holds keys stays a refusal, even when none of
+  them can verify this token (ADR-037). Tell the two apart where they are raised, never
   by an exception's message: the ledger's `EmptyKeySetIsAnOutage` checks for an empty set only
   once no key matched, and the assistant maps failures only inside `_KeySetClient.fetch_data`,
   which never sees a token. `LedgerJwksBodyTest` and `tests/test_auth.py` serve both services the

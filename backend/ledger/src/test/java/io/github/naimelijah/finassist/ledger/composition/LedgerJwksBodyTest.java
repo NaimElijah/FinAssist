@@ -26,9 +26,9 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 
 /**
- * A JWKS endpoint that answers {@code 200} with a body no token can be verified against is an
- * outage, never a refused token (ADR-037). That covers a body that is not a key set at all, the
- * ledger half of #121, and a key set holding no key the ledger can use, #126.
+ * A JWKS endpoint that answers {@code 200} with a body that cannot be read as a key set, or with a
+ * key set holding no key at all, is an outage, never a refused token (ADR-037). The first is the
+ * ledger half of #121, the second #126.
  *
  * <p>Drives the real decoder {@link LedgerSecurityConfiguration#jwtDecoder} builds against a JDK
  * {@link HttpServer} serving each body. The contract it pins is the exception's type, because that

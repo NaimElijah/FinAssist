@@ -329,7 +329,7 @@ identity provider and the `finassist` realm it imports at start-up (ADR-031); an
   verified against from an explicit, internal JWKS URI: `LEDGER_OIDC_JWKS_URI` and
   `ASSISTANT_OIDC_JWKS_URI`, `http://keycloak:8080/realms/finassist/protocol/openid-connect/certs`
   under Compose. Neither runs OIDC discovery at start-up (ADR-030). A key source that cannot be
-  reached, or answers nothing a token can be verified against — a body that is not JSON, JSON that
+  reached, or answers something that cannot be used as a key set — a body that is not JSON, JSON that
   is not a key set, or a key set left with no key at all, such as `{"keys": []}` — is answered 503
   `AUTHENTICATION_UNAVAILABLE` on both services, never 401, while a set lacking only the token's
   key is a 401 (ADR-037; `LedgerKeySourceOutageIT`, `LedgerJwksBodyTest`, `test_authorization.py`,

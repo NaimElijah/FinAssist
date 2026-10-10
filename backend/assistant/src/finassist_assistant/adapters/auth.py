@@ -153,7 +153,7 @@ stand-in that returns one fixed key regardless of the token it is given.
 
 Whatever the implementation, it reports a failure in one of three ways, and
 :class:`TokenVerifier` relies on the split: :class:`KeySourceUnavailable` when the key set could
-not be fetched or holds nothing a token can be verified against; ``jwt.PyJWKClientError`` when the
+not be fetched, cannot be read as a key set, or holds no key; ``jwt.PyJWKClientError`` when the
 set holds keys, only not the one the token names; and any other ``jwt.PyJWTError`` when the token
 itself is malformed.
 """
@@ -193,8 +193,8 @@ class TokenRefused(Exception):  # noqa: N818 - ADR-030's own term: a refused tok
 
 
 class KeySourceUnavailable(Exception):  # noqa: N818 - ADR-030's term: an unreachable key source
-    """The JWKS source could not be reached, or answered nothing a token can be verified against;
-    this token's validity could not be decided (ADR-030, ADR-037).
+    """The JWKS source could not be reached, answered something that cannot be read as a key set,
+    or served a set with no key; this token's validity could not be decided (ADR-030, ADR-037).
 
     Deliberately a different exception type from :class:`TokenRefused`, mirroring the ledger's
     own split between a rejected token and an unusable key source, whether unreachable, unreadable

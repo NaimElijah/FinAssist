@@ -42,7 +42,7 @@ append-only history: to change course, add a new record and mark the old one
 | [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted |
 | [035](ADR-035-flyway-runs-out-of-order.md) | Flyway runs out of order, because every context owns a major version | Accepted |
 | [036](ADR-036-least-privilege-keycloak-client-scoping.md) | Deny each Keycloak client the realm's full scope | Accepted |
-| [037](ADR-037-an-unusable-key-set-is-an-outage.md) | A key set nothing can be verified against is an outage, on both services | Accepted |
+| [037](ADR-037-an-unusable-key-set-is-an-outage.md) | A key set that cannot be read, or holds no key, is an outage, on both services | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.

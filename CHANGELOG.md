@@ -127,12 +127,13 @@ history; write the commit message well and this file writes itself.
   [ADR-037](docs/ADRs/ADR-037-an-unusable-key-set-is-an-outage.md)
   ([#126](https://github.com/NaimElijah/FinAssist/issues/126)).
 - **The assistant answers 503 when the JWKS endpoint answers JSON that is not a usable key set.**
-  PyJWT raises the same types for `[]`, `{}`, `{"keys": []}` or a set of only unsupported keys as
-  for a token naming a key the set lacks, so the assistant refused every request 401 at WARN, and
-  a JSON integer too long for Python to convert, or a key member of the wrong JSON type, escaped
-  as a 500. `jwks_key_source` now builds a
-  `PyJWKClient` whose `fetch_data` — which fetches and parses the set and never sees a token —
-  raises every failure as `KeySourceUnavailable`: 503 `AUTHENTICATION_UNAVAILABLE`, logged at
+  PyJWT raises `PyJWKClientError` for `[]`, the type a token naming a key the set lacks raises
+  too, and `PyJWKSetError` for `{}`, `{"keys": []}` or a set of only unsupported keys, which the
+  verifier fell through to `rejected`. So the assistant refused every request 401 at WARN, and a
+  JSON integer too long for Python to convert, a key member of the wrong JSON type, or a
+  connection reset mid-response escaped as a 500. `jwks_key_source` now builds a `PyJWKClient`
+  whose `fetch_data` — which fetches and parses the set and never sees a token — raises every
+  failure as `KeySourceUnavailable`: 503 `AUTHENTICATION_UNAVAILABLE`, logged at
   ERROR, the ledger's answer for the same bodies. Pinned in `test_auth.py` through the real
   client and the assembled app. See
   [ADR-037](docs/ADRs/ADR-037-an-unusable-key-set-is-an-outage.md)

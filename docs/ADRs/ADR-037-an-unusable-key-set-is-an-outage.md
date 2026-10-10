@@ -1,4 +1,4 @@
-# ADR-037: A key set nothing can be verified against is an outage, on both services
+# ADR-037: A key set that cannot be read, or holds no key, is an outage, on both services
 
 - **Status:** Accepted
 - **Date:** 2026-10-10
@@ -26,9 +26,10 @@ neither drew it on purpose:
 The two services also failed for different reasons. Spring Security surfaces a key set that will
 not parse as a plain `JwtException`, but it parses `{"keys": []}` successfully and then reports a
 token whose key it cannot find. Nimbus skips a key whose `kty` it does not support, so a set made
-only of those parses as empty and ends in the same place. PyJWT raises the same exception types for
-these bodies as for a token naming a key the set lacks, so the assistant could not tell them apart
-by type ([#126](https://github.com/NaimElijah/FinAssist/issues/126)).
+only of those parses as empty and ends in the same place. On the assistant, PyJWT raises
+`PyJWKClientError` for `[]`, the very type a token naming a key the set lacks raises, and
+`PyJWKSetError` for the other bodies, which its verifier fell through to `rejected`; neither type
+told it the set itself was unusable ([#126](https://github.com/NaimElijah/FinAssist/issues/126)).
 
 **A 401 here is the costly answer.** The browser is sent back to sign in, Keycloak signs it in, and
 the next request is refused again. Only WARN lines are left, so nobody is paged. Meanwhile no
@@ -37,27 +38,31 @@ ERROR means in this repository.
 
 ## Decision
 
-**A key source that answers nothing a token can be verified against is an outage, on both
-services: 503 `AUTHENTICATION_UNAVAILABLE`, logged at ERROR with the `key_source` reason.** That
-covers a source that cannot be reached, a body that is not JSON, JSON that is not a key set, and a
-key set left with no key at all once the service has set aside the keys it cannot parse —
-`{"keys": []}` included.
+**A key source that cannot be reached, answers something that cannot be read as a key set, or
+serves a key set with no key in it is an outage, on both services: 503
+`AUTHENTICATION_UNAVAILABLE`, logged at ERROR with the `key_source` reason.** That covers a body
+that is not JSON, JSON that is not a key set, and a key set left with no key at all once the
+service has set aside the keys it cannot parse — `{"keys": []}` included.
 
 **A key set that holds keys, but not the one a token names, stays a refused token: 401
-`unknown_key`, at WARN.** That is one caller's problem, and the line between the two is whether
-*any* token could be verified against the set, not whether *this* one can.
+`unknown_key`, at WARN.** That is one caller's problem. The line between the two is whether the set
+holds any key at all, not whether any token could be verified against it: a set whose only key is
+published for encryption (`use: "enc"`) verifies nothing, yet it holds a key, and both services
+refuse the token 401.
 
 Each service separates "the set could not be used" from "this token's key is not in it" in the
 layer that can see the difference, rather than by reading an exception's message:
 
 - **Assistant.** `jwks_key_source` builds a private `PyJWKClient` subclass that overrides only
-  `fetch_data`, the method PyJWT documents as overridable. Every failure to fetch, decode or parse
-  the set is raised from there as `KeySourceUnavailable`. That method never sees a token, so a
-  failure inside it cannot be the caller's.
+  `fetch_data`, a public method PyJWT's own `get_jwk_set` allows a subclass to override. Every
+  failure to fetch, decode or parse the set is raised from there as `KeySourceUnavailable`. That
+  method never sees a token, so a failure inside it cannot be the caller's.
 - **Ledger.** `LedgerSecurityConfiguration` wraps the `JWSVerificationKeySelector` Spring builds in
-  `EmptyKeySetIsAnOutage`. When no key matches a token, it asks the same `JWKSource` for every key.
-  If the set holds none, it raises Nimbus's `KeySourceException`, which `NimbusJwtDecoder` surfaces
-  as a plain `JwtException` and `ProblemAuthenticationEntryPoint` answers 503.
+  `EmptyKeySetIsAnOutage`. When no key matches a token whose algorithm the decoder allows, it asks
+  the same `JWKSource` for every key. If the set holds none, it raises Nimbus's
+  `KeySourceException`, which `NimbusJwtDecoder` surfaces as a plain `JwtException` and
+  `ProblemAuthenticationEntryPoint` answers 503. A token with a disallowed algorithm is refused
+  without any lookup, exactly as before.
 
 Pinned by `LedgerJwksBodyTest` and by `tests/test_auth.py`, one body for each row of the table above.
 
@@ -67,15 +72,24 @@ Pinned by `LedgerJwksBodyTest` and by `tests/test_auth.py`, one body for each ro
 
 - **One rule for an operator, on both services.** A JWKS that cannot verify anything pages
   someone, whatever its body looks like and whichever service noticed first.
-- **The caches are unchanged.** PyJWT writes its key-set cache only after a successful fetch, so a
-  failed refresh still leaves the last good set in place, and its per-`kid` cache is untouched.
-  The ledger's extra lookup asks the same cached `JWKSource` and runs only when no key matched.
+- **An ordinary request costs nothing more.** PyJWT writes its key-set cache only after a
+  successful fetch, so a failed refresh still leaves the last good set in place, and its per-`kid`
+  cache is untouched. The ledger's extra lookup runs only once no key matched, and on a set that
+  holds keys it is answered from the same cached `JWKSource`.
 
 **Makes hard**
 
 - **The ledger now departs from Spring Security's default on purpose.** An upgrade that changes the
   key selector Spring builds fails at start-up, because `EmptyKeySetIsAnOutage` refuses any other
   selector type rather than wrapping it blindly.
+- **An empty set costs the ledger two JWKS fetches per request instead of one.** Nimbus fetches the
+  set again whenever a selection comes back empty, and Spring builds the source without a rate
+  limit, so the extra lookup fetches a second time. It happens only while every request is already
+  an outage.
+- **The assistant relies on an undocumented detail of PyJWT.** `fetch_data` also parses the set,
+  into the key-set cache, which is where `PyJWKSetError` comes from. A PyJWT release that moved
+  that parse elsewhere would put `{}` and `{"keys": []}` back at 401; `tests/test_auth.py` serves
+  each of those bodies and would fail first.
 - **An empty set now raises an ERROR, where it used to raise WARN.** A deployment whose identity
   provider legitimately published no keys for a while would page someone. Keycloak generates an
   active signing key for every realm and serves none only once an administrator has disabled them
