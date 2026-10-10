@@ -35,13 +35,14 @@ append-only history: to change course, add a new record and mark the old one
 | [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
 | [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030 |
 | [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030 |
-| [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted |
+| [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037 |
 | [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted |
 | [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035 |
 | [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted |
 | [035](ADR-035-flyway-runs-out-of-order.md) | Flyway runs out of order, because every context owns a major version | Accepted |
 | [036](ADR-036-least-privilege-keycloak-client-scoping.md) | Deny each Keycloak client the realm's full scope | Accepted |
+| [037](ADR-037-an-unusable-key-set-is-an-outage.md) | A key set nothing can be verified against is an outage, on both services | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -81,3 +82,9 @@ need. Nothing was exploitable — every consumer already ignores a role it does 
 the claim's meaning was wrong. `fullScopeAllowed: false` plus an explicit `scopeMappings` entry
 per client is the fix, pinned statically by `KeycloakRealmTest` and against a running Keycloak by
 `KeycloakRealmIT`.
+
+037 extends 030 on 2026-10-10: a JWKS endpoint that answers, but with nothing a token can be
+verified against, is the same outage as one that cannot be reached, on both services. Before it,
+the ledger and the assistant disagreed on which such bodies were outages and which were refused
+tokens, and an empty key set was a 401 on both, so nobody was paged while no request could be
+authenticated ([#126](https://github.com/NaimElijah/FinAssist/issues/126)).
