@@ -20,6 +20,7 @@ import hashlib
 import hmac
 import json
 import socket
+import struct
 import threading
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
@@ -852,6 +853,48 @@ def Given_a_JWKS_endpoint_that_hangs_up_unanswered_When_verified_Then_it_is_unav
 
     with pytest.raises(KeySourceUnavailable):
         _verifier(jwks_key_source(jwks_server_that_hangs_up), fixed_clock)(token)
+
+
+@pytest.fixture
+def jwks_server_that_resets_mid_body() -> Iterator[str]:
+    """A JWKS endpoint that sends ``200`` and part of its body, then resets the connection.
+
+    ``SO_LINGER`` with a zero timeout makes ``close`` send a reset rather than a clean end of
+    stream, so reading the body raises ``ConnectionResetError`` - an ``OSError`` that
+    ``PyJWKClient.fetch_data`` does not wrap, unlike the ``IncompleteRead`` a clean close would
+    give. Written over a raw socket, because ``http.server`` cannot stop halfway through a body.
+    """
+    listener = socket.create_server(("127.0.0.1", 0))
+
+    def answer_then_reset() -> None:
+        connection, _ = listener.accept()
+        with connection:
+            connection.recv(65_536)
+            connection.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n{"keys": [')
+            connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+
+    thread = threading.Thread(target=answer_then_reset, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{listener.getsockname()[1]}/certs"
+    finally:
+        thread.join()
+        listener.close()
+
+
+def Given_a_JWKS_endpoint_that_resets_mid_body_When_verified_Then_it_is_unavailable(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    jwks_server_that_resets_mid_body: str,
+    fixed_clock: Clock,
+) -> None:
+    """An outage like any other, never a 500: the reset escapes PyJWT unwrapped, so the key source
+    has to map it itself. Found in the review of #132."""
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock()))
+
+    with pytest.raises(KeySourceUnavailable) as unavailable:
+        _verifier(jwks_key_source(jwks_server_that_resets_mid_body), fixed_clock)(token)
+    assert isinstance(unavailable.value.__cause__, ConnectionResetError)
 
 
 class _UnreadableJwks(NamedTuple):

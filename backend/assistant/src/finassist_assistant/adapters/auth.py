@@ -229,6 +229,7 @@ class _KeySetClient(PyJWKClient):
             ValueError,
             TypeError,
             RecursionError,
+            OSError,
         ) as unusable:
             # PyJWKClientError: unreachable (its subclass PyJWKClientConnectionError), or a body
             # that is not a JSON object. PyJWKSetError: no keys member, no keys, or no key of a
@@ -237,6 +238,8 @@ class _KeySetClient(PyJWKClient):
             # or an integer past CPython's conversion limit (#121, #126). TypeError: a key member
             # of the wrong JSON type, which PyJWK raises bare from that same parse and the key set
             # does not skip. RecursionError: nested too deep to parse, and not a ValueError at all.
+            # OSError: the connection reset while the response was being read. urllib passes that
+            # through raw, and it is none of the three types PyJWT wraps.
             raise KeySourceUnavailable from unusable
 
 
