@@ -57,6 +57,13 @@ class LedgerJwksBodyTest {
     private static final String HTML = "text/html";
     private static final String JSON = "application/json";
 
+    /**
+     * Valid JSON, and past the 4,300 digits CPython converts by default, so the assistant's {@code
+     * json.load} refuses it (#126). The ledger has no such limit; the case is here so both services
+     * are pinned against the same body.
+     */
+    private static final String LONG_INTEGER = "1".repeat(5_000);
+
     /** The decoder never reaches its validators here, but it is built with a fixed clock all the same. */
     private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
 
@@ -70,7 +77,17 @@ class LedgerJwksBodyTest {
                 Arguments.of(
                         "nested too deep to parse", HTML, "[".repeat(100_000).getBytes(StandardCharsets.UTF_8)),
                 Arguments.of("a JSON array", JSON, "[]".getBytes(StandardCharsets.UTF_8)),
-                Arguments.of("a JSON object with no keys member", JSON, "{}".getBytes(StandardCharsets.UTF_8)));
+                Arguments.of("a JSON object with no keys member", JSON, "{}".getBytes(StandardCharsets.UTF_8)),
+                Arguments.of(
+                        "a JSON integer too long for Python to convert",
+                        JSON,
+                        LONG_INTEGER.getBytes(StandardCharsets.UTF_8)),
+                Arguments.of(
+                        "a key whose modulus is that integer",
+                        JSON,
+                        ("{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"test-signing-key\",\"e\":\"AQAB\",\"n\":" + LONG_INTEGER
+                                        + "}]}")
+                                .getBytes(StandardCharsets.UTF_8)));
     }
 
     /**
