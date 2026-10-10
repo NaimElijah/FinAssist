@@ -40,7 +40,7 @@ jobs:
       # produces none, and a second red step there would obscure the real failure.
       - name: Publish coverage
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: coverage-ledger
           path: backend/ledger/target/site/jacoco
@@ -70,7 +70,7 @@ jobs:
       # produces none, and a second red step there would obscure the real failure.
       - name: Publish coverage
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: coverage-gateway
           path: backend/gateway/target/site/jacoco
@@ -108,7 +108,7 @@ jobs:
       # produces none, and a second red step there would obscure the real failure.
       - name: Publish coverage
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: coverage-assistant
           path: backend/assistant/coverage.xml
@@ -152,7 +152,7 @@ jobs:
       # produces none, and a second red step there would obscure the real failure.
       - name: Publish coverage
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: coverage-web
           path: frontend/web/coverage
