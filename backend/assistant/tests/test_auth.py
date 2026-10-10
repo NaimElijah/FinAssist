@@ -21,7 +21,7 @@ import hmac
 import json
 import socket
 import threading
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -590,6 +590,22 @@ def Given_a_token_signed_with_the_none_algorithm_When_the_real_client_reads_it_T
     assert refused.value.reason == REASON_MALFORMED
 
 
+def _hmac_confused(public_key: rsa.RSAPublicKey, claims: Mapping[str, Any]) -> str:
+    """*claims* signed HS256 with *public_key*'s PEM bytes as the secret, naming the real key's
+    ``kid`` - the algorithm-confusion attack, built by hand for the reason the test below gives."""
+    public_pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    header = _b64url(
+        json.dumps({"alg": "HS256", "typ": "JWT", "kid": KEY_ID}, separators=(",", ":")).encode()
+    )
+    payload = _b64url(json.dumps(dict(claims), separators=(",", ":")).encode())
+    signing_input = f"{header}.{payload}".encode()
+    signature = hmac.new(public_pem, signing_input, hashlib.sha256).digest()
+    return f"{header}.{payload}.{_b64url(signature)}"
+
+
 def Given_a_token_signed_HS256_with_the_public_key_bytes_When_verified_Then_it_is_refused(
     rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
     static_key_source: KeySource,
@@ -609,17 +625,7 @@ def Given_a_token_signed_HS256_with_the_public_key_bytes_When_verified_Then_it_i
     because *this* particular attack happens to be hard to build.
     """
     _, public_key = rsa_key_pair
-    public_pem = public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    )
-    header = _b64url(
-        json.dumps({"alg": "HS256", "typ": "JWT", "kid": KEY_ID}, separators=(",", ":")).encode()
-    )
-    payload = _b64url(json.dumps(_valid_claims(fixed_clock()), separators=(",", ":")).encode())
-    signing_input = f"{header}.{payload}".encode()
-    signature = hmac.new(public_pem, signing_input, hashlib.sha256).digest()
-    token = f"{header}.{payload}.{_b64url(signature)}"
+    token = _hmac_confused(public_key, _valid_claims(fixed_clock()))
 
     with pytest.raises(TokenRefused) as refused:
         _verifier(static_key_source, fixed_clock)(token)
@@ -1032,6 +1038,89 @@ def Given_a_payload_nested_too_deeply_When_the_real_client_reads_it_Then_it_is_m
     with pytest.raises(TokenRefused) as refused:
         _verifier(jwks_key_source(jwks_server), fixed_clock)(token)
     assert refused.value.reason == REASON_MALFORMED
+
+
+_TokenFor = Callable[[rsa.RSAPrivateKey, rsa.RSAPublicKey, datetime], str]
+"""Builds one malformed token from the test key pair and the fixed clock's instant."""
+
+
+def _payload_not_json(
+    private_key: rsa.RSAPrivateKey, _public: rsa.RSAPublicKey, _now: datetime
+) -> str:
+    header = _b64url(json.dumps({"alg": "RS256", "typ": "JWT", "kid": KEY_ID}).encode())
+    return ".".join([header, _b64url(b"not json"), _b64url(b"not-a-signature")])
+
+
+@pytest.mark.parametrize(
+    "token_for",
+    [
+        pytest.param(lambda _private, _public, _now: "not-a-jwt", id="garbage"),
+        pytest.param(
+            lambda _private, public, now: _hmac_confused(public, _valid_claims(now)),
+            id="hs256-with-the-public-key",
+        ),
+        pytest.param(_payload_not_json, id="payload-not-json"),
+        pytest.param(
+            lambda private, _public, now: _encode(private, _valid_claims(now, exp="soon")),
+            id="exp-not-numeric",
+        ),
+        pytest.param(
+            lambda private, _public, now: _encode(private, _valid_claims(now, exp=1e300)),
+            id="exp-huge",
+        ),
+        pytest.param(
+            lambda private, _public, now: _encode(private, _valid_claims(now, exp=float("inf"))),
+            id="exp-infinite",
+        ),
+        pytest.param(
+            lambda private, _public, now: _encode(private, _valid_claims(now, exp=float("nan"))),
+            id="exp-nan",
+        ),
+    ],
+)
+def Given_a_malformed_token_When_the_real_client_reads_it_Then_it_is_refused_as_the_stand_in_does(
+    token_for: _TokenFor,
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    jwks_server: str,
+    fixed_clock: Clock,
+) -> None:
+    """Each malformed shape the stand-in tests above refuse, through the key source production
+    always uses, with the reason production actually logs (#124). The garbage token and HS256 are
+    refused by the header check before any key is looked up; a payload that is not JSON fails
+    inside ``get_signing_key_from_jwt``, which decodes the whole token to find its ``kid``; the
+    three ``exp`` values get past the key source and are refused by the lifetime check. The
+    platform-dependent pre-epoch ``exp`` is left to the stand-in test, which derives its reason."""
+    private_key, public_key = rsa_key_pair
+    token = token_for(private_key, public_key, fixed_clock())
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(jwks_key_source(jwks_server), fixed_clock)(token)
+    assert refused.value.reason == REASON_MALFORMED
+
+
+@pytest.mark.parametrize(
+    ("claim", "reason"),
+    [("sub", REASON_SUBJECT), ("jti", REASON_REJECTED)],
+    ids=["subject", "token-id"],
+)
+def Given_a_claim_PyJWT_requires_to_be_a_string_When_it_is_a_number_Then_it_is_refused(
+    claim: str,
+    reason: str,
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    jwks_server: str,
+    fixed_clock: Clock,
+) -> None:
+    """PyJWT refuses a ``sub`` or a ``jti`` that is not a string itself, with
+    ``InvalidSubjectError`` and ``InvalidJTIError``. These pin which reason each maps to: the
+    subject's own category, and the catch-all ``rejected`` for every PyJWT failure the reason
+    vocabulary does not name (#124). Were PyJWT to stop checking ``sub``, ``subject.strip()`` would
+    raise on the integer and the request would answer 500, which this would catch."""
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock(), **{claim: 123}))
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(jwks_key_source(jwks_server), fixed_clock)(token)
+    assert refused.value.reason == reason
 
 
 # --- the verifier create_app builds when a test does not supply one ---------------------------
