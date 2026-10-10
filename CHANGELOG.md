@@ -129,7 +129,8 @@ history; write the commit message well and this file writes itself.
 - **The assistant answers 503 when the JWKS endpoint answers JSON that is not a usable key set.**
   PyJWT raises the same types for `[]`, `{}`, `{"keys": []}` or a set of only unsupported keys as
   for a token naming a key the set lacks, so the assistant refused every request 401 at WARN, and
-  a JSON integer too long for Python to convert escaped as a 500. `jwks_key_source` now builds a
+  a JSON integer too long for Python to convert, or a key member of the wrong JSON type, escaped
+  as a 500. `jwks_key_source` now builds a
   `PyJWKClient` whose `fetch_data` — which fetches and parses the set and never sees a token —
   raises every failure as `KeySourceUnavailable`: 503 `AUTHENTICATION_UNAVAILABLE`, logged at
   ERROR, the ledger's answer for the same bodies. Pinned in `test_auth.py` through the real

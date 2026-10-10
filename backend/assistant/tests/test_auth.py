@@ -958,6 +958,10 @@ with a bare ``ValueError`` - not a ``json.JSONDecodeError`` - wherever in the bo
             ),
             id="a-long-integer-modulus",
         ),
+        pytest.param(
+            (b'{"keys":[{"kty":"RSA","kid":"test-key","alg":["RS256"]}]}', TypeError),
+            id="a-key-member-of-the-wrong-type",
+        ),
     ],
 )
 def jwks_server_answering_no_key_set(request: pytest.FixtureRequest) -> Iterator[_UnreadableJwks]:
@@ -969,7 +973,10 @@ def jwks_server_answering_no_key_set(request: pytest.FixtureRequest) -> Iterator
     - ``{}``, ``{"keys": []}`` and a set whose only key is of an unsupported type each leave no key
       at all, and raise ``PyJWKSetError`` from the key-set cache's own parse;
     - an integer past CPython's conversion limit raises a bare ``ValueError`` from ``json.load``,
-      whether it is the whole body or one key's member.
+      whether it is the whole body or one key's member;
+    - a key member of the wrong JSON type, such as an ``alg`` that is an array, raises a bare
+      ``TypeError`` from ``PyJWK``. The key set skips only PyJWT's own errors, so one such key
+      breaks a set that also holds a good one.
     ``LedgerJwksBodyTest`` serves the same bodies to the ledger, which answers each one 503 too.
     """
     body: bytes

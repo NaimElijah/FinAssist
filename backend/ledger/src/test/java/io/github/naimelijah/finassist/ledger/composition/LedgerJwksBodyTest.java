@@ -101,6 +101,11 @@ class LedgerJwksBodyTest {
                         "a key set whose only key is of a type Nimbus skips",
                         JSON,
                         "{\"keys\":[{\"kty\":\"unsupported\",\"kid\":\"test-signing-key\"}]}"
+                                .getBytes(StandardCharsets.UTF_8)),
+                Arguments.of(
+                        "a key member of the wrong JSON type",
+                        JSON,
+                        "{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"test-signing-key\",\"alg\":[\"RS256\"]}]}"
                                 .getBytes(StandardCharsets.UTF_8)));
     }
 

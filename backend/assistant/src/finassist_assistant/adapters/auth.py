@@ -223,13 +223,20 @@ class _KeySetClient(PyJWKClient):
         """
         try:
             return super().fetch_data()
-        except (jwt.PyJWKClientError, jwt.PyJWKSetError, ValueError, RecursionError) as unusable:
+        except (
+            jwt.PyJWKClientError,
+            jwt.PyJWKSetError,
+            ValueError,
+            TypeError,
+            RecursionError,
+        ) as unusable:
             # PyJWKClientError: unreachable (its subclass PyJWKClientConnectionError), or a body
             # that is not a JSON object. PyJWKSetError: no keys member, no keys, or no key of a
             # type PyJWT supports - raised from the key-set cache's own parse, which runs in here
             # only because jwks_key_source leaves that cache on. ValueError: not JSON, not UTF-8,
-            # or an integer past CPython's conversion limit (#121, #126). RecursionError: nested
-            # too deep to parse, and not a ValueError at all.
+            # or an integer past CPython's conversion limit (#121, #126). TypeError: a key member
+            # of the wrong JSON type, which PyJWK raises bare from that same parse and the key set
+            # does not skip. RecursionError: nested too deep to parse, and not a ValueError at all.
             raise KeySourceUnavailable from unusable
 
 
