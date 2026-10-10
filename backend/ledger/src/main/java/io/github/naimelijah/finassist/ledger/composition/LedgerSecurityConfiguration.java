@@ -127,7 +127,8 @@ public class LedgerSecurityConfiguration {
      * JWKS source must surface as {@code AUTHENTICATION_UNAVAILABLE} within seconds, never hang the
      * request. {@code jwsAlgorithm(RS256)} means an HS256-signed token is refused before any key is
      * even looked up — the classic algorithm-confusion attack finds no algorithm to be confused
-     * with.
+     * with. {@link EmptyKeySetIsAnOutage} wraps the key selector Spring builds, so a key set holding
+     * no key at all is that same outage rather than a refused token (ADR-037).
      *
      * @param jwkSetUri the internal JWKS URI ({@code finassist.security.jwks-uri}, from {@code
      *     LEDGER_OIDC_JWKS_URI}). Internal because it is fetched service-to-service; the token's own
@@ -153,6 +154,8 @@ public class LedgerSecurityConfiguration {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwkSetUri)
                 .jwsAlgorithm(SignatureAlgorithm.RS256)
                 .restOperations(restTemplate)
+                .jwtProcessorCustomizer(processor ->
+                        processor.setJWSKeySelector(EmptyKeySetIsAnOutage.around(processor.getJWSKeySelector())))
                 .build();
         decoder.setJwtValidator(tokenValidator(issuer, audience, clock));
         return decoder;

@@ -40,9 +40,10 @@ ERROR means in this repository.
 **A key source that answers nothing a token can be verified against is an outage, on both
 services: 503 `AUTHENTICATION_UNAVAILABLE`, logged at ERROR with the `key_source` reason.** That
 covers a source that cannot be reached, a body that is not JSON, JSON that is not a key set, and a
-key set holding no key the service can use — `{"keys": []}` included.
+key set left with no key at all once the service has set aside the keys it cannot parse —
+`{"keys": []}` included.
 
-**A key set that holds usable keys, but not the one a token names, stays a refused token: 401
+**A key set that holds keys, but not the one a token names, stays a refused token: 401
 `unknown_key`, at WARN.** That is one caller's problem, and the line between the two is whether
 *any* token could be verified against the set, not whether *this* one can.
 

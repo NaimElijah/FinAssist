@@ -330,8 +330,11 @@ identity provider and the `finassist` realm it imports at start-up (ADR-031); an
   `ASSISTANT_OIDC_JWKS_URI`, `http://keycloak:8080/realms/finassist/protocol/openid-connect/certs`
   under Compose. Neither runs OIDC discovery at start-up (ADR-030). An unreachable key source, or
   one that answers a body that is not JSON, is answered 503 `AUTHENTICATION_UNAVAILABLE`, never 401
-  (`LedgerKeySourceOutageIT`, `LedgerJwksBodyTest`, `test_authorization.py`, `test_auth.py`). One
-  split remains: a body that is JSON but not a key set, such as `[]` or `{}`, is 503 on the ledger
+  (`LedgerKeySourceOutageIT`, `LedgerJwksBodyTest`, `test_authorization.py`, `test_auth.py`). On
+  the ledger, so is a key set holding no key at all, such as `{"keys": []}`: `EmptyKeySetIsAnOutage`
+  wraps the key selector Spring builds and raises an outage when no key matched and the set is
+  empty, while a set lacking only the token's key stays a 401 (ADR-037). One split remains: a body
+  that is JSON but not a usable key set, such as `[]`, `{}` or `{"keys": []}`, is 503 on the ledger
   and 401 on the assistant, and a JSON integer too long for Python to convert is a 500 there
   ([#126](https://github.com/NaimElijah/FinAssist/issues/126)).
 - **Keycloak to `keycloak-db`** — JDBC, to its own PostgreSQL on the Compose network. That

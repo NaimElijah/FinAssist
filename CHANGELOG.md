@@ -117,6 +117,15 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **The ledger answers 503, not 401, when the JWKS endpoint serves a key set with no keys.**
+  Spring Security parses `{"keys": []}`, or a set whose every key is of a type Nimbus skips, and
+  then reports the token's key missing, so every request was refused 401 at WARN while no token
+  at all could be verified, and nobody was paged. `EmptyKeySetIsAnOutage` wraps the key selector
+  Spring builds and makes that case the same outage as an unreachable source: 503
+  `AUTHENTICATION_UNAVAILABLE`, logged at ERROR. A set lacking only the token's key is still
+  refused 401. Pinned by `LedgerJwksBodyTest`. See
+  [ADR-037](docs/ADRs/ADR-037-an-unusable-key-set-is-an-outage.md)
+  ([#126](https://github.com/NaimElijah/FinAssist/issues/126)).
 - **The gateway no longer relays a browser's `HTTP2-Settings` header.** Spring Cloud Gateway's
   hop-by-hop filter strips an incoming `Upgrade` and `Connection`, but not `HTTP2-Settings`, so a
   client-supplied one reached the ledger or the assistant as sent. Nothing upstream acted on it
