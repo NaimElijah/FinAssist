@@ -32,6 +32,7 @@ from finassist_assistant.adapters.auth import (
     PRINCIPAL_SCOPE_KEY,
     PUBLIC_PATHS,
     ROLE_PERMISSIONS,
+    KeySourceUnavailable,
     Principal,
     RequirePermission,
     TokenVerifier,
@@ -161,7 +162,7 @@ def Given_the_key_source_is_unreachable_When_a_protected_route_is_requested_Then
     settings: Settings, owner_headers: dict[str, str], fixed_clock: Clock
 ) -> None:
     def unreachable(_token: str) -> jwt.PyJWK:
-        raise jwt.PyJWKClientConnectionError("refused")
+        raise KeySourceUnavailable
 
     verifier = TokenVerifier(unreachable, "https://issuer.invalid", "aud", fixed_clock)
     app = create_app(settings, token_verifier=verifier)
@@ -191,7 +192,7 @@ def Given_the_key_source_is_unreachable_When_a_request_is_refused_Then_it_is_log
     """
 
     def unreachable(_token: str) -> jwt.PyJWK:
-        raise jwt.PyJWKClientConnectionError("refused")
+        raise KeySourceUnavailable
 
     verifier = TokenVerifier(unreachable, "https://issuer.invalid", "aud", fixed_clock)
     app = create_app(settings, token_verifier=verifier)

@@ -117,6 +117,33 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **The ledger answers 503, not 401, when the JWKS endpoint serves a key set with no keys.**
+  Spring Security parses `{"keys": []}`, or a set whose every key is of a type Nimbus skips, and
+  then reports the token's key missing, so every request was refused 401 at WARN while no token
+  at all could be verified, and nobody was paged. `EmptyKeySetIsAnOutage` wraps the key selector
+  Spring builds and makes that case the same outage as an unreachable source: 503
+  `AUTHENTICATION_UNAVAILABLE`, logged at ERROR. A set lacking only the token's key is still
+  refused 401. Pinned by `LedgerJwksBodyTest`. See
+  [ADR-037](docs/ADRs/ADR-037-an-unusable-key-set-is-an-outage.md)
+  ([#126](https://github.com/NaimElijah/FinAssist/issues/126)).
+- **The assistant answers 503 when the JWKS endpoint answers JSON that is not a usable key set.**
+  PyJWT raises `PyJWKClientError` for `[]`, the type a token naming a key the set lacks raises
+  too, and `PyJWKSetError` for `{}`, `{"keys": []}` or a set of only unsupported keys, which the
+  verifier fell through to `rejected`. So the assistant refused every request 401 at WARN, and a
+  JSON integer too long for Python to convert, a key member of the wrong JSON type, or a
+  connection reset mid-response escaped as a 500. `jwks_key_source` now builds a `PyJWKClient`
+  whose `fetch_data` — which fetches and parses the set and never sees a token — raises every
+  failure as `KeySourceUnavailable`: 503 `AUTHENTICATION_UNAVAILABLE`, logged at
+  ERROR, the ledger's answer for the same bodies. Pinned in `test_auth.py` through the real
+  client and the assembled app. See
+  [ADR-037](docs/ADRs/ADR-037-an-unusable-key-set-is-an-outage.md)
+  ([#126](https://github.com/NaimElijah/FinAssist/issues/126)).
+- **The assistant logs an `alg: none` token as `malformed` whichever key source it asks.** It
+  checks a token's algorithm before it looks a key up, as the ledger does. The real `PyJWKClient`
+  looks a key up by the header's `kid` first, and such a token names none, so it was logged
+  `unknown_key` in production but `malformed` in every test that used a stand-in key source. The
+  answer was 401 either way; only the reason in the WARN line changes
+  ([#124](https://github.com/NaimElijah/FinAssist/issues/124)).
 - **The gateway no longer relays a browser's `HTTP2-Settings` header.** Spring Cloud Gateway's
   hop-by-hop filter strips an incoming `Upgrade` and `Connection`, but not `HTTP2-Settings`, so a
   client-supplied one reached the ledger or the assistant as sent. Nothing upstream acted on it
