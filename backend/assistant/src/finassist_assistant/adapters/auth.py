@@ -39,7 +39,6 @@ and four tests in ``tests/test_auth.py`` guard the exact-match boundary - so do 
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -149,9 +148,14 @@ failure as one naming the wrong issuer.
 KeySource = Callable[[str], PyJWK]
 """Resolves the key that must have signed a token.
 
-``PyJWKClient.get_signing_key_from_jwt``, via :func:`jwks_key_source`, satisfies this against a
-real JWKS endpoint. Tests substitute a static stand-in that returns one fixed key regardless of
-the token it is given.
+:func:`jwks_key_source` satisfies this against a real JWKS endpoint. Tests substitute a static
+stand-in that returns one fixed key regardless of the token it is given.
+
+Whatever the implementation, it reports a failure in one of three ways, and
+:class:`TokenVerifier` relies on the split: :class:`KeySourceUnavailable` when the key set could
+not be fetched or holds nothing a token can be verified against; ``jwt.PyJWKClientError`` when the
+set holds keys, only not the one the token names; and any other ``jwt.PyJWTError`` when the token
+itself is malformed.
 """
 
 
@@ -189,16 +193,44 @@ class TokenRefused(Exception):  # noqa: N818 - ADR-030's own term: a refused tok
 
 
 class KeySourceUnavailable(Exception):  # noqa: N818 - ADR-030's term: an unreachable key source
-    """The JWKS source could not be reached, or answered a body that is not JSON; this token's
-    validity could not be decided.
+    """The JWKS source could not be reached, or answered nothing a token can be verified against;
+    this token's validity could not be decided (ADR-030, ADR-037).
 
     Deliberately a different exception type from :class:`TokenRefused`, mirroring the ledger's
-    own split between a rejected token and an unusable key source, whether unreachable or
-    unreadable: nothing here says whether the token would have been valid, so a caller must
-    answer 503, never 401.
+    own split between a rejected token and an unusable key source, whether unreachable, unreadable
+    or empty: nothing here says whether the token would have been valid, so a caller must answer
+    503, never 401.
     """
 
     reason: Final[str] = REASON_KEY_SOURCE
+
+
+class _KeySetClient(PyJWKClient):
+    """A ``PyJWKClient`` that reports a key set it cannot use as an outage (ADR-037).
+
+    PyJWT raises the same types for a key set it cannot use as for a token naming a key the set
+    lacks: ``[]`` raises ``PyJWKClientError`` exactly as an unknown ``kid`` does. Telling the two
+    apart by message would be fragile, so they are told apart by *where* they are raised instead.
+    """
+
+    def fetch_data(self) -> Any:
+        """Fetches, decodes and parses the key set, exactly as ``PyJWKClient`` does.
+
+        :raises KeySourceUnavailable: the set could not be fetched, or holds nothing a token can be
+            verified against. This method never sees a token, so no failure inside it can be the
+            caller's - which is what makes catching ``ValueError`` here safe, where catching it
+            around the whole key lookup would also take an error raised from the token itself.
+        """
+        try:
+            return super().fetch_data()
+        except (jwt.PyJWKClientError, jwt.PyJWKSetError, ValueError, RecursionError) as unusable:
+            # PyJWKClientError: unreachable (its subclass PyJWKClientConnectionError), or a body
+            # that is not a JSON object. PyJWKSetError: no keys member, no keys, or no key of a
+            # type PyJWT supports - raised from the key-set cache's own parse, which runs in here
+            # only because jwks_key_source leaves that cache on. ValueError: not JSON, not UTF-8,
+            # or an integer past CPython's conversion limit (#121, #126). RecursionError: nested
+            # too deep to parse, and not a ValueError at all.
+            raise KeySourceUnavailable from unusable
 
 
 def jwks_key_source(uri: str) -> KeySource:
@@ -211,9 +243,11 @@ def jwks_key_source(uri: str) -> KeySource:
     The returned key source caches the fetched key set for five minutes and, once fetched, the
     individual signing key each ``kid`` resolves to, so an ordinary verification fetches nothing
     over the network. Five seconds bounds the wait on a fetch, so an unreachable JWKS endpoint
-    fails quickly rather than hanging the request that discovered it.
+    fails quickly rather than hanging the request that discovered it. A key set that cannot be
+    fetched or used raises :class:`KeySourceUnavailable` through :class:`_KeySetClient`; a failed
+    refresh leaves the last good set cached, because PyJWT caches only a successful fetch.
     """
-    client = PyJWKClient(
+    client = _KeySetClient(
         uri,
         cache_keys=True,
         lifespan=_JWKS_CACHE_LIFESPAN_SECONDS,
@@ -260,24 +294,15 @@ class TokenVerifier:
 
         :raises TokenRefused: the token is blank, malformed, unsigned by a key this service
             trusts, or fails a required claim.
-        :raises KeySourceUnavailable: the JWKS source could not be reached, or answered a body
-            that is not JSON, so this token's validity could not be decided at all.
+        :raises KeySourceUnavailable: the JWKS source could not be reached, or answered nothing a
+            token can be verified against, so this token's validity could not be decided at all.
         """
         if not token.strip():
             raise TokenRefused(REASON_MISSING)
 
+        # A KeySourceUnavailable from the key source is already the answer, and passes through.
         try:
             signing_key = self._key_source(token)
-        except jwt.PyJWKClientConnectionError as unreachable:
-            raise KeySourceUnavailable from unreachable
-        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as unreadable:
-            # PyJWKClient.fetch_data wraps transport failures only. A 200 whose body is not JSON
-            # text, is not UTF-8, or nests too deep to parse therefore arrives here raw. The key
-            # source answered, but with nothing a key can be read from: an outage like an
-            # unreachable one, never the caller's fault (#121). The token cannot raise any of
-            # the three: PyJWT turns every parse error in a token's own header or payload into
-            # DecodeError, which the last arm below reports as malformed.
-            raise KeySourceUnavailable from unreadable
         except jwt.PyJWKClientError as unmatched:
             raise TokenRefused(REASON_UNKNOWN_KEY) from unmatched
         except jwt.PyJWTError as malformed:

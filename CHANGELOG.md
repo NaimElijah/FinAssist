@@ -126,6 +126,16 @@ history; write the commit message well and this file writes itself.
   refused 401. Pinned by `LedgerJwksBodyTest`. See
   [ADR-037](docs/ADRs/ADR-037-an-unusable-key-set-is-an-outage.md)
   ([#126](https://github.com/NaimElijah/FinAssist/issues/126)).
+- **The assistant answers 503 when the JWKS endpoint answers JSON that is not a usable key set.**
+  PyJWT raises the same types for `[]`, `{}`, `{"keys": []}` or a set of only unsupported keys as
+  for a token naming a key the set lacks, so the assistant refused every request 401 at WARN, and
+  a JSON integer too long for Python to convert escaped as a 500. `jwks_key_source` now builds a
+  `PyJWKClient` whose `fetch_data` — which fetches and parses the set and never sees a token —
+  raises every failure as `KeySourceUnavailable`: 503 `AUTHENTICATION_UNAVAILABLE`, logged at
+  ERROR, the ledger's answer for the same bodies. Pinned in `test_auth.py` through the real
+  client and the assembled app. See
+  [ADR-037](docs/ADRs/ADR-037-an-unusable-key-set-is-an-outage.md)
+  ([#126](https://github.com/NaimElijah/FinAssist/issues/126)).
 - **The gateway no longer relays a browser's `HTTP2-Settings` header.** Spring Cloud Gateway's
   hop-by-hop filter strips an incoming `Upgrade` and `Connection`, but not `HTTP2-Settings`, so a
   client-supplied one reached the ledger or the assistant as sent. Nothing upstream acted on it

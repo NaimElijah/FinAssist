@@ -22,6 +22,7 @@ import json
 import socket
 import threading
 from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, NamedTuple
@@ -675,18 +676,24 @@ def Given_an_unknown_key_id_When_verified_Then_it_is_refused(
     assert refused.value.reason == REASON_UNKNOWN_KEY
 
 
-def Given_the_key_source_is_unreachable_When_verified_Then_it_is_reported_unavailable(
+def Given_the_key_source_is_unavailable_When_verified_Then_the_outage_passes_through_unchanged(
     rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey], fixed_clock: Clock
 ) -> None:
+    """A key source reports an outage itself, as :class:`KeySourceUnavailable` (ADR-037), and the
+    verifier must pass that on, never read it as a refused token. How the real key source turns
+    each of its own failures into one is proved through ``jwks_key_source`` below: a dead port, a
+    hang-up, and every body no token can be verified against."""
     private_key, _ = rsa_key_pair
     token = _encode(private_key, _valid_claims(fixed_clock()))
+    outage = KeySourceUnavailable()
 
-    def unreachable(_token: str) -> PyJWK:
-        raise jwt.PyJWKClientConnectionError('Fail to fetch data from the url, err: "refused"')
+    def unavailable(_token: str) -> PyJWK:
+        raise outage
 
-    with pytest.raises(KeySourceUnavailable) as unavailable:
-        _verifier(unreachable, fixed_clock)(token)
-    assert unavailable.value.reason == REASON_KEY_SOURCE
+    with pytest.raises(KeySourceUnavailable) as raised:
+        _verifier(unavailable, fixed_clock)(token)
+    assert raised.value is outage
+    assert raised.value.reason == REASON_KEY_SOURCE
 
 
 # --- garbage and missing input -----------------------------------------------------------------
@@ -819,10 +826,35 @@ def Given_a_JWKS_endpoint_that_hangs_up_unanswered_When_verified_Then_it_is_unav
 
 
 class _UnreadableJwks(NamedTuple):
-    """A running JWKS endpoint, and the error its body makes ``json.load`` raise."""
+    """A running JWKS endpoint, and the error its body raises inside ``PyJWKClient.fetch_data``."""
 
     uri: str
     provokes: type[Exception]
+
+
+@contextmanager
+def _serving(body: bytes, content_type: str) -> Iterator[str]:
+    """Serves *body* with ``200`` on an ephemeral loopback port, and yields the JWKS URI."""
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format: str, *_args: Any) -> None:
+            pass  # silences http.server's default stderr access log during the test run
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/certs"
+    finally:
+        server.shutdown()
+        thread.join()
 
 
 @pytest.fixture(
@@ -849,26 +881,8 @@ def jwks_server_answering_garbage(request: pytest.FixtureRequest) -> Iterator[_U
     body: bytes
     provokes: type[Exception]
     body, provokes = request.param
-
-    class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, _format: str, *_args: Any) -> None:
-            pass  # silences http.server's default stderr access log during the test run
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield _UnreadableJwks(f"http://127.0.0.1:{server.server_port}/certs", provokes)
-    finally:
-        server.shutdown()
-        thread.join()
+    with _serving(body, "text/html") as uri:
+        yield _UnreadableJwks(uri, provokes)
 
 
 def Given_a_JWKS_endpoint_answering_a_body_that_is_not_JSON_When_verified_Then_it_is_unavailable(
@@ -881,8 +895,8 @@ def Given_a_JWKS_endpoint_answering_a_body_that_is_not_JSON_When_verified_Then_i
     refusal. Before #121 the decoding error escaped unwrapped and the request answered 500.
 
     The cause is asserted, not just the type: a fixture that stopped answering ``200`` would
-    raise ``KeySourceUnavailable`` through the connection-error arm instead, and would pass
-    without the arm this test exists for."""
+    raise ``KeySourceUnavailable`` from a connection failure instead, and would pass without the
+    handling this test exists for."""
     private_key, _ = rsa_key_pair
     token = _encode(private_key, _valid_claims(fixed_clock()))
     key_source = jwks_key_source(jwks_server_answering_garbage.uri)
@@ -890,6 +904,70 @@ def Given_a_JWKS_endpoint_answering_a_body_that_is_not_JSON_When_verified_Then_i
     with pytest.raises(KeySourceUnavailable) as unavailable:
         _verifier(key_source, fixed_clock)(token)
     assert isinstance(unavailable.value.__cause__, jwks_server_answering_garbage.provokes)
+
+
+_LONG_INTEGER = b"1" * 5_000
+"""Valid JSON, and past the 4,300 digits CPython converts by default, so ``json.load`` refuses it
+with a bare ``ValueError`` - not a ``json.JSONDecodeError`` - wherever in the body it sits
+(#126)."""
+
+
+@pytest.fixture(
+    params=[
+        pytest.param((b"[]", jwt.PyJWKClientError), id="a-json-array"),
+        pytest.param((b"{}", jwt.PyJWKSetError), id="no-keys-member"),
+        pytest.param((b'{"keys":[]}', jwt.PyJWKSetError), id="no-keys"),
+        pytest.param(
+            (b'{"keys":[{"kty":"unsupported","kid":"test-key"}]}', jwt.PyJWKSetError),
+            id="only-an-unsupported-key",
+        ),
+        pytest.param((_LONG_INTEGER, ValueError), id="a-long-integer"),
+        pytest.param(
+            (
+                b'{"keys":[{"kty":"RSA","kid":"test-key","e":"AQAB","n":' + _LONG_INTEGER + b"}]}",
+                ValueError,
+            ),
+            id="a-long-integer-modulus",
+        ),
+    ],
+)
+def jwks_server_answering_no_key_set(request: pytest.FixtureRequest) -> Iterator[_UnreadableJwks]:
+    """A JWKS endpoint that answers ``200`` with JSON no token can be verified against (#126).
+
+    Each body fails inside ``PyJWKClient.fetch_data``, which never sees a token:
+    - ``[]`` is not a JSON object, and raises ``PyJWKClientError`` - the very type a token naming a
+      key the set lacks raises too, which is why the type alone could never tell them apart;
+    - ``{}``, ``{"keys": []}`` and a set whose only key is of an unsupported type each leave no key
+      at all, and raise ``PyJWKSetError`` from the key-set cache's own parse;
+    - an integer past CPython's conversion limit raises a bare ``ValueError`` from ``json.load``,
+      whether it is the whole body or one key's member.
+    ``LedgerJwksBodyTest`` serves the same bodies to the ledger, which answers each one 503 too.
+    """
+    body: bytes
+    provokes: type[Exception]
+    body, provokes = request.param
+    with _serving(body, "application/json") as uri:
+        yield _UnreadableJwks(uri, provokes)
+
+
+def Given_a_JWKS_answering_JSON_that_is_no_usable_key_set_When_verified_Then_it_is_unavailable(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    jwks_server_answering_no_key_set: _UnreadableJwks,
+    fixed_clock: Clock,
+) -> None:
+    """No token at all could be verified against this set, so it is the same outage as an
+    unreachable source (ADR-037). Before #126 the first four bodies were refused 401, as if the
+    token were at fault, and the long integer escaped as a 500.
+
+    The cause's exact type is asserted: ``PyJWKClientConnectionError`` is a ``PyJWKClientError``
+    too, so a fixture that stopped answering would otherwise pass the ``[]`` case."""
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock()))
+    key_source = jwks_key_source(jwks_server_answering_no_key_set.uri)
+
+    with pytest.raises(KeySourceUnavailable) as unavailable:
+        _verifier(key_source, fixed_clock)(token)
+    assert type(unavailable.value.__cause__) is jwks_server_answering_no_key_set.provokes
 
 
 @pytest.mark.parametrize(
@@ -900,13 +978,13 @@ def Given_a_JWKS_endpoint_answering_a_body_that_is_not_JSON_When_verified_Then_i
 def Given_a_token_whose_header_is_not_JSON_When_the_real_client_reads_it_Then_it_is_malformed(
     header: bytes, jwks_server: str, fixed_clock: Clock
 ) -> None:
-    """The premise of the key-source arm for unreadable JWKS bodies, pinned.
+    """A token whose header provokes the very errors an unreadable JWKS body does is still a 401
+    refusal, never a false outage page raised by a caller holding no key at all.
 
-    That arm turns ``json.JSONDecodeError``, ``UnicodeDecodeError`` and ``RecursionError`` into a
-    503 outage. It is only safe because none of the three can come from the token: PyJWT parses a
-    token's header inside ``get_signing_key_from_jwt`` and turns each failure into ``DecodeError``.
-    A token whose header provokes each one must therefore stay a 401 refusal. If a PyJWT upgrade
-    stopped converting them, any caller holding no key at all could raise a false outage page."""
+    The key source reports ``json.JSONDecodeError``, ``UnicodeDecodeError`` and ``RecursionError``
+    as an outage only from inside ``PyJWKClient.fetch_data``, which never sees a token. PyJWT
+    parses the token's own header elsewhere and turns each of these failures into ``DecodeError``,
+    reported ``malformed``."""
     payload = json.dumps(_valid_claims(fixed_clock())).encode()
     token = ".".join([_b64url(header), _b64url(payload), _b64url(b"not-a-signature")])
 
@@ -1003,6 +1081,32 @@ def Given_no_token_verifier_and_a_JWKS_answering_non_JSON_When_a_route_is_reques
 
     assert response.status_code == 503
     assert response.json()["code"] == "AUTHENTICATION_UNAVAILABLE"
+
+
+def Given_no_token_verifier_and_a_JWKS_with_no_key_set_When_a_route_is_requested_Then_it_is_503(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    jwks_server_answering_no_key_set: _UnreadableJwks,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """#126 at the HTTP boundary: 503 ``AUTHENTICATION_UNAVAILABLE`` and the outage's one ERROR
+    line, where these bodies used to be a 401 logged at WARN, or a 500."""
+    private_key, _ = rsa_key_pair
+    app = create_app(_live_settings(jwks_server_answering_no_key_set.uri))
+    token = _encode(private_key, _live_claims())
+    capsys.readouterr()
+
+    with TestClient(app, headers={"Authorization": f"Bearer {token}"}) as client:
+        response = client.get(_POSITION_URL)
+
+    records = [
+        json.loads(line)
+        for line in capsys.readouterr().out.strip().splitlines()
+        if line.startswith("{")
+    ]
+    outages = [record for record in records if record.get("level") == "error"]
+    assert response.status_code == 503
+    assert response.json()["code"] == "AUTHENTICATION_UNAVAILABLE"
+    assert [outage["reason"] for outage in outages] == [REASON_KEY_SOURCE]
 
 
 # --- settings: the issuer and JWKS URI are validated as http(s) at start-up --------------------
