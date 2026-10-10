@@ -157,6 +157,28 @@ class LedgerJwksBodyTest {
     }
 
     /**
+     * A token signed with an algorithm the decoder never allows is refused before any key is looked
+     * up, so it can neither cost a JWKS fetch nor turn into an outage while the JWKS is down — the
+     * same answer it got before {@link EmptyKeySetIsAnOutage} existed. The set served here is empty,
+     * which is exactly when that wrapper would otherwise ask the source for every key.
+     */
+    @Test
+    void Given_a_token_with_a_disallowed_algorithm_When_decoded_Then_it_is_refused_without_a_fetch()
+            throws IOException {
+        AtomicInteger served = new AtomicInteger();
+        HttpServer server = serve(JSON, "{\"keys\":[]}".getBytes(StandardCharsets.UTF_8), served);
+        try {
+            JwtDecoder decoder = decoderFor(server);
+            String token = TestTokens.hmacConfused();
+
+            assertThatThrownBy(() -> decoder.decode(token)).isInstanceOf(BadJwtException.class);
+            assertThat(served.get()).as("requests the JWKS endpoint served").isZero();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /**
      * Serves {@code body} at {@link #CERTS_PATH}, counting each request in {@code served}, so a pass
      * cannot come from a server that was never reached: a refused connection is a plain {@link
      * JwtException} too, and would satisfy the outage assertion on its own.

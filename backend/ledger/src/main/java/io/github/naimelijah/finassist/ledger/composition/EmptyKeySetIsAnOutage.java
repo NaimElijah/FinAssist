@@ -12,7 +12,7 @@ import java.security.Key;
 import java.util.List;
 
 /**
- * Turns a key set that holds no usable key into an outage, rather than a refused token (ADR-037).
+ * Turns a key set that holds no key at all into an outage, rather than a refused token (ADR-037).
  *
  * <p>Spring Security parses {@code {"keys": []}}, or a set whose every key is of a type Nimbus
  * skips, without complaint, then finds no key for the token and raises a {@code BadJwtException}:
@@ -20,11 +20,19 @@ import java.util.List;
  * a set, so it is the same failure as an unreachable source, and has to page someone.
  *
  * <p>Wraps the {@link JWSVerificationKeySelector} Spring builds and changes one case only. When that
- * selector finds no key for a token, this asks the same {@link JWKSource} for every key it holds;
- * if there are none, it raises {@link KeySourceException}. {@code NimbusJwtDecoder} surfaces that as
- * a plain {@code JwtException}, which {@link ProblemAuthenticationEntryPoint} answers 503 {@code
- * AUTHENTICATION_UNAVAILABLE}. A set that holds keys, only not this token's, is left a refusal. The
- * extra lookup goes through the same cached source, and only once a token's key was already missing.
+ * selector finds no key for a token whose algorithm it allows, this asks the same {@link JWKSource}
+ * for every key it holds; if there are none, it raises {@link KeySourceException}. {@code
+ * NimbusJwtDecoder} surfaces that as a plain {@code JwtException}, which {@link
+ * ProblemAuthenticationEntryPoint} answers 503 {@code AUTHENTICATION_UNAVAILABLE}. A set that holds
+ * keys, only not this token's, is left a refusal.
+ *
+ * <p>A token with a disallowed algorithm is left alone: the wrapped selector refuses it without
+ * touching the source, and so does this, so an algorithm-confusion attempt still costs no fetch and
+ * stays a 401 while the JWKS is down. The extra lookup otherwise runs only once a token's key was
+ * already missing. On a non-empty set it is answered from the cache. On an empty one, Nimbus fetches
+ * the set again, as it does whenever a selection comes back empty, and Spring builds the source
+ * without a rate limit. That costs a second fetch per request, but only while every request is
+ * already an outage.
  *
  * <p>Pinned by {@code LedgerJwksBodyTest}, which serves each body to the real decoder.
  */
@@ -65,7 +73,9 @@ final class EmptyKeySetIsAnOutage implements JWSKeySelector<SecurityContext> {
     @Override
     public List<? extends Key> selectJWSKeys(JWSHeader header, SecurityContext context) throws KeySourceException {
         List<Key> keys = delegate.selectJWSKeys(header, context);
-        if (keys.isEmpty() && delegate.getJWKSource().get(EVERY_KEY, context).isEmpty()) {
+        if (keys.isEmpty()
+                && delegate.isAllowed(header.getAlgorithm())
+                && delegate.getJWKSource().get(EVERY_KEY, context).isEmpty()) {
             throw new KeySourceException("The JWK set holds no key a token could be verified against");
         }
         return keys;
