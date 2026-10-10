@@ -62,7 +62,7 @@ every screen on a session (`SessionGate`, `SessionContext`) and hides write cont
 the running Compose stack, by hand and never in CI (ADR-034).
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
-Proposed today. Of all 36, ADR-027 is Superseded by ADR-030 and the other 35 are Accepted. The
+Proposed today. Of all 37, ADR-027 is Superseded by ADR-030 and the other 36 are Accepted. The
 requirements are still deliberately `TODO` in places rather than inferred from code.
 
 ## Commands
@@ -283,6 +283,13 @@ These are enforced by the build, not by review. Breaking one fails CI.
   never the token. `ProblemAuthenticationEntryPoint.reportOutage` and
   `BearerAuthentication._report_unavailable`; pinned by `ProblemAuthenticationEntryPointTest`,
   `LedgerKeySourceOutageIT` and `tests/test_authorization.py`. Keep the two services symmetric.
+  **A key source that answers something that cannot be read as a key set, or a set with no key
+  at all, is that same outage** — while a set that holds keys stays a refusal, even when none of
+  them can verify this token (ADR-037). Tell the two apart where they are raised, never
+  by an exception's message: the ledger's `EmptyKeySetIsAnOutage` checks for an empty set only
+  once no key matched, and the assistant maps failures only inside `_KeySetClient.fetch_data`,
+  which never sees a token. `LedgerJwksBodyTest` and `tests/test_auth.py` serve both services the
+  same bodies.
 - **Logs are diagnostics, never the audit trail.** They are dropped when no collector is
   attached. The append-only journal is the audit record (ADR-020).
 - **The application layer imports no framework, in either language.** No `@Service`, no

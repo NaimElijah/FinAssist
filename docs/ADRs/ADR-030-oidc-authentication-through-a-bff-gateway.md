@@ -1,6 +1,7 @@
 # ADR-030: OIDC authentication through a backend-for-frontend gateway
 
-- **Status:** Accepted. Two details were corrected by what was built, both described as built in
+- **Status:** Accepted, extended by [ADR-037](ADR-037-an-unusable-key-set-is-an-outage.md). Two
+  details were corrected by what was built, both described as built in
   `docs/architecture/architecture.md`: the `key_source` log level, and the gateway's unreachable
   `NOT_FOUND`.
 - **Date:** 2026-09-16

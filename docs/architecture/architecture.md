@@ -328,12 +328,16 @@ identity provider and the `finassist` realm it imports at start-up (ADR-031); an
 - **Ledger and assistant to Keycloak** — HTTP, fetching the signing keys a bearer token is
   verified against from an explicit, internal JWKS URI: `LEDGER_OIDC_JWKS_URI` and
   `ASSISTANT_OIDC_JWKS_URI`, `http://keycloak:8080/realms/finassist/protocol/openid-connect/certs`
-  under Compose. Neither runs OIDC discovery at start-up (ADR-030). An unreachable key source, or
-  one that answers a body that is not JSON, is answered 503 `AUTHENTICATION_UNAVAILABLE`, never 401
-  (`LedgerKeySourceOutageIT`, `LedgerJwksBodyTest`, `test_authorization.py`, `test_auth.py`). One
-  split remains: a body that is JSON but not a key set, such as `[]` or `{}`, is 503 on the ledger
-  and 401 on the assistant, and a JSON integer too long for Python to convert is a 500 there
-  ([#126](https://github.com/NaimElijah/FinAssist/issues/126)).
+  under Compose. Neither runs OIDC discovery at start-up (ADR-030). A key source that cannot be
+  reached, or answers something that cannot be used as a key set — a body that is not JSON, JSON that
+  is not a key set, or a key set left with no key at all, such as `{"keys": []}` — is answered 503
+  `AUTHENTICATION_UNAVAILABLE` on both services, never 401, while a set lacking only the token's
+  key is a 401 (ADR-037; `LedgerKeySourceOutageIT`, `LedgerJwksBodyTest`, `test_authorization.py`,
+  `test_auth.py`). Each tells the two apart where it can see the difference. The ledger's
+  `EmptyKeySetIsAnOutage` wraps the key selector Spring builds and raises an outage when no key
+  matched and the set is empty. The assistant's `jwks_key_source` builds a `PyJWKClient` whose
+  `fetch_data`, the one method that fetches and parses the set and never sees a token, raises every
+  failure as `KeySourceUnavailable`.
 - **Keycloak to `keycloak-db`** — JDBC, to its own PostgreSQL on the Compose network. That
   database publishes no port and shares no role, volume or failure domain with the ledger's `db`
   (ADR-031).
