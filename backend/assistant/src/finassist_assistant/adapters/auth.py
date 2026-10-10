@@ -300,6 +300,8 @@ class TokenVerifier:
         if not token.strip():
             raise TokenRefused(REASON_MISSING)
 
+        _require_algorithm(token)
+
         # A KeySourceUnavailable from the key source is already the answer, and passes through.
         try:
             signing_key = self._key_source(token)
@@ -373,6 +375,28 @@ class TokenVerifier:
         not_before = claims.get("nbf")
         if not_before is not None and _as_instant(not_before) > now + self._leeway:
             raise TokenRefused(REASON_LIFETIME)
+
+
+def _require_algorithm(token: str) -> None:
+    """Refuses a token whose header names any algorithm but :data:`ALGORITHM`, before a key is
+    looked up.
+
+    ``jwt.decode``'s own allow-list in :meth:`TokenVerifier.__call__` is still the defence. This
+    check exists so the reason is the same whichever key source is asked. The real
+    ``PyJWKClient`` looks a key up by the header's ``kid`` first, and an ``alg: none`` token names
+    none, so it would be refused ``unknown_key`` there and ``malformed`` against any key source
+    that returned a key (#124). Here it is ``malformed`` on both, as on the ledger, whose Nimbus
+    refuses an "Unsupported algorithm of none" before it looks for a key. Refusing first also
+    spares the key source a fetch for a token no key could ever verify.
+
+    :raises TokenRefused: the header cannot be read, or names another algorithm.
+    """
+    try:
+        header = jwt.get_unverified_header(token)
+    except jwt.PyJWTError as unreadable:
+        raise TokenRefused(_reason_for(unreadable)) from unreadable
+    if header.get("alg") != ALGORITHM:
+        raise TokenRefused(REASON_MALFORMED)
 
 
 def _roles_from(claims: Mapping[str, Any]) -> frozenset[str]:

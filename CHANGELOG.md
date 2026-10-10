@@ -136,6 +136,12 @@ history; write the commit message well and this file writes itself.
   client and the assembled app. See
   [ADR-037](docs/ADRs/ADR-037-an-unusable-key-set-is-an-outage.md)
   ([#126](https://github.com/NaimElijah/FinAssist/issues/126)).
+- **The assistant logs an `alg: none` token as `malformed` whichever key source it asks.** It
+  checks a token's algorithm before it looks a key up, as the ledger does. The real `PyJWKClient`
+  looks a key up by the header's `kid` first, and such a token names none, so it was logged
+  `unknown_key` in production but `malformed` in every test that used a stand-in key source. The
+  answer was 401 either way; only the reason in the WARN line changes
+  ([#124](https://github.com/NaimElijah/FinAssist/issues/124)).
 - **The gateway no longer relays a browser's `HTTP2-Settings` header.** Spring Cloud Gateway's
   hop-by-hop filter strips an incoming `Upgrade` and `Connection`, but not `HTTP2-Settings`, so a
   client-supplied one reached the ledger or the assistant as sent. Nothing upstream acted on it

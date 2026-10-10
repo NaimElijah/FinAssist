@@ -555,15 +555,38 @@ def Given_a_token_with_a_blank_subject_When_verified_Then_it_is_refused(
 # --- algorithm: alg=none and the algorithm-confusion attack -----------------------------------
 
 
+def _unsigned(claims: Mapping[str, Any]) -> str:
+    """*claims* as an ``alg: none`` token, the way an attacker sends one: no ``kid`` in its
+    header, and an empty signature."""
+    header = _b64url(json.dumps({"alg": "none", "typ": "JWT"}, separators=(",", ":")).encode())
+    payload = _b64url(json.dumps(dict(claims), separators=(",", ":")).encode())
+    return f"{header}.{payload}."
+
+
 def Given_a_token_signed_with_the_none_algorithm_When_verified_Then_it_is_refused(
     static_key_source: KeySource, fixed_clock: Clock
 ) -> None:
-    header = _b64url(json.dumps({"alg": "none", "typ": "JWT"}, separators=(",", ":")).encode())
-    payload = _b64url(json.dumps(_valid_claims(fixed_clock()), separators=(",", ":")).encode())
-    token = f"{header}.{payload}."
+    """Refused before any key is looked up, so the reason does not depend on the key source; the
+    real client's case follows."""
+    token = _unsigned(_valid_claims(fixed_clock()))
 
     with pytest.raises(TokenRefused) as refused:
         _verifier(static_key_source, fixed_clock)(token)
+    assert refused.value.reason == REASON_MALFORMED
+
+
+def Given_a_token_signed_with_the_none_algorithm_When_the_real_client_reads_it_Then_it_is_malformed(
+    jwks_server: str, fixed_clock: Clock
+) -> None:
+    """The real ``PyJWKClient`` looks a key up by the header's ``kid`` before anything else, and an
+    ``alg: none`` token names none. Before #124 it was therefore refused ``unknown_key`` here, but
+    ``malformed`` against the stand-in above, so the logged reason depended on which key source
+    was asked. The ledger logs it ``malformed`` too: Nimbus refuses an "Unsupported algorithm of
+    none" before it looks for a key."""
+    token = _unsigned(_valid_claims(fixed_clock()))
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(jwks_key_source(jwks_server), fixed_clock)(token)
     assert refused.value.reason == REASON_MALFORMED
 
 
@@ -580,10 +603,10 @@ def Given_a_token_signed_HS256_with_the_public_key_bytes_When_verified_Then_it_i
     refuses a PEM-formatted key as an HMAC secret precisely to stop this attack from being built
     that way (confirmed against the installed ``jwt.algorithms`` source -
     ``jwt.encode({...}, public_pem, algorithm="HS256")`` raises ``InvalidKeyError`` rather than
-    producing a token). ``algorithms=["RS256"]`` is still the defence that matters: it is checked
-    before any key is even inspected, so this is refused ``malformed`` (an algorithm the header
-    named but the caller never allowed), not because *this* particular attack happens to be hard
-    to build.
+    producing a token). The algorithm allow-list is the defence that matters: the header names an
+    algorithm the verifier never allowed, so this is refused ``malformed`` before any key is even
+    looked up, and ``jwt.decode``'s own ``algorithms=["RS256"]`` would refuse it again - not
+    because *this* particular attack happens to be hard to build.
     """
     _, public_key = rsa_key_pair
     public_pem = public_key.public_bytes(
