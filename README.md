@@ -624,7 +624,7 @@ contract types, regenerated from `contracts/` with no changed or new file, then 
 check, typecheck, tests, production build and `npm audit`; and a `docker compose config`
 validation, with the `monitoring` and `smoke` profiles included, that also fails any long-running
 service without the shared restart policy and log bound, `auth-smoke` with either, and a
-ledger, gateway or assistant healthcheck that probes anything but readiness. No CI job starts the
+ledger, gateway, assistant or Keycloak healthcheck that probes anything but readiness. No CI job starts the
 Compose stack.
 
 **Coverage is measured everywhere and gates nothing.** JaCoCo, `pytest-cov` and

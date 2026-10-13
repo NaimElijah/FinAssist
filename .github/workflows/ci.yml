@@ -205,6 +205,7 @@ jobs:
               "ledger": "/actuator/health/readiness",
               "gateway": "/actuator/health/readiness",
               "assistant": "/ready",
+              "keycloak": "/health/ready",
           }
           problems = []
           if policy is None or bounded_logs is None:

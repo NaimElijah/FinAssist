@@ -274,8 +274,8 @@ These are enforced by the build, not by review. Breaking one fails CI.
   healthcheck probes readiness: `/actuator/health/readiness` on the ledger and the gateway, `/ready`
   on the assistant, `/health/ready` on Keycloak's management port. CI's `compose` job reads the
   resolved file and fails a long-running service whose policy or logging is not exactly those
-  blocks, `auth-smoke` with either,
-  and a ledger, gateway or assistant healthcheck that is not readiness (#142).
+  blocks, `auth-smoke` with either, and any of those four healthchecks that is not readiness
+  (#142).
 - **The assistant's composition root is `src/finassist_assistant/adapters/`.** It is the only
   package that may import FastAPI, structlog or OpenTelemetry outside a context's own
   `adapters`. No context may import it.
