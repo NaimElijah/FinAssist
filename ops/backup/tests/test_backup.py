@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import IO
 
 import backup
 import pytest
@@ -371,3 +373,62 @@ def Given_a_manifest_recording_no_usable_digest_When_read_Then_it_is_refused(
 
     with pytest.raises(backup.BackupError, match="records no usable books_sha256"):
         backup._recorded_books_digest(folder)
+
+
+# --- a backup records the books' digest, and refuses books that change while it runs ----------
+
+NOW = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class _RunningProject(backup.Compose):
+    """A running project whose ledger database reports each of `digests` in turn."""
+
+    digests: list[str] = field(default_factory=list)
+
+    def require(
+        self,
+        what: str,
+        *args: str,
+        stdin: IO[bytes] | None = None,
+        stdout: IO[bytes] | None = None,
+        input_bytes: bytes | None = None,
+    ) -> bytes:
+        if args[0] == "config":
+            return b'{"name": "finassist-test"}'
+        if args[0] == "ps" and "--format" in args:
+            return json.dumps({"Service": args[-1], "Image": "postgres:18.6-trixie"}).encode()
+        if args[0] == "ps":
+            return b"db\nkeycloak-db\n"
+        if "pg_dump" in " ".join(args):
+            assert stdout is not None
+            stdout.write(b"PGDMP-archive")
+            return b""
+        sql = (input_bytes or b"").decode("utf-8")
+        if "to_regclass" in sql:
+            return b"t\n"
+        if "sha256" in sql:
+            return f"{self.digests.pop(0)}\n".encode()
+        if "pg_tables" in sql:
+            return b"1\n"
+        return b""
+
+
+def Given_books_that_hold_still_When_backed_up_Then_the_manifest_records_their_digest(
+    tmp_path: Path,
+) -> None:
+    folder = backup.backup(_RunningProject(digests=[BOOKS_DIGEST, BOOKS_DIGEST]), tmp_path, NOW)
+
+    manifest = json.loads((folder / backup.MANIFEST_NAME).read_text(encoding="utf-8"))
+    assert manifest[backup.BOOKS_DIGEST_KEY] == BOOKS_DIGEST
+
+
+def Given_books_that_change_during_the_backup_When_backed_up_Then_it_fails_and_leaves_nothing(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        backup.BackupError, match="the books changed while they were being backed up"
+    ):
+        backup.backup(_RunningProject(digests=[BOOKS_DIGEST, "b" * 64]), tmp_path, NOW)
+
+    assert list(tmp_path.iterdir()) == []
