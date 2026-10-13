@@ -2,7 +2,7 @@
 # requires-python = ">=3.13"
 # dependencies = []
 # ///
-"""Backs up and restores the ledger's and Keycloak's databases, each on its own (ADR-038).
+"""Backs up, restores, and proves a restore of the ledger's and Keycloak's databases (ADR-038).
 
 Run from the host, never inside the stack, with `uv run ops/backup/backup.py <command>`, or through
 `make backup`. The PEP 723 block above tells `uv` which Python to use and that nothing need be
@@ -15,9 +15,11 @@ the reason this is Python and not a shell script. PowerShell's `>` re-encodes a 
 output as text and would corrupt a custom-format dump.
 
 Every Compose call names `docker-compose.yml` explicitly, from the repository root, so a stray
-override file or a `COMPOSE_FILE` in the environment can never redirect one. The project is
-whatever that file and the environment resolve, `finassist` by default, and it is printed before
-anything is read.
+override file or a `COMPOSE_FILE` in the environment can never redirect one. For `backup` and
+`restore`, the project is whatever that file and the environment resolve, `finassist` by default,
+and it is printed before anything is read. `check` runs only in its own project,
+`finassist-restore-check`, which it passes as `-p` on every call, so nothing in the environment can
+point it at the owner's.
 
 Standard library only. The report goes to stdout, one line at a time. It never contains an amount,
 a name, an id, a token or a secret. Quoted and parenthesised spans of a PostgreSQL message are
@@ -28,12 +30,15 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -113,6 +118,63 @@ COUNT_TABLES_SQL: Final = (
     "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema');"
 )
 
+# --- `check` only. It runs in a Compose project of its own, never the owner's, on ports of its own,
+# so it can run while the owner's stack is up. It starts db, keycloak-db, Keycloak and the ledger.
+CHECK_PROJECT: Final = "finassist-restore-check"
+OWNER_PROJECT: Final = "finassist"
+LEDGER_CHECK_PORT: Final = 18080
+KEYCLOAK_CHECK_PORT: Final = 18081
+CHECK_PORTS: Final = (
+    ("POSTGRES_PORT", "15432"),
+    ("LEDGER_PORT", str(LEDGER_CHECK_PORT)),
+    ("KEYCLOAK_PORT", str(KEYCLOAK_CHECK_PORT)),
+    ("ASSISTANT_PORT", "18000"),
+    ("GATEWAY_PORT", "18090"),
+)
+CHECK_HOST: Final = "127.0.0.1"
+# Keycloak's own start_period is 240 s (docker-compose.yml), and the first run also builds both
+# images.
+CHECK_WAIT_SECONDS: Final = "600"
+PROJECT_LABEL: Final = "com.docker.compose.project"
+REQUEST_TIMEOUT_SECONDS: Final = 10
+HTTP_OK: Final = 200
+
+# Fixed by ops/keycloak/finassist-realm.json: the realm, and the owner's id, pinned so that the
+# `sub` every journal row names survives a re-import (ADR-033).
+REALM: Final = "finassist"
+OWNER_ID: Final = "6c4a4be0-7c38-4145-845f-f4311ef64202"
+ASSISTANT_CLIENT_ID: Final = "finassist-assistant"
+ASSISTANT_CLIENT_SECRET_ENV: Final = "ASSISTANT_CLIENT_SECRET"
+TOKEN_PATH: Final = f"/realms/{REALM}/protocol/openid-connect/token"
+ACCOUNTS_PATH: Final = "/api/v1/accounts"
+
+# Keycloak's own tables. Read before Keycloak starts, so a missing realm or owner cannot be hidden
+# by the realm import that an empty or partial database would trigger.
+OWNER_OTP_SQL: Final = """
+SELECT c.id FROM credential c
+JOIN user_entity u ON u.id = c.user_id
+JOIN realm r ON r.id = u.realm_id
+WHERE r.name = :'realm' AND u.id = :'owner' AND c.type = 'otp'
+ORDER BY c.id;
+"""
+OWNER_PRESENT_SQL: Final = """
+SELECT count(*) FROM user_entity u JOIN realm r ON r.id = u.realm_id
+WHERE r.name = :'realm' AND u.id = :'owner';
+"""
+# V1_2's two checks, which must never be validated (ADR-033).
+RECORDED_BY_CHECKS: Final = (
+    "journal_transaction_recorded_by_shape",
+    "journal_transaction_state_recorded_by_shape",
+)
+RECORDED_BY_SQL: Final = """
+SELECT conname, convalidated FROM pg_constraint
+WHERE conname IN (:'first', :'second') ORDER BY conname;
+"""
+FLYWAY_FAILED_SQL: Final = (
+    "SELECT count(*), count(*) FILTER (WHERE NOT success) FROM public.flyway_schema_history;"
+)
+ACCOUNTS_SQL: Final = "SELECT id, currency FROM accounting.account ORDER BY id;"
+
 
 class BackupError(Exception):
     """A step of a backup, restore or check that did not do what ADR-038 requires.
@@ -163,6 +225,39 @@ def _withheld(stderr: bytes) -> list[str]:
     return lines
 
 
+def _require(
+    what: str,
+    command: list[str],
+    *,
+    environment: dict[str, str] | None = None,
+    stdin: IO[bytes] | None = None,
+    stdout: IO[bytes] | None = None,
+    input_bytes: bytes | None = None,
+) -> bytes:
+    """Runs one command from the repository root and returns its captured stdout.
+
+    Output not sent to `stdout` is captured, never inherited, so nothing a container prints
+    reaches the report unless it has been through `_withheld`.
+
+    :param what: names the step in the error, such as "pg_dump of ledger".
+    :raises BackupError: if the command exits non-zero, with its output through `_withheld`.
+    """
+    result = subprocess.run(
+        command,
+        cwd=REPO_ROOT,
+        env=environment,
+        stdin=stdin,
+        input=input_bytes,
+        stdout=stdout if stdout is not None else subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = "; ".join(_withheld(result.stderr)) or "no output"
+        raise BackupError(f"{what} failed with exit status {result.returncode}: {detail}")
+    return result.stdout or b""
+
+
 @dataclass(frozen=True)
 class Compose:
     """Runs `docker compose` against this repository's file, and nothing else.
@@ -182,29 +277,6 @@ class Compose:
             command += ["-p", self.project]
         return [*command, *args]
 
-    def run(
-        self,
-        *args: str,
-        stdin: IO[bytes] | None = None,
-        stdout: IO[bytes] | None = None,
-        input_bytes: bytes | None = None,
-    ) -> subprocess.CompletedProcess[bytes]:
-        """Runs one `docker compose` command and returns its result, whatever its exit status.
-
-        Output not sent to `stdout` is captured, never inherited, so nothing a container prints
-        reaches the report unless a caller passes it through `_withheld`.
-        """
-        return subprocess.run(
-            self._command(*args),
-            cwd=REPO_ROOT,
-            env=os.environ | dict(self.environment),
-            stdin=stdin,
-            input=input_bytes,
-            stdout=stdout if stdout is not None else subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-
     def require(
         self,
         what: str,
@@ -218,18 +290,30 @@ class Compose:
         :param what: names the step in the error, such as "pg_dump of ledger".
         :raises BackupError: if the command exits non-zero, with its output through `_withheld`.
         """
-        result = self.run(*args, stdin=stdin, stdout=stdout, input_bytes=input_bytes)
-        if result.returncode != 0:
-            detail = "; ".join(_withheld(result.stderr)) or "no output"
-            raise BackupError(f"{what} failed with exit status {result.returncode}: {detail}")
-        return result.stdout or b""
+        return _require(
+            what,
+            self._command(*args),
+            environment=os.environ | dict(self.environment),
+            stdin=stdin,
+            stdout=stdout,
+            input_bytes=input_bytes,
+        )
+
+    def resolved(self) -> dict[str, object]:
+        """The Compose model as Compose resolves it, `.env` interpolated.
+
+        It holds every secret `.env` sets, so nothing from it is ever reported.
+        """
+        model = json.loads(
+            self.require("resolving the Compose model", "config", "--format", "json")
+        )
+        if not isinstance(model, dict):
+            raise BackupError("docker compose config did not answer a Compose model")
+        return model
 
     def project_name(self) -> str:
         """The project every other call acts on, as Compose itself resolves it."""
-        resolved = json.loads(
-            self.require("resolving the Compose project", "config", "--format", "json")
-        )
-        name = resolved.get("name")
+        name = self.resolved().get("name")
         if not isinstance(name, str) or not name:
             raise BackupError("docker compose config named no project")
         return name
@@ -458,6 +542,301 @@ def restore(compose: Compose, folder: Path, databases: tuple[Database, ...]) -> 
         _report(f"{path.name}: restored into {database.service}")
 
 
+class _CheckRun:
+    """Numbers and reports the checks `check` runs, in the order it runs them."""
+
+    def __init__(self) -> None:
+        self.passed = 0
+        self.current = "0 (setting up)"
+
+    def check[**P, R](
+        self, name: str, step: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs
+    ) -> R:
+        """Runs one check, reports it passed, and returns what it returned.
+
+        :raises Exception: whatever `step` raised, unreported: `check` reports it against
+            `current`, which already names this check.
+        """
+        number = self.passed + 1
+        self.current = f"{number} ({name})"
+        result = step(*args, **kwargs)
+        _report(f"{number}. {name}: PASS")
+        self.passed = number
+        return result
+
+
+def _isolated(project: str) -> Compose:
+    """The one `Compose` `check` may use: `project`, on the check's own ports.
+
+    :raises BackupError: if `project` is the owner's, so a rename of `CHECK_PROJECT` can never
+        point the check at the owner's books.
+    """
+    if project == OWNER_PROJECT:
+        raise BackupError(f"the restore check must never run as {OWNER_PROJECT}")
+    return Compose(project=project, environment=CHECK_PORTS)
+
+
+def _clean_up(compose: Compose) -> None:
+    """Removes the check's containers and volumes, and nothing else.
+
+    Volumes are found by Compose's own project label, and each name must start with the check's
+    project, so this can never remove the owner's `finassist_db-data`. Never `down -v`.
+    """
+    compose.require("removing the check's containers", "down", "--remove-orphans")
+    listed = _require(
+        "listing the check's volumes",
+        ["docker", "volume", "ls", "-q", "--filter", f"label={PROJECT_LABEL}={CHECK_PROJECT}"],
+    )
+    volumes = listed.decode("utf-8").split()
+    foreign = [volume for volume in volumes if not volume.startswith(f"{CHECK_PROJECT}_")]
+    if foreign:
+        raise BackupError(f"refusing to remove volumes outside {CHECK_PROJECT}: {foreign}")
+    if volumes:
+        _require("removing the check's volumes", ["docker", "volume", "rm", *volumes])
+
+
+def _owner_otp_credentials(compose: Compose) -> tuple[str, ...] | None:
+    """The restored owner's OTP credential ids, read from Keycloak's own tables.
+
+    :return: None when the restored identity store is empty, or holds no `finassist` realm with
+        the pinned owner in it; otherwise the owner's OTP credential ids, possibly none.
+    """
+    if compose.table_count(KEYCLOAK) == 0:
+        return None
+    variables = (("realm", REALM), ("owner", OWNER_ID))
+    if int(compose.psql(KEYCLOAK, OWNER_PRESENT_SQL, *variables)[0][0]) != 1:
+        return None
+    return tuple(row[0] for row in compose.psql(KEYCLOAK, OWNER_OTP_SQL, *variables))
+
+
+def _restore_both(compose: Compose, folder: Path) -> tuple[str, ...] | None:
+    """Restores both dumps, then reads the owner's OTP credentials before Keycloak can start.
+
+    :return: what `_owner_otp_credentials` found, for the identity checks at the end.
+    """
+    restore(compose, folder, DATABASES)
+    return _owner_otp_credentials(compose)
+
+
+def _start_ledger(compose: Compose) -> None:
+    """Starts Keycloak and the ledger on the restored databases, and waits for both to be ready.
+
+    A ledger that becomes ready has validated the restored Flyway history and applied anything
+    newer, so a migration that cannot run against these books fails here.
+    """
+    compose.require(
+        "starting Keycloak and the ledger",
+        "up",
+        "-d",
+        "--wait",
+        "--wait-timeout",
+        CHECK_WAIT_SECONDS,
+        "--build",
+        "ledger",
+    )
+    applied, failed = compose.psql(LEDGER, FLYWAY_FAILED_SQL)[0]
+    if int(applied) == 0 or int(failed) != 0:
+        raise BackupError(f"Flyway's history holds {applied} migrations, {failed} of them failed")
+
+
+def _recorded_by_not_valid(compose: Compose) -> None:
+    """Both of V1_2's `recorded_by` checks exist and are still NOT VALID (ADR-033)."""
+    first, second = RECORDED_BY_CHECKS
+    rows = compose.psql(LEDGER, RECORDED_BY_SQL, ("first", first), ("second", second))
+    found = {row[0]: row[1] for row in rows}
+    missing = [name for name in RECORDED_BY_CHECKS if name not in found]
+    if missing:
+        raise BackupError(f"missing: {', '.join(missing)}")
+    validated = [name for name, flag in found.items() if flag != "f"]
+    if validated:
+        raise BackupError(f"validated, which ADR-033 forbids: {', '.join(validated)}")
+
+
+def _request(
+    port: int,
+    method: str,
+    path: str,
+    *,
+    token: str | None = None,
+    form: dict[str, str] | None = None,
+) -> tuple[int, bytes]:
+    """Sends one HTTP request to the check's own published port and returns (status, body)."""
+    headers: dict[str, str] = {}
+    body = None
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
+    if form is not None:
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        body = urllib.parse.urlencode(form).encode("ascii")
+    connection = http.client.HTTPConnection(CHECK_HOST, port, timeout=REQUEST_TIMEOUT_SECONDS)
+    try:
+        connection.request(method, path, body=body, headers=headers)
+        response = connection.getresponse()
+        return response.status, response.read()
+    finally:
+        connection.close()
+
+
+def _assistant_token(compose: Compose) -> str:
+    """A client-credentials token from the restored Keycloak, with the assistant's read-only role.
+
+    The secret is the one `.env` gives Keycloak, read from the resolved Compose model. A restored
+    Keycloak keeps the secret it imported originally, so a mismatch means `.env` changed since.
+    """
+    services = compose.resolved().get("services")
+    keycloak = services.get("keycloak") if isinstance(services, dict) else None
+    environment = keycloak.get("environment") if isinstance(keycloak, dict) else None
+    secret = environment.get(ASSISTANT_CLIENT_SECRET_ENV) if isinstance(environment, dict) else None
+    if not isinstance(secret, str) or not secret:
+        raise BackupError(f"{ASSISTANT_CLIENT_SECRET_ENV} is not set for Keycloak")
+    status, body = _request(
+        KEYCLOAK_CHECK_PORT,
+        "POST",
+        TOKEN_PATH,
+        form={
+            "grant_type": "client_credentials",
+            "client_id": ASSISTANT_CLIENT_ID,
+            "client_secret": secret,
+        },
+    )
+    if status != HTTP_OK:
+        raise BackupError(
+            f"Keycloak refused the assistant's client credentials with {status}; the restored "
+            f"realm keeps the secret it was given, so {ASSISTANT_CLIENT_SECRET_ENV} in .env may "
+            "have changed since the backup"
+        )
+    token = json.loads(body).get("access_token")
+    if not isinstance(token, str) or not token:
+        raise BackupError("Keycloak's token response carried no access_token")
+    return token
+
+
+def _accounts_served(compose: Compose) -> None:
+    """The ledger lists exactly the accounts the restored books hold, and answers each one's
+    balance in that account's currency. Reports counts, never an id, a name or an amount."""
+    held = {row[0]: row[1] for row in compose.psql(LEDGER, ACCOUNTS_SQL)}
+    if not held:
+        raise BackupError("the restored books hold no account, so there is nothing to prove")
+    token = _assistant_token(compose)
+    status, body = _request(LEDGER_CHECK_PORT, "GET", ACCOUNTS_PATH, token=token)
+    if status != HTTP_OK:
+        raise BackupError(f"GET {ACCOUNTS_PATH} answered {status}")
+    listed = {str(account.get("id")) for account in json.loads(body)}
+    if listed != set(held):
+        raise BackupError(
+            f"the ledger lists {len(listed)} accounts and the database holds {len(held)}, "
+            "and the two sets differ"
+        )
+    for account, currency in held.items():
+        path = f"{ACCOUNTS_PATH}/{urllib.parse.quote(account, safe='')}/balance"
+        status, body = _request(LEDGER_CHECK_PORT, "GET", path, token=token)
+        if status != HTTP_OK:
+            raise BackupError(f"an account's balance answered {status}")
+        balance = json.loads(body).get("balance") or {}
+        if balance.get("currency") != currency:
+            raise BackupError("an account's balance came back in another currency than its own")
+    _report(f"   {len(held)} accounts listed, each balance answered in its own currency")
+
+
+def _owner_has_otp(before: tuple[str, ...] | None) -> None:
+    """The restored identity store holds the pinned owner with an OTP credential."""
+    if before is None:
+        raise BackupError(
+            f"keycloak.dump restores no {REALM} realm holding the pinned owner, so this backup "
+            "brings back no identity; was it taken before Keycloak first ran?"
+        )
+    if not before:
+        raise BackupError(
+            "the restored owner has no OTP credential, so a sign-in would demand a fresh "
+            "enrolment; was this backup taken before the owner's first sign-in?"
+        )
+
+
+def _otp_unchanged(compose: Compose, before: tuple[str, ...] | None) -> None:
+    """The owner's OTP credentials are the same ones after Keycloak started on the restored
+    database, which proves the realm import was skipped rather than re-creating the owner."""
+    if _owner_otp_credentials(compose) != before:
+        raise BackupError("the owner's OTP credentials changed when Keycloak started")
+
+
+def _clean_up_reported(compose: Compose) -> bool:
+    """`_clean_up`, reporting rather than raising, for the end of a check however it ended.
+
+    :return: whether the check's containers and volumes are gone.
+    """
+    try:
+        _clean_up(compose)
+    except (BackupError, OSError) as failure:
+        _report(f"FAILED clean-up of {CHECK_PROJECT}: {failure}")
+        return False
+    return True
+
+
+def _run_checks(run: _CheckRun, compose: Compose, folder: Path) -> int:
+    """Restores the backup into the check's project and runs every check, stopping at the first
+    failure.
+
+    :return: 0 when every check passed, else 1, with the failure already reported.
+    """
+    try:
+        _clean_up(compose)
+        compose.require(
+            "starting db and keycloak-db",
+            "up",
+            "-d",
+            "--wait",
+            "--wait-timeout",
+            CHECK_WAIT_SECONDS,
+            "db",
+            "keycloak-db",
+        )
+        before = run.check(
+            "both dumps restore into empty databases", _restore_both, compose, folder
+        )
+        _report("Starting Keycloak and the ledger; the first run builds both images")
+        run.check("the ledger is ready on the restored Flyway history", _start_ledger, compose)
+        run.check(
+            "both recorded_by checks exist and are NOT VALID", _recorded_by_not_valid, compose
+        )
+        run.check("the ledger serves every account the books hold", _accounts_served, compose)
+        run.check("the restored owner has an OTP credential", _owner_has_otp, before)
+        run.check(
+            "the owner's credentials survive Keycloak's start", _otp_unchanged, compose, before
+        )
+    except BackupError as failure:
+        _report(f"FAILED check {run.current}: {failure}")
+        return 1
+    except OSError as error:
+        _report(f"FAILED check {run.current}: {type(error).__name__}: {error}")
+        return 1
+    except Exception as error:
+        # Last resort, so every failure still names its check. The type alone: a message could
+        # quote a row or a response body.
+        _report(f"FAILED check {run.current}: unexpected {type(error).__name__}")
+        return 1
+    _report(f"{run.passed}/{run.passed} checks passed")
+    return 0
+
+
+def check(folder: Path) -> int:
+    """Restores the backup in `folder` into a project of its own and proves the stack comes back.
+
+    Every check after the restore runs whatever the identity store holds, so a backup that brings
+    back the books but not the owner says exactly that. The check's containers and volumes are
+    removed before it starts and after it ends, however it ends, interrupted included.
+
+    :return: the process exit status: 0 when every check passed and clean-up succeeded, else 1.
+    """
+    compose = _isolated(CHECK_PROJECT)
+    _report(f"Compose project: {CHECK_PROJECT}, on ports of its own; the owner's is untouched")
+    status = 1
+    try:
+        status = _run_checks(_CheckRun(), compose, folder)
+    finally:
+        cleaned = _clean_up_reported(compose)
+    return status if cleaned else 1
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="backup.py",
@@ -478,6 +857,11 @@ def _parser() -> argparse.ArgumentParser:
         choices=[database.key for database in DATABASES],
         help="restore this database alone, such as keycloak to undo a realm re-import",
     )
+    check_parser = commands.add_parser(
+        "check",
+        help=f"prove a backup restores, in the isolated Compose project {CHECK_PROJECT}",
+    )
+    check_parser.add_argument("folder", type=Path, help="a folder `backup` wrote")
     return parser
 
 
@@ -496,6 +880,8 @@ def main(argv: list[str], now: datetime) -> int:
             chosen = tuple(db for db in DATABASES if arguments.database in (None, db.key))
             restore(Compose(), arguments.folder, chosen)
             _report("Restore complete; start the stack with `docker compose up -d`")
+        elif arguments.command == "check":
+            return check(arguments.folder)
     except BackupError as failure:
         _report(f"FAILED: {failure}")
         return 1

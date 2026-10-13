@@ -11,6 +11,19 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **`make restore-check` proves a backup restores, rather than assuming it.** It runs only as the
+  Compose project `finassist-restore-check`, on ports of its own. It restores both dumps into
+  fresh volumes, starts Keycloak and the ledger on them, and then requires:
+  - the ledger to be ready on the restored Flyway history;
+  - both `recorded_by` checks to be still `NOT VALID`;
+  - every account the database holds to be listed by the ledger, and answered in its own
+    currency;
+  - the owner to keep an OTP credential, unchanged once Keycloak has started.
+
+  That last requirement is what tells a restored owner from one the realm import re-created. The
+  check cleans up its own containers and volumes by project label, and is never run in CI
+  ([ADR-038](docs/ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md),
+  [#137](https://github.com/NaimElijah/FinAssist/issues/137)).
 - **`make restore` puts a backup back, one database or both.** It checks each dump against its
   manifest's SHA-256, and refuses until the ledger and Keycloak are stopped and the target
   databases are running and hold no table. Under `restart: unless-stopped` either service would

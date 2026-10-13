@@ -16,7 +16,7 @@ BACKUP_TOOL := ../../ops/backup
 MVNW      := ./mvnw -B
 UV        := uv
 
-.PHONY: help setup lock run run-monitoring run-identity smoke-auth stop stop-monitoring backup restore \
+.PHONY: help setup lock run run-monitoring run-identity smoke-auth stop stop-monitoring backup restore restore-check \
         test test-ledger test-gateway test-assistant test-web mutation-ledger \
         lint lint-ledger lint-gateway lint-assistant lint-smoke lint-backup lint-web \
         build-web generate-web-api format audit audit-assistant audit-web clean
@@ -56,6 +56,10 @@ backup: ## Dump the ledger's and Keycloak's databases into backups/<UTC time>/, 
 # BACKUP=<folder> is required. DATABASE=ledger|keycloak restores that database alone.
 restore: ## Restore a backup into empty databases, ledger and keycloak stopped: make restore BACKUP=backups/<time>
 	$(UV) run ops/backup/backup.py restore $(BACKUP) $(if $(DATABASE),--database $(DATABASE))
+
+# Only ever in the Compose project finassist-restore-check, on ports of its own; never yours.
+restore-check: ## Prove a backup restores and the stack comes back on it: make restore-check BACKUP=backups/<time>
+	$(UV) run ops/backup/backup.py check $(BACKUP)
 
 stop: ## Stop the stack, keeping volumes
 	docker compose down

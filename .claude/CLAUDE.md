@@ -92,6 +92,10 @@ is **not installed** on the development machine, so the raw command is given for
   `uv run ops/backup/backup.py restore <folder> [--database …]`. Restores only into a database
   that holds no table, with `ledger` and `keycloak` stopped, each in one transaction; the README's
   "Backing up and restoring" gives the recovery, realm-undo and major-upgrade recipes
+- Prove a backup restores: `make restore-check BACKUP=<folder>` —
+  `uv run ops/backup/backup.py check <folder>`. Only ever as the Compose project
+  `finassist-restore-check`, on ports 15432/18080/18081, so it runs beside the owner's stack; builds
+  the ledger and Keycloak images under that name on its first run. Manual, never in CI (ADR-038)
 - Stop: `make stop` — `docker compose down`, keeping volumes. Never `docker compose down -v`
   against the owner's own project: it deletes `db-data` along with `keycloak-db-data`
 - Test (all): `make test`
@@ -215,7 +219,8 @@ so it can be extracted by moving it (ADR-010).
   with `make smoke-auth`, never by `docker compose up` and never by CI (ADR-034), and linted by
   `make lint-smoke`. `ops/backup/backup.py` is a standard-library operator CLI run on the host
   with `uv run` (its PEP 723 block declares Python 3.13 and no dependency): it backs up
-  and restores each database on its own (ADR-038), and is linted by `make lint-backup`.
+  and restores each database on its own, and proves a backup restores (ADR-038), and is linted
+  by `make lint-backup`.
 - `docs/ADRs/` — one file per decision, `ADR-NNN-short-kebab-title.md`, zero-padded and
   monotonically increasing. Append-only: supersede, never rewrite.
 - `docs/requirements/` — what the system must do. `docs/architecture/` — what it actually is.
@@ -281,6 +286,13 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **Telemetry is a no-op when unconfigured.** A service must start with no collector named. An
   endpoint alone never enables export; `OTEL_EXPORT_ENABLED` does, for every signal — traces,
   metrics, and the ledger's OTLP log export, which nothing feeds until a log appender is added.
+- **A restore only ever writes into an empty database, and the restore check only ever runs as
+  `finassist-restore-check`.** `ops/backup/backup.py` refuses to restore into a database holding a
+  table, or while the ledger or Keycloak is running, since under `unless-stopped` either would
+  migrate or import into the empty database first. `check` passes `-p finassist-restore-check` on
+  every Compose call and removes only volumes carrying that project's label and name prefix, so a
+  verification run never touches the owner's `finassist` project; `restore` targets the owner's
+  project only in a real recovery. Never `docker compose down -v` (ADR-038).
 - **Every long-running Compose service takes `restart: *restart-policy` and `logging:
   *bounded-logs`; the one-shot `auth-smoke` takes neither.** The two `x-` blocks at the top of
   `docker-compose.yml` state the policy (`unless-stopped`) and the bound (three 10 MB `json-file`

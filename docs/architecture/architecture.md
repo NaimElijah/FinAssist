@@ -227,8 +227,8 @@ Operational configuration lives in `ops/`: the collector, Prometheus and Grafana
 that the `monitoring` Compose profile mounts; `ops/keycloak/`, the `Dockerfile` that builds the
 identity provider and the `finassist` realm it imports at start-up (ADR-031); and
 `ops/smoke/auth_smoke.py`, the opt-in smoke check behind the `smoke` profile (ADR-034); and
-`ops/backup/backup.py`, the operator CLI that backs up and restores each database on its own
-(ADR-038).
+`ops/backup/backup.py`, the operator CLI that backs up, restores and proves a restore of each
+database (ADR-038).
 
 ## Communication
 
@@ -782,7 +782,12 @@ schedules it, because no recovery-point target has been set. Its `restore` write
 database that holds no table, with the service that uses it stopped (the ledger for `db`, Keycloak
 for `keycloak-db`), and it runs `pg_restore --single-transaction`. A full restore loads data with
 `COPY` before it creates triggers, and pg_dump re-adds a `NOT VALID` check as `NOT VALID`, so the
-journal's append-only triggers and the `recorded_by` checks never stand in its way.
+journal's append-only triggers and the `recorded_by` checks never stand in its way. Its `check`
+proves a backup end to end in the Compose project `finassist-restore-check`, the only project it
+can name, on ports of its own. It restores both dumps, reads the owner's OTP credentials from
+Keycloak's tables before Keycloak starts, then starts Keycloak and the ledger. It asks the ledger,
+over HTTP with the assistant's client-credentials token, for every account the database holds. It
+removes its own containers and volumes, found by Compose's project label, however it ends.
 
 ## External dependencies and integration points
 
