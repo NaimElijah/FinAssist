@@ -113,15 +113,18 @@ services:
       # deliberately unwired (adapters/wiring.py) — an LLM adapter would settle the requirements'
       # open privacy question by implication, so this waits on that decision, not on Compose.
     healthcheck:
-      # python:3.13-slim carries no curl; the interpreter already in the image is enough. The
-      # Host header urllib sends is `localhost:8000`, which ASSISTANT_ALLOWED_HOSTS admits — the
-      # check compares only the text before the header's first colon (ADR-030).
+      # Readiness, not liveness: `service_healthy` must mean "can serve", and `/ready` is the one
+      # endpoint that becomes a real check once the ledger client exists (#62) — probing `/health`
+      # would leave Compose blind to that change. python:3.13-slim carries no curl; the interpreter
+      # already in the image is enough. The Host header urllib sends is `localhost:8000`, which
+      # ASSISTANT_ALLOWED_HOSTS admits — the check compares only the text before the header's
+      # first colon (ADR-030).
       test:
         [
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')",
         ]
       interval: 5s
       timeout: 3s
@@ -243,8 +246,9 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_EXPORT_ENABLED: ${OTEL_EXPORT_ENABLED:-false}
     healthcheck:
-      # The runtime image is eclipse-temurin's Ubuntu Noble base, which carries curl already.
-      test: ["CMD", "curl", "-f", "http://localhost:8090/actuator/health"]
+      # Readiness, like the ledger's, so `service_healthy` means ready to serve rather than merely
+      # alive. The runtime image is eclipse-temurin's Ubuntu Noble base, which carries curl already.
+      test: ["CMD", "curl", "-f", "http://localhost:8090/actuator/health/readiness"]
       interval: 5s
       timeout: 3s
       retries: 10

@@ -117,6 +117,12 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **Compose waits on the gateway's and the assistant's readiness, not their liveness.** Their
+  healthchecks probed `/actuator/health` and `/health`, so `service_healthy` meant only "alive".
+  They now probe `/actuator/health/readiness` and `/ready`, as the ledger's and Keycloak's already
+  did, so the assistant's `/ready` turning into a real check when the ledger client lands (#62)
+  changes what Compose sees
+  ([#142](https://github.com/NaimElijah/FinAssist/issues/142)).
 - **The ledger answers 503, not 401, when the JWKS endpoint serves a key set with no keys.**
   Spring Security parses `{"keys": []}`, or a set whose every key is of a type Nimbus skips, and
   then reports the token's key missing, so every request was refused 401 at WARN while no token

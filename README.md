@@ -709,7 +709,7 @@ Dockerfile.
 | Concern | Endpoint or format | State |
 |---|---|---|
 | Liveness | `GET /actuator/health/liveness` (ledger and gateway), `GET /health` (assistant) | Live, returns `UP` |
-| Readiness | `GET /actuator/health/readiness` (ledger and gateway), `GET /ready` (assistant); Keycloak's `/health/ready` on its management port, 9000, inside its container only | Live. Compose judges Keycloak ready by that endpoint's HTTP status line alone, and the ledger, the gateway and the assistant wait for it |
+| Readiness | `GET /actuator/health/readiness` (ledger and gateway), `GET /ready` (assistant); Keycloak's `/health/ready` on its management port, 9000, inside its container only | Live. Compose's healthcheck probes each of these, never a liveness path, so `service_healthy` means ready to serve. It judges Keycloak by that endpoint's HTTP status line alone, and the ledger, the gateway and the assistant wait for it |
 | Metrics | `GET /actuator/metrics`, `GET /actuator/prometheus` (ledger) | Live, and scraped by the monitoring profile; no domain metric yet |
 | Traces | OTLP to `$OTEL_EXPORTER_OTLP_ENDPOINT` | Live when `OTEL_EXPORT_ENABLED=true`; dropped otherwise, and the services start either way |
 | Logs | JSON on stdout, carrying a W3C trace id | Live — ECS in the ledger and the gateway, structlog in the assistant. Redaction is enforced at the assistant's and the web client's logging boundaries; the ledger and the gateway log no credential at all — a refused token as its reason category alone, a failed sign-in as its OAuth2 error code — and the ledger does not expose `/actuator/env` |
