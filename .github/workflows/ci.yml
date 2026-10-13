@@ -216,7 +216,8 @@ jobs:
               elif svc.get("restart") != policy or svc.get("logging") != bounded_logs:
                   problems.append(f"{name}: needs restart: *restart-policy and logging: *bounded-logs")
           for name, path in readiness.items():
-              if path not in " ".join(services[name]["healthcheck"]["test"]):
+              healthcheck = (services.get(name) or {}).get("healthcheck") or {}
+              if path not in " ".join(healthcheck.get("test") or []):
                   problems.append(f"{name}: its healthcheck must probe {path}")
           print("\n".join(problems) or "Every service follows the Compose conventions")
           sys.exit(1 if problems else 0)
