@@ -54,8 +54,8 @@ BACKUP_DIR_ENV: Final = "BACKUP_DIR"
 TIMESTAMP_FORMAT: Final = "%Y%m%dT%H%M%SZ"
 MANIFEST_NAME: Final = "manifest.json"
 MANIFEST_FORMAT: Final = 1
-# Owner-only where the OS honours a POSIX mode. Windows ignores it, and the folder inherits the
-# user profile's permissions instead.
+# Owner-only where the OS honours a POSIX mode. Windows ignores it: the folder inherits its parent
+# folder's ACL, which is owner-only inside the user profile, where the default backups/ is.
 OWNER_ONLY_DIRECTORY: Final = 0o700
 OWNER_ONLY_FILE: Final = 0o600
 HASH_CHUNK_BYTES: Final = 1024 * 1024

@@ -127,8 +127,10 @@ or nothing.**
 
 - **A Keycloak dump is a credential store.** It holds every password hash, and Keycloak keeps the
   TOTP seed itself, so anyone holding `keycloak.dump` can generate the owner's codes. On Windows
-  the folder inherits the user profile's permissions. On Linux and macOS the CLI makes it
-  readable by the owner alone.
+  the folder inherits its parent folder's permissions. Under the default `backups/`, inside the
+  user profile, only the owner and administrators can read it. A `BACKUP_DIR` outside the profile
+  can be readable by every local user, so the README says to keep it inside. On Linux and macOS
+  the CLI makes it readable by the owner alone.
 - **A restored Keycloak keeps the dump's admin account and client secrets, not `.env`'s.** If a
   secret changed in `.env` since the backup, the service using it fails until the two agree.
 - **A restore check takes minutes.** It builds the ledger and Keycloak images under its own

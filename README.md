@@ -596,7 +596,11 @@ run` supplies the Python 3.13 the script declares.
 - **What the dumps hold.** `ledger.dump` holds the books. `keycloak.dump` holds every password
   hash and, in clear, the owner's TOTP seed: anyone holding it can generate the owner's codes.
 - **Who can read them.** `backups/` and `*.dump` are git-ignored. On Linux and macOS the folder is
-  readable by you alone. On Windows it inherits your user profile's permissions.
+  readable by you alone. On Windows it inherits the permissions of the folder it is created in.
+  The default `backups/` sits inside your user profile, so only you, and administrators, can read
+  it. A `BACKUP_DIR` outside your profile, such as `C:\backups`, inherits that folder's
+  permissions, which on a default `C:\` let every local user read the dumps. Keep `BACKUP_DIR`
+  inside your profile.
 - **What they protect against.** They sit on the same disk as the volumes, so they cover a bad
   migration, a deleted volume or a mistaken realm re-import, not the loss of the machine.
 - **Copying them elsewhere** is your call. Whether a copy may leave the machine at all is
