@@ -658,7 +658,8 @@ docker compose up -d
 restore (both, unless `DATABASE=` names one):
 
 - its dump still matches the SHA-256 in its manifest;
-- the service that uses it is stopped: `ledger` for `db`, `keycloak` for `keycloak-db`;
+- the service that uses it is stopped, not merely between crash-loop restarts: `ledger` for
+  `db`, `keycloak` for `keycloak-db`;
 - the database is running, and holds no table.
 
 Each database is then restored in one transaction, so it ends up either whole or still empty. A

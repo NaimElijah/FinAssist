@@ -258,3 +258,38 @@ def Given_a_changed_dump_When_checked_Then_it_fails_before_any_container_starts(
     assert status == 1
     assert _CALLS == []
     assert "FAILED check 1 (both dumps match their manifest)" in capsys.readouterr().out
+
+
+# --- a restore refuses while the database's consumer is anything but stopped -------------------
+
+
+class _RestartingLedger(backup.Compose):
+    """A project whose databases run and whose ledger is caught in a crash loop."""
+
+    def require(
+        self,
+        what: str,
+        *args: str,
+        stdin: object = None,
+        stdout: object = None,
+        input_bytes: bytes | None = None,
+    ) -> bytes:
+        if args[0] == "config":
+            return b'{"name": "finassist-test"}'
+        if args[0] == "ps":
+            statuses = [args[i + 1] for i, arg in enumerate(args) if arg == "--status"]
+            return (
+                b"db\nkeycloak-db\nledger\n" if "restarting" in statuses else b"db\nkeycloak-db\n"
+            )
+        if args[0] == "exec":
+            return b"0\n"
+        raise AssertionError(f"unexpected command: {args}")
+
+
+def Given_a_restarting_ledger_When_its_database_is_restored_Then_the_restore_is_refused(
+    tmp_path: Path,
+) -> None:
+    folder = _backup_folder(tmp_path, _manifest_for(b"PGDMP-archive", tmp_path))
+
+    with pytest.raises(backup.BackupError, match="ledger is not stopped"):
+        backup.restore(_RestartingLedger(), folder, (backup.LEDGER,))

@@ -114,6 +114,9 @@ PSQL_COMMAND: Final = (
     'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -X -A -t -q -v ON_ERROR_STOP=1 "$@"',
     "psql",
 )
+# `docker compose ps --status` matches one state exactly, so "not stopped" is a list of them.
+RUNNING_STATES: Final = ("running",)
+UNSTOPPED_STATES: Final = ("running", "restarting", "paused")
 COUNT_TABLES_SQL: Final = (
     "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema');"
 )
@@ -335,7 +338,19 @@ class Compose:
 
     def running_services(self) -> set[str]:
         """The services of this project that have a running container."""
-        listed = self.require("listing running services", "ps", "--status", "running", "--services")
+        return self._services_in(RUNNING_STATES)
+
+    def unstopped_services(self) -> set[str]:
+        """The services of this project whose container is running, restarting or paused.
+
+        A service under `restart: unless-stopped` that crashes on start shows as `restarting`
+        between attempts, and an attempt can still migrate or import into a database.
+        """
+        return self._services_in(UNSTOPPED_STATES)
+
+    def _services_in(self, states: tuple[str, ...]) -> set[str]:
+        filters = [argument for state in states for argument in ("--status", state)]
+        listed = self.require("listing services", "ps", *filters, "--services")
         return set(listed.decode("utf-8").split())
 
     def psql(self, database: Database, sql: str, *variables: tuple[str, str]) -> list[list[str]]:
@@ -528,14 +543,15 @@ def restore(compose: Compose, folder: Path, databases: tuple[Database, ...]) -> 
     _report(f"{', '.join(path.name for path in dumps.values())}: match the manifest")
     project = compose.project_name()
     _report(f"Compose project: {project}")
-    running = compose.running_services()
-    busy = " ".join(db.consumer for db in databases if db.consumer in running)
+    unstopped = compose.unstopped_services()
+    busy = " ".join(db.consumer for db in databases if db.consumer in unstopped)
     if busy:
         raise BackupError(
-            f"{busy} {'are' if ' ' in busy else 'is'} running in project {project}, and would "
-            "migrate or import into an empty database; "
+            f"{busy} {'are' if ' ' in busy else 'is'} not stopped in project {project} (running, "
+            "restarting or paused), and would migrate or import into an empty database; "
             f"stop first with `docker compose stop {busy}`"
         )
+    running = compose.running_services()
     stopped = " ".join(db.service for db in databases if db.service not in running)
     if stopped:
         raise BackupError(
