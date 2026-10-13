@@ -62,7 +62,7 @@ every screen on a session (`SessionGate`, `SessionContext`) and hides write cont
 the running Compose stack, by hand and never in CI (ADR-034).
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
-Proposed today. Of all 37, ADR-027 is Superseded by ADR-030 and the other 36 are Accepted. The
+Proposed today. Of all 38, ADR-027 is Superseded by ADR-030 and the other 37 are Accepted. The
 requirements are still deliberately `TODO` in places rather than inferred from code.
 
 ## Commands
@@ -270,7 +270,7 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **Every long-running Compose service takes `restart: *restart-policy` and `logging:
   *bounded-logs`; the one-shot `auth-smoke` takes neither.** The two `x-` blocks at the top of
   `docker-compose.yml` state the policy (`unless-stopped`) and the bound (three 10 MB `json-file`
-  logs) once, since ADR-019 leaves rotation to whatever runs the container. Every Compose
+  logs) once, since ADR-019 leaves rotation to whatever runs the container (ADR-039). Every Compose
   healthcheck probes readiness: `/actuator/health/readiness` on the ledger and the gateway, `/ready`
   on the assistant, `/health/ready` on Keycloak's management port. CI's `compose` job reads the
   resolved file and fails a long-running service whose policy or logging is not exactly those

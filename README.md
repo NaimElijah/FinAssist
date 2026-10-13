@@ -169,7 +169,7 @@ restarts the containers itself, without Compose's `depends_on` ordering:
   ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)).
 
 Each container keeps at most 30 MB of logs, three 10 MB files, and `docker compose logs` reads
-only what is left.
+only what is left ([ADR-039](docs/ADRs/ADR-039-compose-restarts-services-and-bounds-their-logs.md)).
 
 `docker-compose.yml`'s `:?` on each of the realm's three secret placeholders — the two client
 secrets and the owner's initial password — is what keeps that import safe; its two other
@@ -830,7 +830,7 @@ with its generated OpenAPI document pinned by `LedgerContractIT` and published a
 well as natively. **Every business request is authenticated**: the browser signs in with OIDC at
 a backend-for-frontend gateway against a self-hosted Keycloak, the ledger and the assistant each
 validate a bearer token and deny by default, and every journal row written from `V1_2` onward
-names who wrote it. Thirty-six ADRs. Every architecture rule is live rather than dormant, and
+names who wrote it. Thirty-eight ADRs. Every architecture rule is live rather than dormant, and
 each was confirmed to fail against a planted violation — including dropping the append-only
 trigger and planting a foreign key across a schema boundary. CI gates build, lint, format and
 dependency audit across five jobs, and publishes a coverage report from each of the four that

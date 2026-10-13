@@ -23,9 +23,9 @@
 # smoke-auth` after `make run` reports every service healthy (Refs #38).
 name: finassist
 
-# One restart policy and one log bound for every long-running service, stated once and applied by
-# alias. Neither goes on `auth-smoke`, a one-shot `compose run --rm` whose failure must stay a
-# failure rather than loop.
+# One restart policy and one log bound for every long-running service (ADR-039), stated once and
+# applied by alias. Neither goes on `auth-smoke`, a one-shot `compose run --rm` whose failure must
+# stay a failure rather than loop.
 #
 # `unless-stopped`: a service that crashes comes back on its own, and so does the whole stack after
 # Docker itself restarts, while one stopped on purpose (Ctrl+C on `make run`, `docker compose stop`,
