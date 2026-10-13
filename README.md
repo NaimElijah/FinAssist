@@ -618,16 +618,17 @@ on them. The first run builds both images under that project's name, so expect s
 
 **What it checks:**
 
-1. The ledger becomes ready on the restored Flyway history.
-2. Both `recorded_by` checks exist and are still `NOT VALID`.
-3. The ledger, asked with the assistant's read-only token, lists exactly the accounts the
+1. Both dumps restore into empty databases.
+2. The ledger becomes ready on the restored Flyway history.
+3. Both `recorded_by` checks exist and are still `NOT VALID`.
+4. The ledger, asked with the assistant's read-only token, lists exactly the accounts the
    database holds, and answers every account's balance in its own currency. A backup with no
    account fails rather than passing on nothing.
-4. The owner, under the pinned id, has an OTP credential.
-5. That credential is the same one after Keycloak has started. This is what tells a restored
+5. The owner, under the pinned id, has an OTP credential.
+6. That credential is the same one after Keycloak has started. This is what tells a restored
    owner from one the realm import just re-created.
 
-A backup taken before the owner's first sign-in therefore fails check 4. It brings back the books,
+A backup taken before the owner's first sign-in therefore fails check 5. It brings back the books,
 but not a usable identity.
 
 **What it reports.** Counts, never an amount, a name, an id or a secret.
