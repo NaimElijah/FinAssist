@@ -62,7 +62,7 @@ every screen on a session (`SessionGate`, `SessionContext`) and hides write cont
 the running Compose stack, by hand and never in CI (ADR-034).
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
-Proposed today. Of all 38, ADR-027 is Superseded by ADR-030 and the other 37 are Accepted. The
+Proposed today. Of all 39, ADR-027 is Superseded by ADR-030 and the other 38 are Accepted. The
 requirements are still deliberately `TODO` in places rather than inferred from code.
 
 ## Commands
@@ -468,6 +468,11 @@ These are enforced by the build, not by review. Breaking one fails CI.
   `contexts_do_not_depend_on_each_other`. `LedgerSecurityConfiguration`, `LedgerPermissions`,
   `ProblemAuthenticationEntryPoint` and `ProblemAccessDeniedHandler` all live there; a controller
   still touches only `java.security.Principal`.
+- **The gateway's shipped jar must start, and CI starts it.** `GatewayPackagedJarIT` runs the
+  repackaged jar `package` wrote with `java -jar` and requires readiness, because every other suite
+  runs on the test classpath, which can hold a library the jar lacks. A test-scoped declaration of
+  something Boot needs at runtime (`snakeyaml`, #233) fails the build there. The ledger and the
+  assistant have no such check yet (#234; ADR-040).
 - **Every `@WebMvcTest` slice imports `WebSliceSecurity`.** A slice loads no scanned configuration
   (ADR-028's convention, extended to ADR-030), so without it a slice would boot with no security at
   all — every request admitted, which is a false pass, not a fast one. Enforced by
