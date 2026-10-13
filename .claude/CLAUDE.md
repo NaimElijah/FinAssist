@@ -62,7 +62,7 @@ every screen on a session (`SessionGate`, `SessionContext`) and hides write cont
 the running Compose stack, by hand and never in CI (ADR-034).
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
-Proposed today. Of all 39, ADR-027 is Superseded by ADR-030 and the other 38 are Accepted. The
+Proposed today. Of all 40, ADR-027 is Superseded by ADR-030 and the other 39 are Accepted. The
 requirements are still deliberately `TODO` in places rather than inferred from code.
 
 ## Commands

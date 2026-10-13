@@ -831,7 +831,7 @@ with its generated OpenAPI document pinned by `LedgerContractIT` and published a
 well as natively. **Every business request is authenticated**: the browser signs in with OIDC at
 a backend-for-frontend gateway against a self-hosted Keycloak, the ledger and the assistant each
 validate a bearer token and deny by default, and every journal row written from `V1_2` onward
-names who wrote it. Thirty-nine ADRs. Every architecture rule is live rather than dormant, and
+names who wrote it. Forty ADRs. Every architecture rule is live rather than dormant, and
 each was confirmed to fail against a planted violation — including dropping the append-only
 trigger and planting a foreign key across a schema boundary. CI gates build, lint, format and
 dependency audit across five jobs, and publishes a coverage report from each of the four that
