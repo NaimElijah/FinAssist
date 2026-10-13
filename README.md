@@ -693,24 +693,34 @@ make restore BACKUP=backups/<UTC time> DATABASE=keycloak
 docker compose up -d keycloak gateway
 ```
 
-**Moving a database to a new PostgreSQL major version is a dump and a restore.** A new major
-cannot start on the old one's data directory. These steps have not been rehearsed against a real
+**Moving a database to a new PostgreSQL major version is a dump, a new volume, and a restore.**
+The new major cannot start on the old one's data, and from 18 the official image refuses to start
+on an empty data directory whenever the volume also holds an older cluster or is mounted at the old
+`/var/lib/postgresql/data` path. It stops with "in 18+, these Docker images are configured to store
+database data in a…", and writes nothing. So the new major gets a volume of its own, and the old
+volume stays exactly as it was, as the way back. These steps have not been rehearsed against a real
 major upgrade yet.
 
 1. Take `make backup`, and run `make restore-check` on it.
-2. For `keycloak-db`, check that the new major is on Keycloak's
-   [supported configurations](https://www.keycloak.org/server/supported-configurations) first.
-3. Stop the service that uses the database, change its image tag in `docker-compose.yml`, and give
-   the database an empty data directory:
-   - **`db`.** The PostgreSQL 18 image keeps its cluster in a versioned directory inside the
-     volume, `/var/lib/postgresql/18/docker`. A later major that follows the same layout starts
-     empty beside the old cluster, which stays until you remove it. Check the new image's `PGDATA`
-     before you rely on that.
-   - **`keycloak-db`.** It mounts its volume at 17's `/var/lib/postgresql/data`, where the old
-     cluster itself lives, so it needs a new volume. Keep the old one until the new one has been
-     checked.
-4. Run `docker compose up -d --wait` on that database, then `make restore` with its `DATABASE=`,
-   then `docker compose up -d`.
+2. Check that what uses the database supports the new major:
+   - for `db`, Flyway and the PostgreSQL JDBC driver the ledger ships;
+   - for `keycloak-db`, Keycloak's
+     [supported configurations](https://www.keycloak.org/server/supported-configurations).
+3. Stop the service that uses the database, and remove the database's container:
+   - `docker compose stop ledger`, then `docker compose rm --stop --force db`;
+   - or `docker compose stop keycloak`, then `docker compose rm --stop --force keycloak-db`.
+4. In `docker-compose.yml`, change the database's image tag, and point it at a new volume under
+   a new key, declared under `volumes:` and mounted at `/var/lib/postgresql`, the layout the 18+
+   image expects:
+   - for example, `db-data-19:/var/lib/postgresql` for `db`;
+   - for `keycloak-db`, `keycloak-db-data-18:/var/lib/postgresql`. The mount path changes too,
+     from 17's `/var/lib/postgresql/data`.
+5. Run `docker compose up -d --wait db` or `keycloak-db`. The new major starts on an empty volume.
+6. Run `make restore BACKUP=backups/<UTC time> DATABASE=ledger`, or `DATABASE=keycloak`.
+7. Run `docker compose up -d`.
+8. Once a fresh `make backup` passes `make restore-check` on the new major, the old volume can go:
+   `docker volume rm finassist_db-data` or `finassist_keycloak-db-data`. Until then, putting the
+   old image tag and volume key back is the way back.
 
 ## Testing
 
