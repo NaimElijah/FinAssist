@@ -23,9 +23,34 @@
 # smoke-auth` after `make run` reports every service healthy (Refs #38).
 name: finassist
 
+# One restart policy and one log bound for every long-running service, stated once and applied by
+# alias. Neither goes on `auth-smoke`, a one-shot `compose run --rm` whose failure must stay a
+# failure rather than loop.
+#
+# `unless-stopped`: a service that crashes comes back on its own, and so does the whole stack after
+# Docker itself restarts, while one stopped on purpose (Ctrl+C on `make run`, `docker compose stop`,
+# `make stop`) stays stopped. `on-failure` is rejected: it never restarts a process that exits 0,
+# and Docker documents that it "doesn't restart the container if the daemon restarts"
+# (docs.docker.com/engine/containers/start-containers-automatically). A crash loop is not silent:
+# `docker compose ps` shows the service `Restarting`, and Docker waits longer before each attempt.
+# After a Docker restart `depends_on` is not consulted, so a service that starts before its
+# dependency is ready may restart a few times until it is.
+x-restart-policy: &restart-policy unless-stopped
+
+# The services write JSON to stdout and leave rotation and retention to whatever runs the container
+# (ADR-019); under Compose that is this file. Docker's `json-file` driver keeps every line for the
+# life of the container unless told otherwise, so each container keeps at most three 10 MB files.
+x-logging: &bounded-logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: postgres:18.6-trixie
+    restart: *restart-policy
+    logging: *bounded-logs
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-finassist}
       POSTGRES_USER: ${POSTGRES_USER:-finassist}
@@ -44,6 +69,8 @@ services:
 
   ledger:
     build: ./backend/ledger
+    restart: *restart-policy
+    logging: *bounded-logs
     depends_on:
       db:
         condition: service_healthy
@@ -82,6 +109,8 @@ services:
 
   assistant:
     build: ./backend/assistant
+    restart: *restart-policy
+    logging: *bounded-logs
     depends_on:
       keycloak:
         condition: service_healthy
@@ -138,6 +167,8 @@ services:
     # Keycloak has not been tested against, so the two intentionally run different majors
     # rather than share one image tag by coincidence.
     image: postgres:17.11-trixie
+    restart: *restart-policy
+    logging: *bounded-logs
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
@@ -156,6 +187,8 @@ services:
 
   keycloak:
     build: ./ops/keycloak
+    restart: *restart-policy
+    logging: *bounded-logs
     depends_on:
       keycloak-db:
         condition: service_healthy
@@ -219,6 +252,8 @@ services:
 
   gateway:
     build: ./backend/gateway
+    restart: *restart-policy
+    logging: *bounded-logs
     depends_on:
       keycloak:
         condition: service_healthy
@@ -261,6 +296,8 @@ services:
   otel-collector:
     profiles: [monitoring]
     image: otel/opentelemetry-collector-contrib:0.139.0
+    restart: *restart-policy
+    logging: *bounded-logs
     command: ["--config=/etc/otel/config.yaml"]
     volumes:
       - ./ops/otel-collector.yaml:/etc/otel/config.yaml:ro
@@ -271,6 +308,8 @@ services:
   prometheus:
     profiles: [monitoring]
     image: prom/prometheus:v3.7.3
+    restart: *restart-policy
+    logging: *bounded-logs
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=7d
@@ -283,6 +322,8 @@ services:
   grafana:
     profiles: [monitoring]
     image: grafana/grafana:12.3.1
+    restart: *restart-policy
+    logging: *bounded-logs
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
       # Local-only tool with one operator; an anonymous sign-up flow would be a login screen

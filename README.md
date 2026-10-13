@@ -154,6 +154,16 @@ Keycloak imports the `finassist` realm into the empty `keycloak-db-data` volume 
 ready, and the ledger, the gateway and the assistant each wait for that before they start. The
 ledger applies its Flyway migrations at start-up.
 
+**A service that crashes comes back on its own, and so does the stack after Docker restarts.**
+Every long-running service runs under `restart: unless-stopped`, so only a deliberate stop keeps
+it down: Ctrl+C on `docker compose up`, `docker compose stop`, or `make stop`. A container started
+with `-d` and never stopped, such as the `docker compose up -d db keycloak-db keycloak` below, is
+running again after Docker Desktop restarts, and holds its port. After a Docker restart Compose's
+`depends_on` ordering is not consulted, so the ledger and the gateway may restart a few times
+until Keycloak is ready; `docker compose ps` shows a service caught in a loop as `Restarting`.
+Each container keeps at most 30 MB of logs, three 10 MB files, and `docker compose logs` reads
+only what is left.
+
 `docker-compose.yml`'s `:?` on each of the realm's three secret placeholders — the two client
 secrets and the owner's initial password — is what keeps that import safe; its two other
 placeholders, `GATEWAY_PUBLIC_URL` and `FINASSIST_OWNER_USERNAME`, are not secret and take `:-`
@@ -793,7 +803,8 @@ token and decide from their own role table what it may do, denying anything unli
 in the browser were rejected because any script on the page could read them, and authorising at
 the gateway because the assistant will call the ledger without passing through it. Cost: a third
 deployable and two more containers in the inner loop, sessions that end when the gateway
-restarts, and no TLS while everything stays on loopback.
+restarts, including when Docker restarts it after a crash, and no TLS while everything stays on
+loopback.
 
 ## Status and limitations
 
@@ -835,8 +846,9 @@ Known limitations:
   `tests/test_contract.py`. The web client's accounting, budgeting and planning screens call the
   ledger's, and its portfolio screens the assistant's. The assistant has no ledger client of its
   own — `LedgerPort` is still an in-memory stand-in.
-- **Sessions live in memory.** Restarting the gateway signs everyone out, and a second gateway
-  instance would need a shared session store
+- **Sessions live in memory.** Restarting the gateway signs everyone out, and that includes the
+  automatic restart after a crash, so a gateway caught in a crash loop signs everyone out on each
+  pass. A second gateway instance would need a shared session store
   ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)).
 - **There is no TLS.** Everything is plain HTTP on loopback, which is what makes that acceptable;
   `GATEWAY_COOKIE_SECURE` must become `true` behind TLS, and a port reachable from a network would

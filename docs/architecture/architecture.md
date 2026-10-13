@@ -648,6 +648,12 @@ assistant start normally and drop their spans — asserted by `LedgerObservabili
 the collector a production dependency of local development. The gateway's suites boot it with
 export off and no collector, so they show it starts; none asserts what it does with its spans.
 
+**Rotation belongs to whatever runs the container, and under Compose that is
+`docker-compose.yml`.** No service writes a log file (ADR-019). Every long-running Compose service
+shares one `x-logging` block, Docker's `json-file` driver capped at three 10 MB files per
+container, and one `x-restart-policy`, `unless-stopped`. Both are applied by YAML alias. The
+one-shot `auth-smoke` carries neither.
+
 **Redaction is a property of the boundary, not a duty of the caller.** Every event passes
 through a processor that removes secret-named keys, so a new call site inherits it. This is what
 the requirements mean by "redacted at the logging boundary, not at each call site". The key
@@ -678,8 +684,9 @@ still no bare `token`, so a token count survives.
 
 **The authenticated stack has six limits as built**, each accepted in the ADR named:
 
-- **Sessions live in the gateway's memory**, so restarting it signs everyone out, and a second
-  instance would share nothing (ADR-030).
+- **Sessions live in the gateway's memory**, so restarting it signs everyone out, including the
+  automatic restart Compose's `unless-stopped` policy makes after a crash, and a second instance
+  would share nothing (ADR-030).
 - **Nothing terminates TLS.** Every hop is plain HTTP on loopback or on the Compose network, and
   `GATEWAY_COOKIE_SECURE` is `false` until something does (ADR-030).
 - **Roles refresh only at the next sign-in** in what the web client shows: `GET /bff/me` reads

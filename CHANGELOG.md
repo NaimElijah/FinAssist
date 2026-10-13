@@ -11,6 +11,13 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **The Compose stack restarts what crashes, and bounds its logs.** Every long-running service
+  runs under `restart: unless-stopped`: a crashed service, and the whole stack after Docker
+  restarts, comes back without anyone running `docker compose up`, while one stopped on purpose
+  stays stopped. Each container keeps at most three 10 MB `json-file` logs, where before Docker
+  kept every line for the life of the container. Both are stated once, in `x-` blocks, and kept
+  off the one-shot `auth-smoke`
+  ([#142](https://github.com/NaimElijah/FinAssist/issues/142)).
 - **A real sign-in, and every business request authenticated.** The browser signs in with OIDC,
   the authorization-code flow with PKCE, at a new backend-for-frontend, `backend/gateway`
   (Spring Cloud Gateway Server Web MVC). The gateway keeps the access and refresh tokens in its
