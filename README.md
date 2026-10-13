@@ -648,11 +648,12 @@ make restore BACKUP=backups/<UTC time>         # raw: uv run ops/backup/backup.p
 docker compose up -d
 ```
 
-`make restore` restores nothing until every one of these holds:
+`make restore` restores nothing until every one of these holds, for each database it is asked to
+restore (both, unless `DATABASE=` names one):
 
-- each dump still matches the SHA-256 in its manifest;
-- `ledger` and `keycloak` are stopped;
-- both databases are running, and hold no table.
+- its dump still matches the SHA-256 in its manifest;
+- the service that uses it is stopped: `ledger` for `db`, `keycloak` for `keycloak-db`;
+- the database is running, and holds no table.
 
 Each database is then restored in one transaction, so it ends up either whole or still empty. A
 restore never needs an `UPDATE` or a `VALIDATE CONSTRAINT`: the journal's triggers and the
