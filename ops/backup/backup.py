@@ -629,6 +629,13 @@ def _owner_otp_credentials(compose: Compose) -> tuple[str, ...] | None:
     return tuple(row[0] for row in compose.psql(KEYCLOAK, OWNER_OTP_SQL, *variables))
 
 
+def _verify_backup(folder: Path) -> None:
+    """Both dumps in `folder` match its manifest, read before any container is started."""
+    entries = _manifest_entries(folder)
+    for database in DATABASES:
+        _verify(folder, database, entries)
+
+
 def _restore_both(compose: Compose, folder: Path) -> tuple[str, ...] | None:
     """Restores both dumps, then reads the owner's OTP credentials before Keycloak can start.
 
@@ -799,6 +806,9 @@ def _run_checks(run: _CheckRun, compose: Compose, folder: Path) -> int:
     :return: 0 when every check passed, else 1, with the failure already reported.
     """
     try:
+        # The backup is read first, so a mistyped folder or a changed dump fails here, before a
+        # single database has been started for it.
+        run.check("both dumps match their manifest", _verify_backup, folder)
         _clean_up(compose)
         compose.require(
             "starting db and keycloak-db",

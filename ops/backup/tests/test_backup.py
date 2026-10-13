@@ -221,3 +221,40 @@ def Given_the_check_project_When_isolated_Then_every_command_names_it() -> None:
 
     assert command[command.index("-p") + 1] == backup.CHECK_PROJECT
     assert command[-2:] == ["up", "-d"]
+
+
+# --- check reads the backup before it starts any container -------------------------------------
+
+
+class _RecordingCompose(backup.Compose):
+    """A Compose that records each command it is asked to run, and refuses to run any."""
+
+    def require(
+        self,
+        what: str,
+        *args: str,
+        stdin: object = None,
+        stdout: object = None,
+        input_bytes: bytes | None = None,
+    ) -> bytes:
+        _CALLS.append(what)
+        raise backup.BackupError(f"no container may be started here: {what}")
+
+
+_CALLS: list[str] = []
+
+
+def Given_a_changed_dump_When_checked_Then_it_fails_before_any_container_starts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _CALLS.clear()
+    manifest = _manifest_for(b"PGDMP-archive", tmp_path)
+    folder = _backup_folder(tmp_path, manifest, dump=b"PGDMP-archivf")
+
+    status = backup._run_checks(
+        backup._CheckRun(), _RecordingCompose(project=backup.CHECK_PROJECT), folder
+    )
+
+    assert status == 1
+    assert _CALLS == []
+    assert "FAILED check 1 (both dumps match their manifest)" in capsys.readouterr().out
