@@ -84,6 +84,10 @@ is **not installed** on the development machine, so the raw command is given for
   (`docker compose up -d keycloak-db keycloak`, or `make run-identity`);
   `cd backend/assistant && uv run python -m finassist_assistant.adapters`; the web client with
   `cd frontend/web && npm run dev`
+- Back up: `make backup` — `uv run ops/backup/backup.py backup`, with `db` and `keycloak-db`
+  already running (it never starts a container). Writes a custom-format `pg_dump` of each, read
+  back in full, plus a SHA-256 manifest, into the git-ignored `backups/<UTC time>/` or under
+  `BACKUP_DIR` (ADR-038). A dump holds the books, password hashes and the owner's TOTP seed
 - Stop: `make stop` — `docker compose down`, keeping volumes. Never `docker compose down -v`
   against the owner's own project: it deletes `db-data` along with `keycloak-db-data`
 - Test (all): `make test`
@@ -106,11 +110,13 @@ is **not installed** on the development machine, so the raw command is given for
   test-compile org.pitest:pitest-maven:mutationCoverage`. A diagnostic, gated on nothing (ADR-017)
 - Lint / types: `make lint` — `./mvnw -B spotless:check` (ledger and gateway);
   `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src tests`; for the smoke
-  check (`make lint-smoke`, its own CI step in the assistant job), `uv run ruff check`,
-  `uv run ruff format --check` and `uv run mypy --strict` over `../../ops/smoke`, all from
+  check (`make lint-smoke`) and the backup CLI (`make lint-backup`), each its own CI step in
+  the assistant job, `uv run ruff check`, `uv run ruff format --check` and
+  `uv run mypy --strict` over `../../ops/smoke` and `../../ops/backup` respectively, all from
   `backend/assistant`; `npm run lint`, `npm run format:check`, `npm run typecheck`
 - Format: `make format` — `./mvnw -B spotless:apply` (ledger and gateway);
-  `uv run ruff format . ../../ops/smoke`, `uv run ruff check --fix . ../../ops/smoke`;
+  `uv run ruff format . ../../ops/smoke ../../ops/backup`,
+  `uv run ruff check --fix . ../../ops/smoke ../../ops/backup`;
   `npm run format`
 - Audit: `make audit` — `uv run pip-audit`; `npm audit --audit-level=high`
 - Re-lock Python deps: `make lock` — `cd backend/assistant && uv lock` (required after any
@@ -203,7 +209,9 @@ so it can be extracted by moving it (ADR-010).
   `ops/smoke/auth_smoke.py` is the only file behind the `smoke` Compose profile: a
   standard-library-only, opt-in smoke check of the authentication and RBAC wiring, run by hand
   with `make smoke-auth`, never by `docker compose up` and never by CI (ADR-034), and linted by
-  `make lint-smoke`.
+  `make lint-smoke`. `ops/backup/backup.py` is a standard-library operator CLI run on the host
+  with `uv run` (its PEP 723 block declares Python 3.13 and no dependency): it backs up each
+  database on its own (ADR-038), and is linted by `make lint-backup`.
 - `docs/ADRs/` — one file per decision, `ADR-NNN-short-kebab-title.md`, zero-padded and
   monotonically increasing. Append-only: supersede, never rewrite.
 - `docs/requirements/` — what the system must do. `docs/architecture/` — what it actually is.
@@ -261,9 +269,11 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **Nothing writes output except the logging boundary.** No `print` (ruff `T20`), no
   `console.log` (ESLint `no-console`), no `System.out`. Structured JSON on stdout, through
   `adapters/observability.py`, `shared/lib/logger.ts`, or Logback's ECS format (ADR-019).
-  Redaction lives at that boundary, never at a call site. `ops/smoke/auth_smoke.py` is an
-  operator CLI, not a service: its report on stdout is its product, written by one `print`
-  marked `# noqa: T201` with its reason.
+  Redaction lives at that boundary, never at a call site. `ops/smoke/auth_smoke.py` and
+  `ops/backup/backup.py` are operator CLIs, not services: each one's report on stdout is its
+  product, written by one `print` marked `# noqa: T201` with its reason. `backup.py`'s report
+  never carries an amount, a name, an id, a secret, or a PostgreSQL message whose quoted and
+  parenthesised spans have not been withheld (`_withheld`).
 - **Telemetry is a no-op when unconfigured.** A service must start with no collector named. An
   endpoint alone never enables export; `OTEL_EXPORT_ENABLED` does, for every signal — traces,
   metrics, and the ledger's OTLP log export, which nothing feeds until a log appender is added.

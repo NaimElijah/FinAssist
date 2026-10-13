@@ -11,6 +11,14 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **`make backup` backs up the books and the identity store, each on its own.**
+  `ops/backup/backup.py`, run with `uv run`, so it works from PowerShell too, writes a
+  custom-format `pg_dump` of `db` and of `keycloak-db` into a git-ignored
+  `backups/<UTC time>/`, with a manifest recording each file's size and SHA-256. It refuses to
+  start a container in your project, and it fails, removing the partial folder, unless each dump
+  is non-empty and reads back in full. On demand only: no recovery-point target has been set. See
+  [ADR-038](docs/ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md)
+  ([#137](https://github.com/NaimElijah/FinAssist/issues/137)).
 - **The Compose stack restarts what crashes, and bounds its logs.** Every long-running service
   runs under `restart: unless-stopped`: a crashed service, and the whole stack after Docker
   restarts, comes back without anyone running `docker compose up`, while one stopped on purpose
@@ -105,6 +113,10 @@ history; write the commit message well and this file writes itself.
 
 ### Changed
 
+- **The quick start's one-off `pg_dump > finassist-before-upgrade.sql` is now `make backup`.**
+  The old line wrote a dump of the books into the working tree, where `*.sql` is not ignored, and
+  left checking it to `wc -c`. `/backups/` and `*.dump` are now git-ignored
+  ([#137](https://github.com/NaimElijah/FinAssist/issues/137)).
 - **The web client's dev proxy sends every call to the gateway**, never straight to the ledger or
   the assistant, and the app must be opened at `http://localhost:5173`, not `127.0.0.1`, because
   the session cookie is keyed by host name.

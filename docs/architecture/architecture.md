@@ -226,7 +226,8 @@ are declared in `application.yml` rather than in Java.
 Operational configuration lives in `ops/`: the collector, Prometheus and Grafana provisioning
 that the `monitoring` Compose profile mounts; `ops/keycloak/`, the `Dockerfile` that builds the
 identity provider and the `finassist` realm it imports at start-up (ADR-031); and
-`ops/smoke/auth_smoke.py`, the opt-in smoke check behind the `smoke` profile (ADR-034).
+`ops/smoke/auth_smoke.py`, the opt-in smoke check behind the `smoke` profile (ADR-034); and
+`ops/backup/backup.py`, the operator CLI that backs up each database on its own (ADR-038).
 
 ## Communication
 
@@ -769,6 +770,14 @@ lifecycle change is stored by saving the aggregate in its new state. ADR-020's a
 obligation is therefore honoured as a port contract, and the durable adapter inherited it when
 ADR-006 was ratified; [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md) then put
 the journal's half of it in the database too, where a trigger refuses an `UPDATE` or a `DELETE`.
+
+**The books and the identity store are backed up separately, on demand** (ADR-038).
+`ops/backup/backup.py`, a standard-library CLI run on the host with `uv run`, runs
+`pg_dump --format=custom` inside each database's own container through `docker compose exec -T`.
+So the client is always the server's major version, and no shell on the host ever handles a dump.
+It requires both containers running and never starts one. It reads each dump back in full with
+`pg_restore -f /dev/null`, and records each file's SHA-256 in a manifest beside it. Nothing
+schedules it, because no recovery-point target has been set.
 
 ## External dependencies and integration points
 

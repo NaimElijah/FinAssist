@@ -124,21 +124,17 @@ release adds a migration to the ledger's `accounting` schema and turns on
 `spring.flyway.out-of-order` so it applies to a database that already holds the books
 ([ADR-035](docs/ADRs/ADR-035-flyway-runs-out-of-order.md)). `LedgerUpgradeIT` rehearses exactly
 that upgrade, and Flyway validates before it migrates, so nothing is expected to go wrong — a
-dump is cheap insurance, not a warning:
+backup is cheap insurance, not a warning:
 
 ```bash
-docker compose up -d --wait db
-docker compose exec -T db pg_dump -U finassist finassist > finassist-before-upgrade.sql
+docker compose up -d --wait db keycloak-db
+make backup      # raw: uv run ops/backup/backup.py backup
 ```
 
-`--wait` blocks until `db`'s healthcheck reports healthy, since Compose otherwise returns as
-soon as the container starts, not once PostgreSQL is ready to accept connections, and `pg_dump`
-run against a starting server fails with "the database system is starting up". Before starting
-the new version, confirm the dump actually has something in it —
-`wc -c finassist-before-upgrade.sql` should report a non-zero byte count; `0` means `pg_dump`
-never got to write anything and the backup must be taken again.
-
-Both names are `POSTGRES_USER` and `POSTGRES_DB` from `.env`; each defaults to `finassist`.
+`--wait` blocks until each database's healthcheck reports healthy, since Compose otherwise
+returns as soon as the container starts, and a dump of a starting server fails. `make backup`
+writes both databases into a git-ignored `backups/<UTC time>/`, and fails unless each dump reads
+back in full; see [Backing up and restoring](#backing-up-and-restoring).
 
 With every secret set, start the stack:
 
@@ -424,6 +420,7 @@ contracts/              Versioned OpenAPI contracts - the Published Language, an
 ops/                    Infrastructure configuration, not application code
   keycloak/               Dockerfile and finassist-realm.json, the realm imported at start-up
   smoke/                  auth_smoke.py - the opt-in Compose check of the authentication wiring
+  backup/                 backup.py - backs up each database on its own (ADR-038)
   grafana/                dashboards and provisioning; beside it the collector and Prometheus files
 docs/                   requirements/, architecture/, ADRs/ - read before proposing work
 .github/                CI workflow and Dependabot configuration
@@ -446,6 +443,7 @@ pipeline and the local commands cannot drift.
 | Stop the stack | `make stop` | `docker compose down`, keeping volumes |
 | Stop the monitoring profile too | `make stop-monitoring` | `docker compose --profile monitoring down`, keeping volumes |
 | Run identity only | `make run-identity` | `docker compose up -d keycloak-db keycloak` — for signing in or testing against Keycloak without the rest of the stack |
+| Back up both databases | `make backup` | `uv run ops/backup/backup.py backup`, with `db` and `keycloak-db` running — see [Backing up and restoring](#backing-up-and-restoring) |
 | Smoke-test authentication (opt-in) | `make smoke-auth` | `docker compose --profile smoke run --rm auth-smoke` — see [Smoke-testing authentication](#smoke-testing-authentication) below |
 | Test everything | `make test` | the four test rows below; all four measure coverage |
 | Test the ledger | `make test-ledger` | `cd backend/ledger && ./mvnw -B verify` |
@@ -455,8 +453,8 @@ pipeline and the local commands cannot drift.
 | Build the web bundle | `make build-web` | `cd frontend/web && npm run build` |
 | Regenerate the web client's contract types | `make generate-web-api` | `cd frontend/web && npm run generate:api` |
 | Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
-| Lint and types | `make lint` | `./mvnw -B spotless:check` (ledger and gateway); `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; for the smoke check (`make lint-smoke`), `uv run ruff check`, `ruff format --check` and `mypy --strict` over `../../ops/smoke`, all from `backend/assistant`; `npm run lint`, `format:check`, `typecheck` |
-| Format | `make format` | `./mvnw -B spotless:apply` (ledger and gateway); `uv run ruff format . ../../ops/smoke`, `uv run ruff check --fix . ../../ops/smoke`; `npm run format` |
+| Lint and types | `make lint` | `./mvnw -B spotless:check` (ledger and gateway); `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; for the smoke check (`make lint-smoke`) and the backup CLI (`make lint-backup`), `uv run ruff check`, `ruff format --check` and `mypy --strict` over `../../ops/smoke` and `../../ops/backup` respectively, all from `backend/assistant`; `npm run lint`, `format:check`, `typecheck` |
+| Format | `make format` | `./mvnw -B spotless:apply` (ledger and gateway); `uv run ruff format . ../../ops/smoke ../../ops/backup`, `uv run ruff check --fix . ../../ops/smoke ../../ops/backup`; `npm run format` |
 | Audit | `make audit` | `cd backend/assistant && uv run pip-audit`; `cd frontend/web && npm audit --audit-level=high` |
 | Re-lock Python deps | `make lock` | `cd backend/assistant && uv lock` |
 | Regenerate the ledger's OpenAPI contract | — | `cd backend/ledger && ./mvnw -B verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running); on a mismatch, copy `target/contracts/ledger-v1.openapi.json` over `contracts/ledger-v1.openapi.json` |
@@ -562,6 +560,44 @@ docker compose up -d keycloak gateway                   # imports the realm into
 `finassist_db-data`, a different volume, which none of these commands touches. Never do this with
 `docker compose down -v`: it deletes every volume the project has, `db-data` included.
 
+### Backing up and restoring
+
+The books live in the `db-data` volume. The owner's identity lives in `keycloak-db-data`: their
+password hash, their TOTP enrolment, and the pinned `sub` that every journal row names. Each is
+backed up on its own, as a `pg_dump` custom-format archive, and only when you ask: there is no
+schedule, because no recovery-point target has been set yet
+([ADR-038](docs/ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md)).
+
+```bash
+docker compose up -d --wait db keycloak-db   # if they are not running already
+make backup                                  # raw: uv run ops/backup/backup.py backup
+```
+
+`make backup` prints the Compose project it reads from, then writes `ledger.dump`,
+`keycloak.dump` and a `manifest.json` into `backups/<UTC time>/`. The manifest records each file's
+size and SHA-256. When `BACKUP_DIR` is set, the folder goes under it instead.
+
+`make backup` never starts a container itself. It fails, and removes the partial folder, if:
+
+- a database is not running;
+- a dump comes out empty;
+- `pg_restore` cannot read a dump to its end.
+
+A database that holds no table yet, such as `keycloak-db` before Keycloak first ran, is reported
+rather than refused. The command is the same in PowerShell, where `make` is not installed: `uv
+run` supplies the Python 3.13 the script declares.
+
+**A backup is as sensitive as the stack itself.**
+
+- **What the dumps hold.** `ledger.dump` holds the books. `keycloak.dump` holds every password
+  hash and, in clear, the owner's TOTP seed: anyone holding it can generate the owner's codes.
+- **Who can read them.** `backups/` and `*.dump` are git-ignored. On Linux and macOS the folder is
+  readable by you alone. On Windows it inherits your user profile's permissions.
+- **What they protect against.** They sit on the same disk as the volumes, so they cover a bad
+  migration, a deleted volume or a mistaken realm re-import, not the loss of the machine.
+- **Copying them elsewhere** is your call. Whether a copy may leave the machine at all is
+  [#195](https://github.com/NaimElijah/FinAssist/issues/195)'s question.
+
 ## Testing
 
 | Layer | Covers | Command |
@@ -620,7 +656,8 @@ disabled for `tests/**`, with the justification recorded in `backend/assistant/p
 **What CI gates on:** every push and pull request to `main` and `dev` must pass five jobs —
 the ledger's format check, build and tests; the gateway's format check, build and tests,
 `KeycloakRealmIT` included; the assistant's lint, format check, `mypy --strict`, tests and
-`pip-audit`, plus the smoke check's lint and types (`make lint-smoke`); the web client's
+`pip-audit`, plus the lint and types of the smoke check and the backup CLI (`make lint-smoke`,
+`make lint-backup`); the web client's
 contract types, regenerated from `contracts/` with no changed or new file, then lint, format
 check, typecheck, tests, production build and `npm audit`; and a `docker compose config`
 validation, with the `monitoring` and `smoke` profiles included, that also fails any long-running
@@ -738,6 +775,7 @@ Dockerfile.
 | Ledger API | `GET/POST /api/v1/...`, each needing a bearer token that grants `ledger:read` or `ledger:write`; OpenAPI document at `GET /v3/api-docs`, pinned as [`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json) | Live for accounting, budgeting and planning; the web client's screens for all three call it, through the gateway |
 | Assistant API | `GET/POST /api/v1/portfolio/...`, each needing a bearer token that grants `portfolio:read`; OpenAPI document at `GET /openapi.json`, pinned as [`contracts/assistant-v1.openapi.json`](contracts/assistant-v1.openapi.json) | Live for portfolio, answering from the development seed or from nothing; the web client's portfolio screens call it, through the gateway |
 | Gateway | The login entry and callback, `GET /bff/me` and `POST /bff/logout` under `/bff/`, and the relays under `/ledger/api/v1/**` and `/assistant/api/v1/**`; its contract is pinned as [`contracts/gateway-v1.openapi.json`](contracts/gateway-v1.openapi.json), and its own `/v3/api-docs` stays denied | Live; the web client's dev proxy sends it every call |
+| Backups | `make backup`: a `pg_dump` of each database into `backups/<UTC time>/` | On demand; no schedule and no recovery-point target yet ([ADR-038](docs/ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md)) |
 | Identity | Keycloak at `http://localhost:8081`: the admin console at `/admin`, the owner's account console at `/realms/finassist/account` | Live under Compose, published on `127.0.0.1` only |
 
 Run the telemetry backend with `docker compose --profile monitoring up`: Grafana on
@@ -873,6 +911,10 @@ Known limitations:
   check sees a stale `ASSISTANT_CLIENT_SECRET`, but not a stale gateway secret or stale redirect
   URIs ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md),
   [ADR-034](docs/ADRs/ADR-034-keep-the-compose-smoke-check-manual.md)).
+- **Backups are taken by hand, onto the same disk.** `make backup` dumps both databases when
+  asked, and nothing schedules it, because no recovery-point target has been set. A dump guards
+  against a bad migration or a deleted volume, not the loss of the machine
+  ([ADR-038](docs/ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md)).
 - **Nothing serves the built bundle** ([#61](https://github.com/NaimElijah/FinAssist/issues/61)).
   `npm run build` produces it, but only the Vite dev and preview servers, with their proxy to the
   gateway, stand in front of the web client, and no deployment target has been chosen.

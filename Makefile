@@ -10,12 +10,15 @@ WEB       := frontend/web
 # ops/smoke as seen from $(ASSISTANT). It has no toolchain of its own, so lint-smoke and format
 # borrow the assistant's pinned ruff and mypy and the rules in its pyproject.toml.
 SMOKE     := ../../ops/smoke
+# ops/backup as seen from $(ASSISTANT), linted the same way. Not named BACKUP, which
+# `make restore BACKUP=<folder>` uses for the folder to restore.
+BACKUP_TOOL := ../../ops/backup
 MVNW      := ./mvnw -B
 UV        := uv
 
-.PHONY: help setup lock run run-monitoring run-identity smoke-auth stop stop-monitoring \
+.PHONY: help setup lock run run-monitoring run-identity smoke-auth stop stop-monitoring backup \
         test test-ledger test-gateway test-assistant test-web mutation-ledger \
-        lint lint-ledger lint-gateway lint-assistant lint-smoke lint-web \
+        lint lint-ledger lint-gateway lint-assistant lint-smoke lint-backup lint-web \
         build-web generate-web-api format audit audit-assistant audit-web clean
 
 help: ## List available targets
@@ -46,6 +49,10 @@ run-identity: ## Start only Keycloak and its database, for signing in or testing
 smoke-auth: ## Opt-in end-to-end check of the authentication and RBAC wiring (ops/smoke/auth_smoke.py); run after make run reports healthy
 	docker compose --profile smoke run --rm auth-smoke
 
+# Both databases must already be running; this never starts a container in your project.
+backup: ## Dump the ledger's and Keycloak's databases into backups/<UTC time>/, or $BACKUP_DIR (ADR-038)
+	$(UV) run ops/backup/backup.py backup
+
 stop: ## Stop the stack, keeping volumes
 	docker compose down
 
@@ -69,7 +76,7 @@ test-web:
 mutation-ledger: ## Mutation testing over the ledger domain; a diagnostic, gated on nothing (ADR-017)
 	cd $(LEDGER) && $(MVNW) -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
 
-lint: lint-ledger lint-gateway lint-assistant lint-smoke lint-web ## Format check and static analysis; never rewrites a file
+lint: lint-ledger lint-gateway lint-assistant lint-smoke lint-backup lint-web ## Format check and static analysis; never rewrites a file
 
 lint-ledger:
 	cd $(LEDGER) && $(MVNW) spotless:check
@@ -87,6 +94,11 @@ lint-smoke:
 	cd $(ASSISTANT) && $(UV) run ruff format --check $(SMOKE)
 	cd $(ASSISTANT) && $(UV) run mypy --strict $(SMOKE)
 
+lint-backup:
+	cd $(ASSISTANT) && $(UV) run ruff check $(BACKUP_TOOL)
+	cd $(ASSISTANT) && $(UV) run ruff format --check $(BACKUP_TOOL)
+	cd $(ASSISTANT) && $(UV) run mypy --strict $(BACKUP_TOOL)
+
 lint-web:
 	cd $(WEB) && npm run lint
 	cd $(WEB) && npm run format:check
@@ -101,8 +113,8 @@ generate-web-api: ## Regenerate the web client's contract types from contracts/*
 format: ## Rewrite sources to match the formatters
 	cd $(LEDGER) && $(MVNW) spotless:apply
 	cd $(GATEWAY) && $(MVNW) spotless:apply
-	cd $(ASSISTANT) && $(UV) run ruff format . $(SMOKE)
-	cd $(ASSISTANT) && $(UV) run ruff check --fix . $(SMOKE)
+	cd $(ASSISTANT) && $(UV) run ruff format . $(SMOKE) $(BACKUP_TOOL)
+	cd $(ASSISTANT) && $(UV) run ruff check --fix . $(SMOKE) $(BACKUP_TOOL)
 	cd $(WEB) && npm run format
 
 audit: audit-assistant audit-web ## Fail on a known vulnerability in a pinned dependency
