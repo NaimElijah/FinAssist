@@ -124,6 +124,12 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **The packaged gateway starts again.** A test-scoped `snakeyaml` declaration had removed it
+  from the repackaged jar, by Maven's nearest-wins mediation, so Boot could not read
+  `application.yml`. The gateway failed at start-up under Compose and natively, while every suite,
+  run on the test classpath, stayed green. It is now runtime-scoped, and `GatewayPackagedJarIT`
+  opens the jar `package` wrote and requires it
+  ([#233](https://github.com/NaimElijah/FinAssist/issues/233)).
 - **Compose waits on the gateway's and the assistant's readiness, not their liveness.** Their
   healthchecks probed `/actuator/health` and `/health`, so `service_healthy` meant only "alive".
   They now probe `/actuator/health/readiness` and `/ready`, as the ledger's and Keycloak's already
