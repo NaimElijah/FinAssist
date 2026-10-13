@@ -100,6 +100,13 @@ jobs:
       - name: Lint, format check and types (smoke check)
         run: make lint-smoke
 
+      # ops/backup/backup.py, linted the same way and for the same reason (ADR-038).
+      - name: Lint, format check and types (backup CLI)
+        run: make lint-backup
+
+      - name: Test (backup CLI)
+        run: make test-backup
+
       - name: Test
         run: make test-assistant
 
@@ -188,3 +195,38 @@ jobs:
           docker compose --profile monitoring config --quiet
           docker compose --profile smoke config --quiet
           docker compose --profile monitoring --profile smoke config --quiet
+
+      # Read from the resolved file, not its text, so an alias that stops resolving fails as surely
+      # as a service that never took one, and a block copied in with other values fails too: each
+      # service must equal the x- blocks themselves (Refs #142). Uses the .env the step above wrote.
+      - name: Require the restart policy, log bound and readiness probes
+        run: |
+          docker compose --profile monitoring --profile smoke config --format json | python3 -c '
+          import json, sys
+          resolved = json.load(sys.stdin)
+          services = resolved["services"]
+          policy = resolved.get("x-restart-policy")
+          bounded_logs = resolved.get("x-logging")
+          one_shot = {"auth-smoke"}
+          readiness = {
+              "ledger": "/actuator/health/readiness",
+              "gateway": "/actuator/health/readiness",
+              "assistant": "/ready",
+              "keycloak": "/health/ready",
+          }
+          problems = []
+          if policy is None or bounded_logs is None:
+              problems.append("the resolved file holds no x-restart-policy or x-logging block")
+          for name, svc in sorted(services.items()):
+              if name in one_shot:
+                  if svc.get("restart") or svc.get("logging"):
+                      problems.append(f"{name}: a one-shot service takes no restart or logging")
+              elif svc.get("restart") != policy or svc.get("logging") != bounded_logs:
+                  problems.append(f"{name}: needs restart and logging as the x- blocks set them")
+          for name, path in readiness.items():
+              healthcheck = (services.get(name) or {}).get("healthcheck") or {}
+              if path not in " ".join(healthcheck.get("test") or []):
+                  problems.append(f"{name}: its healthcheck must probe {path}")
+          print("\n".join(problems) or "Every service follows the Compose conventions")
+          sys.exit(1 if problems else 0)
+          '

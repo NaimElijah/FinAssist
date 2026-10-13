@@ -226,7 +226,9 @@ are declared in `application.yml` rather than in Java.
 Operational configuration lives in `ops/`: the collector, Prometheus and Grafana provisioning
 that the `monitoring` Compose profile mounts; `ops/keycloak/`, the `Dockerfile` that builds the
 identity provider and the `finassist` realm it imports at start-up (ADR-031); and
-`ops/smoke/auth_smoke.py`, the opt-in smoke check behind the `smoke` profile (ADR-034).
+`ops/smoke/auth_smoke.py`, the opt-in smoke check behind the `smoke` profile (ADR-034); and
+`ops/backup/backup.py`, the operator CLI that backs up, restores and proves a restore of each
+database (ADR-038).
 
 ## Communication
 
@@ -648,6 +650,12 @@ assistant start normally and drop their spans — asserted by `LedgerObservabili
 the collector a production dependency of local development. The gateway's suites boot it with
 export off and no collector, so they show it starts; none asserts what it does with its spans.
 
+**Rotation belongs to whatever runs the container, and under Compose that is
+`docker-compose.yml`.** No service writes a log file (ADR-019). Every long-running Compose service
+shares one `x-logging` block, Docker's `json-file` driver capped at three 10 MB files per
+container, and one `x-restart-policy`, `unless-stopped`. Both are applied by YAML alias. The
+one-shot `auth-smoke` carries neither.
+
 **Redaction is a property of the boundary, not a duty of the caller.** Every event passes
 through a processor that removes secret-named keys, so a new call site inherits it. This is what
 the requirements mean by "redacted at the logging boundary, not at each call site". The key
@@ -678,8 +686,9 @@ still no bare `token`, so a token count survives.
 
 **The authenticated stack has six limits as built**, each accepted in the ADR named:
 
-- **Sessions live in the gateway's memory**, so restarting it signs everyone out, and a second
-  instance would share nothing (ADR-030).
+- **Sessions live in the gateway's memory**, so restarting it signs everyone out, including the
+  automatic restart Compose's `unless-stopped` policy makes after a crash, and a second instance
+  would share nothing (ADR-030).
 - **Nothing terminates TLS.** Every hop is plain HTTP on loopback or on the Compose network, and
   `GATEWAY_COOKIE_SECURE` is `false` until something does (ADR-030).
 - **Roles refresh only at the next sign-in** in what the web client shows: `GET /bff/me` reads
@@ -763,6 +772,25 @@ obligation is therefore honoured as a port contract, and the durable adapter inh
 ADR-006 was ratified; [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md) then put
 the journal's half of it in the database too, where a trigger refuses an `UPDATE` or a `DELETE`.
 
+**The books and the identity store are backed up separately, on demand** (ADR-038).
+`ops/backup/backup.py`, a standard-library CLI run on the host with `uv run`, runs
+`pg_dump --format=custom` inside each database's own container through `docker compose exec -T`.
+So the client is always the server's major version, and no shell on the host ever handles a dump.
+It requires both containers running and never starts one. It reads each dump back in full with
+`pg_restore -f /dev/null`, and records each file's SHA-256 in a manifest beside it, with one
+digest of the books' rows. The digest is taken before and after the dumps, and a restore must
+reproduce it. Nothing
+schedules it, because no recovery-point target has been set. Its `restore` writes only into a
+database that holds no table, with the service that uses it stopped (the ledger for `db`, Keycloak
+for `keycloak-db`), and it runs `pg_restore --single-transaction`. A full restore loads data with
+`COPY` before it creates triggers, and pg_dump re-adds a `NOT VALID` check as `NOT VALID`, so the
+journal's append-only triggers and the `recorded_by` checks never stand in its way. Its `check`
+proves a backup end to end in the Compose project `finassist-restore-check`, the only project it
+can name, on ports of its own. It restores both dumps, reads the owner's OTP credentials from
+Keycloak's tables before Keycloak starts, then starts Keycloak and the ledger. It asks the ledger,
+over HTTP with the assistant's client-credentials token, for every account the database holds. It
+removes its own containers and volumes, found by Compose's project label, however it ends.
+
 ## External dependencies and integration points
 
 | Dependency | Used for | Pinned in |
@@ -815,6 +843,7 @@ the classes and tests that enforce them in
 | **Every `@Value` placeholder in the ledger's production code resolves from `application.yml` alone**, with no environment and no container | `ApplicationYmlPlaceholdersTest` |
 | **Every endpoint the running ledger maps is in a named inventory**, so one added without a URL rule fails the build rather than shipping open | `LedgerAuthorizationIT.Given_the_running_ledger_When_its_handler_mappings_are_read_Then_they_equal_the_named_inventory` |
 | **Every route `portfolio_router` declares carries exactly one permission dependency** — today every business route the assistant serves | `test_authorization.py::Given_the_portfolio_router_When_routes_are_inspected_Then_each_declares_one_permission` |
+| **The packaged gateway starts**: the repackaged jar the image ships, run with `java -jar`, reports ready. A suite on the test classpath cannot see a library the jar lacks (#233) | `GatewayPackagedJarIT.Given_the_packaged_jar_When_it_is_run_Then_it_starts_and_reports_ready` |
 | **The gateway's `HostAllowListFilter` runs before its security chain**, in the filter chain the server actually built | `GatewayApplicationIT.Given_the_running_gateway_When_its_filter_chain_is_read_Then_the_host_allow_list_runs_before_security` |
 
 **The architecture rules are static**: `LedgerArchitectureTest`'s ArchUnit rules scan bytecode,
