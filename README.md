@@ -158,9 +158,16 @@ ledger applies its Flyway migrations at start-up.
 Every long-running service runs under `restart: unless-stopped`, so only a deliberate stop keeps
 it down: Ctrl+C on `docker compose up`, `docker compose stop`, or `make stop`. A container started
 with `-d` and never stopped, such as the `docker compose up -d db keycloak-db keycloak` below, is
-running again after Docker Desktop restarts, and holds its port. After a Docker restart Compose's
-`depends_on` ordering is not consulted, so the ledger and the gateway may restart a few times
-until Keycloak is ready; `docker compose ps` shows a service caught in a loop as `Restarting`.
+running again after Docker Desktop restarts, and holds its port. After a Docker restart, Docker
+restarts the containers itself, without Compose's `depends_on` ordering:
+
+- A service whose database is not ready yet may exit and be restarted a few times until it is:
+  the ledger, which runs its Flyway migrations against `db` at start-up, or Keycloak, which needs
+  `keycloak-db`. `docker compose ps` shows a service caught in a loop as `Restarting`.
+- While Keycloak is still starting, nobody can sign in. The ledger and the assistant answer a
+  token-bearing request 503 rather than restarting, because their key source is unreachable
+  ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)).
+
 Each container keeps at most 30 MB of logs, three 10 MB files, and `docker compose logs` reads
 only what is left.
 

@@ -33,8 +33,9 @@ name: finassist
 # and Docker documents that it "doesn't restart the container if the daemon restarts"
 # (docs.docker.com/engine/containers/start-containers-automatically). A crash loop is not silent:
 # `docker compose ps` shows the service `Restarting`, and Docker waits longer before each attempt.
-# After a Docker restart `depends_on` is not consulted, so a service that starts before its
-# dependency is ready may restart a few times until it is.
+# After a Docker restart, Docker restarts the containers itself, without `depends_on`. So the ledger,
+# which migrates `db` at start-up, or Keycloak, which needs `keycloak-db`, may exit and be restarted
+# a few times until its database is ready.
 x-restart-policy: &restart-policy unless-stopped
 
 # The services write JSON to stdout and leave rotation and retention to whatever runs the container
