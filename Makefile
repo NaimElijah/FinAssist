@@ -17,7 +17,7 @@ MVNW      := ./mvnw -B
 UV        := uv
 
 .PHONY: help setup lock run run-monitoring run-identity smoke-auth stop stop-monitoring backup restore restore-check \
-        test test-ledger test-gateway test-assistant test-web mutation-ledger \
+        test test-ledger test-gateway test-assistant test-backup test-web mutation-ledger \
         lint lint-ledger lint-gateway lint-assistant lint-smoke lint-backup lint-web \
         build-web generate-web-api format audit audit-assistant audit-web clean
 
@@ -67,7 +67,7 @@ stop: ## Stop the stack, keeping volumes
 stop-monitoring: ## Stop the monitoring profile too, keeping volumes
 	docker compose --profile monitoring down
 
-test: test-ledger test-gateway test-assistant test-web ## Every test, with coverage. CI also gates lint, build and audit
+test: test-ledger test-gateway test-assistant test-backup test-web ## Every test, with coverage. CI also gates lint, build and audit
 
 test-ledger:
 	cd $(LEDGER) && $(MVNW) verify
@@ -77,6 +77,10 @@ test-gateway:
 
 test-assistant:
 	cd $(ASSISTANT) && $(UV) run pytest --cov --cov-report=term-missing --cov-report=xml
+
+# The backup CLI's Docker-free logic, under the assistant's pytest settings (ADR-038).
+test-backup:
+	cd $(ASSISTANT) && $(UV) run pytest -c pyproject.toml $(BACKUP_TOOL)/tests
 
 test-web:
 	cd $(WEB) && npm run test:coverage

@@ -103,6 +103,8 @@ is **not installed** on the development machine, so the raw command is given for
 - Test (gateway): `make test-gateway` — `cd backend/gateway && ./mvnw -B verify`
 - Test (assistant): `make test-assistant` — `cd backend/assistant && uv run pytest --cov
   --cov-report=term-missing --cov-report=xml`
+- Test (backup CLI): `make test-backup` — `cd backend/assistant && uv run pytest -c pyproject.toml
+  ../../ops/backup/tests`. Its Docker-free logic only; `make restore-check` proves the rest
 - Test (web): `make test-web` — `cd frontend/web && npm run test:coverage`
 - Test (single, ledger): `cd backend/ledger && ./mvnw -B test -Dtest=LedgerArchitectureTest`
 - **Docker must be running for `make test-ledger` and `make test-gateway`.** The ledger's `*IT`
@@ -280,9 +282,10 @@ These are enforced by the build, not by review. Breaking one fails CI.
   `adapters/observability.py`, `shared/lib/logger.ts`, or Logback's ECS format (ADR-019).
   Redaction lives at that boundary, never at a call site. `ops/smoke/auth_smoke.py` and
   `ops/backup/backup.py` are operator CLIs, not services: each one's report on stdout is its
-  product, written by one `print` marked `# noqa: T201` with its reason. `backup.py`'s report
-  never carries an amount, a name, an id, a secret, or a PostgreSQL message whose quoted and
-  parenthesised spans have not been withheld (`_withheld`).
+  product, written by one `print` marked `# noqa: T201` with its reason.
+- **`backup.py`'s report never carries an amount, a name, an id or a secret.** Every PostgreSQL
+  message it repeats goes through `_withheld`, which withholds quoted and parenthesised spans,
+  UUIDs and bare numbers, and drops continuation lines. `ops/backup/tests` pins this.
 - **Telemetry is a no-op when unconfigured.** A service must start with no collector named. An
   endpoint alone never enables export; `OTEL_EXPORT_ENABLED` does, for every signal — traces,
   metrics, and the ledger's OTLP log export, which nothing feeds until a log appender is added.

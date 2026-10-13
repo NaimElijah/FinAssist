@@ -11,6 +11,12 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **`make test-backup` tests what the backup CLI does without Docker.** That covers the redaction
+  every reported PostgreSQL message passes through, the manifest a restore trusts, the parsing of
+  `docker compose ps`, and the guard that keeps the restore check off the owner's project. It runs
+  in CI beside `make lint-backup`. Review found the redaction let through an unquoted amount or
+  UUID, a quoted value split across lines, and the statement after "Command was:". It now
+  withholds all of them ([#137](https://github.com/NaimElijah/FinAssist/issues/137)).
 - **`make restore-check` proves a backup restores, rather than assuming it.** It runs only as the
   Compose project `finassist-restore-check`, on ports of its own. It restores both dumps into
   fresh volumes, starts Keycloak and the ledger on them, and then requires:

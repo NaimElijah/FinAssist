@@ -195,30 +195,45 @@ def _report(line: str) -> None:
     print(line, flush=True)  # noqa: T201
 
 
-_QUOTED: Final = re.compile(r'"[^"]*"')
-_PARENTHESISED: Final = re.compile(r"\([^)]*\)")
+# A quoted span, closed or not: a value can run past the end of a line, its tail on the next.
+_QUOTED: Final = re.compile(r'"[^"]*(?:"|$)')
+_PARENTHESISED: Final = re.compile(r"\([^)]*(?:\)|$)")
+_UUID: Final = re.compile(r"\b[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}\b")
+# A bare number may be an amount: a balance trigger's message gives a transaction's total unquoted.
+_NUMBER: Final = re.compile(r"\d+(?:\.\d+)?")
 # Lines PostgreSQL adds to explain an error. Each can quote a row: a key's value, the statement
 # that failed, or the line of input it failed on.
 _EXPLANATION_MARKERS: Final = ("DETAIL:", "CONTEXT:", "HINT:", "Command was:")
-_QUOTED_INPUT_LINE: Final = re.compile(r"^(?:\S+: )?LINE \d+:")
+# How a line a PostgreSQL tool writes itself begins. Any other line after the first continues the
+# one before it: the statement after "Command was:", a quoted value's tail, psql's caret.
+_MESSAGE_PREFIXES: Final = ("pg_dump:", "pg_restore:", "psql:", "ERROR:", "FATAL:", "WARNING:")
 
 
 def _withheld(stderr: bytes) -> list[str]:
-    """The first lines of a PostgreSQL tool's error output, with anything that can quote data
-    removed.
+    """The first lines of a failed command's error output, with anything that can quote the
+    books removed, in ASCII.
 
-    PostgreSQL quotes the offending value inside a message (`invalid input syntax for type
-    numeric: "..."`) and a key's value inside parentheses (`Key (id)=(...)`). So every quoted and
-    parenthesised span is replaced, explanation lines are dropped, and what remains is the kind of
-    failure, which is what a person needs to decide what to do next.
+    PostgreSQL quotes an offending value inside a message (`invalid input syntax for type
+    numeric: "..."`), puts a key's value in parentheses (`Key (id)=(...)`), and names a total
+    unquoted (`its entries sum to 4876.55`). So:
+
+    - explanation lines are dropped, and so is any line after the first that a tool did not begin
+      itself, since it continues the line before;
+    - every quoted or parenthesised span, closed or not, is replaced, then every UUID, then every
+      number.
+
+    What remains is the kind of failure, which is what a person needs to decide what to do next.
     """
-    lines = []
+    lines: list[str] = []
     for raw in stderr.decode("utf-8", errors="replace").splitlines():
         line = raw.strip()
-        explains = any(marker in line for marker in _EXPLANATION_MARKERS)
-        if not line or explains or _QUOTED_INPUT_LINE.match(line):
+        if not line or any(marker in line for marker in _EXPLANATION_MARKERS):
             continue
-        line = _PARENTHESISED.sub("(...)", _QUOTED.sub('"..."', line))
+        if lines and not line.startswith(_MESSAGE_PREFIXES):
+            continue
+        line = _QUOTED.sub('"..."', line)
+        line = _PARENTHESISED.sub("(...)", line)
+        line = _NUMBER.sub("#", _UUID.sub("<id>", line))
         lines.append(line.encode("ascii", errors="replace").decode("ascii"))
         if len(lines) == MAX_REPORTED_LINES:
             break
@@ -350,17 +365,22 @@ class Compose:
     def image_of(self, service: str) -> str:
         """The image `service`'s running container was started from."""
         listed = self.require(f"inspecting {service}", "ps", "--format", "json", service)
-        text = listed.decode("utf-8").strip()
-        # One JSON object per line, or one array, depending on the Compose version.
-        containers = (
-            json.loads(text)
-            if text.startswith("[")
-            else [json.loads(line) for line in text.splitlines()]
-        )
-        for container in containers:
+        for container in _containers(listed.decode("utf-8")):
             if container.get("Service") == service and isinstance(container.get("Image"), str):
                 return str(container["Image"])
         raise BackupError(f"no running container found for {service}")
+
+
+def _containers(text: str) -> list[dict[str, object]]:
+    """The containers `docker compose ps --format json` listed: one JSON object per line, or one
+    array, depending on the Compose version."""
+    text = text.strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        listed = json.loads(text)
+        return [container for container in listed if isinstance(container, dict)]
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
 
 
 def _sha256(path: Path) -> str:

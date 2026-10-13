@@ -95,9 +95,13 @@ or nothing.**
 
 - It passes open binary file handles straight to `docker compose exec -T`, so no shell ever
   touches a dump.
-- It follows `ops/smoke/auth_smoke.py`'s conventions, and `make lint-backup` lints it under the
-  assistant's ruff and `mypy --strict` settings.
-- It never prints an amount, a name, an id, a token, a secret or a PostgreSQL `DETAIL:` line.
+- It follows `ops/smoke/auth_smoke.py`'s conventions.
+- `make lint-backup` lints it under the assistant's ruff and `mypy --strict` settings, and
+  `make test-backup` tests its Docker-free logic.
+- It never prints an amount, a name, an id, a token, a secret or a PostgreSQL `DETAIL:` line. Every
+  reported message passes through `_withheld`, which:
+  - drops explanation lines, and the continuation lines that follow them;
+  - withholds quoted and parenthesised spans, UUIDs and bare numbers.
 
 ## Consequences
 
@@ -129,9 +133,14 @@ or nothing.**
   secret changed in `.env` since the backup, the service using it fails until the two agree.
 - **A restore check takes minutes.** It builds the ledger and Keycloak images under its own
   project name, and Keycloak alone takes minutes to report ready on a fresh start.
-- **The CLI has no unit tests,** following [ADR-034](ADR-034-keep-the-compose-smoke-check-manual.md)'s
-  precedent for the smoke check. Its boundary is Docker. It is proved by running it against real
-  containers, including the refusals.
+- **Only the CLI's Docker-free logic has unit tests** (`ops/backup/tests`, `make test-backup`):
+  - the redaction every reported PostgreSQL message passes through;
+  - the manifest a restore trusts;
+  - the parsing of `docker compose ps`;
+  - the guard that keeps `check` off the owner's project.
+
+  Everything that reaches a database is proved by running the CLI against real containers,
+  including the refusals.
 
 ## Alternatives considered
 
@@ -167,4 +176,5 @@ or nothing.**
 - **The ledger gets a least-privilege role**
   ([#34](https://github.com/NaimElijah/FinAssist/issues/34)). That role must exist before a
   restore that keeps owners and grants, and the recipe must create it.
-- **The CLI gains logic that can be tested without Docker.** Give that logic tests.
+- **The CLI gains logic that only Docker can prove, and runs it more often than by hand.** That
+  logic then needs a containerised test in CI, as #234 gives the services.
