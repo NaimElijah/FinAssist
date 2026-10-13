@@ -615,8 +615,10 @@ the ledger's format check, build and tests; the gateway's format check, build an
 `pip-audit`, plus the smoke check's lint and types (`make lint-smoke`); the web client's
 contract types, regenerated from `contracts/` with no changed or new file, then lint, format
 check, typecheck, tests, production build and `npm audit`; and a `docker compose config`
-validation, with the `monitoring` and `smoke` profiles included. No CI job starts the Compose
-stack.
+validation, with the `monitoring` and `smoke` profiles included, that also fails any long-running
+service without the shared restart policy and log bound, `auth-smoke` with either, and a
+ledger, gateway or assistant healthcheck that probes anything but readiness. No CI job starts the
+Compose stack.
 
 **Coverage is measured everywhere and gates nothing.** JaCoCo, `pytest-cov` and
 `@vitest/coverage-v8` run as part of the test targets, and each CI job publishes its report as

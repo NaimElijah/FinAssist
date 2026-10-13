@@ -267,6 +267,14 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **Telemetry is a no-op when unconfigured.** A service must start with no collector named. An
   endpoint alone never enables export; `OTEL_EXPORT_ENABLED` does, for every signal — traces,
   metrics, and the ledger's OTLP log export, which nothing feeds until a log appender is added.
+- **Every long-running Compose service takes `restart: *restart-policy` and `logging:
+  *bounded-logs`; the one-shot `auth-smoke` takes neither.** The two `x-` blocks at the top of
+  `docker-compose.yml` state the policy (`unless-stopped`) and the bound (three 10 MB `json-file`
+  logs) once, since ADR-019 leaves rotation to whatever runs the container. Every Compose
+  healthcheck probes readiness: `/actuator/health/readiness` on the ledger and the gateway, `/ready`
+  on the assistant, `/health/ready` on Keycloak's management port. CI's `compose` job reads the
+  resolved file and fails a long-running service missing either block, `auth-smoke` with either,
+  and a ledger, gateway or assistant healthcheck that is not readiness (#142).
 - **The assistant's composition root is `src/finassist_assistant/adapters/`.** It is the only
   package that may import FastAPI, structlog or OpenTelemetry outside a context's own
   `adapters`. No context may import it.
