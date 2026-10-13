@@ -11,6 +11,48 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **A restore proves the books it put back are the ones backed up.** `make backup` records a
+  digest of every account and journal row, never an amount, taken before and after the dumps,
+  and it fails if the books changed in between. `make restore` and `make restore-check` then
+  require the restored books to reproduce that digest. Every balance is derived from those rows,
+  so a matching digest means every balance reads back unchanged, which is #137's acceptance check,
+  repeatable rather than a single manual comparison
+  ([#137](https://github.com/NaimElijah/FinAssist/issues/137)).
+- **`make test-backup` tests what the backup CLI does without Docker.** That covers the redaction
+  every reported PostgreSQL message passes through, the manifest a restore trusts, the parsing of
+  `docker compose ps`, and the guard that keeps the restore check off the owner's project. It runs
+  in CI beside `make lint-backup`. Review found the redaction let through an unquoted amount or
+  UUID, a quoted value split across lines, and the statement after "Command was:". It now
+  withholds all of them ([#137](https://github.com/NaimElijah/FinAssist/issues/137)).
+- **`make restore-check` proves a backup restores, rather than assuming it.** It runs only as the
+  Compose project `finassist-restore-check`, on ports of its own. It restores both dumps into
+  fresh volumes, starts Keycloak and the ledger on them, and then requires:
+  - the ledger to be ready on the restored Flyway history;
+  - both `recorded_by` checks to be still `NOT VALID`;
+  - every account the database holds to be listed by the ledger, and answered in its own
+    currency;
+  - the owner to keep an OTP credential, unchanged once Keycloak has started.
+
+  That last requirement is what tells a restored owner from one the realm import re-created. The
+  check cleans up its own containers and volumes by project label, and is never run in CI
+  ([ADR-038](docs/ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md),
+  [#137](https://github.com/NaimElijah/FinAssist/issues/137)).
+- **`make restore` puts a backup back, one database or both.** It checks each dump against its
+  manifest's SHA-256, and refuses until the ledger and Keycloak are stopped and the target
+  databases are running and hold no table. Under `restart: unless-stopped` either service would
+  otherwise migrate or import into the empty database first. Each database is then restored in
+  one transaction, keeping owners, and never needs an `UPDATE` or a `VALIDATE CONSTRAINT`.
+  `DATABASE=keycloak` alone undoes a realm re-import. The README gives the recipes, including a
+  PostgreSQL major-version move for each database
+  ([#137](https://github.com/NaimElijah/FinAssist/issues/137)).
+- **`make backup` backs up the books and the identity store, each on its own.**
+  `ops/backup/backup.py`, run with `uv run`, so it works from PowerShell too, writes a
+  custom-format `pg_dump` of `db` and of `keycloak-db` into a git-ignored
+  `backups/<UTC time>/`, with a manifest recording each file's size and SHA-256. It refuses to
+  start a container in your project, and it fails, removing the partial folder, unless each dump
+  is non-empty and reads back in full. On demand only: no recovery-point target has been set. See
+  [ADR-038](docs/ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md)
+  ([#137](https://github.com/NaimElijah/FinAssist/issues/137)).
 - **The Compose stack restarts what crashes, and bounds its logs.** Every long-running service
   runs under `restart: unless-stopped`: a crashed service, and the whole stack after Docker
   restarts, comes back without anyone running `docker compose up`, while one stopped on purpose
@@ -105,6 +147,10 @@ history; write the commit message well and this file writes itself.
 
 ### Changed
 
+- **The quick start's one-off `pg_dump > finassist-before-upgrade.sql` is now `make backup`.**
+  The old line wrote a dump of the books into the working tree, where `*.sql` is not ignored, and
+  left checking it to `wc -c`. `/backups/` and `*.dump` are now git-ignored
+  ([#137](https://github.com/NaimElijah/FinAssist/issues/137)).
 - **The web client's dev proxy sends every call to the gateway**, never straight to the ledger or
   the assistant, and the app must be opened at `http://localhost:5173`, not `127.0.0.1`, because
   the session cookie is keyed by host name.

@@ -62,7 +62,7 @@ every screen on a session (`SessionGate`, `SessionContext`) and hides write cont
 the running Compose stack, by hand and never in CI (ADR-034).
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
-Proposed today. Of all 39, ADR-027 is Superseded by ADR-030 and the other 38 are Accepted. The
+Proposed today. Of all 40, ADR-027 is Superseded by ADR-030 and the other 39 are Accepted. The
 requirements are still deliberately `TODO` in places rather than inferred from code.
 
 ## Commands
@@ -84,6 +84,19 @@ is **not installed** on the development machine, so the raw command is given for
   (`docker compose up -d keycloak-db keycloak`, or `make run-identity`);
   `cd backend/assistant && uv run python -m finassist_assistant.adapters`; the web client with
   `cd frontend/web && npm run dev`
+- Back up: `make backup` — `uv run ops/backup/backup.py backup`, with `db` and `keycloak-db`
+  already running (it never starts a container). Writes a custom-format `pg_dump` of each, read
+  back in full, plus a manifest of SHA-256s and a digest of the books' rows (never an amount),
+  which a restore must reproduce, into the git-ignored `backups/<UTC time>/` or under
+  `BACKUP_DIR` (ADR-038). A dump holds the books, password hashes and the owner's TOTP seed
+- Restore: `make restore BACKUP=<folder> [DATABASE=ledger|keycloak]` —
+  `uv run ops/backup/backup.py restore <folder> [--database …]`. Restores only into a database
+  that holds no table, with `ledger` and `keycloak` stopped, each in one transaction; the README's
+  "Backing up and restoring" gives the recovery, realm-undo and major-upgrade recipes
+- Prove a backup restores: `make restore-check BACKUP=<folder>` —
+  `uv run ops/backup/backup.py check <folder>`. Only ever as the Compose project
+  `finassist-restore-check`, on ports 15432/18080/18081, so it runs beside the owner's stack; builds
+  the ledger and Keycloak images under that name on its first run. Manual, never in CI (ADR-038)
 - Stop: `make stop` — `docker compose down`, keeping volumes. Never `docker compose down -v`
   against the owner's own project: it deletes `db-data` along with `keycloak-db-data`
 - Test (all): `make test`
@@ -91,6 +104,8 @@ is **not installed** on the development machine, so the raw command is given for
 - Test (gateway): `make test-gateway` — `cd backend/gateway && ./mvnw -B verify`
 - Test (assistant): `make test-assistant` — `cd backend/assistant && uv run pytest --cov
   --cov-report=term-missing --cov-report=xml`
+- Test (backup CLI): `make test-backup` — `cd backend/assistant && uv run pytest -c pyproject.toml
+  ../../ops/backup/tests`. Its Docker-free logic only; `make restore-check` proves the rest
 - Test (web): `make test-web` — `cd frontend/web && npm run test:coverage`
 - Test (single, ledger): `cd backend/ledger && ./mvnw -B test -Dtest=LedgerArchitectureTest`
 - **Docker must be running for `make test-ledger` and `make test-gateway`.** The ledger's `*IT`
@@ -106,11 +121,13 @@ is **not installed** on the development machine, so the raw command is given for
   test-compile org.pitest:pitest-maven:mutationCoverage`. A diagnostic, gated on nothing (ADR-017)
 - Lint / types: `make lint` — `./mvnw -B spotless:check` (ledger and gateway);
   `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src tests`; for the smoke
-  check (`make lint-smoke`, its own CI step in the assistant job), `uv run ruff check`,
-  `uv run ruff format --check` and `uv run mypy --strict` over `../../ops/smoke`, all from
+  check (`make lint-smoke`) and the backup CLI (`make lint-backup`), each its own CI step in
+  the assistant job, `uv run ruff check`, `uv run ruff format --check` and
+  `uv run mypy --strict` over `../../ops/smoke` and `../../ops/backup` respectively, all from
   `backend/assistant`; `npm run lint`, `npm run format:check`, `npm run typecheck`
 - Format: `make format` — `./mvnw -B spotless:apply` (ledger and gateway);
-  `uv run ruff format . ../../ops/smoke`, `uv run ruff check --fix . ../../ops/smoke`;
+  `uv run ruff format . ../../ops/smoke ../../ops/backup`,
+  `uv run ruff check --fix . ../../ops/smoke ../../ops/backup`;
   `npm run format`
 - Audit: `make audit` — `uv run pip-audit`; `npm audit --audit-level=high`
 - Re-lock Python deps: `make lock` — `cd backend/assistant && uv lock` (required after any
@@ -203,7 +220,10 @@ so it can be extracted by moving it (ADR-010).
   `ops/smoke/auth_smoke.py` is the only file behind the `smoke` Compose profile: a
   standard-library-only, opt-in smoke check of the authentication and RBAC wiring, run by hand
   with `make smoke-auth`, never by `docker compose up` and never by CI (ADR-034), and linted by
-  `make lint-smoke`.
+  `make lint-smoke`. `ops/backup/backup.py` is a standard-library operator CLI run on the host
+  with `uv run` (its PEP 723 block declares Python 3.13 and no dependency): it backs up
+  and restores each database on its own, and proves a backup restores (ADR-038), and is linted
+  by `make lint-backup`.
 - `docs/ADRs/` — one file per decision, `ADR-NNN-short-kebab-title.md`, zero-padded and
   monotonically increasing. Append-only: supersede, never rewrite.
 - `docs/requirements/` — what the system must do. `docs/architecture/` — what it actually is.
@@ -261,12 +281,22 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **Nothing writes output except the logging boundary.** No `print` (ruff `T20`), no
   `console.log` (ESLint `no-console`), no `System.out`. Structured JSON on stdout, through
   `adapters/observability.py`, `shared/lib/logger.ts`, or Logback's ECS format (ADR-019).
-  Redaction lives at that boundary, never at a call site. `ops/smoke/auth_smoke.py` is an
-  operator CLI, not a service: its report on stdout is its product, written by one `print`
-  marked `# noqa: T201` with its reason.
+  Redaction lives at that boundary, never at a call site. `ops/smoke/auth_smoke.py` and
+  `ops/backup/backup.py` are operator CLIs, not services: each one's report on stdout is its
+  product, written by one `print` marked `# noqa: T201` with its reason.
+- **`backup.py`'s report never carries an amount, a name, an id or a secret.** Every PostgreSQL
+  message it repeats goes through `_withheld`, which withholds quoted and parenthesised spans,
+  UUIDs and bare numbers, and drops continuation lines. `ops/backup/tests` pins this.
 - **Telemetry is a no-op when unconfigured.** A service must start with no collector named. An
   endpoint alone never enables export; `OTEL_EXPORT_ENABLED` does, for every signal — traces,
   metrics, and the ledger's OTLP log export, which nothing feeds until a log appender is added.
+- **A restore only ever writes into an empty database, and the restore check only ever runs as
+  `finassist-restore-check`.** `ops/backup/backup.py` refuses to restore into a database holding a
+  table, or while the ledger or Keycloak is running, since under `unless-stopped` either would
+  migrate or import into the empty database first. `check` passes `-p finassist-restore-check` on
+  every Compose call and removes only volumes carrying that project's label and name prefix, so a
+  verification run never touches the owner's `finassist` project; `restore` targets the owner's
+  project only in a real recovery. Never `docker compose down -v` (ADR-038).
 - **Every long-running Compose service takes `restart: *restart-policy` and `logging:
   *bounded-logs`; the one-shot `auth-smoke` takes neither.** The two `x-` blocks at the top of
   `docker-compose.yml` state the policy (`unless-stopped`) and the bound (three 10 MB `json-file`

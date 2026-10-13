@@ -6,6 +6,11 @@
 .env.*
 !.env.example
 
+# Database backups (ADR-038): the books, password hashes and TOTP secrets. Never `*.sql`,
+# which is what the ledger's migrations are.
+/backups/
+*.dump
+
 # Java / Maven
 target/
 *.class

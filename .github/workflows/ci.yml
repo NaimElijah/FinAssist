@@ -100,6 +100,13 @@ jobs:
       - name: Lint, format check and types (smoke check)
         run: make lint-smoke
 
+      # ops/backup/backup.py, linted the same way and for the same reason (ADR-038).
+      - name: Lint, format check and types (backup CLI)
+        run: make lint-backup
+
+      - name: Test (backup CLI)
+        run: make test-backup
+
       - name: Test
         run: make test-assistant
 
