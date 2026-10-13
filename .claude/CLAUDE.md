@@ -273,7 +273,8 @@ These are enforced by the build, not by review. Breaking one fails CI.
   logs) once, since ADR-019 leaves rotation to whatever runs the container. Every Compose
   healthcheck probes readiness: `/actuator/health/readiness` on the ledger and the gateway, `/ready`
   on the assistant, `/health/ready` on Keycloak's management port. CI's `compose` job reads the
-  resolved file and fails a long-running service missing either block, `auth-smoke` with either,
+  resolved file and fails a long-running service whose policy or logging is not exactly those
+  blocks, `auth-smoke` with either,
   and a ledger, gateway or assistant healthcheck that is not readiness (#142).
 - **The assistant's composition root is `src/finassist_assistant/adapters/`.** It is the only
   package that may import FastAPI, structlog or OpenTelemetry outside a context's own

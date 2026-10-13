@@ -190,12 +190,16 @@ jobs:
           docker compose --profile monitoring --profile smoke config --quiet
 
       # Read from the resolved file, not its text, so an alias that stops resolving fails as surely
-      # as a service that never took one (Refs #142). Uses the .env the step above wrote.
+      # as a service that never took one, and a block copied in with other values fails too: each
+      # service must equal the x- blocks themselves (Refs #142). Uses the .env the step above wrote.
       - name: Require the restart policy, log bound and readiness probes
         run: |
           docker compose --profile monitoring --profile smoke config --format json | python3 -c '
           import json, sys
-          services = json.load(sys.stdin)["services"]
+          resolved = json.load(sys.stdin)
+          services = resolved["services"]
+          policy = resolved.get("x-restart-policy")
+          bounded_logs = resolved.get("x-logging")
           one_shot = {"auth-smoke"}
           readiness = {
               "ledger": "/actuator/health/readiness",
@@ -203,17 +207,13 @@ jobs:
               "assistant": "/ready",
           }
           problems = []
+          if policy is None or bounded_logs is None:
+              problems.append("the resolved file holds no x-restart-policy or x-logging block")
           for name, svc in sorted(services.items()):
-              logging = svc.get("logging") or {}
-              options = logging.get("options") or {}
               if name in one_shot:
-                  if svc.get("restart") or logging:
+                  if svc.get("restart") or svc.get("logging"):
                       problems.append(f"{name}: a one-shot service takes no restart policy or logging block")
-              elif (
-                  svc.get("restart") != "unless-stopped"
-                  or logging.get("driver") != "json-file"
-                  or not {"max-size", "max-file"} <= options.keys()
-              ):
+              elif svc.get("restart") != policy or svc.get("logging") != bounded_logs:
                   problems.append(f"{name}: needs restart: *restart-policy and logging: *bounded-logs")
           for name, path in readiness.items():
               if path not in " ".join(services[name]["healthcheck"]["test"]):
