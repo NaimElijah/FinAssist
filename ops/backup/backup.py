@@ -2,7 +2,7 @@
 # requires-python = ">=3.13"
 # dependencies = []
 # ///
-"""Backs up the ledger's and Keycloak's databases, each as its own logical dump (ADR-038).
+"""Backs up and restores the ledger's and Keycloak's databases, each on its own (ADR-038).
 
 Run from the host, never inside the stack, with `uv run ops/backup/backup.py <command>`, or through
 `make backup`. The PEP 723 block above tells `uv` which Python to use and that nothing need be
@@ -92,6 +92,14 @@ DUMP_COMMAND: Final = (
 # Reads the whole archive and writes the SQL it would run to nowhere: every data block is
 # decompressed, so a truncated or corrupt dump fails here and not on the day it is needed.
 READ_BACK_COMMAND: Final = ("pg_restore", "-f", "/dev/null")
+# One transaction, so a restore either lands whole or leaves the database empty; it also implies
+# --exit-on-error. Owners and privileges are kept, so a target whose POSTGRES_USER differs from
+# the source's fails loudly rather than restoring under the wrong role.
+RESTORE_COMMAND: Final = (
+    "sh",
+    "-c",
+    'exec pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --single-transaction',
+)
 # SQL arrives on stdin, so psql interpolates `:'name'` variables (passed after the script as
 # `-v name=value`) as quoted literals. `-X` ignores any psqlrc, `-A -t` prints bare `|`-separated
 # rows, and ON_ERROR_STOP turns an SQL error into a non-zero exit.
@@ -361,6 +369,95 @@ def backup(compose: Compose, root: Path, now: datetime) -> Path:
     return folder
 
 
+def _manifest_entries(folder: Path) -> dict[str, dict[str, object]]:
+    """The manifest `backup` wrote into `folder`, as one entry per database key.
+
+    :raises BackupError: if `folder` holds no manifest this CLI could have written.
+    """
+    path = folder / MANIFEST_NAME
+    if not path.is_file():
+        raise BackupError(f"{folder} holds no {MANIFEST_NAME}, so it is not a backup this made")
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        if manifest["format"] != MANIFEST_FORMAT:
+            raise BackupError(f"{path} is format {manifest['format']}, not {MANIFEST_FORMAT}")
+        return {str(entry["database"]): entry for entry in manifest["dumps"]}
+    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        raise BackupError(f"{path} is not a manifest this made ({type(error).__name__})") from None
+
+
+def _verify(folder: Path, database: Database, entries: dict[str, dict[str, object]]) -> Path:
+    """Checks `database`'s dump in `folder` against the SHA-256 its manifest recorded.
+
+    :return: the dump's path.
+    :raises BackupError: if the manifest names no such dump, or the file is missing or changed.
+    """
+    entry = entries.get(database.key)
+    path = folder / database.dump_name
+    if entry is None or not path.is_file():
+        raise BackupError(f"{folder} holds no {database.dump_name} that its manifest records")
+    if _sha256(path) != entry.get("sha256"):
+        raise BackupError(
+            f"{database.dump_name} no longer matches the SHA-256 its manifest recorded, "
+            "so it changed after the backup and is not restored"
+        )
+    return path
+
+
+def restore(compose: Compose, folder: Path, databases: tuple[Database, ...]) -> None:
+    """Restores each of `databases` from the backup in `folder`, each into an empty database.
+
+    Nothing is restored until every precondition holds for every database asked for:
+
+    - each dump matches its manifest;
+    - the service that uses each database is stopped, since under `restart: unless-stopped` it
+      would migrate or import into the empty database first;
+    - each database is running, and holds no table.
+
+    Each restore is one transaction, so a database is left either restored whole or empty.
+
+    :raises BackupError: naming the first precondition that does not hold, or the restore that
+        failed.
+    """
+    entries = _manifest_entries(folder)
+    dumps = {database: _verify(folder, database, entries) for database in databases}
+    _report(f"{', '.join(path.name for path in dumps.values())}: match the manifest")
+    project = compose.project_name()
+    _report(f"Compose project: {project}")
+    running = compose.running_services()
+    busy = " ".join(db.consumer for db in databases if db.consumer in running)
+    if busy:
+        raise BackupError(
+            f"{busy} {'are' if ' ' in busy else 'is'} running in project {project}, and would "
+            "migrate or import into an empty database; "
+            f"stop first with `docker compose stop {busy}`"
+        )
+    stopped = " ".join(db.service for db in databases if db.service not in running)
+    if stopped:
+        raise BackupError(
+            f"{stopped} not running in project {project}; "
+            f"start with `docker compose up -d --wait {stopped}`"
+        )
+    for database in databases:
+        tables = compose.table_count(database)
+        if tables:
+            raise BackupError(
+                f"{database.service} in project {project} already holds {tables} tables; "
+                "a restore writes only into an empty database (ADR-038)"
+            )
+    for database, path in dumps.items():
+        with path.open("rb") as dump:
+            compose.require(
+                f"pg_restore of {path.name}",
+                "exec",
+                "-T",
+                database.service,
+                *RESTORE_COMMAND,
+                stdin=dump,
+            )
+        _report(f"{path.name}: restored into {database.service}")
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="backup.py",
@@ -370,6 +467,16 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser(
         "backup",
         help=f"dump both databases into ${BACKUP_DIR_ENV}, or backups/ by default",
+    )
+    restore_parser = commands.add_parser(
+        "restore",
+        help="restore a backup into empty databases, with the ledger and Keycloak stopped",
+    )
+    restore_parser.add_argument("folder", type=Path, help="a folder `backup` wrote")
+    restore_parser.add_argument(
+        "--database",
+        choices=[database.key for database in DATABASES],
+        help="restore this database alone, such as keycloak to undo a realm re-import",
     )
     return parser
 
@@ -385,6 +492,10 @@ def main(argv: list[str], now: datetime) -> int:
             root = Path(os.environ.get(BACKUP_DIR_ENV) or DEFAULT_BACKUP_ROOT)
             folder = backup(Compose(), root, now)
             _report(f"Backup complete: {folder}")
+        elif arguments.command == "restore":
+            chosen = tuple(db for db in DATABASES if arguments.database in (None, db.key))
+            restore(Compose(), arguments.folder, chosen)
+            _report("Restore complete; start the stack with `docker compose up -d`")
     except BackupError as failure:
         _report(f"FAILED: {failure}")
         return 1

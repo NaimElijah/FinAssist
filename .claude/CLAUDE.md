@@ -88,6 +88,10 @@ is **not installed** on the development machine, so the raw command is given for
   already running (it never starts a container). Writes a custom-format `pg_dump` of each, read
   back in full, plus a SHA-256 manifest, into the git-ignored `backups/<UTC time>/` or under
   `BACKUP_DIR` (ADR-038). A dump holds the books, password hashes and the owner's TOTP seed
+- Restore: `make restore BACKUP=<folder> [DATABASE=ledger|keycloak]` —
+  `uv run ops/backup/backup.py restore <folder> [--database …]`. Restores only into a database
+  that holds no table, with `ledger` and `keycloak` stopped, each in one transaction; the README's
+  "Backing up and restoring" gives the recovery, realm-undo and major-upgrade recipes
 - Stop: `make stop` — `docker compose down`, keeping volumes. Never `docker compose down -v`
   against the owner's own project: it deletes `db-data` along with `keycloak-db-data`
 - Test (all): `make test`
@@ -210,8 +214,8 @@ so it can be extracted by moving it (ADR-010).
   standard-library-only, opt-in smoke check of the authentication and RBAC wiring, run by hand
   with `make smoke-auth`, never by `docker compose up` and never by CI (ADR-034), and linted by
   `make lint-smoke`. `ops/backup/backup.py` is a standard-library operator CLI run on the host
-  with `uv run` (its PEP 723 block declares Python 3.13 and no dependency): it backs up each
-  database on its own (ADR-038), and is linted by `make lint-backup`.
+  with `uv run` (its PEP 723 block declares Python 3.13 and no dependency): it backs up
+  and restores each database on its own (ADR-038), and is linted by `make lint-backup`.
 - `docs/ADRs/` — one file per decision, `ADR-NNN-short-kebab-title.md`, zero-padded and
   monotonically increasing. Append-only: supersede, never rewrite.
 - `docs/requirements/` — what the system must do. `docs/architecture/` — what it actually is.

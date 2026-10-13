@@ -420,7 +420,7 @@ contracts/              Versioned OpenAPI contracts - the Published Language, an
 ops/                    Infrastructure configuration, not application code
   keycloak/               Dockerfile and finassist-realm.json, the realm imported at start-up
   smoke/                  auth_smoke.py - the opt-in Compose check of the authentication wiring
-  backup/                 backup.py - backs up each database on its own (ADR-038)
+  backup/                 backup.py - backs up and restores each database on its own (ADR-038)
   grafana/                dashboards and provisioning; beside it the collector and Prometheus files
 docs/                   requirements/, architecture/, ADRs/ - read before proposing work
 .github/                CI workflow and Dependabot configuration
@@ -444,6 +444,7 @@ pipeline and the local commands cannot drift.
 | Stop the monitoring profile too | `make stop-monitoring` | `docker compose --profile monitoring down`, keeping volumes |
 | Run identity only | `make run-identity` | `docker compose up -d keycloak-db keycloak` — for signing in or testing against Keycloak without the rest of the stack |
 | Back up both databases | `make backup` | `uv run ops/backup/backup.py backup`, with `db` and `keycloak-db` running — see [Backing up and restoring](#backing-up-and-restoring) |
+| Restore a backup | `make restore BACKUP=<folder> [DATABASE=ledger\|keycloak]` | `uv run ops/backup/backup.py restore <folder> [--database ledger\|keycloak]`, into empty databases with `ledger` and `keycloak` stopped |
 | Smoke-test authentication (opt-in) | `make smoke-auth` | `docker compose --profile smoke run --rm auth-smoke` — see [Smoke-testing authentication](#smoke-testing-authentication) below |
 | Test everything | `make test` | the four test rows below; all four measure coverage |
 | Test the ledger | `make test-ledger` | `cd backend/ledger && ./mvnw -B verify` |
@@ -525,7 +526,8 @@ the file, or to `GATEWAY_CLIENT_SECRET`, `ASSISTANT_CLIENT_SECRET` or
 imported again. There are two ways to do that.
 
 **Both delete every user in the `finassist` realm**: the owner's password and TOTP enrolment, and
-every viewer added by hand. Afterwards the owner signs in again with
+every viewer added by hand. Take `make backup` first: restoring its `keycloak.dump` is the only
+undo (see [Backing up and restoring](#backing-up-and-restoring)). Afterwards the owner signs in again with
 `FINASSIST_OWNER_INITIAL_PASSWORD`, sets a new password and enrols TOTP again, as at
 [first sign-in](#first-sign-in), and each viewer is created again. The owner keeps the same `sub`,
 because the realm pins the owner's id, so every journal row the owner wrote still names them.
@@ -597,6 +599,77 @@ run` supplies the Python 3.13 the script declares.
   migration, a deleted volume or a mistaken realm re-import, not the loss of the machine.
 - **Copying them elsewhere** is your call. Whether a copy may leave the machine at all is
   [#195](https://github.com/NaimElijah/FinAssist/issues/195)'s question.
+
+**Restoring writes only into an empty database, with the service that uses it stopped.** The
+ledger runs its Flyway migrations, and Keycloak imports a fresh realm, the moment either starts on
+an empty database. Under `restart: unless-stopped` either would do so on its own, so stop both
+first:
+
+```bash
+docker compose stop ledger keycloak            # each would migrate or import into an empty database
+docker compose up -d --wait db keycloak-db     # a volume that is gone comes back empty
+make restore BACKUP=backups/<UTC time>         # raw: uv run ops/backup/backup.py restore backups/<UTC time>
+docker compose up -d
+```
+
+`make restore` restores nothing until every one of these holds:
+
+- each dump still matches the SHA-256 in its manifest;
+- `ledger` and `keycloak` are stopped;
+- both databases are running, and hold no table.
+
+Each database is then restored in one transaction, so it ends up either whole or still empty. A
+restore never needs an `UPDATE` or a `VALIDATE CONSTRAINT`: the journal's triggers and the
+`recorded_by` checks come back exactly as they were dumped. `DATABASE=ledger` or
+`DATABASE=keycloak` restores that database alone; the raw form is `--database ledger`.
+
+**Emptying a volume is a separate, deliberate step, never part of the restore.** If a volume still
+exists but holds data you mean to replace, remove that database's container and volume yourself,
+and only once you hold a backup you trust:
+
+- for the books: `docker compose rm --stop --force ledger db`, then
+  `docker volume rm finassist_db-data`;
+- for the identity store: `docker compose rm --stop --force keycloak keycloak-db`, then
+  `docker volume rm finassist_keycloak-db-data`.
+
+Never use `docker compose down -v`.
+
+**A restored Keycloak keeps the dump's own admin account and client secrets, not `.env`'s.** If
+`KEYCLOAK_ADMIN_PASSWORD`, `GATEWAY_CLIENT_SECRET` or `ASSISTANT_CLIENT_SECRET` changed in `.env`
+since the backup, set them back. Otherwise change them in Keycloak to match, or the gateway
+cannot sign anyone in.
+
+**Undoing a realm re-import** means restoring Keycloak's database alone. A re-import deletes the
+owner's password and TOTP enrolment (see
+[Changing the realm or its secrets](#changing-the-realm-or-its-secrets)), and the books are not
+involved:
+
+```bash
+docker compose rm --stop --force keycloak keycloak-db
+docker volume rm finassist_keycloak-db-data          # Keycloak's volume only, never finassist_db-data
+docker compose up -d --wait keycloak-db
+make restore BACKUP=backups/<UTC time> DATABASE=keycloak
+docker compose up -d keycloak gateway
+```
+
+**Moving a database to a new PostgreSQL major version is a dump and a restore.** A new major
+cannot start on the old one's data directory. These steps have not been rehearsed against a real
+major upgrade yet.
+
+1. Take `make backup`.
+2. For `keycloak-db`, check that the new major is on Keycloak's
+   [supported configurations](https://www.keycloak.org/server/supported-configurations) first.
+3. Stop the service that uses the database, change its image tag in `docker-compose.yml`, and give
+   the database an empty data directory:
+   - **`db`.** The PostgreSQL 18 image keeps its cluster in a versioned directory inside the
+     volume, `/var/lib/postgresql/18/docker`. A later major that follows the same layout starts
+     empty beside the old cluster, which stays until you remove it. Check the new image's `PGDATA`
+     before you rely on that.
+   - **`keycloak-db`.** It mounts its volume at 17's `/var/lib/postgresql/data`, where the old
+     cluster itself lives, so it needs a new volume. Keep the old one until the new one has been
+     checked.
+4. Run `docker compose up -d --wait` on that database, then `make restore` with its `DATABASE=`,
+   then `docker compose up -d`.
 
 ## Testing
 
@@ -775,7 +848,7 @@ Dockerfile.
 | Ledger API | `GET/POST /api/v1/...`, each needing a bearer token that grants `ledger:read` or `ledger:write`; OpenAPI document at `GET /v3/api-docs`, pinned as [`contracts/ledger-v1.openapi.json`](contracts/ledger-v1.openapi.json) | Live for accounting, budgeting and planning; the web client's screens for all three call it, through the gateway |
 | Assistant API | `GET/POST /api/v1/portfolio/...`, each needing a bearer token that grants `portfolio:read`; OpenAPI document at `GET /openapi.json`, pinned as [`contracts/assistant-v1.openapi.json`](contracts/assistant-v1.openapi.json) | Live for portfolio, answering from the development seed or from nothing; the web client's portfolio screens call it, through the gateway |
 | Gateway | The login entry and callback, `GET /bff/me` and `POST /bff/logout` under `/bff/`, and the relays under `/ledger/api/v1/**` and `/assistant/api/v1/**`; its contract is pinned as [`contracts/gateway-v1.openapi.json`](contracts/gateway-v1.openapi.json), and its own `/v3/api-docs` stays denied | Live; the web client's dev proxy sends it every call |
-| Backups | `make backup`: a `pg_dump` of each database into `backups/<UTC time>/` | On demand; no schedule and no recovery-point target yet ([ADR-038](docs/ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md)) |
+| Backups | `make backup`: a `pg_dump` of each database into `backups/<UTC time>/`; `make restore` puts one back into empty databases | On demand; no schedule and no recovery-point target yet ([ADR-038](docs/ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md)) |
 | Identity | Keycloak at `http://localhost:8081`: the admin console at `/admin`, the owner's account console at `/realms/finassist/account` | Live under Compose, published on `127.0.0.1` only |
 
 Run the telemetry backend with `docker compose --profile monitoring up`: Grafana on

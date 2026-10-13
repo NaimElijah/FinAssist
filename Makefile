@@ -16,7 +16,7 @@ BACKUP_TOOL := ../../ops/backup
 MVNW      := ./mvnw -B
 UV        := uv
 
-.PHONY: help setup lock run run-monitoring run-identity smoke-auth stop stop-monitoring backup \
+.PHONY: help setup lock run run-monitoring run-identity smoke-auth stop stop-monitoring backup restore \
         test test-ledger test-gateway test-assistant test-web mutation-ledger \
         lint lint-ledger lint-gateway lint-assistant lint-smoke lint-backup lint-web \
         build-web generate-web-api format audit audit-assistant audit-web clean
@@ -52,6 +52,10 @@ smoke-auth: ## Opt-in end-to-end check of the authentication and RBAC wiring (op
 # Both databases must already be running; this never starts a container in your project.
 backup: ## Dump the ledger's and Keycloak's databases into backups/<UTC time>/, or $BACKUP_DIR (ADR-038)
 	$(UV) run ops/backup/backup.py backup
+
+# BACKUP=<folder> is required. DATABASE=ledger|keycloak restores that database alone.
+restore: ## Restore a backup into empty databases, ledger and keycloak stopped: make restore BACKUP=backups/<time>
+	$(UV) run ops/backup/backup.py restore $(BACKUP) $(if $(DATABASE),--database $(DATABASE))
 
 stop: ## Stop the stack, keeping volumes
 	docker compose down

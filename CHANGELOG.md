@@ -11,6 +11,14 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **`make restore` puts a backup back, one database or both.** It checks each dump against its
+  manifest's SHA-256, and refuses until the ledger and Keycloak are stopped and the target
+  databases are running and hold no table. Under `restart: unless-stopped` either service would
+  otherwise migrate or import into the empty database first. Each database is then restored in
+  one transaction, keeping owners, and never needs an `UPDATE` or a `VALIDATE CONSTRAINT`.
+  `DATABASE=keycloak` alone undoes a realm re-import. The README gives the recipes, including a
+  PostgreSQL major-version move for each database
+  ([#137](https://github.com/NaimElijah/FinAssist/issues/137)).
 - **`make backup` backs up the books and the identity store, each on its own.**
   `ops/backup/backup.py`, run with `uv run`, so it works from PowerShell too, writes a
   custom-format `pg_dump` of `db` and of `keycloak-db` into a git-ignored
