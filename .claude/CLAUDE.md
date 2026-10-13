@@ -62,7 +62,7 @@ every screen on a session (`SessionGate`, `SessionContext`) and hides write cont
 the running Compose stack, by hand and never in CI (ADR-034).
 
 Read `docs/requirements/requirements.md` and `docs/ADRs/` before proposing work. No ADR is
-Proposed today. Of all 37, ADR-027 is Superseded by ADR-030 and the other 36 are Accepted. The
+Proposed today. Of all 39, ADR-027 is Superseded by ADR-030 and the other 38 are Accepted. The
 requirements are still deliberately `TODO` in places rather than inferred from code.
 
 ## Commands
@@ -267,6 +267,15 @@ These are enforced by the build, not by review. Breaking one fails CI.
 - **Telemetry is a no-op when unconfigured.** A service must start with no collector named. An
   endpoint alone never enables export; `OTEL_EXPORT_ENABLED` does, for every signal — traces,
   metrics, and the ledger's OTLP log export, which nothing feeds until a log appender is added.
+- **Every long-running Compose service takes `restart: *restart-policy` and `logging:
+  *bounded-logs`; the one-shot `auth-smoke` takes neither.** The two `x-` blocks at the top of
+  `docker-compose.yml` state the policy (`unless-stopped`) and the bound (three 10 MB `json-file`
+  logs) once, since ADR-019 leaves rotation to whatever runs the container (ADR-039). Every Compose
+  healthcheck probes readiness: `/actuator/health/readiness` on the ledger and the gateway, `/ready`
+  on the assistant, `/health/ready` on Keycloak's management port. CI's `compose` job reads the
+  resolved file and fails a long-running service whose policy or logging is not exactly those
+  blocks, `auth-smoke` with either, and any of those four healthchecks that is not readiness
+  (#142).
 - **The assistant's composition root is `src/finassist_assistant/adapters/`.** It is the only
   package that may import FastAPI, structlog or OpenTelemetry outside a context's own
   `adapters`. No context may import it.
@@ -459,6 +468,11 @@ These are enforced by the build, not by review. Breaking one fails CI.
   `contexts_do_not_depend_on_each_other`. `LedgerSecurityConfiguration`, `LedgerPermissions`,
   `ProblemAuthenticationEntryPoint` and `ProblemAccessDeniedHandler` all live there; a controller
   still touches only `java.security.Principal`.
+- **The gateway's shipped jar must start, and CI starts it.** `GatewayPackagedJarIT` runs the
+  repackaged jar `package` wrote with `java -jar` and requires readiness, because every other suite
+  runs on the test classpath, which can hold a library the jar lacks. A test-scoped declaration of
+  something Boot needs at runtime (`snakeyaml`, #233) fails the build there. The ledger and the
+  assistant have no such check yet (#234; ADR-040).
 - **Every `@WebMvcTest` slice imports `WebSliceSecurity`.** A slice loads no scanned configuration
   (ADR-028's convention, extended to ADR-030), so without it a slice would boot with no security at
   all — every request admitted, which is a false pass, not a fast one. Enforced by

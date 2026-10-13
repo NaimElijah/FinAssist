@@ -154,6 +154,23 @@ Keycloak imports the `finassist` realm into the empty `keycloak-db-data` volume 
 ready, and the ledger, the gateway and the assistant each wait for that before they start. The
 ledger applies its Flyway migrations at start-up.
 
+**A service that crashes comes back on its own, and so does the stack after Docker restarts.**
+Every long-running service runs under `restart: unless-stopped`, so only a deliberate stop keeps
+it down: Ctrl+C on `docker compose up`, `docker compose stop`, or `make stop`. A container started
+with `-d` and never stopped, such as the `docker compose up -d db keycloak-db keycloak` below, is
+running again after Docker Desktop restarts, and holds its port. After a Docker restart, Docker
+restarts the containers itself, without Compose's `depends_on` ordering:
+
+- A service whose database is not ready yet may exit and be restarted a few times until it is:
+  the ledger, which runs its Flyway migrations against `db` at start-up, or Keycloak, which needs
+  `keycloak-db`. `docker compose ps` shows a service caught in a loop as `Restarting`.
+- While Keycloak is still starting, nobody can sign in. The ledger and the assistant answer a
+  token-bearing request 503 rather than restarting, because their key source is unreachable
+  ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)).
+
+Each container keeps at most 30 MB of logs, three 10 MB files, and `docker compose logs` reads
+only what is left ([ADR-039](docs/ADRs/ADR-039-compose-restarts-services-and-bounds-their-logs.md)).
+
 `docker-compose.yml`'s `:?` on each of the realm's three secret placeholders — the two client
 secrets and the owner's initial password — is what keeps that import safe; its two other
 placeholders, `GATEWAY_PUBLIC_URL` and `FINASSIST_OWNER_USERNAME`, are not secret and take `:-`
@@ -562,6 +579,7 @@ docker compose up -d keycloak gateway                   # imports the realm into
 | Gateway sign-in | `GatewaySecurityTest` drives the security chain: an unauthenticated request answers 401 problem+json and never a 302 to Keycloak, no `/login` page is generated, `GET /bff/me` reports the subject, name and only the roles FinAssist knows, a write without the `X-FINASSIST-XSRF-TOKEN` header is refused 403 `CSRF_TOKEN_INVALID`, sign-out ends the session and names the public post-logout URI, the login entry redirects to the public authorization URI with PKCE `S256`, an unrouted path is denied and so is `/v3/api-docs`, and a method or a media type no handler serves is answered 405 or 406 rather than a 500. `GatewayRelayProblemsTest` pins the same branch directly, including that only a true 5xx is logged at ERROR. `KeycloakRegistrationTest` pins the split between the browser-facing and backchannel URLs, the public issuer, and the gateway's refusal to start without `GATEWAY_CLIENT_SECRET`. `SpaLogoutSuccessHandlerTest` pins its two start-up refusals — no `keycloak` registration, and one with no `end_session_endpoint` ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `make test-gateway` |
 | Gateway relay | `GatewayLoginFlowIT` drives a real code-plus-PKCE sign-in with a JDK `HttpClient` and cookie manager against a fake OpenID provider (a real RSA-signed ID token, no mock) and two fake downstream services: PKCE is sent and verified, the fake provider hashing the verifier against the challenge it was given and refusing a mismatch with `invalid_grant`, and the browser lands on the public URL; a relayed call to the ledger carries `Authorization: Bearer <access token>` with its prefix stripped and its `Cookie` and `X-FINASSIST-XSRF-TOKEN` headers removed; the assistant route relays the same way; a browser's own `HTTP2-Settings` header reaches neither service; a downstream problem+json response passes through unchanged; an already-expired access token is refreshed before the call; a refresh Keycloak refuses invalidates the session and answers 401, never a redirect; an unreachable ledger answers 502 `UPSTREAM_UNAVAILABLE`; an ID token from a foreign issuer fails sign-in; a full login-and-refused-refresh run's captured logs carry no token, code or session value; the session id changes across the callback, so a session started before a sign-in cannot survive one; and a `traceparent` the client sends reaches the downstream service under the same trace id and a new parent id. The callback is deliberately sent to the gateway's own test address rather than the registered `redirect_uri`, pinning that Spring compares only `state` at the callback | `make test-gateway` |
 | Gateway timeouts | `GatewayKeycloakTimeoutIT` points the gateway at an OpenID provider that accepts the connection and then never answers, and asserts that each of the three calls it makes to Keycloak — the authorization-code exchange, the `refresh_token` grant and the JWK-set fetch that verifies an ID token — gives up inside the configured budget rather than parking a thread. A refused connection would prove nothing: the failure that matters here is the one only a read timeout catches | `make test-gateway` |
+| Gateway packaging | `GatewayPackagedJarIT` runs the repackaged jar that `package` wrote, the one the Dockerfile ships, with `java -jar` and only a client secret and a free port, and requires it to start and answer `/actuator/health/readiness` with 200. Every other gateway suite runs on Maven's test classpath, which can hold a library the jar lacks: that is how a test-scoped `snakeyaml` once kept the packaged gateway from starting at all while CI stayed green ([#233](https://github.com/NaimElijah/FinAssist/issues/233)) | `make test-gateway` |
 | Gateway contract | `GatewayContractIT` pins the generated OpenAPI document — `GET /bff/me`, `POST /bff/logout`, the session-cookie and CSRF security schemes, and a `Problem` schema identical to the ledger's — to `contracts/gateway-v1.openapi.json` | `make test-gateway` |
 | Keycloak realm | `KeycloakRealmTest` reads `ops/keycloak/finassist-realm.json` as data — registration, password reset and remember-me off, brute-force protection on, the password policy, token lifetimes and rotation off, the gateway client's standard-flow-only and exact PKCE/redirect configuration, the assistant client's service-account-only configuration and its `assistant` role, the flat `roles` claim on both clients, each client's audience, full scope denied on both with an explicit scope mapping naming only the roles each needs, the owner's forced `UPDATE_PASSWORD`/`CONFIGURE_TOTP`, the owner's pinned id, and — the one guarantee that matters most — that every secret and credential in the file is an unresolved `${VAR}` placeholder, never a literal, with no `${VAR:default}` anywhere. `KeycloakRealmIT` builds `ops/keycloak/Dockerfile` with Testcontainers `ImageFromDockerfile` and runs the real image against a real PostgreSQL: the discovery document's issuer is the public URL even though the test reaches Keycloak on a random mapped port; the assistant's client-credentials token carries `iss`, `aud=[finassist-ledger]`, `roles` holding `assistant` and nothing else, a `sub`, and an RS256 `kid` present in the realm's JWKS; each client's scope, as Keycloak computes it, holds only that client's own roles and neither client has full scope; and Keycloak kept the owner's pinned id, which is what makes a journal row's `sub` survive a re-import | `make test-gateway` |
 | Assistant architecture | Every source file is parsed: no inward module imports a framework or the adapters, no module imports another context, no domain module names `float` or reads the wall clock. The scanner itself is unit-tested | `make test-assistant` |
@@ -605,8 +623,10 @@ the ledger's format check, build and tests; the gateway's format check, build an
 `pip-audit`, plus the smoke check's lint and types (`make lint-smoke`); the web client's
 contract types, regenerated from `contracts/` with no changed or new file, then lint, format
 check, typecheck, tests, production build and `npm audit`; and a `docker compose config`
-validation, with the `monitoring` and `smoke` profiles included. No CI job starts the Compose
-stack.
+validation, with the `monitoring` and `smoke` profiles included, that also fails any long-running
+service without the shared restart policy and log bound, `auth-smoke` with either, and a
+ledger, gateway, assistant or Keycloak healthcheck that probes anything but readiness. No CI job starts the
+Compose stack.
 
 **Coverage is measured everywhere and gates nothing.** JaCoCo, `pytest-cov` and
 `@vitest/coverage-v8` run as part of the test targets, and each CI job publishes its report as
@@ -709,7 +729,7 @@ Dockerfile.
 | Concern | Endpoint or format | State |
 |---|---|---|
 | Liveness | `GET /actuator/health/liveness` (ledger and gateway), `GET /health` (assistant) | Live, returns `UP` |
-| Readiness | `GET /actuator/health/readiness` (ledger and gateway), `GET /ready` (assistant); Keycloak's `/health/ready` on its management port, 9000, inside its container only | Live. Compose judges Keycloak ready by that endpoint's HTTP status line alone, and the ledger, the gateway and the assistant wait for it |
+| Readiness | `GET /actuator/health/readiness` (ledger and gateway), `GET /ready` (assistant); Keycloak's `/health/ready` on its management port, 9000, inside its container only | Live. Compose's healthcheck probes each of these, never a liveness path, so `service_healthy` means ready to serve. It judges Keycloak by that endpoint's HTTP status line alone, and the ledger, the gateway and the assistant wait for it |
 | Metrics | `GET /actuator/metrics`, `GET /actuator/prometheus` (ledger) | Live, and scraped by the monitoring profile; no domain metric yet |
 | Traces | OTLP to `$OTEL_EXPORTER_OTLP_ENDPOINT` | Live when `OTEL_EXPORT_ENABLED=true`; dropped otherwise, and the services start either way |
 | Logs | JSON on stdout, carrying a W3C trace id | Live — ECS in the ledger and the gateway, structlog in the assistant. Redaction is enforced at the assistant's and the web client's logging boundaries; the ledger and the gateway log no credential at all — a refused token as its reason category alone, a failed sign-in as its OAuth2 error code — and the ledger does not expose `/actuator/env` |
@@ -793,7 +813,8 @@ token and decide from their own role table what it may do, denying anything unli
 in the browser were rejected because any script on the page could read them, and authorising at
 the gateway because the assistant will call the ledger without passing through it. Cost: a third
 deployable and two more containers in the inner loop, sessions that end when the gateway
-restarts, and no TLS while everything stays on loopback.
+restarts, including when Docker restarts it after a crash, and no TLS while everything stays on
+loopback.
 
 ## Status and limitations
 
@@ -810,7 +831,7 @@ with its generated OpenAPI document pinned by `LedgerContractIT` and published a
 well as natively. **Every business request is authenticated**: the browser signs in with OIDC at
 a backend-for-frontend gateway against a self-hosted Keycloak, the ledger and the assistant each
 validate a bearer token and deny by default, and every journal row written from `V1_2` onward
-names who wrote it. Thirty-six ADRs. Every architecture rule is live rather than dormant, and
+names who wrote it. Thirty-nine ADRs. Every architecture rule is live rather than dormant, and
 each was confirmed to fail against a planted violation — including dropping the append-only
 trigger and planting a foreign key across a schema boundary. CI gates build, lint, format and
 dependency audit across five jobs, and publishes a coverage report from each of the four that
@@ -835,8 +856,9 @@ Known limitations:
   `tests/test_contract.py`. The web client's accounting, budgeting and planning screens call the
   ledger's, and its portfolio screens the assistant's. The assistant has no ledger client of its
   own — `LedgerPort` is still an in-memory stand-in.
-- **Sessions live in memory.** Restarting the gateway signs everyone out, and a second gateway
-  instance would need a shared session store
+- **Sessions live in memory.** Restarting the gateway signs everyone out, and that includes the
+  automatic restart after a crash, so a gateway caught in a crash loop signs everyone out on each
+  pass. A second gateway instance would need a shared session store
   ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)).
 - **There is no TLS.** Everything is plain HTTP on loopback, which is what makes that acceptable;
   `GATEWAY_COOKIE_SECURE` must become `true` behind TLS, and a port reachable from a network would

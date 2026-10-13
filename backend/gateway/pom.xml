@@ -96,13 +96,18 @@
       <artifactId>spring-boot-starter-security-test</artifactId>
       <scope>test</scope>
     </dependency>
-    <!-- KeycloakRealmTest parses finassist-realm.json and docker-compose.yml as YAML directly.
-         It only ever reached the module transitively, through spring-boot-starter's compile
-         scope, which a future Boot release is free to stop providing. -->
+    <!-- Declared because two things use it directly, and runtime scope serves both:
+         - Boot's YamlPropertySourceLoader reads application.yml with it, so the packaged jar must
+           carry it. Test scope once removed it from there, and the gateway could not start
+           outside a test (#233); GatewayPackagedJarIT now starts the packaged jar to check.
+         - KeycloakRealmTest parses finassist-realm.json and docker-compose.yml with it, and a
+           runtime-scoped dependency is on the test classpath too.
+         It used to arrive only transitively, through spring-boot-starter, which a future Boot
+         release is free to stop providing. -->
     <dependency>
       <groupId>org.yaml</groupId>
       <artifactId>snakeyaml</artifactId>
-      <scope>test</scope>
+      <scope>runtime</scope>
     </dependency>
     <!--
       The same Testcontainers already justified for the ledger's real-PostgreSQL suites
@@ -212,6 +217,8 @@
             <finassist.contracts.dir>${project.basedir}/../../contracts</finassist.contracts.dir>
             <finassist.ops.dir>${project.basedir}/../../ops</finassist.ops.dir>
             <finassist.repo.dir>${project.basedir}/../..</finassist.repo.dir>
+            <!-- The repackaged jar `package` just wrote, which GatewayPackagedJarIT runs (#233). -->
+            <finassist.gateway.jar>${project.build.directory}/${project.build.finalName}.jar</finassist.gateway.jar>
           </systemPropertyVariables>
         </configuration>
         <executions>

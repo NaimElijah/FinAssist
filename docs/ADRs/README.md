@@ -39,10 +39,12 @@ append-only history: to change course, add a new record and mark the old one
 | [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted |
 | [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035 |
-| [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted |
+| [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted, extended by 040 |
 | [035](ADR-035-flyway-runs-out-of-order.md) | Flyway runs out of order, because every context owns a major version | Accepted |
 | [036](ADR-036-least-privilege-keycloak-client-scoping.md) | Deny each Keycloak client the realm's full scope | Accepted |
 | [037](ADR-037-an-unusable-key-set-is-an-outage.md) | A key set that cannot be read, or holds no key, is an outage, on both services | Accepted |
+| [039](ADR-039-compose-restarts-services-and-bounds-their-logs.md) | Compose restarts a crashed service, and keeps at most 30 MB of each container's logs | Accepted |
+| [040](ADR-040-the-smoke-check-trigger-fired.md) | ADR-034's first trigger fired: the smoke check stays manual, and CI starts the packaged gateway | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -88,3 +90,18 @@ verified against, is the same outage as one that cannot be reached, on both serv
 the ledger and the assistant disagreed on which such bodies were outages and which were refused
 tokens, and an empty key set was a 401 on both, so nobody was paged while no request could be
 authenticated ([#126](https://github.com/NaimElijah/FinAssist/issues/126)).
+
+039 decides on 2026-10-13 what ADR-019 left to "whatever runs the container", for the one runtime
+FinAssist has, Compose. A crashed service, and the whole stack after Docker restarts, comes back
+under `unless-stopped`. Each container keeps at most three 10 MB `json-file` logs. Every
+healthcheck probes readiness. CI's `compose` job checks all three against the resolved file
+([#142](https://github.com/NaimElijah/FinAssist/issues/142)). 038 was written first, for #137,
+on a branch that merges after this one.
+
+040 extends 034 on 2026-10-13, because 034's first revisit trigger fired: a defect only a running
+stack would have caught, a test-scoped `snakeyaml` that kept the packaged gateway from starting at
+all, reached `dev` and `main` ([#233](https://github.com/NaimElijah/FinAssist/issues/233)). The
+smoke check stays manual. Following 034's own rule, the class that slipped through gets a cheap CI
+guard: `GatewayPackagedJarIT` starts the packaged gateway on every push, and
+[#234](https://github.com/NaimElijah/FinAssist/issues/234) brings the same check to the ledger and
+the assistant.

@@ -11,6 +11,13 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **The Compose stack restarts what crashes, and bounds its logs.** Every long-running service
+  runs under `restart: unless-stopped`: a crashed service, and the whole stack after Docker
+  restarts, comes back without anyone running `docker compose up`, while one stopped on purpose
+  stays stopped. Each container keeps at most three 10 MB `json-file` logs, where before Docker
+  kept every line for the life of the container. Both are stated once, in `x-` blocks, and kept
+  off the one-shot `auth-smoke`
+  ([#142](https://github.com/NaimElijah/FinAssist/issues/142)).
 - **A real sign-in, and every business request authenticated.** The browser signs in with OIDC,
   the authorization-code flow with PKCE, at a new backend-for-frontend, `backend/gateway`
   (Spring Cloud Gateway Server Web MVC). The gateway keeps the access and refresh tokens in its
@@ -117,6 +124,19 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **The packaged gateway starts again.** A test-scoped `snakeyaml` declaration had removed it
+  from the repackaged jar, by Maven's nearest-wins mediation, so Boot could not read
+  `application.yml`. The gateway failed at start-up under Compose and natively, while every suite,
+  run on the test classpath, stayed green. It is now runtime-scoped, and `GatewayPackagedJarIT`
+  runs the jar `package` wrote with `java -jar` and requires it to start and report ready, so the
+  same class of defect fails CI whichever library goes missing
+  ([#233](https://github.com/NaimElijah/FinAssist/issues/233)).
+- **Compose waits on the gateway's and the assistant's readiness, not their liveness.** Their
+  healthchecks probed `/actuator/health` and `/health`, so `service_healthy` meant only "alive".
+  They now probe `/actuator/health/readiness` and `/ready`, as the ledger's and Keycloak's already
+  did, so the assistant's `/ready` turning into a real check when the ledger client lands (#62)
+  changes what Compose sees
+  ([#142](https://github.com/NaimElijah/FinAssist/issues/142)).
 - **The ledger answers 503, not 401, when the JWKS endpoint serves a key set with no keys.**
   Spring Security parses `{"keys": []}`, or a set whose every key is of a type Nimbus skips, and
   then reports the token's key missing, so every request was refused 401 at WARN while no token
