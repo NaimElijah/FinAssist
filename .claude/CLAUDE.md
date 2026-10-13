@@ -86,7 +86,8 @@ is **not installed** on the development machine, so the raw command is given for
   `cd frontend/web && npm run dev`
 - Back up: `make backup` — `uv run ops/backup/backup.py backup`, with `db` and `keycloak-db`
   already running (it never starts a container). Writes a custom-format `pg_dump` of each, read
-  back in full, plus a SHA-256 manifest, into the git-ignored `backups/<UTC time>/` or under
+  back in full, plus a manifest of SHA-256s and a digest of the books' rows (never an amount),
+  which a restore must reproduce, into the git-ignored `backups/<UTC time>/` or under
   `BACKUP_DIR` (ADR-038). A dump holds the books, password hashes and the owner's TOTP seed
 - Restore: `make restore BACKUP=<folder> [DATABASE=ledger|keycloak]` —
   `uv run ops/backup/backup.py restore <folder> [--database …]`. Restores only into a database

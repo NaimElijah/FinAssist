@@ -45,8 +45,11 @@ custom-format dump. `uv` is installed already, because the assistant needs it.
 
 **Each database is backed up on its own, as a logical dump: `pg_dump --format=custom`, run inside
 that database's own container.** The client is therefore always the server's own major version.
-`ledger.dump` and `keycloak.dump` land in `backups/<UTC timestamp>/`, beside a `manifest.json`
-recording each file's size, SHA-256, service and image.
+`ledger.dump` and `keycloak.dump` land in `backups/<UTC timestamp>/`, beside a `manifest.json`.
+For each file it records the size, SHA-256, service and image. It also records one digest of the
+books: every row of the accounts and the journal as text, prefixed with its table, sorted byte by
+byte and hashed. That digest is taken before and after the dumps, and a backup fails if the two
+differ, so it describes exactly the books the dump holds. No amount ever leaves the database.
 
 **A backup proves it can be read before it is called a backup.** `make backup` fails if:
 
@@ -68,6 +71,8 @@ or nothing.**
     the empty database first.
 - It then runs `pg_restore --single-transaction`. It keeps owners and privileges, so a
   mismatched `POSTGRES_USER` fails loudly rather than restoring under the wrong role.
+- Then it recomputes the books' digest, and fails if it differs from the one recorded. Every
+  balance is derived from those rows, so equal digests mean every balance reads back unchanged.
 - A full restore loads data with `COPY`, before it creates triggers. pg_dump re-adds a
   `NOT VALID` check as `NOT VALID`. So neither the append-only triggers nor the `recorded_by`
   checks are ever in the way.
@@ -82,6 +87,7 @@ or nothing.**
 - **Then it requires:**
   - the ledger becomes ready on the restored Flyway history;
   - both `recorded_by` checks exist and are still `NOT VALID`;
+  - the restored books match the backup's digest, by way of the same restore;
   - the books are not empty, and the ledger lists exactly the accounts the database holds and
     answers every account's balance in its currency;
   - the owner keeps an OTP credential, with the same ids after Keycloak has started. That last

@@ -578,8 +578,14 @@ make backup                                  # raw: uv run ops/backup/backup.py 
 ```
 
 `make backup` prints the Compose project it reads from, then writes `ledger.dump`,
-`keycloak.dump` and a `manifest.json` into `backups/<UTC time>/`. The manifest records each file's
-size and SHA-256. When `BACKUP_DIR` is set, the folder goes under it instead.
+`keycloak.dump` and a `manifest.json` into `backups/<UTC time>/`. When `BACKUP_DIR` is set, the
+folder goes under it instead. The manifest records:
+
+- each file's size and SHA-256;
+- a digest of the books: every account and journal row, sorted and hashed, never an amount.
+
+The digest is taken before and after the dumps. If the two differ, the books changed mid-backup,
+and the backup fails rather than record a digest that might not match the dump.
 
 `make backup` never starts a container itself. It fails, and removes the partial folder, if:
 
@@ -624,7 +630,8 @@ on them. The first run builds both images under that project's name, so expect s
 
 1. Both dumps match their manifest. This is read before any container starts, so a mistyped
    folder or a changed dump costs nothing.
-2. Both dumps restore into empty databases.
+2. Both dumps restore into empty databases, and the restored books match the digest the backup
+   recorded: the same rows, so the same balances.
 3. The ledger becomes ready on the restored Flyway history.
 4. Both `recorded_by` checks exist and are still `NOT VALID`.
 5. The ledger, asked with the assistant's read-only token, lists exactly the accounts the
@@ -662,8 +669,9 @@ restore (both, unless `DATABASE=` names one):
   `db`, `keycloak` for `keycloak-db`;
 - the database is running, and holds no table.
 
-Each database is then restored in one transaction, so it ends up either whole or still empty. A
-restore never needs an `UPDATE` or a `VALIDATE CONSTRAINT`: the journal's triggers and the
+Each database is then restored in one transaction, so it ends up either whole or still empty.
+After the books are restored, their digest must match the one the backup recorded, or `make
+restore` fails and says not to start the ledger on them. A restore never needs an `UPDATE` or a `VALIDATE CONSTRAINT`: the journal's triggers and the
 `recorded_by` checks come back exactly as they were dumped. `DATABASE=ledger` or
 `DATABASE=keycloak` restores that database alone; the raw form is `--database ledger`.
 

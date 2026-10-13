@@ -114,6 +114,25 @@ PSQL_COMMAND: Final = (
     'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -X -A -t -q -v ON_ERROR_STOP=1 "$@"',
     "psql",
 )
+# The books as one digest: every row of the accounts and the journal as text, prefixed with its
+# table, sorted byte by byte and hashed, so two databases holding the same books agree whatever
+# their physical order. Only the digest leaves the database, never an amount. Every column is
+# included, so any change to a row shows, and the date style is pinned so a date reads the same in
+# both databases.
+BOOKS_PRESENT_SQL: Final = "SELECT to_regclass('accounting.journal_entry') IS NOT NULL;"
+BOOKS_DIGEST_SQL: Final = """
+SET datestyle = 'ISO, YMD';
+SELECT encode(sha256(convert_to(
+    coalesce(string_agg(book_row, chr(10) ORDER BY book_row COLLATE "C"), ''), 'UTF8')), 'hex')
+FROM (
+    SELECT 'account|' || a::text AS book_row FROM accounting.account AS a
+    UNION ALL SELECT 'transaction|' || t::text FROM accounting.journal_transaction AS t
+    UNION ALL SELECT 'entry|' || e::text FROM accounting.journal_entry AS e
+    UNION ALL SELECT 'state|' || s::text FROM accounting.journal_transaction_state AS s
+) AS books;
+"""
+BOOKS_DIGEST_KEY: Final = "books_sha256"
+
 # `docker compose ps --status` matches one state exactly, so "not stopped" is a list of them.
 RUNNING_STATES: Final = ("running",)
 UNSTOPPED_STATES: Final = ("running", "restarting", "paused")
@@ -398,6 +417,13 @@ def _containers(text: str) -> list[dict[str, object]]:
     return [json.loads(line) for line in text.splitlines() if line.strip()]
 
 
+def _books_digest(compose: Compose) -> str | None:
+    """The digest of the ledger database's books, or None when it holds no journal yet."""
+    if compose.psql(LEDGER, BOOKS_PRESENT_SQL)[0][0] != "t":
+        return None
+    return compose.psql(LEDGER, BOOKS_DIGEST_SQL)[0][0]
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as file:
@@ -469,14 +495,23 @@ def backup(compose: Compose, root: Path, now: datetime) -> Path:
     folder = root / now.astimezone(UTC).strftime(TIMESTAMP_FORMAT)
     folder.mkdir(mode=OWNER_ONLY_DIRECTORY)
     try:
+        # Taken before and after the dumps: when the two agree, nothing was written to the books
+        # in between, so the digest describes exactly the books ledger.dump holds.
+        books = _books_digest(compose)
         entries = []
         for database in DATABASES:
             entries.append(_dump(compose, database, folder))
             _report(f"{database.dump_name}: written and read back in full")
+        if _books_digest(compose) != books:
+            raise BackupError(
+                "the books changed while they were being backed up, so the dump and the digest "
+                "recorded beside it could disagree; take the backup again"
+            )
         manifest = {
             "format": MANIFEST_FORMAT,
             "created": now.astimezone(UTC).strftime(TIMESTAMP_FORMAT),
             "project": project,
+            BOOKS_DIGEST_KEY: books,
             "dumps": entries,
         }
         manifest_path = folder / MANIFEST_NAME
@@ -488,8 +523,8 @@ def backup(compose: Compose, root: Path, now: datetime) -> Path:
     return folder
 
 
-def _manifest_entries(folder: Path) -> dict[str, dict[str, object]]:
-    """The manifest `backup` wrote into `folder`, as one entry per database key.
+def _read_manifest(folder: Path) -> dict[str, object]:
+    """The manifest `backup` wrote into `folder`.
 
     :raises BackupError: if `folder` holds no manifest this CLI could have written.
     """
@@ -498,11 +533,41 @@ def _manifest_entries(folder: Path) -> dict[str, dict[str, object]]:
         raise BackupError(f"{folder} holds no {MANIFEST_NAME}, so it is not a backup this made")
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict):
+            raise TypeError
         if manifest["format"] != MANIFEST_FORMAT:
             raise BackupError(f"{path} is format {manifest['format']}, not {MANIFEST_FORMAT}")
-        return {str(entry["database"]): entry for entry in manifest["dumps"]}
+        return manifest
     except (json.JSONDecodeError, KeyError, TypeError) as error:
         raise BackupError(f"{path} is not a manifest this made ({type(error).__name__})") from None
+
+
+def _manifest_entries(folder: Path) -> dict[str, dict[str, object]]:
+    """The dumps the manifest in `folder` records, one entry per database key.
+
+    :raises BackupError: if `folder` holds no manifest this CLI could have written.
+    """
+    manifest = _read_manifest(folder)
+    try:
+        dumps = manifest["dumps"]
+        if not isinstance(dumps, list):
+            raise TypeError
+        return {str(entry["database"]): entry for entry in dumps}
+    except (KeyError, TypeError) as error:
+        path = folder / MANIFEST_NAME
+        raise BackupError(f"{path} is not a manifest this made ({type(error).__name__})") from None
+
+
+def _recorded_books_digest(folder: Path) -> str | None:
+    """The digest of the books the manifest in `folder` records, or None when the backup was
+    taken before the ledger had any journal.
+
+    :raises BackupError: if the manifest records something that is not a digest.
+    """
+    digest = _read_manifest(folder).get(BOOKS_DIGEST_KEY)
+    if digest is not None and not isinstance(digest, str):
+        raise BackupError(f"{folder / MANIFEST_NAME} records no usable {BOOKS_DIGEST_KEY}")
+    return digest
 
 
 def _verify(folder: Path, database: Database, entries: dict[str, dict[str, object]]) -> Path:
@@ -576,6 +641,28 @@ def restore(compose: Compose, folder: Path, databases: tuple[Database, ...]) -> 
                 stdin=dump,
             )
         _report(f"{path.name}: restored into {database.service}")
+    if LEDGER in databases:
+        _require_books_unchanged(compose, folder)
+
+
+def _require_books_unchanged(compose: Compose, folder: Path) -> None:
+    """The restored books are the ones backed up: the same digest, so the same rows, and so every
+    balance the ledger derives from them reads back unchanged.
+
+    :raises BackupError: if the digests differ; the ledger must not be started on such books.
+    """
+    expected = _recorded_books_digest(folder)
+    if expected is None:
+        _report(
+            "NOTE: the backup was taken before the ledger had a journal, so no digest is compared"
+        )
+        return
+    if _books_digest(compose) != expected:
+        raise BackupError(
+            "the restored books do not match the digest the backup recorded; "
+            "do not start the ledger on them"
+        )
+    _report("the restored books match the digest the backup recorded")
 
 
 class _CheckRun:
@@ -837,7 +924,10 @@ def _run_checks(run: _CheckRun, compose: Compose, folder: Path) -> int:
             "keycloak-db",
         )
         before = run.check(
-            "both dumps restore into empty databases", _restore_both, compose, folder
+            "both dumps restore, the books matching the backup's digest",
+            _restore_both,
+            compose,
+            folder,
         )
         _report("Starting Keycloak and the ledger; the first run builds both images")
         run.check("the ledger is ready on the restored Flyway history", _start_ledger, compose)

@@ -11,6 +11,13 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **A restore proves the books it put back are the ones backed up.** `make backup` records a
+  digest of every account and journal row, never an amount, taken before and after the dumps,
+  and it fails if the books changed in between. `make restore` and `make restore-check` then
+  require the restored books to reproduce that digest. Every balance is derived from those rows,
+  so a matching digest means every balance reads back unchanged, which is #137's acceptance check,
+  repeatable rather than a single manual comparison
+  ([#137](https://github.com/NaimElijah/FinAssist/issues/137)).
 - **`make test-backup` tests what the backup CLI does without Docker.** That covers the redaction
   every reported PostgreSQL message passes through, the manifest a restore trusts, the parsing of
   `docker compose ps`, and the guard that keeps the restore check off the owner's project. It runs

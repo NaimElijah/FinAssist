@@ -777,7 +777,9 @@ the journal's half of it in the database too, where a trigger refuses an `UPDATE
 `pg_dump --format=custom` inside each database's own container through `docker compose exec -T`.
 So the client is always the server's major version, and no shell on the host ever handles a dump.
 It requires both containers running and never starts one. It reads each dump back in full with
-`pg_restore -f /dev/null`, and records each file's SHA-256 in a manifest beside it. Nothing
+`pg_restore -f /dev/null`, and records each file's SHA-256 in a manifest beside it, with one
+digest of the books' rows. The digest is taken before and after the dumps, and a restore must
+reproduce it. Nothing
 schedules it, because no recovery-point target has been set. Its `restore` writes only into a
 database that holds no table, with the service that uses it stopped (the ledger for `db`, Keycloak
 for `keycloak-db`), and it runs `pg_restore --single-transaction`. A full restore loads data with

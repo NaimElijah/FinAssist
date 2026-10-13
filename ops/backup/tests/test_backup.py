@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import backup
@@ -293,3 +294,80 @@ def Given_a_restarting_ledger_When_its_database_is_restored_Then_the_restore_is_
 
     with pytest.raises(backup.BackupError, match="ledger is not stopped"):
         backup.restore(_RestartingLedger(), folder, (backup.LEDGER,))
+
+
+# --- a restore proves the books it restored are the ones backed up -----------------------------
+
+BOOKS_DIGEST = "a" * 64
+
+
+@dataclass(frozen=True)
+class _RestorableProject(backup.Compose):
+    """An empty, running project whose restored ledger database reports `digest` for its books."""
+
+    digest: str = BOOKS_DIGEST
+
+    def require(
+        self,
+        what: str,
+        *args: str,
+        stdin: object = None,
+        stdout: object = None,
+        input_bytes: bytes | None = None,
+    ) -> bytes:
+        if args[0] == "config":
+            return b'{"name": "finassist-test"}'
+        if args[0] == "ps":
+            return b"db\nkeycloak-db\n"
+        sql = (input_bytes or b"").decode("utf-8")
+        if "to_regclass" in sql:
+            return b"t\n"
+        if "sha256" in sql:
+            return f"{self.digest}\n".encode()
+        if "pg_tables" in sql:
+            return b"0\n"
+        return b""
+
+
+def _backup_with_digest(tmp_path: Path, digest: object) -> Path:
+    manifest = _manifest_for(b"PGDMP-archive", tmp_path)
+    manifest[backup.BOOKS_DIGEST_KEY] = digest
+    return _backup_folder(tmp_path, manifest)
+
+
+def Given_restored_books_matching_the_digest_When_restored_Then_it_succeeds(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    folder = _backup_with_digest(tmp_path, BOOKS_DIGEST)
+
+    backup.restore(_RestorableProject(), folder, (backup.LEDGER,))
+
+    assert "the restored books match the digest the backup recorded" in capsys.readouterr().out
+
+
+def Given_restored_books_differing_from_the_digest_When_restored_Then_it_is_refused(
+    tmp_path: Path,
+) -> None:
+    folder = _backup_with_digest(tmp_path, BOOKS_DIGEST)
+
+    with pytest.raises(backup.BackupError, match="do not match the digest the backup recorded"):
+        backup.restore(_RestorableProject(digest="b" * 64), folder, (backup.LEDGER,))
+
+
+def Given_a_backup_from_before_the_journal_When_restored_Then_no_digest_is_compared(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    folder = _backup_with_digest(tmp_path, None)
+
+    backup.restore(_RestorableProject(digest="b" * 64), folder, (backup.LEDGER,))
+
+    assert "no digest is compared" in capsys.readouterr().out
+
+
+def Given_a_manifest_recording_no_usable_digest_When_read_Then_it_is_refused(
+    tmp_path: Path,
+) -> None:
+    folder = _backup_with_digest(tmp_path, 42)
+
+    with pytest.raises(backup.BackupError, match="records no usable books_sha256"):
+        backup._recorded_books_digest(folder)
