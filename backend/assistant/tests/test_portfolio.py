@@ -48,6 +48,25 @@ def Given_several_lots_When_a_position_is_taken_Then_quantity_and_cost_are_summe
     assert held.cost == usd("1600.00")
 
 
+def Given_lots_past_28_digits_When_a_position_is_taken_Then_the_quantity_is_exact() -> None:
+    """The quantities were totalled with ``sum`` in Python's default context, which keeps 28
+    significant digits, so these two lots came back as exactly ten units and the second one
+    vanished from the position. Java's ``BigDecimal`` never rounds a sum (#70)."""
+    held = position(
+        (lot("10", "100.00", 1), lot("0.00000000000000000000000000000001", "100.00", 2))
+    )
+
+    assert held.quantity == Decimal("10.00000000000000000000000000000001")
+
+
+def Given_lot_costs_past_28_digits_When_a_position_is_taken_Then_the_cost_is_exact() -> None:
+    """The cost is totalled with ``Money.plus``, which rounded past 28 significant digits too
+    (#70)."""
+    held = position((lot("1", "1000000000000000000000000000000.00", 1), lot("1", "0.01", 2)))
+
+    assert str(held.cost) == "1000000000000000000000000000000.01 USD"
+
+
 def Given_no_lots_When_a_position_is_taken_Then_it_is_refused() -> None:
     with pytest.raises(ValueError, match="at least one lot"):
         position(())

@@ -178,6 +178,10 @@ history; write the commit message well and this file writes itself.
   a context sized to its operands, with rounding trapped, so the two kernels agree. Four new shared
   vectors pin the agreement, and mirrored tests cover negation, including that zero negated stays
   `0.00` ([#70](https://github.com/NaimElijah/FinAssist/issues/70)).
+- **A position's quantity is totalled exactly.** `position()` summed its lots' quantities in
+  Python's default 28-digit context, so a lot finer than the rest could vanish from the total held.
+  It now adds them in the exact context `consume_fifo` already uses. Its cost total was fixed with
+  `Money.plus` ([#70](https://github.com/NaimElijah/FinAssist/issues/70)).
 - **`GatewayLoginFlowIT$LedgerDown` can no longer hand its dead ledger's port to its own gateway.**
   Its dead ledger was a port reserved and released, and the gateway the test then starts binds
   port 0 too. On CI it answered 401 where 502 was expected, with none of the warnings a failed

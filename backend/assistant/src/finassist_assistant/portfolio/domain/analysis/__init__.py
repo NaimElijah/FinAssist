@@ -46,7 +46,10 @@ def position(lots: tuple[Lot, ...]) -> Position:
     if len(symbols) > 1:
         raise ValueError(f"Lots cover more than one symbol: {sorted(str(s) for s in symbols)}")
 
-    total_quantity = sum((lot.quantity for lot in lots), Decimal(0))
+    exact = _exact_arithmetic_for(lot.quantity for lot in lots)
+    total_quantity = Decimal(0)
+    for lot in lots:
+        total_quantity = exact.add(total_quantity, lot.quantity)
     total_cost = lots[0].cost
     for lot in lots[1:]:
         total_cost = total_cost.plus(lot.cost)
