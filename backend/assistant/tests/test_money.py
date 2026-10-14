@@ -61,6 +61,21 @@ def Given_an_amount_When_negated_Then_the_sign_flips_and_the_currency_holds() ->
     assert negated.negate() == Money.of("12.50", Currency.ILS)
 
 
+def Given_an_amount_past_28_digits_When_negated_Then_every_digit_is_kept() -> None:
+    # Unary minus rounds to the context, and Python's default keeps 28 significant digits, so
+    # this came back as -1.000000000000000000000000000E+29 - a different amount that Money then
+    # accepted. BigDecimal.negate never rounds (#70).
+    amount = Money.of("99999999999999999999999999999.99", Currency.USD)
+
+    assert str(amount.negate()) == "-99999999999999999999999999999.99 USD"
+
+
+def Given_zero_When_negated_Then_it_is_zero_without_a_sign() -> None:
+    # Decimal has a negative zero and BigDecimal has none, so a negation that kept the sign of
+    # zero would render -0.00 here where Java renders 0.00.
+    assert str(Money.zero(Currency.USD).negate()) == "0.00 USD"
+
+
 def Given_zero_When_asked_Then_it_is_zero_and_neither_positive_nor_negative() -> None:
     zero = Money.zero(Currency.ILS)
     assert zero.is_zero

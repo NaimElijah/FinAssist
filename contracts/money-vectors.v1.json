@@ -40,7 +40,9 @@
     { "id": "minus-to-zero", "op": "minus", "left": "10.00", "right": "10.00", "currency": "USD", "expect": "0.00 USD" },
     { "id": "plus-jpy", "op": "plus", "left": "120", "right": "5", "currency": "JPY", "expect": "125 JPY" },
     { "id": "plus-cross-currency", "op": "plus", "left": "10.00", "right": "10.00", "currency": "ILS", "rightCurrency": "USD", "error": "CURRENCY_MISMATCH" },
-    { "id": "minus-cross-currency", "op": "minus", "left": "10.00", "right": "3.00", "currency": "ILS", "rightCurrency": "USD", "error": "CURRENCY_MISMATCH" }
+    { "id": "minus-cross-currency", "op": "minus", "left": "10.00", "right": "3.00", "currency": "ILS", "rightCurrency": "USD", "error": "CURRENCY_MISMATCH" },
+    { "id": "plus-beyond-28-digits", "op": "plus", "left": "1E+30", "right": "0.01", "currency": "USD", "expect": "1000000000000000000000000000000.01 USD" },
+    { "id": "minus-beyond-28-digits", "op": "minus", "left": "1E+30", "right": "0.01", "currency": "USD", "expect": "999999999999999999999999999999.99 USD" }
   ],
   "scalar": [
     { "id": "times-whole", "op": "times", "amount": "1.25", "currency": "USD", "multiplier": "4", "expect": "5.00 USD" },
@@ -49,6 +51,9 @@
     { "id": "times-rounded-half-up", "op": "timesRounded", "amount": "12.33", "currency": "USD", "multiplier": "1.5", "expect": "18.50 USD" },
     { "id": "times-rounded-half-up-negative", "op": "timesRounded", "amount": "-12.33", "currency": "USD", "multiplier": "1.5", "expect": "-18.50 USD" },
     { "id": "times-rounded-jpy", "op": "timesRounded", "amount": "120", "currency": "JPY", "multiplier": "1.5", "expect": "180 JPY" },
-    { "id": "times-rounded-large-product", "op": "timesRounded", "amount": "1E+30", "currency": "USD", "multiplier": "1E+30", "expect": "1000000000000000000000000000000000000000000000000000000000000.00 USD" }
+    { "id": "times-rounded-large-product", "op": "timesRounded", "amount": "1E+30", "currency": "USD", "multiplier": "1E+30", "expect": "1000000000000000000000000000000000000000000000000000000000000.00 USD" },
+    { "id": "times-beyond-28-digits", "op": "times", "amount": "9999999999999999999999999999.99", "currency": "USD", "multiplier": "3", "expect": "29999999999999999999999999999.97 USD" },
+    { "id": "times-beyond-28-digits-needing-rounding", "op": "times", "amount": "1E+28", "currency": "USD", "multiplier": "1.0000000000000000000000000000001", "error": "PRECISION_EXCEEDED" },
+    { "id": "times-at-a-tiny-exponent-needing-rounding", "op": "times", "amount": "0.01", "currency": "USD", "multiplier": "1E-1000001", "error": "PRECISION_EXCEEDED" }
   ]
 }

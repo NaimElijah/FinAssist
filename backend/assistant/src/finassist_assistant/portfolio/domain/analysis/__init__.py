@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from decimal import Context, Decimal, Inexact
+from decimal import MAX_EMAX, MIN_EMIN, Context, Decimal, Inexact
 
 from finassist_assistant.portfolio.domain.model import Lot, Position
 from finassist_assistant.shared import Money
@@ -46,7 +46,10 @@ def position(lots: tuple[Lot, ...]) -> Position:
     if len(symbols) > 1:
         raise ValueError(f"Lots cover more than one symbol: {sorted(str(s) for s in symbols)}")
 
-    total_quantity = sum((lot.quantity for lot in lots), Decimal(0))
+    exact = _exact_arithmetic_for(lot.quantity for lot in lots)
+    total_quantity = Decimal(0)
+    for lot in lots:
+        total_quantity = exact.add(total_quantity, lot.quantity)
     total_cost = lots[0].cost
     for lot in lots[1:]:
         total_cost = total_cost.plus(lot.cost)
@@ -64,11 +67,15 @@ def _exact_arithmetic_for(quantities: Iterable[Decimal]) -> Context:
 
     Rounding is trapped rather than trusted, so were this sizing ever short, a sale would fail
     loudly instead of quietly rounding again. An infinite quantity needs no digits and adds none.
+    The exponent range is the widest the module allows: the default's stops near 1E-1000000, and
+    below it an exact sum would be rounded as subnormal and trip that trap.
     """
     finite = [quantity for quantity in quantities if quantity.is_finite()]
     highest = max((quantity.adjusted() for quantity in finite), default=0)
     lowest = min((int(quantity.as_tuple().exponent) for quantity in finite), default=0)
-    context = Context(prec=highest - lowest + 1 + len(str(len(finite))))
+    context = Context(
+        prec=highest - lowest + 1 + len(str(len(finite))), Emin=MIN_EMIN, Emax=MAX_EMAX
+    )
     context.traps[Inexact] = True
     return context
 

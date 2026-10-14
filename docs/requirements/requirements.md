@@ -269,6 +269,7 @@ where enforcement is partial, or rests on a convention rather than a test, its s
 | Money is exact decimal — never a floating-point type | `Money` (Java and Python); `LedgerArchitectureTest.money_is_never_floating_point`; `test_architecture.py::…Then_it_names_no_float`; `MoneyTest`, `test_money.py` | **Enforced** |
 | Amounts in two currencies are never combined | `Money.plus/minus/compareTo`; `CurrencyMismatchException` | **Enforced** |
 | An amount more precise than its currency admits is rejected, not rounded | `Money` constructor; `MoneyTest`, `test_money.py` | **Enforced** |
+| Arithmetic on money is exact: a sum, a difference, a negation or a product never rounds, however many digits it carries. Only `timesRounded` rounds, and says so in its name | `Money.plus/minus/negate/times` (Java and Python); `contracts/money-vectors.v1.json`, read by `MoneyVectorsTest` and `test_money_vectors.py`; `MoneyTest`, `test_money.py` | **Enforced** |
 | Account balance is derived, never set directly | `Balance.of`; `Account` has no balance field; `BalanceTest` | **Enforced** |
 | A voided transaction keeps its entries but does not count towards a balance | `Transaction.countsTowardsBalance`; `BalanceTest` | **Enforced** |
 | Legal transaction state transitions; a reconciled transaction is frozen | Sealed `TransactionState`; `IllegalTransitionException`; `TransactionTest` | **Enforced** |

@@ -62,6 +62,24 @@ class MoneyTest {
         assertThat(negated.negate()).isEqualTo(Money.of("12.50", Currency.ILS));
     }
 
+    /**
+     * The mirror of the Python case that found unary minus rounding to 28 significant digits.
+     * {@code BigDecimal.negate} never rounds, so this side always passed; present so the pair
+     * covers it (#70).
+     */
+    @Test
+    void Given_an_amount_past_28_digits_When_negated_Then_every_digit_is_kept() {
+        Money amount = Money.of("99999999999999999999999999999.99", Currency.USD);
+
+        assertThat(amount.negate()).hasToString("-99999999999999999999999999999.99 USD");
+    }
+
+    /** {@code BigDecimal} has no negative zero; the Python mirror pins that it does not grow one. */
+    @Test
+    void Given_zero_When_negated_Then_it_is_zero_without_a_sign() {
+        assertThat(Money.zero(Currency.USD).negate()).hasToString("0.00 USD");
+    }
+
     @Test
     void Given_zero_When_asked_Then_it_is_zero_and_neither_positive_nor_negative() {
         Money zero = Money.zero(Currency.ILS);
