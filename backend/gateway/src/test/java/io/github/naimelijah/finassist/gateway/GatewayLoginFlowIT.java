@@ -882,7 +882,7 @@ class GatewayLoginFlowIT {
          * <p>Reserving a port and releasing it is not enough. The gateway this context starts
          * afterwards binds port 0 too, and can be handed the released port. The relay then reaches
          * the gateway itself, which answers the stripped, cookie-less request with 401 instead of
-         * a 502 - the failure #238 recorded on CI.
+         * a 502. That reproduces exactly the failure #238 recorded on CI.
          */
         private static Socket deadLedgerSocket;
 

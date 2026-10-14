@@ -170,13 +170,13 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
-- **`GatewayLoginFlowIT$LedgerDown` can no longer turn `dev` red by chance.** Its dead ledger was a
-  port reserved and released, and the gateway the test then starts binds port 0 too. On CI it
-  answered 401 where 502 was expected, with none of the warnings a failed sign-in, a refused
-  refresh or an unreachable upstream log. Pointing the relay at the gateway's own port reproduces
-  exactly that. The port is now held by a socket that is bound but never listens, so nothing can
-  be given it and a connection to it is refused. A new test pins that a server cannot bind it
-  ([#238](https://github.com/NaimElijah/FinAssist/issues/238)).
+- **`GatewayLoginFlowIT$LedgerDown` can no longer hand its dead ledger's port to its own gateway.**
+  Its dead ledger was a port reserved and released, and the gateway the test then starts binds
+  port 0 too. On CI it answered 401 where 502 was expected, with none of the warnings a failed
+  sign-in, a refused refresh or an unreachable upstream log. Pointing the relay at the gateway's
+  own port reproduces exactly that. The port is now held by a socket that is bound but never
+  listens, so nothing can be given it and a connection to it is refused. A new test pins that a
+  server cannot bind it ([#238](https://github.com/NaimElijah/FinAssist/issues/238)).
 - **The packaged gateway starts again.** A test-scoped `snakeyaml` declaration had removed it
   from the repackaged jar, by Maven's nearest-wins mediation, so Boot could not read
   `application.yml`. The gateway failed at start-up under Compose and natively, while every suite,
