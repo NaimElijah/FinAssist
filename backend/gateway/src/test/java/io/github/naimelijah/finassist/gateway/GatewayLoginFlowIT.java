@@ -1,11 +1,18 @@
 package io.github.naimelijah.finassist.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.naimelijah.finassist.gateway.composition.support.FakeOpenIdProvider;
 import io.github.naimelijah.finassist.gateway.composition.support.FakeService;
+import java.io.IOException;
+import java.net.BindException;
 import java.net.CookieManager;
 import java.net.HttpCookie;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.http.HttpClient;
@@ -861,27 +868,67 @@ class GatewayLoginFlowIT {
             properties = "finassist.oidc.client-secret=a-test-client-secret")
     class LedgerDown {
 
+        /** The address {@code server.address} defaults to in {@code application.yml}. */
+        private static final String LOOPBACK = "127.0.0.1";
+
         @LocalServerPort
         private int downPort;
 
         /**
-         * A port reserved and immediately released: nothing listens on it for the life of this
-         * nested context, so a connection to it is refused rather than merely slow.
+         * The dead ledger's port, held by a socket that is bound but never listens. Bound, the
+         * port cannot be handed to anything else; never listening, a connection to it is refused
+         * at once.
+         *
+         * <p>Reserving a port and releasing it is not enough. The gateway this context starts
+         * afterwards binds port 0 too, and can be handed the released port. The relay then reaches
+         * the gateway itself, which answers the stripped, cookie-less request with 401 instead of
+         * a 502 - the failure #238 recorded on CI.
          */
+        private static Socket deadLedgerSocket;
+
         @DynamicPropertySource
-        static void deadLedger(DynamicPropertyRegistry registry) throws Exception {
-            int deadPort;
-            try (java.net.ServerSocket reserved = new java.net.ServerSocket(0)) {
-                deadPort = reserved.getLocalPort();
-            }
+        static void deadLedger(DynamicPropertyRegistry registry) throws IOException {
+            // Spring calls this on every load of this context, so a reload must not leak the
+            // socket the previous load held.
+            releaseDeadLedger();
+            Socket held = new Socket();
+            // The default, made explicit because the guarantee rests on it. On Linux two sockets
+            // share a port only when both set SO_REUSEADDR, and Tomcat's does; Windows' JDK binds
+            // exclusively whatever this says.
+            held.setReuseAddress(false);
+            // The address the gateway binds (server.address), so the two contend for one port
+            // rather than coexisting on different addresses.
+            held.bind(new InetSocketAddress(InetAddress.getByName(LOOPBACK), 0));
+            deadLedgerSocket = held;
+            int deadPort = held.getLocalPort();
             registry.add("finassist.oidc.public-url", idp::baseUrl);
             registry.add("finassist.oidc.internal-url", idp::baseUrl);
-            registry.add("finassist.relay.ledger-uri", () -> "http://localhost:" + deadPort);
+            registry.add("finassist.relay.ledger-uri", () -> "http://" + LOOPBACK + ":" + deadPort);
             registry.add("finassist.relay.assistant-uri", assistant::baseUrl);
+        }
+
+        @AfterAll
+        static void releaseDeadLedger() throws IOException {
+            if (deadLedgerSocket != null) {
+                deadLedgerSocket.close();
+            }
         }
 
         private String url(String path) {
             return "http://localhost:" + downPort + path;
+        }
+
+        /**
+         * What makes the relay test deterministic: nothing this test process opens can be given
+         * the dead ledger's port, the gateway's own Tomcat included.
+         */
+        @Test
+        void Given_the_dead_ledgers_port_When_a_server_tries_to_bind_it_Then_the_bind_is_refused() {
+            int deadPort = deadLedgerSocket.getLocalPort();
+            InetAddress address = deadLedgerSocket.getLocalAddress();
+
+            assertThatThrownBy(() -> new ServerSocket(deadPort, 1, address).close())
+                    .isInstanceOf(BindException.class);
         }
 
         @Test
