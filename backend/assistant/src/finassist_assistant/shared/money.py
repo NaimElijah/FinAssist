@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, localcontext
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Context, Decimal, Inexact, localcontext
 
 from finassist_assistant.shared.currency import Currency
 
@@ -35,6 +35,23 @@ def _precision_for(value: Decimal) -> int:
     return len(digits) + max(int(exponent), 0) + 1
 
 
+def _exact(precision: int) -> Context:
+    """A context of ``precision`` significant digits that refuses to round.
+
+    Python's default context keeps 28 significant digits and rounds past them silently, where
+    Java's ``BigDecimal`` never rounds a sum, a difference, a negation or a product. Each caller
+    sizes ``precision`` so that its result is exact, and ``Inexact`` is trapped so that a sizing
+    ever found short fails loudly instead of rounding again (#70).
+
+    It wraps the arithmetic alone, never ``Money``'s constructor: the trap would turn the
+    constructor's own precision check into ``decimal.Inexact`` instead of the ``ValueError`` this
+    module promises.
+    """
+    context = Context(prec=precision)
+    context.traps[Inexact] = True
+    return context
+
+
 def _require_finite_multiplier(multiplier: Decimal) -> None:
     """Refuses a multiplier that is not a finite number.
 
@@ -59,7 +76,9 @@ class Money:
     rejected rather than rounded — rounding here would be a silent decision about money.
 
     Arithmetic is closed over a single currency; combining two raises
-    :class:`CurrencyMismatchError`.
+    :class:`CurrencyMismatchError`. It is also exact: a sum, a difference, a negation or a
+    product never rounds, however many digits it carries. Only :meth:`times_rounded` rounds, and
+    its name says so.
 
     The Java counterpart is ``ledger.shared.Money`` and ``tests/test_money.py`` mirrors
     ``MoneyTest.java`` case for case.
@@ -103,14 +122,17 @@ class Money:
 
     def plus(self, other: Money) -> Money:
         self._require_same_currency(other)
-        return Money(self.amount + other.amount, self.currency)
+        return Money(self._exact_sum_with(other).add(self.amount, other.amount), self.currency)
 
     def minus(self, other: Money) -> Money:
         self._require_same_currency(other)
-        return Money(self.amount - other.amount, self.currency)
+        return Money(self._exact_sum_with(other).subtract(self.amount, other.amount), self.currency)
 
     def negate(self) -> Money:
-        return Money(-self.amount, self.currency)
+        # Context.minus rather than Decimal.copy_negate: negating zero must give zero, not the
+        # -0.00 that copy_negate keeps and Java's BigDecimal, which has no negative zero, never
+        # prints.
+        return Money(_exact(_precision_for(self.amount)).minus(self.amount), self.currency)
 
     def times(self, multiplier: Decimal) -> Money:
         """Multiplies by a count, exactly. Never by another Money — that is not money.
@@ -119,7 +141,11 @@ class Money:
             fit the currency
         """
         _require_finite_multiplier(multiplier)
-        return Money(self.amount * multiplier, self.currency)
+        # A product of two coefficients needs no more digits than both together. Exact first,
+        # so the constructor then refuses a product the currency cannot hold rather than
+        # accepting one the default context had already rounded to fit.
+        precision = _precision_for(self.amount) + _precision_for(multiplier)
+        return Money(_exact(precision).multiply(self.amount, multiplier), self.currency)
 
     def times_rounded(self, multiplier: Decimal) -> Money:
         """Multiplies by a count, rounding the product to the currency's minor units.
@@ -171,6 +197,16 @@ class Money:
 
     def __str__(self) -> str:
         return f"{self.amount} {self.currency.name}"
+
+    def _exact_sum_with(self, other: Money) -> Context:
+        """A context in which this amount and ``other`` add or subtract exactly.
+
+        Sized on an invariant of the constructor: every amount in one currency carries the same
+        exponent, its minor units, so a sum or a difference needs only one digit more than the
+        longer operand, which ``_precision_for`` already counts. Two amounts of different
+        exponents would need more, and never reach here.
+        """
+        return _exact(max(_precision_for(self.amount), _precision_for(other.amount)))
 
     def _require_same_currency(self, other: Money) -> None:
         if self.currency is not other.currency:
