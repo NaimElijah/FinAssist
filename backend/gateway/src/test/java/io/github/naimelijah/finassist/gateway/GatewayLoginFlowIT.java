@@ -944,6 +944,10 @@ class GatewayLoginFlowIT {
                         "http", null, "localhost", downPort, codeRedirect.getPath(), codeRedirect.getQuery(), null);
                 HttpResponse<Void> callback = getFollowingNothing(client, realCallback.toString());
                 assertThat(callback.statusCode()).isEqualTo(302);
+                // A failed sign-in also ends in a 302, to ?signin=failed, and leaves the relay
+                // below to answer 401 for want of a session. Asserted here, that failure is named
+                // where it happens rather than passing for the relay's own answer.
+                assertThat(callback.headers().firstValue("Location")).contains(WEB_ORIGIN + "/");
 
                 HttpResponse<String> response = client.send(
                         HttpRequest.newBuilder(URI.create(url("/ledger/api/v1/accounts")))
@@ -952,7 +956,9 @@ class GatewayLoginFlowIT {
                                 .build(),
                         HttpResponse.BodyHandlers.ofString());
 
-                assertThat(response.statusCode()).isEqualTo(502);
+                assertThat(response.statusCode())
+                        .as("the relay's answer, whose body was %s", response.body())
+                        .isEqualTo(502);
                 assertThat(response.body()).contains("UPSTREAM_UNAVAILABLE");
             }
         }
