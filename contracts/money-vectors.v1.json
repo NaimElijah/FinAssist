@@ -53,6 +53,7 @@
     { "id": "times-rounded-jpy", "op": "timesRounded", "amount": "120", "currency": "JPY", "multiplier": "1.5", "expect": "180 JPY" },
     { "id": "times-rounded-large-product", "op": "timesRounded", "amount": "1E+30", "currency": "USD", "multiplier": "1E+30", "expect": "1000000000000000000000000000000000000000000000000000000000000.00 USD" },
     { "id": "times-beyond-28-digits", "op": "times", "amount": "9999999999999999999999999999.99", "currency": "USD", "multiplier": "3", "expect": "29999999999999999999999999999.97 USD" },
-    { "id": "times-beyond-28-digits-needing-rounding", "op": "times", "amount": "1E+28", "currency": "USD", "multiplier": "1.0000000000000000000000000000001", "error": "PRECISION_EXCEEDED" }
+    { "id": "times-beyond-28-digits-needing-rounding", "op": "times", "amount": "1E+28", "currency": "USD", "multiplier": "1.0000000000000000000000000000001", "error": "PRECISION_EXCEEDED" },
+    { "id": "times-at-a-tiny-exponent-needing-rounding", "op": "times", "amount": "0.01", "currency": "USD", "multiplier": "1E-1000001", "error": "PRECISION_EXCEEDED" }
   ]
 }

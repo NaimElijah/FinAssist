@@ -3,7 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_DOWN, ROUND_HALF_UP, Context, Decimal, Inexact, localcontext
+from decimal import (
+    MAX_EMAX,
+    MIN_EMIN,
+    ROUND_DOWN,
+    ROUND_HALF_UP,
+    Context,
+    Decimal,
+    Inexact,
+    localcontext,
+)
 
 from finassist_assistant.shared.currency import Currency
 
@@ -46,8 +55,12 @@ def _exact(precision: int) -> Context:
     It wraps the arithmetic alone, never ``Money``'s constructor: the trap would turn the
     constructor's own precision check into ``decimal.Inexact`` instead of the ``ValueError`` this
     module promises.
+
+    The exponent range is the widest the module allows. The default stops near 1E-1000000, and
+    below it an exact result would be rounded as subnormal, which the trap turns into
+    ``decimal.Inexact`` where the constructor would have refused the amount with ``ValueError``.
     """
-    context = Context(prec=precision)
+    context = Context(prec=precision, Emin=MIN_EMIN, Emax=MAX_EMAX)
     context.traps[Inexact] = True
     return context
 

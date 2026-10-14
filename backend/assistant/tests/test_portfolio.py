@@ -67,6 +67,15 @@ def Given_lot_costs_past_28_digits_When_a_position_is_taken_Then_the_cost_is_exa
     assert str(held.cost) == "1000000000000000000000000000000.01 USD"
 
 
+def Given_lots_at_a_tiny_exponent_When_a_position_is_taken_Then_the_quantity_is_exact() -> None:
+    """Below Python's default exponent range, about 1E-1000000, an exact sum is still exact. A
+    context that takes that range from the default rounds there, and with rounding trapped the
+    total raised ``decimal.Inexact`` instead (#70)."""
+    held = position((lot("1E-1000005", "100.00", 1), lot("2E-1000005", "100.00", 2)))
+
+    assert held.quantity == Decimal("3E-1000005")
+
+
 def Given_no_lots_When_a_position_is_taken_Then_it_is_refused() -> None:
     with pytest.raises(ValueError, match="at least one lot"):
         position(())
@@ -109,6 +118,14 @@ def Given_a_sale_finer_than_28_digits_When_consumed_Then_the_remainder_is_exact(
     disposal = consume_fifo((lot("10", "100.00", 1),), Decimal("1E-32"))
 
     assert disposal.remaining[0].quantity == Decimal("9.99999999999999999999999999999999")
+
+
+def Given_a_sale_at_a_tiny_exponent_When_consumed_Then_the_remainder_is_exact() -> None:
+    """The context ``consume_fifo`` totals in took its exponent range from Python's default, so a
+    quantity below about 1E-1000000 raised ``decimal.Inexact`` instead of selling (#70)."""
+    disposal = consume_fifo((lot("3E-1000005", "100.00", 1),), Decimal("1E-1000005"))
+
+    assert disposal.remaining[0].quantity == Decimal("2E-1000005")
 
 
 def Given_lots_totalling_more_than_28_digits_When_all_are_sold_Then_the_sale_is_allowed() -> None:

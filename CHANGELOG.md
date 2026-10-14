@@ -181,7 +181,10 @@ history; write the commit message well and this file writes itself.
 - **A position's quantity is totalled exactly.** `position()` summed its lots' quantities in
   Python's default 28-digit context, so a lot finer than the rest could vanish from the total held.
   It now adds them in the exact context `consume_fifo` already uses. Its cost total was fixed with
-  `Money.plus` ([#70](https://github.com/NaimElijah/FinAssist/issues/70)).
+  `Money.plus`. That context, and `Money`'s, now take the widest exponent range Python allows: at
+  the default's, a quantity below about `1E-1000000` made `position()` and `consume_fifo` raise
+  `decimal.Inexact`, and `times` raise it where `ValueError` is promised
+  ([#70](https://github.com/NaimElijah/FinAssist/issues/70)).
 - **`GatewayLoginFlowIT$LedgerDown` can no longer hand its dead ledger's port to its own gateway.**
   Its dead ledger was a port reserved and released, and the gateway the test then starts binds
   port 0 too. On CI it answered 401 where 502 was expected, with none of the warnings a failed
