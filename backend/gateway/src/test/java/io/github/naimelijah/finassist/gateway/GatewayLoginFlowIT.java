@@ -875,9 +875,12 @@ class GatewayLoginFlowIT {
         private int downPort;
 
         /**
-         * The dead ledger's port, held by a socket that is bound but never listens. Bound, the
-         * port cannot be handed to anything else; never listening, a connection to it is refused
-         * at once.
+         * The dead ledger's port, held by a socket that is bound but never listens. Bound to the
+         * address the gateway binds, it keeps that address and the wildcard on this port from any
+         * other socket, so nothing can listen where the relay connects. Never listening, a
+         * connection to it is refused rather than left to time out: at once on Linux, and after
+         * about two seconds of SYN retries on Windows, well inside the relay's five-second connect
+         * timeout.
          *
          * <p>Reserving a port and releasing it is not enough. The gateway this context starts
          * afterwards binds port 0 too, and can be handed the released port. The relay then reaches
@@ -903,6 +906,8 @@ class GatewayLoginFlowIT {
             int deadPort = held.getLocalPort();
             registry.add("finassist.oidc.public-url", idp::baseUrl);
             registry.add("finassist.oidc.internal-url", idp::baseUrl);
+            // The held address itself, not localhost, which may resolve to an address the held
+            // socket does not cover.
             registry.add("finassist.relay.ledger-uri", () -> "http://" + LOOPBACK + ":" + deadPort);
             registry.add("finassist.relay.assistant-uri", assistant::baseUrl);
         }
@@ -919,8 +924,8 @@ class GatewayLoginFlowIT {
         }
 
         /**
-         * What makes the relay test deterministic: nothing this test process opens can be given
-         * the dead ledger's port, the gateway's own Tomcat included.
+         * What makes the relay test deterministic: no server this test process starts, the
+         * gateway's own Tomcat included, can bind the address and port the relay connects to.
          */
         @Test
         void Given_the_dead_ledgers_port_When_a_server_tries_to_bind_it_Then_the_bind_is_refused() {
