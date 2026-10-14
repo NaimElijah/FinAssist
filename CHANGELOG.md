@@ -170,6 +170,21 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **The assistant's money arithmetic no longer rounds past 28 significant digits.** `Money.plus`,
+  `minus`, `negate` and `times` ran in Python's default decimal context, which keeps 28 digits and
+  rounds the rest away silently. `Money` then accepted the rounded result whenever it still fitted
+  the currency, so `1E+30 + 0.01` USD came back as `1E+30`, and a product needing three decimals
+  was accepted instead of refused. Java's `BigDecimal` never rounds. Each operation now computes in
+  a context sized to its operands, with rounding trapped, so the two kernels agree. Four new shared
+  vectors pin the agreement, and mirrored tests cover negation, including that zero negated stays
+  `0.00` ([#70](https://github.com/NaimElijah/FinAssist/issues/70)).
+- **A position's quantity is totalled exactly.** `position()` summed its lots' quantities in
+  Python's default 28-digit context, so a lot finer than the rest could vanish from the total held.
+  It now adds them in the exact context `consume_fifo` already uses. Its cost total was fixed with
+  `Money.plus`. That context, and `Money`'s, now take the widest exponent range Python allows: at
+  the default's, a quantity below about `1E-1000000` made `position()` and `consume_fifo` raise
+  `decimal.Inexact`, and `times` raise it where `ValueError` is promised
+  ([#70](https://github.com/NaimElijah/FinAssist/issues/70)).
 - **`GatewayLoginFlowIT$LedgerDown` can no longer hand its dead ledger's port to its own gateway.**
   Its dead ledger was a port reserved and released, and the gateway the test then starts binds
   port 0 too. On CI it answered 401 where 502 was expected, with none of the warnings a failed
