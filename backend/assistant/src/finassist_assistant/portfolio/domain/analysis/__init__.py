@@ -93,6 +93,7 @@ def consume_fifo(lots: tuple[Lot, ...], quantity: Decimal) -> Disposal:
     Quantities are totalled and subtracted exactly, however many digits they carry. Only the cost
     of sale is rounded, to the currency's minor units, by :meth:`Money.times_rounded`.
 
+    :raises ValueError: if the quantity is not positive
     :raises InsufficientHoldingError: if fewer units are held than requested
     """
     if quantity <= 0:
