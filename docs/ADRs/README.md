@@ -18,7 +18,7 @@ append-only history: to change course, add a new record and mark the old one
 | [010](ADR-010-bounded-context-map.md) | The context map, and context-first packaging | Accepted, extended by 015 |
 | [011](ADR-011-double-entry-bookkeeping.md) | Double-entry, five account types, transaction lifecycle | Accepted |
 | [012](ADR-012-multi-currency-without-conversion.md) | Multi-currency amounts, with no conversion | Accepted |
-| [013](ADR-013-fifo-lot-based-cost-basis.md) | Lot-based holdings with FIFO cost basis | Accepted |
+| [013](ADR-013-fifo-lot-based-cost-basis.md) | Lot-based holdings with FIFO cost basis | Accepted, extended by 041 |
 | [014](ADR-014-grounded-answers-require-citations.md) | An answer stating a figure must cite the ledger | Accepted |
 | [015](ADR-015-planning-as-a-sixth-bounded-context.md) | `planning` as a sixth bounded context, in the ledger | Accepted |
 | [016](ADR-016-deterministic-per-currency-projection.md) | Deterministic, per-currency projections | Accepted |
@@ -46,6 +46,7 @@ append-only history: to change course, add a new record and mark the old one
 | [038](ADR-038-back-up-each-database-as-a-logical-dump.md) | Back up each database as its own logical dump, on demand, proven by an isolated restore check | Accepted |
 | [039](ADR-039-compose-restarts-services-and-bounds-their-logs.md) | Compose restarts a crashed service, and keeps at most 30 MB of each container's logs | Accepted |
 | [040](ADR-040-the-smoke-check-trigger-fired.md) | ADR-034's first trigger fired: the smoke check stays manual, and CI starts the packaged gateway | Accepted |
+| [041](ADR-041-consume-fifo-orders-its-own-lots.md) | `consume_fifo` orders its own lots, oldest first | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -113,3 +114,10 @@ smoke check stays manual. Following 034's own rule, the class that slipped throu
 guard: `GatewayPackagedJarIT` starts the packaged gateway on every push, and
 [#234](https://github.com/NaimElijah/FinAssist/issues/234) brings the same check to the ledger and
 the assistant.
+
+041 extends 013 on 2026-10-15. 013 left lot order to the caller, and named a trigger: enforce it
+inside `consume_fifo` the first time a caller gets it wrong. No caller had yet, but
+[#158](https://github.com/NaimElijah/FinAssist/issues/158) is about to add a second one, and a
+wrong order raises nothing. It yields a LIFO gain that looks right. So the function now sorts its
+own lots, oldest first, keeping same-day lots in the order given, and `DisposeUnits`, where 021 had
+put the sort, no longer sorts at all ([#69](https://github.com/NaimElijah/FinAssist/issues/69)).

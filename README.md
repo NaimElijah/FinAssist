@@ -1005,7 +1005,7 @@ with its generated OpenAPI document pinned by `LedgerContractIT` and published a
 well as natively. **Every business request is authenticated**: the browser signs in with OIDC at
 a backend-for-frontend gateway against a self-hosted Keycloak, the ledger and the assistant each
 validate a bearer token and deny by default, and every journal row written from `V1_2` onward
-names who wrote it. Forty ADRs. Every architecture rule is live rather than dormant, and
+names who wrote it. Forty-one ADRs. Every architecture rule is live rather than dormant, and
 each was confirmed to fail against a planted violation — including dropping the append-only
 trigger and planting a foreign key across a schema boundary. CI gates build, lint, format and
 dependency audit across five jobs, and publishes a coverage report from each of the four that
@@ -1100,11 +1100,6 @@ Known limitations:
   one step goes unreported — a big payment covered by a salary later the same month reads as
   untroubled at a monthly cadence. Pinned by a test, narrowed by projecting more finely, closed
   by nothing yet.
-- **`consume_fifo` still trusts the caller's lot order**, but the caller no longer trusts
-  itself: `DisposeUnits` sorts by acquisition date before calling it, and a test hands it lots
-  newest-first to prove the difference between a 1000.00 cost of sale and a 2000.00 one. The
-  domain function's contract is unchanged, so reaching past the use case still gets LIFO
-  ([ADR-013](docs/ADRs/ADR-013-fifo-lot-based-cost-basis.md)).
 - **The grounding rule checks a citation points at evidence that was gathered, not that it
   supports the figure.** `AnswerQuestion` now drops a citation naming a record the answer was
   never given, so a wholly invented reference no longer grounds anything — but a model citing a
