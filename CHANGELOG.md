@@ -182,10 +182,11 @@ history; write the commit message well and this file writes itself.
   `minus`, `negate` and `times` ran in Python's default decimal context, which keeps 28 digits and
   rounds the rest away silently. `Money` then accepted the rounded result whenever it still fitted
   the currency, so `1E+30 + 0.01` USD came back as `1E+30`, and a product needing three decimals
-  was accepted instead of refused. Java's `BigDecimal` never rounds. Each operation now computes in
-  a context sized to its operands, with rounding trapped, so the two kernels agree. Four new shared
-  vectors pin the agreement, and mirrored tests cover negation, including that zero negated stays
-  `0.00` ([#70](https://github.com/NaimElijah/FinAssist/issues/70)).
+  was accepted instead of refused. Java's `BigDecimal` never rounds. `plus`, `minus` and `times` now
+  compute in a context sized to their operands, with rounding trapped, and `negate` flips the sign
+  alone, which never rounds, so the two kernels agree. Four new shared vectors pin the agreement,
+  and mirrored tests cover negation, including that zero negated stays `0.00`
+  ([#70](https://github.com/NaimElijah/FinAssist/issues/70)).
 - **A position's quantity is totalled exactly.** `position()` summed its lots' quantities in
   Python's default 28-digit context, so a lot finer than the rest could vanish from the total held.
   It now adds them in the exact context `consume_fifo` already uses. Its cost total was fixed with
