@@ -149,10 +149,10 @@ class Money:
         return Money(self._exact_sum_with(other).subtract(self.amount, other.amount), self.currency)
 
     def negate(self) -> Money:
-        # Context.minus rather than Decimal.copy_negate: negating zero must give zero, not the
-        # -0.00 that copy_negate keeps and Java's BigDecimal, which has no negative zero, never
-        # prints.
-        return Money(_exact(_precision_for(self.amount)).minus(self.amount), self.currency)
+        # copy_negate flips the sign without consulting a context, so it never rounds, where
+        # unary minus rounds to 28 digits (#70). The -0.00 it makes of zero is the constructor's
+        # to drop.
+        return Money(self.amount.copy_negate(), self.currency)
 
     def times(self, multiplier: Decimal) -> Money:
         """Multiplies by a count, exactly. Never by another Money — that is not money.
