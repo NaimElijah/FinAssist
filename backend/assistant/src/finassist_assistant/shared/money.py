@@ -48,9 +48,9 @@ def _exact(precision: int) -> Context:
     """A context of ``precision`` significant digits that refuses to round.
 
     Python's default context keeps 28 significant digits and rounds past them silently, where
-    Java's ``BigDecimal`` never rounds a sum, a difference, a negation or a product. Each caller
-    sizes ``precision`` so that its result is exact, and ``Inexact`` is trapped so that a sizing
-    ever found short fails loudly instead of rounding again (#70).
+    Java's ``BigDecimal`` never rounds a sum, a difference or a product. Each caller sizes
+    ``precision`` so that its result is exact, and ``Inexact`` is trapped so that a sizing ever
+    found short fails loudly instead of rounding again (#70). A negation needs no context at all.
 
     It wraps the arithmetic alone, never ``Money``'s constructor: the trap would turn the
     constructor's own precision check into ``decimal.Inexact`` instead of the ``ValueError`` this
