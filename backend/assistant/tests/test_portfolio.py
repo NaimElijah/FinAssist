@@ -113,11 +113,14 @@ def Given_lots_newest_first_When_consumed_Then_the_oldest_is_consumed_first() ->
 
 def Given_lots_acquired_the_same_day_When_consumed_Then_they_go_in_the_order_given() -> None:
     """A date says nothing about which of two same-day purchases came first, so the order the
-    lots arrive in decides, rather than a tie-break nobody chose, such as the cheaper first."""
-    disposal = consume_fifo((lot("3", "200.00", 1), lot("3", "100.00", 1)), Decimal(3))
+    lots arrive in decides, rather than a tie-break nobody chose, such as the cheaper first.
 
-    assert disposal.cost_of_sale == usd("600.00")
-    assert disposal.remaining == (lot("3", "100.00", 1),)
+    Both orders are sold, because a tie-break read off the lots, cheaper or dearer first, picks
+    the same lot whichever order they arrive in, and so fails one of the two."""
+    dear, cheap = lot("3", "200.00", 1), lot("3", "100.00", 1)
+
+    assert consume_fifo((dear, cheap), Decimal(3)) == Disposal((cheap,), usd("600.00"))
+    assert consume_fifo((cheap, dear), Decimal(3)) == Disposal((dear,), usd("300.00"))
 
 
 def Given_a_partly_consumed_lot_When_consumed_Then_the_remainder_keeps_its_date_and_cost() -> None:

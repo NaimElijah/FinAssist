@@ -142,8 +142,9 @@ def Given_nothing_held_When_disposed_of_Then_it_is_refused_before_the_domain_see
         DisposeUnits(FakeLedger()).of(VOO, Decimal("1"), Money.of("10.00", Currency.USD))
 
 
-def Given_lots_acquired_on_one_day_When_ordered_Then_the_ledger_order_is_kept() -> None:
-    # A stable sort, so a same-day tie is not reshuffled by a tie-break nobody chose.
+def Given_lots_acquired_on_one_day_When_disposed_of_Then_the_ledger_order_is_kept() -> None:
+    # The ledger's order is the only record of which same-day purchase came first, so it is
+    # not reshuffled by a tie-break nobody chose (ADR-041).
     first = Lot(VOO, Decimal("1"), Money.of("100.00", Currency.USD), date(2026, 1, 10))
     second = Lot(VOO, Decimal("1"), Money.of("300.00", Currency.USD), date(2026, 1, 10))
 
