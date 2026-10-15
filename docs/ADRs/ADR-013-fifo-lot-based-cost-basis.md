@@ -1,6 +1,6 @@
 # ADR-013: Lot-based holdings with FIFO cost basis
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by [ADR-041](ADR-041-consume-fifo-orders-its-own-lots.md)
 - **Date:** 2026-08-30
 
 ## Context

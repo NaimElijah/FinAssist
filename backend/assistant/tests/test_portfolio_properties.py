@@ -29,7 +29,7 @@ EPOCH = date(2026, 1, 1)
 
 @st.composite
 def lots(draw: st.DrawFn) -> tuple[Lot, ...]:
-    """A holding of one to six lots in one currency, ordered oldest first as FIFO expects."""
+    """A holding of one to six lots in one currency, each acquired on its own day, oldest first."""
     count = draw(st.integers(min_value=1, max_value=6))
     quantities = draw(
         st.lists(
@@ -114,6 +114,18 @@ def Given_any_disposal_When_consumed_Then_the_oldest_lots_go_first(
     # so the property named here could not fail.
     dates = [lot.acquired_on for lot in holding]
     assert [lot.acquired_on for lot in remaining] == dates[len(dates) - len(remaining) :]
+
+
+@given(lots(), st.data())
+def Given_lots_in_any_order_When_consumed_Then_the_disposal_is_the_oldest_first_one(
+    holding: tuple[Lot, ...], data: st.DataObject
+) -> None:
+    # Every lot has a date of its own, so oldest first is one order only, and whichever order
+    # the lots arrive in must sell exactly what that order sells (#69).
+    shuffled = tuple(data.draw(st.permutations(holding)))
+    sold = Decimal(data.draw(st.integers(min_value=1, max_value=int(held(holding)))))
+
+    assert consume_fifo(shuffled, sold) == consume_fifo(holding, sold)
 
 
 @given(lots(), st.data())
