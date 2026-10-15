@@ -26,7 +26,7 @@ append-only history: to change course, add a new record and mark the old one
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
 | [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted |
 | [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, extended by 033 |
-| [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted |
+| [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted, extended by 041 |
 | [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted |
 | [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted |
 | [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033 and 035 |
@@ -115,9 +115,10 @@ guard: `GatewayPackagedJarIT` starts the packaged gateway on every push, and
 [#234](https://github.com/NaimElijah/FinAssist/issues/234) brings the same check to the ledger and
 the assistant.
 
-041 extends 013 on 2026-10-15. 013 left lot order to the caller, and named a trigger: enforce it
-inside `consume_fifo` the first time a caller gets it wrong. No caller had yet, but
+041 extends 013 and 021 on 2026-10-15. 013 left lot order to the caller, and named a trigger:
+enforce it inside `consume_fifo` the first time a caller gets it wrong. No caller had yet, but
 [#158](https://github.com/NaimElijah/FinAssist/issues/158) is about to add a second one, and a
 wrong order raises nothing. It yields a LIFO gain that looks right. So the function now sorts its
-own lots, oldest first, keeping same-day lots in the order given, and `DisposeUnits`, where 021 had
-put the sort, no longer sorts at all ([#69](https://github.com/NaimElijah/FinAssist/issues/69)).
+own lots, oldest first, keeping same-day lots in the order given. `DisposeUnits`, where 021 had put
+the sort, no longer sorts at all, as 021's own trigger for a use case holding a rule asks
+([#69](https://github.com/NaimElijah/FinAssist/issues/69)).

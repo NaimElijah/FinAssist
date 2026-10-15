@@ -15,6 +15,9 @@ gets it wrong."
 **[ADR-021](ADR-021-application-layer-shape.md) put the sort in the one caller there is.**
 `DisposeUnits` sorted the lots before calling `consume_fifo`, so the use case was right. The
 function was not. Anything reaching it past the use case still got whatever order it passed in.
+ADR-021 names this case among its own revisit triggers: "A use case starts holding a rule rather
+than orchestrating one. That means an invariant is homeless and belongs in the domain, and this
+record should say so."
 
 **No caller has got it wrong yet, and one is about to be written.**
 [#158](https://github.com/NaimElijah/FinAssist/issues/158) records a sale, which consumes lots
