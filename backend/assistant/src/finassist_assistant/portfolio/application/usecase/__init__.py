@@ -64,21 +64,6 @@ def _held(ledger: LedgerPort, symbol: Symbol) -> tuple[Lot, ...]:
     return lots
 
 
-def _oldest_first(lots: tuple[Lot, ...]) -> tuple[Lot, ...]:
-    """Orders lots by acquisition date, oldest first.
-
-    This is the whole reason ``DisposeUnits`` exists rather than callers reaching for
-    ``consume_fifo`` themselves. That function consumes lots in the order it is given them and
-    documents that the caller is responsible for the ordering — so handed a newest-first tuple it
-    computes a LIFO cost basis in silence, with no error and a plausible number. ADR-013 chose
-    FIFO, and this is the one place that makes the choice true.
-
-    Sorting is stable, so lots acquired on the same day keep the order the ledger returned them
-    in rather than being reshuffled by a tie-break nobody chose.
-    """
-    return tuple(sorted(lots, key=lambda lot: lot.acquired_on))
-
-
 @dataclass(frozen=True, slots=True)
 class ViewPosition:
     """Reads total quantity and total cost across the lots of one instrument."""
@@ -125,6 +110,6 @@ class DisposeUnits:
         :raises InsufficientHoldingError: if fewer units are held than requested
         :raises ValueError: if the quantity is not positive
         """
-        disposal = consume_fifo(_oldest_first(_held(self.ledger, symbol)), quantity)
+        disposal = consume_fifo(_held(self.ledger, symbol), quantity)
         gain = realised_gain(proceeds, disposal.cost_of_sale)
         return Disposition(disposal=disposal, proceeds=proceeds, realised_gain=gain)
