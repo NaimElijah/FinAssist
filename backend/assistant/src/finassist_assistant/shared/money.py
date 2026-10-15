@@ -85,8 +85,9 @@ class Money:
     figure that drifts by a cent per thousand is wrong in a way no later test will find.
 
     The amount is normalised to the currency's minor units on construction, so ``12.5`` and
-    ``12.50`` are one value. An amount carrying more precision than the currency admits is
-    rejected rather than rounded — rounding here would be a silent decision about money.
+    ``12.50`` are one value, and a zero carries no sign, so ``-0`` is ``0.00``. An amount
+    carrying more precision than the currency admits is rejected rather than rounded — rounding
+    here would be a silent decision about money.
 
     Arithmetic is closed over a single currency; combining two raises
     :class:`CurrencyMismatchError`. It is also exact: a sum, a difference, a negation or a
@@ -118,6 +119,12 @@ class Money:
                 f"admits ({self.currency.minor_units} decimal places); "
                 "round it deliberately before constructing Money"
             )
+        if normalised.is_zero():
+            # Decimal has a negative zero and BigDecimal has none. Left signed, -0.00 would compare
+            # equal to zero, so no test would notice, yet render as "-0.00" on the wire where the
+            # ledger renders "0.00" (#239). Every operation builds its result through here, so
+            # dropping the sign once covers a negative times zero and a product rounded to zero.
+            normalised = normalised.copy_abs()
         object.__setattr__(self, "amount", normalised)
 
     @classmethod

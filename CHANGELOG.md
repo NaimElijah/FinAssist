@@ -193,6 +193,13 @@ history; write the commit message well and this file writes itself.
   the default's, a quantity below about `1E-1000000` made `position()` and `consume_fifo` raise
   `decimal.Inexact`, and `times` raise it where `ValueError` is promised
   ([#70](https://github.com/NaimElijah/FinAssist/issues/70)).
+- **The assistant's `Money` no longer holds a negative zero.** Python's `Decimal` has one and
+  Java's `BigDecimal` has none, so `-0` read from input, a negative amount times zero, and a
+  negative product that rounds to zero all rendered `-0.00` in the assistant, and on the wire,
+  where the ledger renders `0.00`. It compared equal to zero, so no test noticed. The constructor
+  now drops the sign of a zero, which every operation passes through. Five new shared vectors pin
+  the agreement, and Java passed them unchanged
+  ([#239](https://github.com/NaimElijah/FinAssist/issues/239)).
 - **`GatewayLoginFlowIT$LedgerDown` can no longer hand its dead ledger's port to its own gateway.**
   Its dead ledger was a port reserved and released, and the gateway the test then starts binds
   port 0 too. On CI it answered 401 where 502 was expected, with none of the warnings a failed
