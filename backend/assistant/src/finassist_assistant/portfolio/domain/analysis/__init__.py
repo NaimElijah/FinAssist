@@ -81,32 +81,38 @@ def _exact_arithmetic_for(quantities: Iterable[Decimal]) -> Context:
 
 
 def consume_fifo(lots: tuple[Lot, ...], quantity: Decimal) -> Disposal:
-    """Sells ``quantity`` units, taking the oldest lots first (ADR-013).
+    """Sells ``quantity`` units, taking the oldest lots first (ADR-013, ADR-041).
 
-    Lots are consumed in the order given; the caller sorts by ``acquired_on`` if that order is
-    not already the acquisition order. A lot consumed only partly is split, so the remainder
-    keeps its original unit cost and acquisition date.
+    The lots may arrive in any order: they are sorted by ``acquired_on`` here, because FIFO is a
+    cost basis a tax return relies on, and a caller handing them over newest first would
+    otherwise get a LIFO basis with no error. Lots acquired on the same day keep the order they
+    were given in, since nothing recorded says which came first. A lot consumed only partly is
+    split, so the remainder keeps its original unit cost and acquisition date, and the lots that
+    remain are returned oldest first.
 
     Quantities are totalled and subtracted exactly, however many digits they carry. Only the cost
     of sale is rounded, to the currency's minor units, by :meth:`Money.times_rounded`.
 
+    :raises ValueError: if the quantity is not positive
     :raises InsufficientHoldingError: if fewer units are held than requested
     """
     if quantity <= 0:
         raise ValueError(f"A disposal must be of a positive quantity but was {quantity}")
 
-    exact = _exact_arithmetic_for((quantity, *(lot.quantity for lot in lots)))
+    # sorted is stable, which is what keeps same-day lots in the order given.
+    oldest_first = sorted(lots, key=lambda lot: lot.acquired_on)
+    exact = _exact_arithmetic_for((quantity, *(lot.quantity for lot in oldest_first)))
     held = Decimal(0)
-    for lot in lots:
+    for lot in oldest_first:
         held = exact.add(held, lot.quantity)
     if quantity > held:
         raise InsufficientHoldingError(held, quantity)
 
     outstanding = quantity
-    cost_of_sale = Money.zero(lots[0].unit_cost.currency)
+    cost_of_sale = Money.zero(oldest_first[0].unit_cost.currency)
     remaining: list[Lot] = []
 
-    for lot in lots:
+    for lot in oldest_first:
         if outstanding <= 0:
             remaining.append(lot)
         elif lot.quantity <= outstanding:

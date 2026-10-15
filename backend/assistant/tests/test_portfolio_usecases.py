@@ -1,10 +1,10 @@
 """The portfolio use cases: reading a position, valuing it, and selling out of it.
 
-The case worth reading twice is the FIFO one. ``consume_fifo`` consumes lots in the order it is
-given them and says so in its own docstring, which means a caller that hands it lots newest-first
-gets a LIFO cost basis, in silence, with a plausible number and no error. ADR-013 chose FIFO;
-``DisposeUnits`` is the one place that makes the choice true, and the test below hands it lots in
-the wrong order deliberately.
+The case worth reading twice is the FIFO one. The ledger may return lots in any order, and a
+newest-first sale yields a LIFO cost basis, in silence, with a plausible number and no error.
+ADR-013 chose FIFO, and ``consume_fifo`` makes it true by sorting the lots itself (ADR-041). The
+test below hands ``DisposeUnits`` lots in the wrong order deliberately, so the guarantee is held
+at the use case's boundary as well as the domain function's.
 """
 
 from datetime import date
@@ -104,8 +104,8 @@ def Given_a_price_in_another_currency_When_valued_Then_it_is_refused() -> None:
 
 
 def Given_lots_out_of_order_When_units_are_disposed_of_Then_the_oldest_is_consumed_first() -> None:
-    # Deliberately newest-first. Handed straight to consume_fifo this yields a cost of sale of
-    # 2000.00 - a LIFO basis, silently, with no error and a number that looks right.
+    # Deliberately newest-first. Consumed in that order this yields a cost of sale of 2000.00 -
+    # a LIFO basis, silently, with no error and a number that looks right.
     disposition = DisposeUnits(FakeLedger(DEAR_AND_NEW, CHEAP_AND_OLD)).of(
         VOO, Decimal("10"), Money.of("2500.00", Currency.USD)
     )
@@ -142,8 +142,9 @@ def Given_nothing_held_When_disposed_of_Then_it_is_refused_before_the_domain_see
         DisposeUnits(FakeLedger()).of(VOO, Decimal("1"), Money.of("10.00", Currency.USD))
 
 
-def Given_lots_acquired_on_one_day_When_ordered_Then_the_ledger_order_is_kept() -> None:
-    # A stable sort, so a same-day tie is not reshuffled by a tie-break nobody chose.
+def Given_lots_acquired_on_one_day_When_disposed_of_Then_the_ledger_order_is_kept() -> None:
+    # The ledger's order is the only record of which same-day purchase came first, so it is
+    # not reshuffled by a tie-break nobody chose (ADR-041).
     first = Lot(VOO, Decimal("1"), Money.of("100.00", Currency.USD), date(2026, 1, 10))
     second = Lot(VOO, Decimal("1"), Money.of("300.00", Currency.USD), date(2026, 1, 10))
 

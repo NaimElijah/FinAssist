@@ -111,9 +111,9 @@ Holdings are tracked as **lots with a FIFO cost basis**
   /api/v1/portfolio/holdings/{symbol}/position`; `test_portfolio_api.py`
 - Dispose of units, oldest lots first, and read what those units cost. Selling more than is
   held is refused. `consume_fifo`, `InsufficientHoldingError`; `DisposeUnits`,
-  `test_portfolio_usecases.py`. **"Oldest first" is the use case's guarantee, not the domain
-  function's**: `consume_fifo` consumes lots in the order it is given them, so `DisposeUnits`
-  sorts by acquisition date before calling it. Reachable over HTTP as `POST
+  `test_portfolio_usecases.py`. **"Oldest first" is the domain function's own guarantee**:
+  `consume_fifo` sorts the lots by acquisition date whatever order it is given them in
+  ([ADR-041](../ADRs/ADR-041-consume-fifo-orders-its-own-lots.md)). Reachable over HTTP as `POST
   /api/v1/portfolio/holdings/{symbol}/disposal`, a JSON body rather than query parameters
   because the proceeds are an amount of money; `test_portfolio_api.py`
 - Read realised gain on a sale, and unrealised gain and market value at a given unit price.
@@ -279,6 +279,7 @@ where enforcement is partial, or rests on a convention rather than a test, its s
 | A budget has one limit per category, all in the budget's currency, each positive | `Budget` and `CategoryLimit` constructors; `BudgetTest` | **Enforced** |
 | A budget stores no spend; remaining is derived | `Budget.remaining` takes spend as an argument; `BudgetTest` | **Enforced** |
 | Disposing of more units than are held is refused | `consume_fifo`; `InsufficientHoldingError`; `test_portfolio.py` | **Enforced** |
+| A disposal consumes the oldest lots first, whatever order they are supplied in; lots acquired the same day go in the order supplied | `consume_fifo`; `test_portfolio.py::Given_lots_newest_first_When_consumed_Then_the_oldest_is_consumed_first` and `Given_lots_acquired_the_same_day_When_consumed_Then_they_go_in_the_order_given`; `test_portfolio_properties.py::Given_lots_in_any_order_When_consumed_Then_the_disposal_is_the_oldest_first_one` | **Enforced** |
 | A claim stating a figure must cite the evidence it came from | `ground`; `test_grounding.py`; `AnswerQuestion`, `test_assistance_usecases.py` | **Enforced** — the domain checks a citation exists, and the use case checks it names evidence the answer was actually given, which is the only place holding both. Whether the cited record *supports* the figure is still unchecked |
 | A market quote carries an unambiguous instant, and staleness is judged against a supplied clock | `Quote`, `is_stale`; `test_marketdata.py` | **Enforced** |
 | A planned flow is for a positive amount; the direction carries the sign | `PlannedFlow` constructor; `PlannedFlowTest` | **Enforced** |

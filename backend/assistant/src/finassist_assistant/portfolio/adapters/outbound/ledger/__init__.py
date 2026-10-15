@@ -37,9 +37,9 @@ class InMemoryLedger:
     def add(self, lot: Lot) -> None:
         """Appends a lot, keeping the order it arrived in.
 
-        Order is not the FIFO guarantee: ``DisposeUnits`` sorts by acquisition date before
-        consuming, precisely so that a feed delivering lots out of order cannot turn a FIFO cost
-        basis into a LIFO one.
+        Order is not the FIFO guarantee: ``consume_fifo`` sorts by acquisition date itself
+        (ADR-041), so a feed delivering lots out of order cannot turn a FIFO cost basis into a
+        LIFO one. The order kept here still decides between lots acquired on the same day.
         """
         self._lots[lot.symbol] = (*self._lots.get(lot.symbol, ()), lot)
 

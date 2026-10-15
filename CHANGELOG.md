@@ -170,6 +170,14 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **`consume_fifo` sells the oldest lots first, whatever order it is given them in.** It used to
+  consume lots in the order it received them, so a caller passing them newest first got a LIFO
+  cost basis, and a realised gain that looked right, with no error. Only `DisposeUnits` sorted
+  them first. The function now sorts them by acquisition date itself, keeping lots acquired the
+  same day in the order given, so FIFO no longer depends on each caller remembering to ask for it.
+  `DisposeUnits` no longer sorts
+  ([ADR-041](docs/ADRs/ADR-041-consume-fifo-orders-its-own-lots.md),
+  [#69](https://github.com/NaimElijah/FinAssist/issues/69)).
 - **The assistant's money arithmetic no longer rounds past 28 significant digits.** `Money.plus`,
   `minus`, `negate` and `times` ran in Python's default decimal context, which keeps 28 digits and
   rounds the rest away silently. `Money` then accepted the rounded result whenever it still fitted
