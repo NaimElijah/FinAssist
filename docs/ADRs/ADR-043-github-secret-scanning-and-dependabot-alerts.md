@@ -71,7 +71,7 @@ It reported four matches, all of them `generic-api-key`, and none of them a secr
 
 | File | What matched | Why it is not a secret |
 |---|---|---|
-| `docker-compose.yml` | `keycloak-db:5432/keycloak` in the Keycloak database URL | a host, a port and a database name |
+| `docker-compose.yml` | the host, port and database name in the Keycloak database's JDBC URL, which holds no credential | not a secret at all |
 | `KeycloakRealmIT.java` | the same URL | the same |
 | `KeycloakRealmIT.java` | `OWNER_INITIAL_PASSWORD` | the initial password of a user in a throwaway Keycloak container the test starts and discards |
 | `TestTokens.java` (ledger) | `HMAC_SECRET` | a 32-byte HS256 key that signs a token the ledger must refuse, because it accepts RS256 only; nothing verifies against it |
