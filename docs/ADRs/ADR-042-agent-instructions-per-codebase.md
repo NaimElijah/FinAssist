@@ -53,8 +53,10 @@ covers:
 `backend/assistant/`, `frontend/web/` and `ops/`. Each one holds that codebase's layout, how to test
 it, and every convention that binds there alone.
 
-**A rule lives in exactly one file.** A rule that spans codebases goes in the root, never copied
-into each one.
+**Each rule has one authoritative home.** A rule that spans codebases is stated in the root, and
+never written out again in each codebase's file. A codebase's file may repeat a command or a
+warning where that command is run, such as "Docker must be running" beside the ledger's tests. A
+repeat must say the same thing as the home it copies, no more and no less.
 
 **The root lists every nested file.** It tells a session to read a codebase's file before planning
 work there, since that file would otherwise load only once a file under it is touched.
