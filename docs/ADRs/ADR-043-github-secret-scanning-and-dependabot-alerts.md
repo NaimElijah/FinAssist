@@ -148,3 +148,6 @@ It reported four matches, all of them `generic-api-key`, and none of them a secr
   graph.** Read how far Dependabot alerts then reach into them, and say so here.
 - **Dependabot security updates can target a branch other than the default.** Turn them on, aimed
   at `dev`.
+- **pre-commit is adopted here for another reason, or a second contributor joins.** A local
+  gitleaks hook then costs little to add, and catches a generic secret before it is ever pushed,
+  which push protection cannot do.
