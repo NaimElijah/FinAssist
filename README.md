@@ -395,6 +395,7 @@ what Keycloak imported:
 
 ```bash
 docker compose up -d db keycloak-db keycloak
+# then each service in a terminal of its own, from the repository root:
 cd backend/ledger && ./mvnw spring-boot:run
 cd backend/assistant && uv run python -m finassist_assistant.adapters
 cd backend/gateway && ./mvnw spring-boot:run
