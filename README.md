@@ -187,7 +187,9 @@ Keycloak and the gateway read `GATEWAY_CLIENT_SECRET` from the same `.env` entry
 cannot disagree; `ASSISTANT_CLIENT_SECRET` is read only by Keycloak and the smoke check until the
 assistant has a ledger client ([#62](https://github.com/NaimElijah/FinAssist/issues/62)). Keycloak
 copies the secrets into the realm at its first import, and only then
-([details](docs/operations/operations.md#changing-the-realm-or-its-secrets)).
+([details](docs/operations/operations.md#changing-the-realm-or-its-secrets)). Upgrading a
+`db-data` volume from before `V1_2`?
+[Back it up first](docs/operations/operations.md#upgrading-an-existing-ledger-volume).
 
 With every secret set, start the stack:
 
@@ -526,8 +528,8 @@ with dashboards provisioned from `ops/grafana/`.
 > Never run `docker compose down -v`: it deletes every volume the project has, the ledger's books
 > in `db-data` and the owner's identity in `keycloak-db-data` included. `make stop` keeps both.
 
-Running the stack day to day — restarts and logs, the authentication smoke check, realm changes,
-backups and restores, the telemetry backend — is in
+Running the stack day to day — restarts and logs, upgrading a ledger volume from before `V1_2`,
+the authentication smoke check, realm changes, backups and restores, the telemetry backend — is in
 [docs/operations/operations.md](docs/operations/operations.md).
 
 ## Project structure
