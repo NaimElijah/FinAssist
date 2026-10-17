@@ -104,6 +104,9 @@ It reported four matches, all of them `generic-api-key`, and none of them a secr
 
   "No alert" therefore says nothing about the ledger's or the gateway's runtime tree, and
   [#66](https://github.com/NaimElijah/FinAssist/issues/66) stays open.
+- **Alerts read the default branch, `main`, not `dev`.** A vulnerable bump merged into `dev`
+  raises nothing until `dev` is promoted, and a fix on `dev` leaves its alert open until then.
+  The 443-package graph above is `main`'s.
 - **A security fix is an alert, not a pull request.** Someone has to act on it.
 
 **Accepted cost**

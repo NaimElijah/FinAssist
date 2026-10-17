@@ -506,7 +506,8 @@ pull request but no status check, so a green run before merging is practice, not
   - Dependabot alerts, raised when an advisory names a dependency in the graph, whether or not
     anything was pushed. The graph holds the npm and Python trees in full, but the Java services
     only as their direct dependencies, mostly without versions, so their runtime trees are still
-    unaudited ([#66](https://github.com/NaimElijah/FinAssist/issues/66));
+    unaudited ([#66](https://github.com/NaimElijah/FinAssist/issues/66)). Alerts read `main`, so
+    a change on `dev` is seen only once it is promoted;
   - secret scanning across the whole history;
   - push protection, which refuses a push that holds a provider's credential.
 - **Off:**
