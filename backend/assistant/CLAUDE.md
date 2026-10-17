@@ -31,7 +31,9 @@ From `backend/assistant`:
   `uv run ruff format . ../../ops/smoke ../../ops/backup`,
   `uv run ruff check --fix . ../../ops/smoke ../../ops/backup`.
 - **In a fresh worktree**, run `uv sync --locked --extra dev` before pytest (`--offline` uses the
-  uv cache): `tests/conftest.py` imports `jwt`, a dev extra, so `uv run` alone fails.
+  uv cache). The suite needs the `dev` extra (pytest, hypothesis), which `uv run`'s own sync
+  leaves out, so `uv run pytest` alone fails — sometimes with an import error naming `jwt`, a
+  runtime dependency, when a pytest from outside the environment runs instead.
 - **Re-lock** — `make lock`: `uv lock`, required after any `pyproject.toml` dependency edit, or
   CI's `uv sync --locked` fails.
 - **Regenerate the contract after every endpoint change** — `uv run pytest tests/test_contract.py`
