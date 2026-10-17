@@ -177,7 +177,6 @@ history; write the commit message well and this file writes itself.
   project's own: proprietary, all rights reserved, pointing at `LICENSE`, as the README, the
   assistant's `pyproject.toml` and the web client's `"UNLICENSED"` already did
   ([#293](https://github.com/NaimElijah/FinAssist/issues/293)).
-
 - **`consume_fifo` sells the oldest lots first, whatever order it is given them in.** It used to
   consume lots in the order it received them, so a caller passing them newest first got a LIFO
   cost basis, and a realised gain that looked right, with no error. Only `DisposeUnits` sorted
