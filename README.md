@@ -559,13 +559,13 @@ frontend/web/           React 19 + Vite 8 - one feature per user-facing context
   src/features/           accounting/ budgeting/ planning/ portfolio/ assistance/
   src/shared/             ui/ api/ lib/
   src/app/                the only place that knows every feature at once; session/ gates it
-contracts/              Versioned OpenAPI contracts - the Published Language, and the gateway's own
+contracts/              The versioned OpenAPI contracts, and the shared Money vectors
 ops/                    Infrastructure configuration, not application code
   keycloak/               Dockerfile and finassist-realm.json, the realm imported at start-up
   smoke/                  auth_smoke.py - the opt-in Compose check of the authentication wiring
-  backup/                 backup.py - backs up, restores and proves a restore of each database (ADR-038)
-  grafana/                dashboards and provisioning; beside it the collector and Prometheus files
-docs/                   requirements/, architecture/, ADRs/ - read before proposing work
+  backup/                 backup.py - backs up, restores, and proves a restore (ADR-038)
+  grafana/                dashboards; beside it, the collector and Prometheus configuration
+docs/                   requirements/, architecture/, operations/, testing/, ADRs/
 .github/                CI workflow and Dependabot configuration
 ```
 
