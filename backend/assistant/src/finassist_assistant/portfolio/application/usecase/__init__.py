@@ -71,7 +71,10 @@ class ViewPosition:
     ledger: LedgerPort
 
     def of(self, symbol: Symbol) -> Position:
-        """:raises HoldingNotFoundError: if nothing is held for the symbol"""
+        """
+        :raises HoldingNotFoundError: if nothing is held for the symbol
+        :raises CurrencyMismatchError: if the lots cost more than one currency
+        """
         return position(_held(self.ledger, symbol))
 
 
@@ -86,7 +89,8 @@ class ValueHolding:
         """
         :raises HoldingNotFoundError: if nothing is held for the symbol
         :raises PriceUnavailableError: if no usable price exists
-        :raises CurrencyMismatchError: if the price is not in the currency the lots cost
+        :raises CurrencyMismatchError: if the lots cost more than one currency, or the price is
+            not in the currency they cost
         """
         held = position(_held(self.ledger, symbol))
         price = self.quotes.unit_price(symbol)
