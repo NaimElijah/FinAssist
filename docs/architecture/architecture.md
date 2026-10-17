@@ -696,8 +696,9 @@ still no bare `token`, so a token count survives.
 - **The realm is imported only into an empty `keycloak-db-data` volume.** A change to
   `finassist-realm.json`, or to the secrets it takes from `.env`, needs that volume recreated or
   the realm re-imported with `kc.sh import --override true`, which deletes the `finassist` realm,
-  its users included, before importing the file. Either way the owner signs in afresh; the README's
-  "Changing the realm or its secrets" gives both recipes (ADR-031).
+  its users included, before importing the file. Either way the owner signs in afresh;
+  [Changing the realm or its secrets](../operations/operations.md#changing-the-realm-or-its-secrets)
+  gives both recipes (ADR-031).
 - **No deployed origin serves the built bundle**: only the Vite dev and preview servers, with
   their proxy, stand in front of the gateway (ADR-030,
   [#61](https://github.com/NaimElijah/FinAssist/issues/61)).
