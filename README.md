@@ -613,8 +613,9 @@ constructor behind ports. The ledger stores accounting, budgeting and planning i
 serves them under `/api/v1`; the assistant serves `portfolio`; every business request is
 authenticated, and every journal row written from `V1_2` onward names who wrote it. The web
 client's accounting, budgeting, planning and portfolio areas run end to end. Every architecture
-rule was confirmed to fail against a planted violation, and CI gates build, lint, format and
-dependency audit across five jobs.
+rule was confirmed to fail against a planted violation, and CI runs build, tests, lint, format
+and dependency audit across five jobs on every push and pull request
+([Testing](#testing) says what that does and does not block).
 
 **Next**, in order: resolve the
 [open questions](docs/requirements/requirements.md#open-questions), then give the assistant a
