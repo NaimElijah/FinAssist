@@ -61,6 +61,10 @@ def _require_one_holding(lots: tuple[Lot, ...]) -> None:
     is. The currency is checked up front rather than left to ``Money.plus``, which raises only
     when a sum reaches the second currency: a sale small enough to stay inside the oldest lots
     would otherwise price a mixed holding with no error (#244, ADR-012).
+
+    An empty tuple passes. Each caller refuses emptiness its own way: ``position`` as a
+    ``ValueError``, ``consume_fifo`` as an :class:`InsufficientHoldingError`, since selling from
+    nothing is selling more than is held.
     """
     symbols = {lot.symbol for lot in lots}
     if len(symbols) > 1:
