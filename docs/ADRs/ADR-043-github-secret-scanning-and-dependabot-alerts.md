@@ -135,9 +135,10 @@ It reported four matches, all of them `generic-api-key`, and none of them a secr
 
 ## Revisit when
 
-- **The repository goes private again.** On the Free plan, secret scanning and push protection
-  are not available to a private repository, which is what #139 first found. Add gitleaks to CI
-  then.
+- **The repository goes private again.** GitHub's documentation makes secret scanning free for a
+  public repository, and ties it and per-repository push protection to a Secret Protection
+  licence otherwise. That was not tested here: the API was asked only once the repository was
+  public. Read `security_and_analysis` back then, and add gitleaks to CI if scanning is off.
 - **A generic secret is found committed**, the class GitHub's patterns miss. Add gitleaks to CI,
   with an allow-list for the four matches above.
 - **Non-provider patterns become available here.** Turn them on.
