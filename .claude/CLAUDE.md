@@ -32,31 +32,28 @@ planning work there:** `backend/ledger/CLAUDE.md`, `backend/gateway/CLAUDE.md`,
 
 ## Commands
 
-Every target is a thin wrapper defined in `Makefile`, and CI calls the same ones. **`make` is not
-installed on the development machine**, so run the raw command: the cross-cutting ones are below,
-and each codebase's file gives its own. Keep them in sync with `README.md`'s Development table.
+Every target is a thin wrapper in `Makefile` that CI also calls. **`make` is not installed on the
+development machine**, so run the raw command: cross-cutting ones below, each codebase's in its
+file (`make lint`, `format` and `audit` run them all; `ops/CLAUDE.md` has identity, backups and
+the smoke check). Keep them in sync with `README.md`'s Development table.
 
 - **Set up** — `make setup`: `test -f .env || cp .env.example .env`;
   `./mvnw -B -q dependency:go-offline` in `backend/ledger` and `backend/gateway`;
   `uv sync --locked --extra dev` in `backend/assistant`; `npm ci` in `frontend/web`.
 - **Run** — `make run`: `docker compose up --build` (PostgreSQL, Keycloak and its own database,
-  the ledger, the gateway, the assistant). Every published port binds `127.0.0.1` only (ADR-030);
-  `keycloak-db` publishes none. **Stop** — `make stop`: `docker compose down`, keeping volumes.
-  **Never `docker compose down -v`** against the owner's project: it deletes `db-data` along with
-  `keycloak-db-data`.
+  the ledger, the gateway, the assistant); every published port binds `127.0.0.1` only (ADR-030),
+  and `keycloak-db` publishes none. **Stop** — `make stop`: `docker compose down`, keeping volumes.
+  **Never `docker compose down -v`**: it deletes the owner's `db-data` and `keycloak-db-data`.
 - **Telemetry** — `make run-monitoring`: `docker compose --profile monitoring up --build`
   (collector, Prometheus, Grafana); `make stop-monitoring` tears the profile down.
 - **Test** — `make test` runs `test-ledger`, `test-gateway`, `test-assistant`, `test-backup` and
   `test-web`. **Docker must be running for the ledger's and the gateway's suites**: their `*IT`
   tests use Testcontainers and fail rather than skip without it (ADR-025).
-- **Lint, format, audit** — `make lint`, `make format` and `make audit` run each codebase's own.
 - **Clean** — `make clean`: `./mvnw -B -q clean` (ledger, gateway), then delete the assistant's
   caches and coverage files and the web client's `dist/` and `coverage/`; never `.env` or volumes.
-- **After every endpoint change**, regenerate that service's committed contract (the command is in
-  its file; its contract test fails the build otherwise), then the web client's types:
+- **After every endpoint change**, regenerate that service's contract (the command is in its file;
+  its contract test fails the build otherwise), then the web client's types:
   `make generate-web-api`, which is `cd frontend/web && npm run generate:api`.
-- **Identity, backups, the smoke check** — `make run-identity`, `make backup`, `make restore`,
-  `make restore-check`, `make smoke-auth`: see `ops/CLAUDE.md`.
 
 ## Layout
 
@@ -162,6 +159,9 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 - **Every healthcheck probes readiness**: `/actuator/health/readiness` on the ledger and the
   gateway, `/ready` on the assistant, `/health/ready` on Keycloak's management port. CI's `compose`
   job fails any service that breaks these rules, and `auth-smoke` with either block (#142).
+- **`auth-smoke` stays behind `profiles: [smoke]`**, so `docker compose up` never starts it. CI
+  validates it (`--profile smoke config`) but never runs it, nor `make restore-check` (ADR-034,
+  ADR-038).
 
 ### Tests
 
