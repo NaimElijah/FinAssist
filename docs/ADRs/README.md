@@ -48,6 +48,7 @@ append-only history: to change course, add a new record and mark the old one
 | [040](ADR-040-the-smoke-check-trigger-fired.md) | ADR-034's first trigger fired: the smoke check stays manual, and CI starts the packaged gateway | Accepted |
 | [041](ADR-041-consume-fifo-orders-its-own-lots.md) | `consume_fifo` orders its own lots, oldest first | Accepted |
 | [042](ADR-042-agent-instructions-per-codebase.md) | Agent instructions split per codebase, one `CLAUDE.md` beside each | Accepted |
+| [043](ADR-043-github-secret-scanning-and-dependabot-alerts.md) | GitHub's own secret scanning, push protection and Dependabot alerts; no scanner in CI | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -129,3 +130,9 @@ the sort, no longer sorts at all, as 021's own trigger for a use case holding a 
 applies everywhere, and each codebase has a `CLAUDE.md` of its own. That file loads only once a
 session touches a file in that codebase
 ([#287](https://github.com/NaimElijah/FinAssist/issues/287)).
+
+043 records on 2026-10-17 what watches the repository now that it is public. Dependabot alerts,
+secret scanning and push protection were turned on. A full-history gitleaks scan found nothing
+but false positives, so no scanner was added to CI. Security updates stay off, because they
+would open their pull requests against `main` and skip `dev`
+([#139](https://github.com/NaimElijah/FinAssist/issues/139)).
