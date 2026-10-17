@@ -27,8 +27,9 @@ From the repository root unless stated:
   (ADR-038). A dump holds the books, password hashes and the owner's TOTP seed.
 - **Restore** — `make restore BACKUP=<folder> [DATABASE=ledger|keycloak]`:
   `uv run ops/backup/backup.py restore <folder> [--database …]`. Restores only into a database
-  that holds no table, with `ledger` and `keycloak` stopped, each in one transaction. The README's
-  "Backing up and restoring" gives the recovery, realm-undo and major-upgrade recipes.
+  that holds no table, with `ledger` and `keycloak` stopped, each in one transaction.
+  `docs/operations/operations.md`'s "Backing up and restoring" gives the recovery, realm-undo and
+  major-upgrade recipes.
 - **Prove a backup restores** — `make restore-check BACKUP=<folder>`:
   `uv run ops/backup/backup.py check <folder>`. Only ever as the Compose project
   `finassist-restore-check`, on ports 15432/18080/18081, so it runs beside the owner's stack; it
@@ -75,9 +76,9 @@ From the repository root unless stated:
 
 - **The realm imports only into an empty `keycloak-db-data` volume.** Edit `finassist-realm.json`,
   or a secret it takes from `.env`, and nothing changes for an existing volume until the realm is
-  imported again. The README's "Changing the realm or its secrets" gives both recipes — a re-import
-  with `kc.sh import --override true`, or a recreated `keycloak-db-data` — and both delete the
-  realm's users.
+  imported again. `docs/operations/operations.md`'s "Changing the realm or its secrets" gives
+  both recipes — a re-import with `kc.sh import --override true`, or a recreated
+  `keycloak-db-data` — and both delete the realm's users.
 - **Every secret and credential in the realm is a `${VAR}` placeholder**, pinned by
   `KeycloakRealmTest`; `KeycloakRealmIT` proves the whole file against a real Keycloak. Both live in
   the gateway module.

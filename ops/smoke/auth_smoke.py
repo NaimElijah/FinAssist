@@ -24,7 +24,8 @@ checks anticipated is reported by its type alone: a standard-library exception's
 quote its input, and `http.client`'s "Invalid header value" quotes the whole rejected header,
 token included.
 
-Run it with `make smoke-auth` (see README.md, "Smoke-testing authentication"). Refs #38.
+Run it with `make smoke-auth` (see docs/operations/operations.md, "Smoke-testing
+authentication"). Refs #38.
 """
 
 from __future__ import annotations
