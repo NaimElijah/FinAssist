@@ -245,6 +245,35 @@ def Given_lots_in_two_currencies_When_consumed_Then_it_is_refused() -> None:
         consume_fifo(mixed, Decimal("2"))
 
 
+@pytest.mark.parametrize("quantity", ["1", "2"])
+def Given_lots_in_two_currencies_When_any_quantity_is_consumed_Then_it_is_refused(
+    quantity: str,
+) -> None:
+    """A sale of one unit stayed inside the oldest lot's currency and answered 10.00 USD; only a
+    sale reaching the ILS lot raised. The holding is what is wrong, so whether it is refused
+    must not depend on how much is sold (#244)."""
+    mixed = (
+        Lot(VWCE, Decimal("1"), ils("10.00"), date(2026, 1, 2)),
+        Lot(VWCE, Decimal("1"), usd("10.00"), date(2026, 1, 1)),
+    )
+
+    with pytest.raises(CurrencyMismatchError, match="no conversion"):
+        consume_fifo(mixed, Decimal(quantity))
+
+
+@pytest.mark.parametrize("quantity", ["1", "2"])
+def Given_lots_of_different_symbols_When_consumed_Then_it_is_refused(quantity: str) -> None:
+    """Two instruments were consumed as one: selling both units cost 20.00 USD across VWCE and
+    IWDA, with no error, though ``position()`` refuses the same lots (#244)."""
+    mixed = (
+        Lot(VWCE, Decimal("1"), usd("10.00"), date(2026, 1, 1)),
+        Lot(Symbol("IWDA"), Decimal("1"), usd("10.00"), date(2026, 1, 2)),
+    )
+
+    with pytest.raises(ValueError, match="more than one symbol"):
+        consume_fifo(mixed, Decimal(quantity))
+
+
 def Given_proceeds_in_another_currency_When_a_gain_is_realised_Then_it_is_refused() -> None:
     with pytest.raises(CurrencyMismatchError, match="no conversion"):
         realised_gain(ils("100.00"), usd("80.00"))

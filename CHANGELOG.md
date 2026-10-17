@@ -170,6 +170,13 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **`consume_fifo` refuses a holding `position()` refuses, before it sells anything.** It
+  consumed lots of two symbols as one instrument, with no error. Lots in two currencies were
+  refused only when a sale happened to reach into the second one, so a smaller sale priced a
+  mixed holding. Both functions now share one check, so a mixed holding is refused at any sale
+  quantity: `ValueError` for two symbols, `CurrencyMismatchError` for two currencies
+  ([#244](https://github.com/NaimElijah/FinAssist/issues/244),
+  [ADR-012](docs/ADRs/ADR-012-multi-currency-without-conversion.md)).
 - **The Java services no longer claim to be Apache-2.0 code by VMware.** Neither POM named a
   licence, developers, URL or SCM, so Maven took Spring Boot's own from
   `spring-boot-starter-parent`: the effective POM of the ledger and the gateway said Apache License
