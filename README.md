@@ -183,10 +183,10 @@ cp .env.example .env        # then set every secret in the table below, before s
 | `ASSISTANT_CLIENT_SECRET` | Any strong value. Keycloak sets the `finassist-assistant` client's secret from it |
 | `GRAFANA_ADMIN_PASSWORD` | Any strong value. Only the `monitoring` profile uses it, but Compose interpolates every service, so every `docker compose` command needs it set |
 
-Keycloak and the gateway read `GATEWAY_CLIENT_SECRET` from the same `.env` entry, so the two
-cannot disagree; `ASSISTANT_CLIENT_SECRET` is read only by Keycloak and the smoke check until the
-assistant has a ledger client ([#62](https://github.com/NaimElijah/FinAssist/issues/62)). Keycloak
-copies the secrets into the realm at its first import, and only then
+Under Compose, Keycloak and the gateway read `GATEWAY_CLIENT_SECRET` from the same `.env` entry,
+so the two cannot disagree; `ASSISTANT_CLIENT_SECRET` is read only by Keycloak and the smoke check
+until the assistant has a ledger client ([#62](https://github.com/NaimElijah/FinAssist/issues/62)).
+Keycloak copies the secrets into the realm at its first import, and only then
 ([details](docs/operations/operations.md#changing-the-realm-or-its-secrets)). Upgrading a
 `db-data` volume from before `V1_2`?
 [Back it up first](docs/operations/operations.md#upgrading-an-existing-ledger-volume).
