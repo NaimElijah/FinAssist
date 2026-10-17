@@ -465,7 +465,9 @@ Regenerate the contract and the web types, and map the new wire type in the web 
 **Conventions.** Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
 (`type(scope): imperative subject`, subject under 72 characters); branches are
 `type/short-kebab-description`, cut from `dev`. A pull request goes into `dev`, and `dev` reaches
-`main` by a merge commit. Documentation changes ship in the same commit as the behaviour they
+`main` by a merge commit. The ruleset on both branches allows only squash merges with linear
+history, so today each of those merges takes the owner's bypass
+([#134](https://github.com/NaimElijah/FinAssist/issues/134)). Documentation changes ship in the same commit as the behaviour they
 describe, every pull request that changes code adds a line to [CHANGELOG.md](CHANGELOG.md) under
 `[Unreleased]`, and a decision that shapes the architecture gets an ADR, indexed in
 [docs/ADRs/README.md](docs/ADRs/README.md).
@@ -493,7 +495,8 @@ the web client (contract types regenerated with no diff, lint, format check, typ
 production build and `npm audit`); and `docker compose config` across every profile, which also
 fails a service without the shared restart and log policy, or a healthcheck that probes anything
 but readiness. No CI job starts the Compose stack. The branch rules on `main` and `dev` require a
-pull request but no status check, so a green run before merging is practice, not enforcement.
+pull request but no status check, so a green run before merging is practice, not enforcement
+([#134](https://github.com/NaimElijah/FinAssist/issues/134)).
 
 **Coverage is measured everywhere and gates nothing**, by decision
 ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)): JaCoCo, `pytest-cov` and `@vitest/coverage-v8`
