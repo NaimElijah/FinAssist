@@ -411,6 +411,18 @@ history; write the commit message well and this file writes itself.
 
 ### Security
 
+- **GitHub now watches the public repository.** Dependabot alerts, secret scanning and push
+  protection were all off when the repository went public. All three are now on: an advisory
+  against the npm or Python trees raises an alert without waiting for a push, and a push that
+  holds a provider's credential is blocked, unless the pusher bypasses it with a reason, which
+  GitHub records as an alert. The Java services reach the dependency graph only as
+  their direct dependencies, mostly without versions, so their runtime trees stay unaudited
+  ([#66](https://github.com/NaimElijah/FinAssist/issues/66)). A redacted gitleaks scan of every ref, every pull request's head included, ran first.
+  It found four matches, all false positives: two JDBC URLs and two test-only fixtures.
+  Dependabot security updates stay off, because they would open their pull requests against
+  `main` and skip `dev`
+  ([ADR-043](docs/ADRs/ADR-043-github-secret-scanning-and-dependabot-alerts.md),
+  [#139](https://github.com/NaimElijah/FinAssist/issues/139)).
 - **The assistant verifies tokens with PyJWT 2.15.0**, past two advisories against 2.14.0
   (`PYSEC-2026-4141`, `PYSEC-2026-4183`). Two requests that answered 500 now answer as the
   contract says: a token whose payload is nested too deeply is refused 401 `malformed`, though
