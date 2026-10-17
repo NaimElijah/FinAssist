@@ -65,8 +65,8 @@ be extracted by moving it (ADR-010). Each codebase's file gives its package shap
 - `contracts/` — the versioned OpenAPI documents, each pinned by a test: `ledger-v1.openapi.json`
   (`LedgerContractIT`), `assistant-v1.openapi.json` (`tests/test_contract.py`),
   `gateway-v1.openapi.json` (`GatewayContractIT`); and `money-vectors.v1.json`.
-- `docs/ADRs/` — `ADR-NNN-short-kebab-title.md`, numbered monotonically, append-only: supersede,
-  never rewrite. `docs/requirements/` — what the system must do; `docs/architecture/` — what it is.
+- `docs/ADRs/` — `ADR-NNN-short-kebab-title.md`, monotonic and append-only: supersede, never
+  rewrite. `docs/` also holds `requirements/`, `architecture/`, `operations/` and `testing/`.
 - `.claude/` — agent configuration, tracked in git; only `.claude/settings.local.json` is ignored.
 
 ## Rules that bind every codebase
