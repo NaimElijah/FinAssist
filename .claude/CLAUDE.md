@@ -154,11 +154,11 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 
 - **Every long-running service takes `restart: *restart-policy` and `logging: *bounded-logs`; the
   one-shot `auth-smoke` takes neither.** The two `x-` blocks at the top state the policy
-  (`unless-stopped`) and the bound (three 10 MB `json-file` logs) once, since ADR-019 leaves
-  rotation to whatever runs the container (ADR-039).
+  (`unless-stopped`) and the bound (three 10 MB `json-file` logs) once (ADR-039, ADR-019).
 - **Every healthcheck probes readiness**: `/actuator/health/readiness` on the ledger and the
   gateway, `/ready` on the assistant, `/health/ready` on Keycloak's management port. CI's `compose`
-  job fails any service that breaks these rules, and `auth-smoke` with either block (#142).
+  job fails a long-running service whose restart or logging is not exactly those blocks,
+  `auth-smoke` with either, and any of those four healthchecks that is not readiness (#142).
 - **`auth-smoke` stays behind `profiles: [smoke]`**, so `docker compose up` never starts it. CI
   validates it (`--profile smoke config`) but never runs it, nor `make restore-check` (ADR-034,
   ADR-038).
