@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from decimal import MAX_EMAX, MIN_EMIN, Context, Decimal, Inexact
 
 from finassist_assistant.portfolio.domain.model import Lot, Position
-from finassist_assistant.shared import Money
+from finassist_assistant.shared import CurrencyMismatchError, Money
 
 
 class InsufficientHoldingError(ValueError):
@@ -38,13 +38,11 @@ def position(lots: tuple[Lot, ...]) -> Position:
     """Totals a set of lots for one instrument.
 
     :raises ValueError: if the lots are empty or cover more than one symbol
+    :raises CurrencyMismatchError: if the lots cost more than one currency
     """
     if not lots:
         raise ValueError("A position needs at least one lot")
-
-    symbols = {lot.symbol for lot in lots}
-    if len(symbols) > 1:
-        raise ValueError(f"Lots cover more than one symbol: {sorted(str(s) for s in symbols)}")
+    _require_one_holding(lots)
 
     exact = _exact_arithmetic_for(lot.quantity for lot in lots)
     total_quantity = Decimal(0)
@@ -54,6 +52,26 @@ def position(lots: tuple[Lot, ...]) -> Position:
     for lot in lots[1:]:
         total_cost = total_cost.plus(lot.cost)
     return Position(lots[0].symbol, total_quantity, total_cost)
+
+
+def _require_one_holding(lots: tuple[Lot, ...]) -> None:
+    """Refuses lots that are not one holding: one symbol, costed in one currency.
+
+    ``position`` and ``consume_fifo`` share this so that they cannot disagree on what a holding
+    is. The currency is checked up front rather than left to ``Money.plus``, which raises only
+    when a sum reaches the second currency: a sale small enough to stay inside the oldest lots
+    would otherwise price a mixed holding with no error (#244, ADR-012).
+
+    An empty tuple passes. Each caller refuses emptiness its own way: ``position`` as a
+    ``ValueError``, ``consume_fifo`` as an :class:`InsufficientHoldingError`, since selling from
+    nothing is selling more than is held.
+    """
+    symbols = {lot.symbol for lot in lots}
+    if len(symbols) > 1:
+        raise ValueError(f"Lots cover more than one symbol: {sorted(str(s) for s in symbols)}")
+    for lot in lots[1:]:
+        if lot.unit_cost.currency is not lots[0].unit_cost.currency:
+            raise CurrencyMismatchError(lots[0].unit_cost.currency, lot.unit_cost.currency)
 
 
 def _exact_arithmetic_for(quantities: Iterable[Decimal]) -> Context:
@@ -93,11 +111,16 @@ def consume_fifo(lots: tuple[Lot, ...], quantity: Decimal) -> Disposal:
     Quantities are totalled and subtracted exactly, however many digits they carry. Only the cost
     of sale is rounded, to the currency's minor units, by :meth:`Money.times_rounded`.
 
-    :raises ValueError: if the quantity is not positive
+    The lots must be one holding, as :func:`position` requires, and are refused before anything
+    is consumed, whatever the quantity.
+
+    :raises ValueError: if the quantity is not positive, or the lots cover more than one symbol
+    :raises CurrencyMismatchError: if the lots cost more than one currency
     :raises InsufficientHoldingError: if fewer units are held than requested
     """
     if quantity <= 0:
         raise ValueError(f"A disposal must be of a positive quantity but was {quantity}")
+    _require_one_holding(lots)
 
     # sorted is stable, which is what keeps same-day lots in the order given.
     oldest_first = sorted(lots, key=lambda lot: lot.acquired_on)
