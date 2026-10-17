@@ -245,7 +245,7 @@ def Given_lots_in_two_currencies_When_consumed_Then_it_is_refused() -> None:
         consume_fifo(mixed, Decimal("2"))
 
 
-@pytest.mark.parametrize("quantity", ["1", "2"])
+@pytest.mark.parametrize("quantity", ["1", "2", "3"])
 def Given_lots_in_two_currencies_When_any_quantity_is_consumed_Then_it_is_refused(
     quantity: str,
 ) -> None:
@@ -261,7 +261,7 @@ def Given_lots_in_two_currencies_When_any_quantity_is_consumed_Then_it_is_refuse
         consume_fifo(mixed, Decimal(quantity))
 
 
-@pytest.mark.parametrize("quantity", ["1", "2"])
+@pytest.mark.parametrize("quantity", ["1", "2", "3"])
 def Given_lots_of_different_symbols_When_consumed_Then_it_is_refused(quantity: str) -> None:
     """Two instruments were consumed as one: selling both units cost 20.00 USD across VWCE and
     IWDA, with no error, though ``position()`` refuses the same lots (#244)."""
