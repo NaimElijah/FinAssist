@@ -70,7 +70,7 @@ be extracted by moving it (ADR-010). Each codebase's file gives its package shap
   `frontend/web/` — the codebases. `ops/` — infrastructure that is not application code.
 - `contracts/` — the versioned OpenAPI documents, each pinned by a test: `ledger-v1.openapi.json`
   (`LedgerContractIT`), `assistant-v1.openapi.json` (`tests/test_contract.py`),
-  `gateway-v1.openapi.json` (`GatewayContractIT`).
+  `gateway-v1.openapi.json` (`GatewayContractIT`); and `money-vectors.v1.json`.
 - `docs/ADRs/` — `ADR-NNN-short-kebab-title.md`, zero-padded and monotonically increasing;
   append-only: supersede, never rewrite. `docs/requirements/` — what the system must do;
   `docs/architecture/` — what it actually is.
@@ -108,8 +108,10 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 - **Money is never floating point**: `BigDecimal` in Java, `Decimal` in Python, `NUMERIC` in
   PostgreSQL. A `double` or `float` field in a ledger domain fails the build.
 - **Amounts in two currencies are never combined** — no rates exist (ADR-012). ILS plus USD throws.
-- **No shared kernel across languages.** `Money` is implemented once per language and pinned by
-  equivalent tests on each side; do not try to share it.
+- **No shared kernel across languages.** `Money` is implemented once per language; do not try to
+  share it. Both are pinned by `contracts/money-vectors.v1.json` (ADR-018), read by
+  `MoneyVectorsTest` and `tests/test_money_vectors.py`. Each pins the set of groups it reads, so a
+  new group fails both suites until Java and Python each read it.
 - **Derived, never stored.** A balance is summed from entries, a budget's spend is passed in, a
   projection is computed from its scenario. A `balance`, `spent` or stored-projection field is the
   bug.

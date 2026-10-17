@@ -18,7 +18,8 @@ It holds no bounded context: everything is in its `composition/` root. The parts
   renamed CSRF cookie and header.
 - `BffRoutes` holds every `/bff/` path, in one place. `SessionController` serves `GET /bff/me`,
   `SpaLogoutSuccessHandler` answers `POST /bff/logout`, and `SignInFailureHandler` sends a failed
-  sign-in back to `?signin=failed`.
+  sign-in back to `?signin=failed`. `LoginEntryFailureHandler` answers a sign-in that cannot start
+  (an unknown registration id) with the entry point's plain 401, and logs nothing for it.
 - `KeycloakRegistration` builds the `ClientRegistration` by hand, with the public and backchannel
   URLs split, and the client manager `TokenRelay` uses.
 - `ProblemAuthenticationEntryPoint` (401), `ProblemAccessDeniedHandler` (403), `GatewayProblems`

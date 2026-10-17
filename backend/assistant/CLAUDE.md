@@ -6,9 +6,11 @@ assistant alone.
 ## Layout
 
 Contexts `portfolio/`, `assistance/` and `marketdata/` under `src/finassist_assistant/`, each with
-`domain/`, `application/{port,usecase}/` and `adapters/`, plus `shared/`. The composition root is
-`src/finassist_assistant/adapters/`: `app.py`, `wiring.py`, `settings.py`, `observability.py`,
-`auth.py` (`BearerAuthentication`, `RequirePermission`), `problems.py` and `seed.py`.
+`domain/`, `application/{port,usecase}/` and `adapters/{inbound,outbound}/` (`marketdata` has
+only `outbound/`), plus `shared/`. The composition root is `src/finassist_assistant/adapters/`:
+`__main__.py`, `app.py`, `wiring.py`, `settings.py`, `observability.py`, `auth.py`
+(`BearerAuthentication`, `RequirePermission`), `hosts.py` (`HostAllowList`), `problems.py`,
+`openapi.py` and `seed.py`.
 
 Only `portfolio` is served, under `/api/v1`, behind `HostAllowList` and the problem+json handling
 in `adapters/problems.py`. Its OpenAPI document is generated from the code and committed at

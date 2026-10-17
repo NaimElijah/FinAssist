@@ -5,9 +5,10 @@ ledger alone.
 
 ## Layout
 
-Contexts `accounting/`, `budgeting/` and `planning/`, each with `domain/`,
-`application/{port/in,port/out,service}/` and `adapter/{in/web,out/persistence,out/event}/`; a
-top-level `shared/` kernel; the `composition/` root; `LedgerApplication`.
+Contexts `accounting/`, `budgeting/` and `planning/`, each with `domain/` (split into
+sub-packages), `application/{port/in,port/out,service}/` and `adapter/{in/web,out/persistence}/`;
+`accounting` and `planning`, the two that raise events, also have `adapter/out/event/`. Then a
+top-level `shared/` kernel, the `composition/` root, and `LedgerApplication`.
 
 Each context has an inbound HTTP adapter under `/api/v1`, behind `HostAllowListFilter` and
 problem+json error handling. The OpenAPI document is generated from the code and committed at

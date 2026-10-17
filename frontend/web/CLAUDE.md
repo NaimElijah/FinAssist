@@ -30,7 +30,8 @@ the gateway. Each feature maps the generated wire types onto its own types in it
   `HoldingPage` (`/portfolio/:symbol`) shows its position and valuation — nothing held and no
   usable price are calm empty states rather than errors — and prices a disposal as a calculation
   that records nothing.
-- "Ask a question" is deliberately left out.
+- "Ask a question" is deliberately left out; `src/features/assistance/` is an empty placeholder
+  for it.
 
 ## Commands
 
@@ -46,8 +47,9 @@ From `frontend/web`:
 ## Build-enforced rules
 
 - **The contract types under `src/shared/api/contracts/` are generated, never hand-written.**
-  Regenerate them after either service's contract changes; CI fails the `web` job on a diff it did
-  not expect (ADR-029).
+  Regenerate them after any of the three contracts changes — `openapi-ts.config.ts` reads the
+  ledger's, the assistant's and the gateway's. CI fails the `web` job on a diff it did not expect
+  (ADR-029).
 - **TypeScript is pinned to 6.0.3, not 7.x,** because `typescript-eslint` 8 declares
   `typescript: >=4.8.4 <6.1.0` — past that, `npm ci` fails with ERESOLVE. Dependabot is configured
   to ignore `typescript >=6.1.0` so it stops proposing the bump every week. Lift the pin and that
