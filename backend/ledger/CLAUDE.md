@@ -97,6 +97,9 @@ bounded context (ADR-006, ADR-024).
   (`1.1`, `2.1`, `3.1`) from the committed scripts, byte for byte, then starts the ledger's own
   context against it. Extend it when the applied set changes. Never reach for
   `ignoreMigrationPatterns`, which would start the ledger with the column missing (ADR-035).
+- **Each context's migrations live in `src/main/resources/db/migration/<context>/`, under the
+  major version that context owns** — `accounting` 1, `budgeting` 2, `planning` 3 — so the next
+  accounting migration is `V1_3__<description>.sql`.
 - **No foreign key crosses a schema.** `SchemaBoundariesIT` fails the build if one does. It is the
   storage-layer half of `contexts_do_not_depend_on_each_other`, which reads bytecode and so stops
   at the edge of the JVM.

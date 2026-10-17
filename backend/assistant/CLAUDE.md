@@ -30,6 +30,8 @@ From `backend/assistant`:
 - **Format** — `make format` formats `ops/smoke` and `ops/backup` with the assistant:
   `uv run ruff format . ../../ops/smoke ../../ops/backup`,
   `uv run ruff check --fix . ../../ops/smoke ../../ops/backup`.
+- **In a fresh worktree**, run `uv sync --locked --extra dev` before pytest (`--offline` uses the
+  uv cache): `tests/conftest.py` imports `jwt`, a dev extra, so `uv run` alone fails.
 - **Re-lock** — `make lock`: `uv lock`, required after any `pyproject.toml` dependency edit, or
   CI's `uv sync --locked` fails.
 - **Regenerate the contract after every endpoint change** — `uv run pytest tests/test_contract.py`

@@ -47,6 +47,8 @@ From `backend/gateway`:
 
 ## Rules
 
+- **The Spring Cloud starter takes its version from the `spring-cloud-dependencies` BOM**
+  (`spring-cloud.version` in `pom.xml`), never a version of its own.
 - **The catch-all answers a framework refusal at its own status.**
   `GatewayRelayProblems.relayFailed` peels an `ErrorResponse` off first — 405
   `METHOD_NOT_ALLOWED` and 406 `NOT_ACCEPTABLE`, the only two `GET /bff/me` can provoke — and logs

@@ -173,3 +173,27 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 - **Architecture rules are static**: ArchUnit reads bytecode, the assistant parses sources with
   `ast`, the web client walks the file tree. Never import the code and inspect `sys.modules` —
   Python does not import subpackages, so such a rule sees almost nothing.
+
+## Working in this repository
+
+- **Git**: branch `type/short-kebab` off `dev`; PR into `dev` with `Refs #N`; `dev` reaches `main`
+  by a merge commit whose PR says `Closes #N` — never squash, rebase or delete `dev`. The owner's
+  `/workflow-gitwise` runs the whole cycle. Common scopes: `ledger`, `gateway`, `assistant`, `web`,
+  `ops`, `compose`, `ci`, `deps`, `contracts`, `adr`, `claude`. Link files in a PR body by full
+  `https://github.com/NaimElijah/FinAssist/blob/` URL. `CHANGELOG.md` is written by hand, whatever
+  its header says: every PR that changes code adds a bold-lead bullet under `## [Unreleased]`.
+- **A new ADR** takes the next number, a row and a dated note in `docs/ADRs/README.md`, and an
+  "extended by NNN" in the Status line of each record it extends.
+- **A CI job already red on `dev`** is fixed as its own commit in the PR it blocks; ask the owner
+  first if that bumps a runtime security dependency.
+- **Run what you change.** Code here has repeatedly passed only because a test supplied something
+  — a config key, a migration order, a test-scoped jar (ADR-040). Prove such changes by starting
+  the packaged artefact or the stack in an isolated Compose project (`-p finassist-<purpose>`,
+  moved ports, fresh volumes, a throwaway `--env-file`), never the owner's `finassist` project.
+- **Spring** (Boot 4.1, Security 7, Cloud 2025.1) differs sharply from older material: check an API
+  against the jars before using it. Send a foreign `Host` header over a raw socket — the JDK
+  `HttpClient` will not — and read filter order from the running server's own chain.
+- **This machine** (Windows, Git Bash): `Path.write_text` writes CRLF, so write repo files with
+  `write_bytes`; set `MSYS_NO_PATHCONV=1` to pass a container path such as `/opt/...`; put a
+  worktree at a short path such as `C:/Users/naimo/fa<N>`, not under the scratchpad ("Filename too
+  long"). `.claude/worktrees/` is excluded locally; leave it out of searches.
