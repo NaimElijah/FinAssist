@@ -499,6 +499,23 @@ but readiness. No CI job starts the Compose stack. The branch rules on `main` an
 pull request but no status check, so a green run before merging is practice, not enforcement
 ([#134](https://github.com/NaimElijah/FinAssist/issues/134)).
 
+**What GitHub watches, beyond CI**
+([ADR-043](docs/ADRs/ADR-043-github-secret-scanning-and-dependabot-alerts.md)):
+
+- **On:**
+  - Dependabot alerts, raised when an advisory names a dependency in the graph, whether or not
+    anything was pushed. The graph holds the npm and Python trees in full, but the Java services
+    only as their direct dependencies, mostly without versions, so their runtime trees are still
+    unaudited ([#66](https://github.com/NaimElijah/FinAssist/issues/66)). Alerts read `main`, so
+    a change on `dev` is seen only once it is promoted;
+  - secret scanning across the whole history;
+  - push protection, which blocks a push that holds a provider's credential, unless the pusher
+    bypasses it with a reason, which GitHub records as an alert.
+- **Off:**
+  - scanning for generic secrets such as passwords, which GitHub did not enable here;
+  - Dependabot security updates, which would open their pull requests against `main` rather than
+    `dev`. Version updates still arrive weekly, into `dev`.
+
 **Coverage is measured everywhere and gates nothing**, by decision
 ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)): JaCoCo, `pytest-cov` and `@vitest/coverage-v8`
 publish a report from each of the four CI jobs that run tests, but coverage counts the lines that
