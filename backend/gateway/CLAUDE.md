@@ -43,7 +43,7 @@ From `backend/gateway`:
 - **Regenerate the contract after every endpoint change** — `./mvnw -B verify -Dtest=NONE
   -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=GatewayContractIT` (no container needed). On a
   mismatch, copy `target/contracts/gateway-v1.openapi.json` over
-  `contracts/gateway-v1.openapi.json`.
+  `contracts/gateway-v1.openapi.json`, then run `make generate-web-api`.
 
 ## Rules
 
