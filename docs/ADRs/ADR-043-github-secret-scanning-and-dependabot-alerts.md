@@ -85,7 +85,7 @@ It reported four matches, all of them `generic-api-key`, and none of them a secr
 
 **Makes easy**
 
-- **An advisory reaches the owner without waiting for a push.**
+- **An advisory against the npm or Python trees reaches the owner without waiting for a push.**
 - **A provider's credential is refused at push time**, on the server, on every machine.
 - **No new dependency, job or allow-list to keep.** The scanning is the platform's.
 
@@ -96,6 +96,14 @@ It reported four matches, all of them `generic-api-key`, and none of them a secr
   matches none of them, and the non-provider scan stayed disabled. The `.gitignore` entry for
   `.env`, the `${VAR}` placeholders `KeycloakRealmTest` pins, and review still carry that
   class.
+- **The Java services are barely in the graph.**
+  - Of its 443 packages, 311 are npm and 95 are Python, but only 31 are Maven.
+  - 24 of those 31 carry no version, because they inherit it from the Spring Boot parent and its
+    BOMs.
+  - No transitive Maven dependency appears at all: not Spring, Tomcat, Jackson or Nimbus.
+
+  "No alert" therefore says nothing about the ledger's or the gateway's runtime tree, and
+  [#66](https://github.com/NaimElijah/FinAssist/issues/66) stays open.
 - **A security fix is an alert, not a pull request.** Someone has to act on it.
 
 **Accepted cost**
@@ -129,5 +137,7 @@ It reported four matches, all of them `generic-api-key`, and none of them a secr
 - **Non-provider patterns become available here.** Turn them on.
 - **#134 makes CI a merge gate.** A scanner job would then block something, which changes its
   worth.
+- **#66 gives the Java services an audit, or their resolved trees are submitted to the dependency
+  graph.** Read how far Dependabot alerts then reach into them, and say so here.
 - **Dependabot security updates can target a branch other than the default.** Turn them on, aimed
   at `dev`.
