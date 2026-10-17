@@ -63,8 +63,9 @@ weekly version updates into `dev`, or is raised by hand from the alert.
 `ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f`,
 ran with `--log-opts=--all --redact` over a mirror clone of 147 refs. 119 of them sit under
 `refs/pull/*`: the head of every pull request, 93, and the test-merge refs of the open ones, 26.
-Of the 647 commits on those refs it scanned 576. The 69 merge commits are
-the rest: `git log -p` shows no patch for a merge.
+Of the 647 commits on those refs it reported 576 scanned. The other 71
+are the 69 merge commits, for which `git log -p` shows no patch, and two more it did not count.
+Which two was not established: four commits in the history add no line at all.
 
 It reported four matches, all of them `generic-api-key`, and none of them a secret:
 
