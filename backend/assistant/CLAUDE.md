@@ -89,3 +89,5 @@ From `backend/assistant`:
 - **The development seed is off by default** (`ASSISTANT_DEV_SEED`) and lives only in the
   composition root (`adapters/seed.py`). It loads fictional holdings and quotes so the endpoints
   have something to answer by hand.
+- **The shipped image has no start-up check yet** (#234; ADR-040); the gateway's
+  `GatewayPackagedJarIT` is the model.
