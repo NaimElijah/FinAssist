@@ -298,9 +298,9 @@ is financial advice.
 | Identity provider | Keycloak | 26.7.4 | Self-hosted OIDC, with its realm committed as code and every secret in it a placeholder ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) |
 | Assistant language | Python | 3.13 | Native home for the Anthropic SDK and the pandas numerical stack |
 | Assistant framework | FastAPI | 0.141.1 | Typed request and response validation from the same Pydantic models the domain uses |
-| Assistant packaging | uv | 0.12.7 | Resolves, locks and fetches the interpreter in one pinned tool |
+| Assistant packaging | uv | not pinned | Resolves, locks and fetches the interpreter in one tool; CI installs the latest release |
 | Assistant lint, format, types | Ruff + mypy | 0.16.5 / 2.3.1 | Ruff replaces flake8 + isort + black; mypy runs `--strict` |
-| Assistant token verification | PyJWT, `crypto` extra | 2.14.0 | RS256 signature checks and JWKS fetching; the time checks are redone against the injected clock ([ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)) |
+| Assistant token verification | PyJWT, `crypto` extra | 2.15.0 | RS256 signature checks and JWKS fetching; the time checks are redone against the injected clock ([ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)) |
 | Ledger architecture tests | ArchUnit | 1.5.0 | Layering, context isolation, the no-floating-point-money rule, and the two rules fencing the composition root, all fail the build |
 | Coverage | JaCoCo + pytest-cov + coverage-v8 | 0.8.13 / 7.1.0 / 4.1.11 | Measured in all four codebases, published by CI, gating nothing ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
 | Mutation testing | PIT | 1.19.1 | Answers what coverage cannot: would a test notice this line being wrong? Opt-in profile, not in CI |
@@ -317,7 +317,7 @@ is financial advice.
 | Store | PostgreSQL | 18.6 | `NUMERIC` for exact money, and real constraints behind the domain's own |
 | Keycloak's store | PostgreSQL | 17.11 | The newest major Keycloak 26.7 is tested against, kept apart from the ledger's |
 
-Every version above is pinned in `backend/ledger/pom.xml`, `backend/gateway/pom.xml`,
+Every version above but uv's is pinned in `backend/ledger/pom.xml`, `backend/gateway/pom.xml`,
 `backend/assistant/pyproject.toml`, `backend/assistant/uv.lock`, `frontend/web/package.json`,
 `frontend/web/.nvmrc`, `ops/keycloak/Dockerfile` or `docker-compose.yml` — not in this table.
 
@@ -447,7 +447,7 @@ pipeline and the local commands cannot drift.
 | Prove a backup restores | `make restore-check BACKUP=<folder>` | `uv run ops/backup/backup.py check <folder>` — only ever as the Compose project `finassist-restore-check` |
 | Restore a backup | `make restore BACKUP=<folder> [DATABASE=ledger\|keycloak]` | `uv run ops/backup/backup.py restore <folder> [--database ledger\|keycloak]`, into empty databases with `ledger` and `keycloak` stopped |
 | Smoke-test authentication (opt-in) | `make smoke-auth` | `docker compose --profile smoke run --rm auth-smoke` — see [Smoke-testing authentication](#smoke-testing-authentication) below |
-| Test everything | `make test` | the four test rows below; all four measure coverage |
+| Test everything | `make test` | the five test rows below; all but `test-backup` measure coverage |
 | Test the ledger | `make test-ledger` | `cd backend/ledger && ./mvnw -B verify` |
 | Test the gateway | `make test-gateway` | `cd backend/gateway && ./mvnw -B verify` |
 | Test the assistant | `make test-assistant` | `cd backend/assistant && uv run pytest --cov --cov-report=term-missing --cov-report=xml` |
@@ -1005,7 +1005,7 @@ with its generated OpenAPI document pinned by `LedgerContractIT` and published a
 well as natively. **Every business request is authenticated**: the browser signs in with OIDC at
 a backend-for-frontend gateway against a self-hosted Keycloak, the ledger and the assistant each
 validate a bearer token and deny by default, and every journal row written from `V1_2` onward
-names who wrote it. Forty-one ADRs. Every architecture rule is live rather than dormant, and
+names who wrote it. Every architecture rule is live rather than dormant, and
 each was confirmed to fail against a planted violation — including dropping the append-only
 trigger and planting a foreign key across a schema boundary. CI gates build, lint, format and
 dependency audit across five jobs, and publishes a coverage report from each of the four that
