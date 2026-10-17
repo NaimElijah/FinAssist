@@ -34,8 +34,8 @@ planning work there:** `backend/ledger/CLAUDE.md`, `backend/gateway/CLAUDE.md`,
 
 Every target is a thin wrapper in `Makefile` that CI also calls. **`make` is not installed on the
 development machine**, so run the raw command: cross-cutting ones below, each codebase's in its
-file (`make lint`, `format` and `audit` run them all; `ops/CLAUDE.md` has identity, backups and
-the smoke check). Keep them in sync with `README.md`'s Development table.
+file (`make lint`, `make format` and `make audit` run them all; `ops/CLAUDE.md` has identity,
+backups and the smoke check). Keep them in sync with `README.md`'s Development table.
 
 - **Set up** — `make setup`: `test -f .env || cp .env.example .env`;
   `./mvnw -B -q dependency:go-offline` in `backend/ledger` and `backend/gateway`;
