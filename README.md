@@ -8,7 +8,7 @@ cash-flow projections on one ledger of record, with FIFO portfolio analysis buil
 [![CI](https://img.shields.io/github/actions/workflow/status/NaimElijah/FinAssist/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/NaimElijah/FinAssist/actions/workflows/ci.yml)
 [![Licence](https://img.shields.io/badge/licence-all%20rights%20reserved-lightgrey?style=flat-square)](LICENSE)
 
-[Requirements](docs/requirements/requirements.md) · [Architecture](docs/architecture/architecture.md) · [Operations](docs/operations/operations.md) · [Testing](docs/testing/testing.md) · [ADRs](docs/ADRs/) · [Changelog](CHANGELOG.md)
+[Requirements](docs/requirements/requirements.md) · [Architecture](docs/architecture/architecture.md) · [Operations](docs/operations/operations.md) · [ADRs](docs/ADRs/) · [Changelog](CHANGELOG.md)
 
 </div>
 
@@ -35,8 +35,8 @@ under Docker Compose, with each published port bound to `127.0.0.1`.
 ## Contents
 
 [What and why](#what-and-why) · [Features](#features) · [Architecture](#architecture) ·
-[Tech stack](#tech-stack) · [Quick start](#quick-start) · [Usage](#usage) ·
-[Configuration](#configuration) · [Development](#development) · [Testing](#testing) ·
+[Tech stack](#tech-stack) · [Quick start](#quick-start) · [Configuration](#configuration) ·
+[Usage](#usage) · [Development](#development) · [Testing](#testing) ·
 [Operations](#deployment-and-operations) · [Project structure](#project-structure) ·
 [Design decisions](#design-decisions) · [Status](#status-and-limitations)
 
@@ -228,7 +228,7 @@ password and enrol a TOTP device, so it is done by hand:
 
 1. Open [http://localhost:5173](http://localhost:5173) — `localhost`, never `127.0.0.1` (see
    [Usage](#usage)). With nobody signed in, it shows a sign-in screen.
-2. Click **Sign in with Keycloak**, and sign in on Keycloak's own page with
+2. Click "Sign in with Keycloak", and sign in on Keycloak's own page with
    `FINASSIST_OWNER_USERNAME` and `FINASSIST_OWNER_INITIAL_PASSWORD`.
 3. Keycloak asks for a new password, under the policy above, and then for a TOTP device: scan the
    QR code with any authenticator app, or note the secret and generate a code by hand.
@@ -238,8 +238,75 @@ password and enrol a TOTP device, so it is done by hand:
 **Adding a viewer.** No `viewer` is seeded. Sign in to the admin console at
 [http://localhost:8081/admin](http://localhost:8081/admin) with
 `KEYCLOAK_ADMIN_USERNAME`/`KEYCLOAK_ADMIN_PASSWORD`, open the `finassist` realm, create a user,
-give it a password under **Credentials**, and assign it the realm role `viewer` under
-**Role mapping**. A viewer sees every area and is offered no control that changes data.
+give it a password under "Credentials", and assign it the realm role `viewer` under
+"Role mapping". A viewer sees every area and is offered no control that changes data.
+
+## Configuration
+
+Copy `.env.example` to `.env` and fill it in. `.env` is git-ignored; no value in it belongs in the
+repository, the logs or an error message. Only the secrets in [Quick start](#quick-start) are
+required; every other variable has a default that works on loopback, and the defaults are for
+local development only.
+
+<details>
+<summary>Every variable in <code>.env.example</code>, in its order</summary>
+
+| Variable | Purpose | Default | Required |
+|---|---|---|---|
+| `LEDGER_PORT` | Ledger HTTP port | `8080` | No |
+| `LEDGER_ADDRESS` | Interface the ledger binds. Loopback by default, kept as defence in depth now that the gateway fronts it too ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)); `0.0.0.0` only inside a container | `127.0.0.1` | No |
+| `LEDGER_ALLOWED_HOSTS` | Comma-separated host names the ledger answers to. An entry containing a `:`, a `[` or a `]`, which covers a port and every IPv6 literal, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `localhost,127.0.0.1` | No |
+| `LEDGER_DB_URL` | JDBC URL. Compose sets this itself, to the service name `db`, for the `ledger` container; this default targets a native `./mvnw spring-boot:run` at the Compose `db` service's published port | `jdbc:postgresql://localhost:5432/finassist` | No |
+| `LEDGER_DB_USERNAME` | Ledger database user | `finassist` | No |
+| `LEDGER_DB_PASSWORD` | Ledger database password. The ledger connects as the role Compose creates, so this must match `POSTGRES_PASSWORD` until it gets its own role | none | Yes — the ledger refuses to start without it |
+| `LEDGER_OIDC_ISSUER` | The issuer every token's `iss` claim must name. Always the public URL a browser signed in against, never an internal one ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), [ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) | `http://localhost:8081/realms/finassist` | No |
+| `LEDGER_OIDC_JWKS_URI` | Where the ledger fetches signing keys, service-to-service. Compose overrides this with the internal address; this default targets a native `./mvnw spring-boot:run` against Keycloak's published port | `http://localhost:8081/realms/finassist/protocol/openid-connect/certs` | No |
+| `KEYCLOAK_PORT` | Keycloak HTTP port | `8081` | No |
+| `KEYCLOAK_ADMIN_USERNAME` | Keycloak's own bootstrap admin username — not one of FinAssist's own roles | `admin` | No |
+| `KEYCLOAK_ADMIN_PASSWORD` | Keycloak's own bootstrap admin password, for its admin console at `http://localhost:8081/admin` ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) | none | Yes — Keycloak refuses to start without it |
+| `KEYCLOAK_DB_PASSWORD` | `keycloak-db`'s password. Its own database, its own volume, no published port ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) | none | Yes — both Keycloak and its database refuse to start without it |
+| `FINASSIST_OWNER_USERNAME` | The owner's sign-in username in the `finassist` realm, seeded with the `owner` role | `owner` | No |
+| `FINASSIST_OWNER_INITIAL_PASSWORD` | The owner's temporary password in the `finassist` realm. Must satisfy the realm's password policy; used once, at [first sign-in](#first-sign-in) | none | Yes — Keycloak refuses to start without it |
+| `ASSISTANT_CLIENT_SECRET` | The `finassist-assistant` Keycloak client's secret — a confidential, service-account-only client holding the `assistant` role ([ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)): any strong value. Keycloak sets the client's secret from it when it imports the realm | none | Yes — Keycloak refuses to start without it |
+| `GATEWAY_PORT` | Gateway HTTP port | `8090` | No |
+| `GATEWAY_ADDRESS` | Interface the gateway binds. Loopback by default, matching the ledger and the assistant, kept as defence in depth alongside the OIDC sign-in ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)); `0.0.0.0` only inside a container | `127.0.0.1` | No |
+| `GATEWAY_ALLOWED_HOSTS` | Comma-separated host names the gateway answers to. An entry containing a `:`, a `[` or a `]`, which covers a port and every IPv6 literal, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `localhost,127.0.0.1` | No |
+| `GATEWAY_PUBLIC_URL` | The origin the browser reaches FinAssist through — the Vite dev server, which proxies `/bff` to the gateway. Every redirect the gateway issues is absolute and built from this, never from a forwarded header. Open `localhost`, not `127.0.0.1`: cookies are keyed by host name, so the other one cannot find the sign-in's own session | `http://localhost:5173` | No |
+| `GATEWAY_OIDC_PUBLIC_URL` | Keycloak as the browser sees it. The sign-in and sign-out URLs handed to the browser are built from this, and so is the issuer every token must name | `http://localhost:8081` | No |
+| `GATEWAY_OIDC_INTERNAL_URL` | Keycloak as the gateway itself reaches it. The same value when running natively; under Compose it is the container name, which the browser cannot resolve — which is why the two are separate | `http://localhost:8081` | No |
+| `GATEWAY_CLIENT_SECRET` | The `finassist-gateway` Keycloak client's secret: any strong value. Keycloak sets the client's secret from it when it imports the realm, and the gateway signs in to Keycloak with it. It never leaves the gateway: the browser holds a session cookie and a CSRF token, never a token ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | none | Yes — the gateway and Keycloak both refuse to start without it |
+| `GATEWAY_COOKIE_SECURE` | Whether the session and CSRF cookies carry `Secure`. `false` for development, which is plain HTTP on loopback; must be `true` behind TLS | `false` | No |
+| `GATEWAY_LEDGER_URI` | Where the gateway relays a request under `/ledger/api/v1/**`, once its prefix is stripped, the browser's `Authorization`, `Cookie`, CSRF and `HTTP2-Settings` headers removed and the session's own access token attached | `http://localhost:8080` | No |
+| `GATEWAY_ASSISTANT_URI` | The same, for `/assistant/api/v1/**` | `http://localhost:8000` | No |
+| `ASSISTANT_PORT` | Assistant HTTP port | `8000` | No |
+| `ASSISTANT_HOST` | Interface the assistant binds. Loopback by default, kept as defence in depth now that the gateway fronts it too ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)); `0.0.0.0` only inside a container, where Compose sets it | `127.0.0.1` | No |
+| `ASSISTANT_ALLOWED_HOSTS` | Comma-separated host names the assistant answers to. An entry containing a `:` or a `[`, which covers a port and every IPv6 literal, or a wildcard, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `localhost,127.0.0.1` | No |
+| `ASSISTANT_OIDC_ISSUER` | The issuer every bearer token's `iss` claim must name. Always the public URL a browser signed in against, never an internal one ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), [ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) - the same value the ledger is configured with. Refused at start-up unless it is an http(s) URL | `http://localhost:8081/realms/finassist` | No |
+| `ASSISTANT_OIDC_JWKS_URI` | Where the assistant fetches signing keys, service-to-service. Compose overrides this with the internal address, `http://keycloak:8080/realms/finassist/protocol/openid-connect/certs`; this default targets a native run against Keycloak's own published port. Also refused at start-up unless it is an http(s) URL | `http://localhost:8081/realms/finassist/protocol/openid-connect/certs` | No |
+| `ASSISTANT_LOG_LEVEL` | Threshold for the assistant's structured logger; one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` | No |
+| `LEDGER_BASE_URL` | Where the assistant reaches the ledger | `http://ledger:8080` | No |
+| `ANTHROPIC_API_KEY` | The LLM behind the assistant | none | No — the assistant only registers it for redaction, and nothing uses it until an LLM adapter is wired, which waits on the privacy question |
+| `ASSISTANT_DEV_SEED` | Loads a small set of fictional holdings and quotes at start-up, so the portfolio screens have something to show by hand. Invented data, never meant for real use | `false` | No |
+| `POSTGRES_DB` | Database name | `finassist` | No |
+| `POSTGRES_USER` | Database user | `finassist` | No |
+| `POSTGRES_PASSWORD` | Database password | none | Yes — Compose refuses to start without it |
+| `POSTGRES_PORT` | Host port mapped to Postgres. Change it, and `LEDGER_DB_URL` with it, if something already owns 5432 — a natively installed PostgreSQL will otherwise answer instead of the container | `5432` | No |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; each service appends its own signal path | `http://localhost:4318` | No |
+| `OTEL_EXPORT_ENABLED` | Whether to export telemetry at all — traces, metrics, and the ledger's OTLP log export, which nothing feeds yet. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` | No |
+| `GRAFANA_ADMIN_PASSWORD` | Grafana admin password. Only the `monitoring` profile uses it | none | Yes — Compose interpolates every service, profiled or not, and refuses any command without it |
+| `OTLP_HTTP_PORT`, `OTLP_GRPC_PORT` | Host ports for the collector | `4318`, `4317` | No |
+| `PROMETHEUS_PORT`, `GRAFANA_PORT` | Host ports for the monitoring profile | `9090`, `3000` | No |
+
+</details>
+
+**The gateway's outbound HTTP timeouts are not an environment variable.** Spring Cloud Gateway
+Server Web MVC has no timeout property of its own for a relayed call, so
+`backend/gateway/src/main/resources/application.yml` sets Boot's own
+`spring.http.clients.connect-timeout` (`5s`) and `read-timeout` (`10s`). The relay inherits them
+through Boot's client builder; the gateway's three calls to Keycloak — the authorization-code
+exchange, the `refresh_token` grant and the JWK-set fetch — do not, so `KeycloakRegistration`
+rebuilds all three from it deliberately, and `GatewayKeycloakTimeoutIT` proves each one gives up
+in time. Raising either budget is a one-line change to that file.
 
 ## Usage
 
@@ -312,73 +379,6 @@ curl -i http://localhost:8080/api/v1/accounts
 The assistant answers the same body at `/api/v1/portfolio/…`. Through the web client's origin,
 the gateway answers a request with no signed-in session the same way — 401 with the code
 `UNAUTHENTICATED`, never a redirect to Keycloak — naming the sign-in entry in its `detail`.
-
-## Configuration
-
-Copy `.env.example` to `.env` and fill it in. `.env` is git-ignored; no value in it belongs in the
-repository, the logs or an error message. Only the secrets in [Quick start](#quick-start) are
-required; every other variable has a default that works on loopback, and the defaults are for
-local development only.
-
-<details>
-<summary>Every variable in <code>.env.example</code>, in its order</summary>
-
-| Variable | Purpose | Default | Required |
-|---|---|---|---|
-| `LEDGER_PORT` | Ledger HTTP port | `8080` | No |
-| `LEDGER_ADDRESS` | Interface the ledger binds. Loopback by default, kept as defence in depth now that the gateway fronts it too ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)); `0.0.0.0` only inside a container | `127.0.0.1` | No |
-| `LEDGER_ALLOWED_HOSTS` | Comma-separated host names the ledger answers to. An entry containing a `:`, a `[` or a `]`, which covers a port and every IPv6 literal, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `localhost,127.0.0.1` | No |
-| `LEDGER_DB_URL` | JDBC URL. Compose sets this itself, to the service name `db`, for the `ledger` container; this default targets a native `./mvnw spring-boot:run` at the Compose `db` service's published port | `jdbc:postgresql://localhost:5432/finassist` | No |
-| `LEDGER_DB_USERNAME` | Ledger database user | `finassist` | No |
-| `LEDGER_DB_PASSWORD` | Ledger database password. The ledger connects as the role Compose creates, so this must match `POSTGRES_PASSWORD` until it gets its own role | none | Yes — the ledger refuses to start without it |
-| `LEDGER_OIDC_ISSUER` | The issuer every token's `iss` claim must name. Always the public URL a browser signed in against, never an internal one ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), [ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) | `http://localhost:8081/realms/finassist` | No |
-| `LEDGER_OIDC_JWKS_URI` | Where the ledger fetches signing keys, service-to-service. Compose overrides this with the internal address; this default targets a native `./mvnw spring-boot:run` against Keycloak's published port | `http://localhost:8081/realms/finassist/protocol/openid-connect/certs` | No |
-| `KEYCLOAK_PORT` | Keycloak HTTP port | `8081` | No |
-| `KEYCLOAK_ADMIN_USERNAME` | Keycloak's own bootstrap admin username — not one of FinAssist's own roles | `admin` | No |
-| `KEYCLOAK_ADMIN_PASSWORD` | Keycloak's own bootstrap admin password, for its admin console at `http://localhost:8081/admin` ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) | none | Yes — Keycloak refuses to start without it |
-| `KEYCLOAK_DB_PASSWORD` | `keycloak-db`'s password. Its own database, its own volume, no published port ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) | none | Yes — both Keycloak and its database refuse to start without it |
-| `FINASSIST_OWNER_USERNAME` | The owner's sign-in username in the `finassist` realm, seeded with the `owner` role | `owner` | No |
-| `FINASSIST_OWNER_INITIAL_PASSWORD` | The owner's temporary password in the `finassist` realm. Must satisfy the realm's password policy; used once, at [first sign-in](#first-sign-in) | none | Yes — Keycloak refuses to start without it |
-| `ASSISTANT_CLIENT_SECRET` | The `finassist-assistant` Keycloak client's secret — a confidential, service-account-only client holding the `assistant` role ([ADR-032](docs/ADRs/ADR-032-role-based-authorization-per-service.md)): any strong value. Keycloak sets the client's secret from it when it imports the realm | none | Yes — Keycloak refuses to start without it |
-| `GATEWAY_PORT` | Gateway HTTP port | `8090` | No |
-| `GATEWAY_ADDRESS` | Interface the gateway binds. Loopback by default, matching the ledger and the assistant, kept as defence in depth alongside the OIDC sign-in ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)); `0.0.0.0` only inside a container | `127.0.0.1` | No |
-| `GATEWAY_ALLOWED_HOSTS` | Comma-separated host names the gateway answers to. An entry containing a `:`, a `[` or a `]`, which covers a port and every IPv6 literal, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `localhost,127.0.0.1` | No |
-| `GATEWAY_PUBLIC_URL` | The origin the browser reaches FinAssist through — the Vite dev server, which proxies `/bff` to the gateway. Every redirect the gateway issues is absolute and built from this, never from a forwarded header. Open `localhost`, not `127.0.0.1`: cookies are keyed by host name, so the other one cannot find the sign-in's own session | `http://localhost:5173` | No |
-| `GATEWAY_OIDC_PUBLIC_URL` | Keycloak as the browser sees it. The sign-in and sign-out URLs handed to the browser are built from this, and so is the issuer every token must name | `http://localhost:8081` | No |
-| `GATEWAY_OIDC_INTERNAL_URL` | Keycloak as the gateway itself reaches it. The same value when running natively; under Compose it is the container name, which the browser cannot resolve — which is why the two are separate | `http://localhost:8081` | No |
-| `GATEWAY_CLIENT_SECRET` | The `finassist-gateway` Keycloak client's secret: any strong value. Keycloak sets the client's secret from it when it imports the realm, and the gateway signs in to Keycloak with it. It never leaves the gateway: the browser holds a session cookie and a CSRF token, never a token ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | none | Yes — the gateway and Keycloak both refuse to start without it |
-| `GATEWAY_COOKIE_SECURE` | Whether the session and CSRF cookies carry `Secure`. `false` for development, which is plain HTTP on loopback; must be `true` behind TLS | `false` | No |
-| `GATEWAY_LEDGER_URI` | Where the gateway relays a request under `/ledger/api/v1/**`, once its prefix is stripped, the browser's `Authorization`, `Cookie`, CSRF and `HTTP2-Settings` headers removed and the session's own access token attached | `http://localhost:8080` | No |
-| `GATEWAY_ASSISTANT_URI` | The same, for `/assistant/api/v1/**` | `http://localhost:8000` | No |
-| `ASSISTANT_PORT` | Assistant HTTP port | `8000` | No |
-| `ASSISTANT_HOST` | Interface the assistant binds. Loopback by default, kept as defence in depth now that the gateway fronts it too ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)); `0.0.0.0` only inside a container, where Compose sets it | `127.0.0.1` | No |
-| `ASSISTANT_ALLOWED_HOSTS` | Comma-separated host names the assistant answers to. An entry containing a `:` or a `[`, which covers a port and every IPv6 literal, or a wildcard, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `localhost,127.0.0.1` | No |
-| `ASSISTANT_OIDC_ISSUER` | The issuer every bearer token's `iss` claim must name. Always the public URL a browser signed in against, never an internal one ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), [ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) - the same value the ledger is configured with. Refused at start-up unless it is an http(s) URL | `http://localhost:8081/realms/finassist` | No |
-| `ASSISTANT_OIDC_JWKS_URI` | Where the assistant fetches signing keys, service-to-service. Compose overrides this with the internal address, `http://keycloak:8080/realms/finassist/protocol/openid-connect/certs`; this default targets a native run against Keycloak's own published port. Also refused at start-up unless it is an http(s) URL | `http://localhost:8081/realms/finassist/protocol/openid-connect/certs` | No |
-| `ASSISTANT_LOG_LEVEL` | Threshold for the assistant's structured logger; one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` | No |
-| `LEDGER_BASE_URL` | Where the assistant reaches the ledger | `http://ledger:8080` | No |
-| `ANTHROPIC_API_KEY` | The LLM behind the assistant | none | No — the assistant only registers it for redaction, and nothing uses it until an LLM adapter is wired, which waits on the privacy question |
-| `ASSISTANT_DEV_SEED` | Loads a small set of fictional holdings and quotes at start-up, so the portfolio screens have something to show by hand. Invented data, never meant for real use | `false` | No |
-| `POSTGRES_DB` | Database name | `finassist` | No |
-| `POSTGRES_USER` | Database user | `finassist` | No |
-| `POSTGRES_PASSWORD` | Database password | none | Yes — Compose refuses to start without it |
-| `POSTGRES_PORT` | Host port mapped to Postgres. Change it, and `LEDGER_DB_URL` with it, if something already owns 5432 — a natively installed PostgreSQL will otherwise answer instead of the container | `5432` | No |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; each service appends its own signal path | `http://localhost:4318` | No |
-| `OTEL_EXPORT_ENABLED` | Whether to export telemetry at all — traces, metrics, and the ledger's OTLP log export, which nothing feeds yet. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` | No |
-| `GRAFANA_ADMIN_PASSWORD` | Grafana admin password. Only the `monitoring` profile uses it | none | Yes — Compose interpolates every service, profiled or not, and refuses any command without it |
-| `OTLP_HTTP_PORT`, `OTLP_GRPC_PORT` | Host ports for the collector | `4318`, `4317` | No |
-| `PROMETHEUS_PORT`, `GRAFANA_PORT` | Host ports for the monitoring profile | `9090`, `3000` | No |
-
-</details>
-
-**The gateway's outbound HTTP timeouts are not an environment variable.** Spring Cloud Gateway
-Server Web MVC has no timeout property of its own for a relayed call, so
-`backend/gateway/src/main/resources/application.yml` sets Boot's own
-`spring.http.clients.connect-timeout` (`5s`) and `read-timeout` (`10s`). The relay inherits them
-through Boot's client builder; the gateway's three calls to Keycloak — the authorization-code
-exchange, the `refresh_token` grant and the JWK-set fetch — do not, so `KeycloakRegistration`
-rebuilds all three from it deliberately, and `GatewayKeycloakTimeoutIT` proves each one gives up
-in time. Raising either budget is a one-line change to that file.
 
 ## Development
 
