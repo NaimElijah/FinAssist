@@ -127,7 +127,7 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 
 | Layer | Technology | Version | Why |
 |---|---|---:|---|
-| Ledger | Java + Spring Boot | 21 / 4.1.1 | Records and sealed types make illegal ledger states unrepresentable; Actuator gives health and readiness without bespoke code |
+| Ledger | Java + Spring Boot, built by the Maven wrapper | 21 / 4.1.1 / 3.9.6 | Records and sealed types make illegal ledger states unrepresentable; Actuator gives health and readiness without bespoke code; a clone needs only a JDK |
 | Ledger store | PostgreSQL, Flyway, hand-written SQL over `JdbcClient` | 18.6 | `NUMERIC` for exact money, a schema per context, and a journal the database refuses to rewrite ([ADR-024](docs/ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
 | Gateway | Spring Cloud Gateway Server Web MVC | 5.0.3 (train 2025.1.3) | OIDC sign-in, tokens kept in the server-side session, and `TokenRelay` to both services ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) |
 | Identity | Keycloak, on its own PostgreSQL | 26.7.4 / 17.11 | Self-hosted OIDC, its realm committed as code with every secret a placeholder ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) |
@@ -144,10 +144,10 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 | Telemetry | OpenTelemetry + Micrometer; Collector, Prometheus, Grafana | 1.44.0 (Python) / Boot 4.1.1 starter; 0.139.0 / v3.7.3 / 12.3.1 | Vendor-neutral: the backend is an environment variable, not a rewrite ([ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 
 Every version above is pinned in `backend/ledger/pom.xml`, `backend/gateway/pom.xml`,
-`backend/assistant/pyproject.toml`, `backend/assistant/uv.lock`, a Dockerfile,
-`frontend/web/package.json`, `frontend/web/.nvmrc` or `docker-compose.yml` — not in this table.
-uv is the exception outside the assistant's image: CI's `setup-uv` step names no version, so CI
-and a local install take the latest release.
+`.mvn/wrapper/maven-wrapper.properties` in each, `backend/assistant/pyproject.toml`,
+`backend/assistant/uv.lock`, a Dockerfile, `frontend/web/package.json`, `frontend/web/.nvmrc` or
+`docker-compose.yml` — not in this table. uv is the exception outside the assistant's image: CI's
+`setup-uv` step names no version, so CI and a local install take the latest release.
 
 ## Quick start
 
