@@ -12,16 +12,14 @@ layer and an application layer, with tests; use cases sit behind ports, wired by
   PostgreSQL and served under `/api/v1`.
 - `backend/assistant` (Python 3.13, FastAPI) — `portfolio`, `assistance` and `marketdata`. Only
   `portfolio` is served; there is no store, ledger client or price feed yet.
-- `backend/gateway` (Java 21, Spring Cloud Gateway Server Web MVC) — the backend-for-frontend. It
+- `backend/gateway` (Java 21, Spring Cloud Gateway Server Web MVC) — the backend-for-frontend: it
   signs the browser in against a self-hosted Keycloak (ADR-030, ADR-031), keeps every token
-  server-side and relays each call with `TokenRelay`; the browser holds only an `HttpOnly` session
-  cookie and a CSRF token.
+  server-side, and relays each call to the ledger or the assistant with `TokenRelay`.
 - `frontend/web` (React 19, Vite 8, TypeScript) — the accounting, budgeting, planning and portfolio
   areas, through the gateway. Only "ask a question" is deliberately left out.
 
-Each service owns its permissions (ADR-032): the ledger and the assistant deny by default, and the
-web client hides write controls from a `viewer`. The services log structured JSON and emit OTLP
-traces (ADR-019), and run under Compose as well as natively.
+Each service owns its permissions and denies by default (ADR-032); the web client hides write
+controls from a `viewer`. The services log structured JSON and emit OTLP traces (ADR-019).
 
 **Before proposing work**, read `docs/requirements/requirements.md` and the relevant records in
 `docs/ADRs/` (`docs/ADRs/README.md` gives each one's status). The requirements are `TODO` in places
@@ -52,9 +50,8 @@ and each codebase's file gives its own. Keep them in sync with `README.md`'s Dev
   `test-web`. **Docker must be running for the ledger's and the gateway's suites**: their `*IT`
   tests use Testcontainers and fail rather than skip without it (ADR-025).
 - **Lint, format, audit** — `make lint`, `make format` and `make audit` run each codebase's own.
-- **Clean** — `make clean`: `./mvnw -B -q clean` in the ledger and the gateway, then delete the
-  assistant's caches and coverage files and the web client's `dist/` and `coverage/`; `.env` and
-  Docker volumes are left alone.
+- **Clean** — `make clean`: `./mvnw -B -q clean` (ledger, gateway), then delete the assistant's
+  caches and coverage files and the web client's `dist/` and `coverage/`; never `.env` or volumes.
 - **After every endpoint change**, regenerate that service's committed contract (the command is in
   its file; its contract test fails the build otherwise), then the web client's types:
   `make generate-web-api`, which is `cd frontend/web && npm run generate:api`.
@@ -71,9 +68,8 @@ be extracted by moving it (ADR-010). Each codebase's file gives its package shap
 - `contracts/` — the versioned OpenAPI documents, each pinned by a test: `ledger-v1.openapi.json`
   (`LedgerContractIT`), `assistant-v1.openapi.json` (`tests/test_contract.py`),
   `gateway-v1.openapi.json` (`GatewayContractIT`); and `money-vectors.v1.json`.
-- `docs/ADRs/` — `ADR-NNN-short-kebab-title.md`, zero-padded and monotonically increasing;
-  append-only: supersede, never rewrite. `docs/requirements/` — what the system must do;
-  `docs/architecture/` — what it actually is.
+- `docs/ADRs/` — `ADR-NNN-short-kebab-title.md`, numbered monotonically, append-only: supersede,
+  never rewrite. `docs/requirements/` — what the system must do; `docs/architecture/` — what it is.
 - `.claude/` — agent configuration, tracked in git; only `.claude/settings.local.json` is ignored.
 
 ## Rules that bind every codebase
@@ -112,9 +108,8 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
   share it. Both are pinned by `contracts/money-vectors.v1.json` (ADR-018), read by
   `MoneyVectorsTest` and `tests/test_money_vectors.py`. Each pins the set of groups it reads, so a
   new group fails both suites until Java and Python each read it.
-- **Derived, never stored.** A balance is summed from entries, a budget's spend is passed in, a
-  projection is computed from its scenario. A `balance`, `spent` or stored-projection field is the
-  bug.
+- **Derived, never stored.** A balance is summed from entries, a budget's spend passed in, a
+  projection computed from its scenario: a `balance`, `spent` or stored-projection field is the bug.
 - **Pass the clock in.** No domain function calls `now()`: transitions take a date, staleness the
   current time, a projection its horizon. Use cases take their dates as arguments too; the clock is
   read once, in the composition root (`utc_now`), and passed down.
@@ -127,8 +122,7 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
   (ADR-028). Members are camelCase; currency is a `Literal` of ISO codes, resolved by code.
 - **No money amount travels in a URL**: a disposal is priced by `POST` with a JSON body, and none
   of the ledger's `GET`s carries one either.
-- **A lifecycle date comes from the request body, never the clock** — "pass the clock in", at the
-  edge.
+- **A lifecycle date comes from the request body, never the clock** — "pass the clock in".
 - **A create answers `201` with the created representation and no `Location` header**: there is no
   single-item read for one to name (ADR-028).
 - **Every POST `consumes` `application/json`**, so a cross-site form post is refused 415 before a
@@ -139,18 +133,16 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 - **All three Host allow-lists refuse, at start-up, an entry naming a port or an IPv6 literal**:
   `ASSISTANT_ALLOWED_HOSTS` a `:` or `[`; `LEDGER_ALLOWED_HOSTS` and `GATEWAY_ALLOWED_HOSTS`
   (each `HostAllowListFilter`, the gateway's a copy of the ledger's) a `:`, `[` or `]`.
-- **A refused token is WARN; an unusable key source is an outage, logged ERROR with a message of
-  its own** — the reason category alone, never the token — on both resource servers (ADR-037). A
-  key source that cannot be reached, answers something that is not a key set, or answers a set
-  with no key is that outage; a set holding keys stays a refusal even when none verifies this
-  token. **Keep the two services symmetric**; each one's file says where it tells them apart.
+- **A refused token is WARN; an unusable key source is an outage, logged ERROR in a message of its
+  own** — reason category only, never the token — on both resource servers (ADR-037). Unreachable,
+  not a key set, or a set with no key: an outage. A set holding keys that none verifies: a refusal.
+  **Keep the two services symmetric**; each one's file says where it tells them apart.
 - **No service serves an API UI**: no `/docs` or `/redoc` on the assistant, no Swagger UI on the
   ledger or the gateway (springdoc's `-api` starter alone). `/openapi.json` and the ledger's own
   OpenAPI route stay; the gateway's `/v3/api-docs` is denied by its security chain.
-- **Cite ADR-030, never ADR-027**, in code, configuration and docs: ADR-027 is Superseded, and
-  ADR-030 keeps its loopback binding, Host allow-lists and JSON-only writes as defence in depth.
-  ADR-027 is named only by the ADR files, a statement of the supersession, and the history note at
-  the top of `docker-compose.yml`.
+- **Cite ADR-030, never the Superseded ADR-027**, whose loopback binding, Host allow-lists and
+  JSON-only writes ADR-030 keeps as defence in depth. ADR-027 is named only by the ADR files, a
+  statement of the supersession, and the history note atop `docker-compose.yml`.
 - **Nothing writes output except the logging boundary** — no `print` (ruff `T20`), no
   `console.log` (ESLint `no-console`), no `System.out`. Structured JSON on stdout through
   `adapters/observability.py`, `shared/lib/logger.ts` or Logback's ECS format (ADR-019); redaction
@@ -169,8 +161,7 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
   rotation to whatever runs the container (ADR-039).
 - **Every healthcheck probes readiness**: `/actuator/health/readiness` on the ledger and the
   gateway, `/ready` on the assistant, `/health/ready` on Keycloak's management port. CI's `compose`
-  job fails a long-running service whose policy or logging is not exactly those blocks,
-  `auth-smoke` with either, and any of those healthchecks that is not readiness (#142).
+  job fails any service that breaks these rules, and `auth-smoke` with either block (#142).
 
 ### Tests
 

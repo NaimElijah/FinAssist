@@ -8,7 +8,8 @@ too; this file adds what binds the gateway alone.
 The backend-for-frontend (ADR-030). It signs the browser in with OIDC (code flow, PKCE) against
 Keycloak, keeps the access and refresh tokens in its in-memory session, and relays `GET`/`POST`
 `/ledger/api/v1/**` and `/assistant/api/v1/**` with `StripPrefix`, `RemoveRequestHeader` and
-`TokenRelay` — routes declared in `application.yml`. It answers Actuator probes.
+`TokenRelay` — routes declared in `application.yml`. The browser holds only an `HttpOnly` session
+cookie and a CSRF token. The gateway answers Actuator probes.
 
 It holds no bounded context: everything is in its `composition/` root. The parts to know:
 
