@@ -2,8 +2,8 @@
 
 # FinAssist
 
-**A self-hosted personal finance system for one owner: double-entry books, monthly budgets,
-cash-flow projections and portfolio valuation, on one ledger of record.**
+**A self-hosted personal finance system for one owner: double-entry books, monthly budgets and
+cash-flow projections on one ledger of record, with FIFO portfolio analysis built to read from it.**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/NaimElijah/FinAssist/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/NaimElijah/FinAssist/actions/workflows/ci.yml)
 [![Licence](https://img.shields.io/badge/licence-all%20rights%20reserved-lightgrey?style=flat-square)](LICENSE)
@@ -45,9 +45,10 @@ under Docker Compose, with each published port bound to `127.0.0.1`.
 Personal finance tools generally do one of three things well: they record transactions, they
 answer questions, or they analyse holdings. Using three of them means the answers come from
 whichever tool happens to hold the data, and nothing reconciles them. FinAssist keeps one ledger
-as the record of truth and builds both the natural-language assistant and the portfolio analysis
-on top of that same ledger, so an answer and a balance cannot disagree. The books, budgets, plans
-and portfolio views run today; the assistant's question answering is designed and not yet wired
+as the record of truth, and is designed to put both the natural-language assistant and the
+portfolio analysis on top of that same ledger, so an answer and a balance cannot disagree. The
+books, budgets and plans run on the ledger today. The portfolio analysis runs on development data
+until the assistant has a ledger client, and question answering is designed and not yet wired
 ([Status](#status-and-limitations)).
 
 The confirmed scope is four capability areas — tracking, assistance, analysis and planning — and
