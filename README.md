@@ -131,7 +131,7 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 | Gateway | Spring Cloud Gateway Server Web MVC | 5.0.3 (train 2025.1.3) | OIDC sign-in, tokens kept in the server-side session, and `TokenRelay` to both services ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) |
 | Identity | Keycloak, on its own PostgreSQL | 26.7.4 / 17.11 | Self-hosted OIDC, its realm committed as code with every secret a placeholder ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) |
 | Assistant | Python + FastAPI | 3.13 / 0.141.1 | Native home for the Anthropic SDK and pandas; typed validation from the same Pydantic models the domain uses |
-| Assistant tooling | uv, Ruff, mypy `--strict`, PyJWT `crypto` | not pinned / 0.16.5 / 2.3.1 / 2.15.0 | One tool resolves, locks and fetches the interpreter; RS256 tokens checked against the injected clock |
+| Assistant tooling | uv, Ruff, mypy `--strict`, PyJWT `crypto` | 0.12.7 in the image / 0.16.5 / 2.3.1 / 2.15.0 | One tool resolves, locks and fetches the interpreter; RS256 tokens checked against the injected clock |
 | Web | React + Vite + TypeScript | 19.2 / 8.2 / 6.0.3 | A static bundle, no Node server to run; TypeScript held below 6.1 because `typescript-eslint` caps there |
 | Web data | React Router, TanStack Query, @hey-api/openapi-ts | 8.3.1 / 5.102.8 / 0.99.0 | Deep links, cached server state, and types generated from all three contracts ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
 | Web runtime | Node | 24 | Pinned in `.nvmrc` and `engines`, because tests pin dates and amounts as that major's ICU data formats them |
@@ -142,9 +142,11 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 | Format and lint | Spotless + palantir-java-format, ESLint + Prettier | 3.10.1 / 2.97.0, 10.9 / 3.9 | One authoritative formatter per language, checked in CI |
 | Telemetry | OpenTelemetry + Micrometer; Collector, Prometheus, Grafana | 1.44.0 (Python) / Boot 4.1.1 starter; 0.139.0 / v3.7.3 / 12.3.1 | Vendor-neutral: the backend is an environment variable, not a rewrite ([ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 
-Every version but uv's is pinned in `backend/ledger/pom.xml`, `backend/gateway/pom.xml`,
-`backend/assistant/pyproject.toml`, `backend/assistant/uv.lock`, `frontend/web/package.json`,
-`frontend/web/.nvmrc`, `ops/keycloak/Dockerfile` or `docker-compose.yml` — not in this table.
+Every version above is pinned in `backend/ledger/pom.xml`, `backend/gateway/pom.xml`,
+`backend/assistant/pyproject.toml`, `backend/assistant/uv.lock`, a Dockerfile,
+`frontend/web/package.json`, `frontend/web/.nvmrc` or `docker-compose.yml` — not in this table.
+uv is the exception outside the assistant's image: CI's `setup-uv` step names no version, so CI
+and a local install take the latest release.
 
 ## Quick start
 
@@ -673,7 +675,7 @@ ledger client behind its own `LedgerPort`.
   `wsl --shutdown`, then starting Docker Desktop again, resyncs the clock.
 - **Some versions are bumped by hand.** TypeScript is held at 6.0.3 until `typescript-eslint`
   supports 7, the image tags named directly in `docker-compose.yml` have no Dependabot ecosystem,
-  and uv is not pinned at all.
+  and uv is pinned in the assistant's image but not in CI.
 
 </details>
 
