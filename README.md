@@ -509,7 +509,8 @@ pull request but no status check, so a green run before merging is practice, not
     unaudited ([#66](https://github.com/NaimElijah/FinAssist/issues/66)). Alerts read `main`, so
     a change on `dev` is seen only once it is promoted;
   - secret scanning across the whole history;
-  - push protection, which refuses a push that holds a provider's credential.
+  - push protection, which blocks a push that holds a provider's credential, unless the pusher
+    bypasses it with a reason, which GitHub records as an alert.
 - **Off:**
   - scanning for generic secrets such as passwords, which GitHub did not enable here;
   - Dependabot security updates, which would open their pull requests against `main` rather than

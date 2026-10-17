@@ -50,8 +50,10 @@ graph, whether or not anything has been pushed.
 **Turn on GitHub's own secret scanning and push protection for the repository.**
 
 - Secret scanning covers the whole history on every branch, and every push after it.
-- Push protection refuses a push that contains a secret matching a provider's pattern, before it
-  reaches the repository. That holds for every push, from any machine.
+- Push protection blocks a push that contains a secret matching a provider's pattern, before it
+  reaches the repository, whichever machine it comes from. Anyone with write access can still
+  push past the block by giving a reason, such as "used in tests" or "false positive", and GitHub
+  records an alert when they do. It stops an accident, not a decision.
 
 **Leave Dependabot security updates off.** A fix for an alerted dependency arrives through the
 weekly version updates into `dev`, or is raised by hand from the alert.
@@ -86,7 +88,8 @@ It reported four matches, all of them `generic-api-key`, and none of them a secr
 **Makes easy**
 
 - **An advisory against the npm or Python trees reaches the owner without waiting for a push.**
-- **A provider's credential is refused at push time**, on the server, on every machine.
+- **A provider's credential is blocked at push time**, on the server, on every machine, unless
+  the pusher bypasses it with a reason, which GitHub records as an alert.
 - **No new dependency, job or allow-list to keep.** The scanning is the platform's.
 
 **Makes hard**
@@ -125,8 +128,8 @@ It reported four matches, all of them `generic-api-key`, and none of them a secr
 - **Dependabot security updates.** Rejected: they open their pull requests against `main` whatever
   `target-branch` says, so every one would bypass `dev`.
 - **An opt-in pre-commit hook running gitleaks.** Rejected: nothing else here uses pre-commit, and
-  a hook protects only the machine that installed it. Push protection protects every push, from
-  anywhere.
+  a hook protects only the machine that installed it. Push protection covers every push, from
+  anywhere, though like a hook it can be bypassed on purpose.
 - **Leave everything off until #134 is decided.** Rejected: the repository is already public, and
   an alert is worth having even when it blocks nothing.
 

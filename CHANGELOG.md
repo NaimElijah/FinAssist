@@ -414,7 +414,8 @@ history; write the commit message well and this file writes itself.
 - **GitHub now watches the public repository.** Dependabot alerts, secret scanning and push
   protection were all off when the repository went public. All three are now on: an advisory
   against the npm or Python trees raises an alert without waiting for a push, and a push that
-  holds a provider's credential is refused. The Java services reach the dependency graph only as
+  holds a provider's credential is blocked, unless the pusher bypasses it with a reason, which
+  GitHub records as an alert. The Java services reach the dependency graph only as
   their direct dependencies, mostly without versions, so their runtime trees stay unaudited
   ([#66](https://github.com/NaimElijah/FinAssist/issues/66)). A redacted gitleaks scan of every ref, every pull request's head included, ran first.
   It found four matches, all false positives: two JDBC URLs and two test-only fixtures.
