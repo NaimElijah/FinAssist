@@ -14,6 +14,25 @@
   <version>0.1.0-SNAPSHOT</version>
   <name>FinAssist Ledger</name>
   <description>Accounts, transactions and the invariants that govern them</description>
+  <!-- Declared so none of it is inherited: spring-boot-starter-parent declares Spring Boot's own
+       URL, Apache-2.0 licence, developers and SCM, and a project that names none of these takes
+       Spring's in its effective POM. The licence is the repository's LICENSE (#293). -->
+  <url>https://github.com/NaimElijah/FinAssist</url>
+  <licenses>
+    <license>
+      <name>Proprietary - all rights reserved</name>
+      <url>https://github.com/NaimElijah/FinAssist/blob/main/LICENSE</url>
+      <distribution>manual</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <name>Naim Elijah</name>
+    </developer>
+  </developers>
+  <scm>
+    <url>https://github.com/NaimElijah/FinAssist</url>
+  </scm>
 
   <properties>
     <!-- Toolchain pin. Spring Boot 4.1's baseline is 17; 21 is the installed LTS. -->

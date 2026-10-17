@@ -170,6 +170,14 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **The Java services no longer claim to be Apache-2.0 code by VMware.** Neither POM named a
+  licence, developers, URL or SCM, so Maven took Spring Boot's own from
+  `spring-boot-starter-parent`: the effective POM of the ledger and the gateway said Apache License
+  2.0, developer "Spring, VMware, Inc.", and Spring Boot's repository. Both now declare the
+  project's own: proprietary, all rights reserved, pointing at `LICENSE`, as the README, the
+  assistant's `pyproject.toml` and the web client's `"UNLICENSED"` already did
+  ([#293](https://github.com/NaimElijah/FinAssist/issues/293)).
+
 - **`consume_fifo` sells the oldest lots first, whatever order it is given them in.** It used to
   consume lots in the order it received them, so a caller passing them newest first got a LIFO
   cost basis, and a realised gain that looked right, with no error. Only `DisposeUnits` sorted
