@@ -183,7 +183,7 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
   `https://github.com/NaimElijah/FinAssist/blob/` URL. `CHANGELOG.md` is written by hand, whatever
   its header says: every PR that changes code adds a bold-lead bullet under `## [Unreleased]`.
 - **A new ADR** takes the next number, a row and a dated note in `docs/ADRs/README.md`, and an
-  "extended by NNN" in the Status line of each record it extends.
+  "extended by NNN" in each extended record's Status line and in its row in that README.
 - **A CI job already red on `dev`** is fixed as its own commit in the PR it blocks; ask the owner
   first if that bumps a runtime security dependency.
 - **Run what you change.** Code here has repeatedly passed only because a test supplied something
