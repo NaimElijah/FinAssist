@@ -163,8 +163,8 @@ cp .env.example .env        # then set every secret in the table below, before s
 
 > [!IMPORTANT]
 > **Set every secret first.** `.env.example` leaves each one blank, and `docker-compose.yml`
-> requires each through `${VAR:?}` — `GRAFANA_ADMIN_PASSWORD` only for the `monitoring` profile —
-> so until they are set Compose refuses to start, printing
+> requires each through `${VAR:?}` — `GRAFANA_ADMIN_PASSWORD` too, though only the `monitoring`
+> profile uses it — so until they are set Compose refuses to start, printing
 > `required variable X is missing a value: set X in .env` for every one still missing. An `.env`
 > copied before authentication arrived lacks the five identity secrets, from
 > `KEYCLOAK_DB_PASSWORD` to `ASSISTANT_CLIENT_SECRET`.
@@ -178,7 +178,7 @@ cp .env.example .env        # then set every secret in the table below, before s
 | `FINASSIST_OWNER_INITIAL_PASSWORD` | The owner's one-time password, used once at [first sign-in](#first-sign-in). It must satisfy the realm's policy: `length(12) and notUsername and notEmail and passwordHistory(3)` |
 | `GATEWAY_CLIENT_SECRET` | Any strong value. Keycloak sets the `finassist-gateway` client's secret from it, and the gateway signs in to Keycloak with it |
 | `ASSISTANT_CLIENT_SECRET` | Any strong value. Keycloak sets the `finassist-assistant` client's secret from it |
-| `GRAFANA_ADMIN_PASSWORD` | Any strong value. Needed only with the `monitoring` profile |
+| `GRAFANA_ADMIN_PASSWORD` | Any strong value. Only the `monitoring` profile uses it, but Compose interpolates every service, so every `docker compose` command needs it set |
 
 Keycloak and the gateway read `GATEWAY_CLIENT_SECRET` from the same `.env` entry, so the two
 cannot disagree; `ASSISTANT_CLIENT_SECRET` is read only by Keycloak and the smoke check until the
@@ -360,7 +360,7 @@ local development only.
 | `POSTGRES_PORT` | Host port mapped to Postgres. Change it, and `LEDGER_DB_URL` with it, if something already owns 5432 — a natively installed PostgreSQL will otherwise answer instead of the container | `5432` | No |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL; each service appends its own signal path | `http://localhost:4318` | No |
 | `OTEL_EXPORT_ENABLED` | Whether to export telemetry at all — traces, metrics, and the ledger's OTLP log export, which nothing feeds yet. Paired with the endpoint so a stale one goes quiet rather than retrying | `false` | No |
-| `GRAFANA_ADMIN_PASSWORD` | Grafana admin password | none | Yes when using the `monitoring` profile |
+| `GRAFANA_ADMIN_PASSWORD` | Grafana admin password. Only the `monitoring` profile uses it | none | Yes — Compose interpolates every service, profiled or not, and refuses any command without it |
 | `OTLP_HTTP_PORT`, `OTLP_GRPC_PORT` | Host ports for the collector | `4318`, `4317` | No |
 | `PROMETHEUS_PORT`, `GRAFANA_PORT` | Host ports for the monitoring profile | `9090`, `3000` | No |
 
