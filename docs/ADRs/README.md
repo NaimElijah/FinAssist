@@ -47,6 +47,7 @@ append-only history: to change course, add a new record and mark the old one
 | [039](ADR-039-compose-restarts-services-and-bounds-their-logs.md) | Compose restarts a crashed service, and keeps at most 30 MB of each container's logs | Accepted |
 | [040](ADR-040-the-smoke-check-trigger-fired.md) | ADR-034's first trigger fired: the smoke check stays manual, and CI starts the packaged gateway | Accepted |
 | [041](ADR-041-consume-fifo-orders-its-own-lots.md) | `consume_fifo` orders its own lots, oldest first | Accepted |
+| [042](ADR-042-agent-instructions-per-codebase.md) | Agent instructions split per codebase, one `CLAUDE.md` beside each | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -122,3 +123,9 @@ wrong order raises nothing. It yields a LIFO gain that looks right. So the funct
 own lots, oldest first, keeping same-day lots in the order given. `DisposeUnits`, where 021 had put
 the sort, no longer sorts at all, as 021's own trigger for a use case holding a rule asks
 ([#69](https://github.com/NaimElijah/FinAssist/issues/69)).
+
+042 records on 2026-10-17 how the instructions for Claude Code are laid out. Before it, one
+602-line `.claude/CLAUDE.md` loaded into every session. Now a root file under 200 lines holds what
+applies everywhere, and each codebase has a `CLAUDE.md` of its own. That file loads only once a
+session touches a file in that codebase
+([#287](https://github.com/NaimElijah/FinAssist/issues/287)).
