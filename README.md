@@ -497,10 +497,11 @@ pull request but no status check, so a green run before merging is practice, not
 
 **Coverage is measured everywhere and gates nothing**, by decision
 ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)): JaCoCo, `pytest-cov` and `@vitest/coverage-v8`
-publish a report from each CI job, but coverage counts the lines that ran, not whether a test
-would notice them being wrong. Mutation testing answers that, on demand (`make mutation-ledger`):
-its first run found that deleting `requireSameCurrency` from `Money.minus` broke no test, in
-either language.
+publish a report from each of the four CI jobs that run tests, but coverage counts the lines that
+ran, not whether a test would notice them being wrong. Mutation testing answers that, on demand
+(`make mutation-ledger`): its first run found that deleting `requireSameCurrency` from
+`Money.minus` broke no test, and the refusal on `minus` turned out to be asserted in neither
+language.
 
 ## Deployment and operations
 
