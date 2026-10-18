@@ -179,8 +179,9 @@ instead, so the books, the owner's password, their TOTP enrolment and their `sub
 
 **`.env` comes first in every recipe.** Write the new value into `.env`. Then recreate the
 container that holds the store, so its environment carries the new value, and apply the value
-from inside that container. No new value is ever typed into a command line or kept in shell
-history.
+from inside that container. No value is ever typed into a command line or kept in shell history.
+None is passed as a process argument either, where any local user's `ps` could read it on a Linux
+Docker host: each one reaches its tool through the environment or standard input.
 
 Before you start:
 
@@ -257,10 +258,11 @@ docker compose up -d --wait keycloak   # now carries the new value; the admin st
 ```
 
 Sign the admin CLI in with the current password from your terminal, as
-[above](#signing-in-the-admin-cli). Then set the new one:
+[above](#signing-in-the-admin-cli). Then set the new one, which `set-password` reads from
+`KC_CLI_PASSWORD` when no `--new-password` is given:
 
 ```bash
-docker compose exec -T keycloak sh -c '/opt/keycloak/bin/kcadm.sh set-password -r master --username "$KC_BOOTSTRAP_ADMIN_USERNAME" --new-password "$KC_BOOTSTRAP_ADMIN_PASSWORD" --config /tmp/kcadm.config'
+docker compose exec -T keycloak sh -c 'KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" /opt/keycloak/bin/kcadm.sh set-password -r master --username "$KC_BOOTSTRAP_ADMIN_USERNAME" --config /tmp/kcadm.config'
 ```
 
 You can use the admin console instead:
@@ -283,9 +285,13 @@ Sign the admin CLI in, as [above](#signing-in-the-admin-cli). Then set the secre
 the gateway, which signs in to Keycloak with it:
 
 ```bash
-docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; id=$(k get clients -r finassist -q clientId=finassist-gateway --fields id --format csv --noquotes) && k update "clients/$id" -r finassist -s "secret=$GATEWAY_CLIENT_SECRET"'
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; id=$(k get clients -r finassist -q clientId=finassist-gateway --fields id --format csv --noquotes) && printf "{\"secret\":\"%s\"}" "$GATEWAY_CLIENT_SECRET" | k update "clients/$id" -r finassist -f - -m'
 docker compose up -d --wait gateway
 ```
+
+The secret reaches `kcadm.sh` as JSON on standard input. `-m` merges it into the client; without
+it, a `--file` update replaces the client's whole representation. The value goes into the JSON as
+it is, so it must hold no `"` or `\`. A value from `openssl rand -hex 16` never does.
 
 Between the last two commands, sign-in fails, because Keycloak expects the new secret while the
 running gateway still sends the old one. Restarting the gateway also signs everyone out, since it
@@ -421,7 +427,7 @@ Then, as the temporary admin, set the real admin's password to `KEYCLOAK_ADMIN_P
 export KC_CLI_PASSWORD="$TEMP_ADMIN_PASSWORD"
 docker compose exec -T -e KC_CLI_PASSWORD keycloak sh -c '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user temp-admin --config /tmp/kcadm.config'
 unset KC_CLI_PASSWORD TEMP_ADMIN_PASSWORD
-docker compose exec -T keycloak sh -c '/opt/keycloak/bin/kcadm.sh set-password -r master --username "$KC_BOOTSTRAP_ADMIN_USERNAME" --new-password "$KC_BOOTSTRAP_ADMIN_PASSWORD" --config /tmp/kcadm.config'
+docker compose exec -T keycloak sh -c 'KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" /opt/keycloak/bin/kcadm.sh set-password -r master --username "$KC_BOOTSTRAP_ADMIN_USERNAME" --config /tmp/kcadm.config'
 docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" k config credentials --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" && id=$(k get users -r master -q exact=true -q username=temp-admin --fields id --format csv --noquotes) && k delete "users/$id" -r master'
 ```
 
