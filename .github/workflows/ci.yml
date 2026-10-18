@@ -239,11 +239,11 @@ jobs:
           '
 
       # The gate's real wiring, which its own tests cannot reach (ADR-044). The .env above puts
-      # `ci-only`, a value this repository publishes, in every secret. So the check must refuse all
-      # eight by name and never print the value, and `up` must leave `db` unstarted; fresh values
-      # must then pass. One container and no database: seconds, not the minutes that keep the
-      # smoke check out of CI (ADR-034). The reports go to $RUNNER_TEMP, outside the clone the
-      # check reads, so the fresh values are never in a file it searches.
+      # `ci-only` or `ci-only-12-chars`, values this repository publishes, in every secret. So the
+      # check must refuse all eight by name and never print the value, and `up` must leave `db`
+      # unstarted; fresh values must then pass. One container and no database: seconds, not the
+      # minutes that keep the smoke check out of CI (ADR-034). The reports go to $RUNNER_TEMP,
+      # outside the clone the check reads, so the fresh values are never in a file it searches.
       - name: Refuse a published secret before any database starts
         run: |
           variables="POSTGRES_PASSWORD LEDGER_DB_PASSWORD KEYCLOAK_DB_PASSWORD"

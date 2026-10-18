@@ -53,8 +53,8 @@ services:
   # Refuses to start the stack on a secret that a file in this repository already holds (#302).
   # PostgreSQL applies a password only when it first initialises an empty volume, so the check has
   # to finish before `db` and `keycloak-db` start. Both wait on it, as Grafana does, and every
-  # other service waits on one of them. It has no profile, so every `docker compose up` runs it
-  # again, and anything that starts a database does too: `run`, `--wait` and the restore check.
+  # other service that takes a secret waits on one of them. It has no profile, so every `up` runs
+  # it again, and anything that starts a database does too: `run`, `--wait` and the restore check.
   secret-check:
     # The exact tag auth-smoke and backend/assistant/Dockerfile use; the script is standard library.
     image: python:3.13.8-slim-trixie

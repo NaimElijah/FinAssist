@@ -8,7 +8,8 @@
 **The repository publishes throwaway secrets on purpose, and nothing stopped a real `.env` from
 reusing one** ([#302](https://github.com/NaimElijah/FinAssist/issues/302)).
 
-- CI's compose job writes `ci-only` into every secret of a scratch `.env`.
+- CI's compose job writes `ci-only` into every secret of a scratch `.env`, except the owner's
+  initial password, which gets `ci-only-12-chars`.
 - The ledger's and the gateway's integration tests give their containers values of their own,
   such as `it-db-password` and `a-test-client-secret`.
 
@@ -39,7 +40,8 @@ matches providers' token formats, and a password or a client secret matches none
 secret that a file in the clone holds.**
 
 - **Wiring.** `db`, `keycloak-db` and `grafana` depend on it with
-  `condition: service_completed_successfully`, and every other service depends on one of those.
+  `condition: service_completed_successfully`. Every other service that takes a secret depends
+  on one of those. `otel-collector` and `prometheus` take none, and wait on nothing.
   It has no profile. So each of these runs it first, every time:
   - a plain `docker compose up`;
   - `up -d --wait db keycloak-db`;
