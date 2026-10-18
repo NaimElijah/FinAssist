@@ -16,6 +16,8 @@ Compose stack ([ADR-005](../ADRs/ADR-005-docker-compose-as-the-run-mechanism.md)
 [Smoke-testing authentication](#smoke-testing-authentication) ·
 [Changing the realm or its secrets](#changing-the-realm-or-its-secrets) ·
 [Rotating a secret](#rotating-a-secret) ·
+[Restoring the owner's sign-in](#restoring-the-owners-sign-in) ·
+[Recovering Keycloak's admin account](#recovering-keycloaks-admin-account) ·
 [Backing up and restoring](#backing-up-and-restoring) ·
 [Running the telemetry backend](#running-the-telemetry-backend)
 
@@ -242,7 +244,8 @@ unset KC_CLI_PASSWORD
 
 `-e KC_CLI_PASSWORD` with no value hands the variable from your shell to the container, so the
 password never appears on a command line. `kcadm.sh` reads its sign-in password from that
-variable.
+variable. If the admin's password is lost altogether, see
+[Recovering Keycloak's admin account](#recovering-keycloaks-admin-account).
 
 ### Keycloak's admin password
 
@@ -304,8 +307,8 @@ password only until their first sign-in replaces it. After that, change it in `.
 else. Keycloak skips the import of a realm that already exists, so the owner's password stays as
 it is.
 
-Before that first sign-in, set a temporary password in Keycloak instead: Users → `owner` →
-Credentials → "Reset password", with "Temporary" left on.
+Before that first sign-in, set a temporary password in Keycloak instead, as step 2 of
+[Restoring the owner's sign-in](#restoring-the-owners-sign-in) does.
 
 ### Grafana's admin password
 
@@ -331,6 +334,99 @@ To replace every secret in one pass, run the recipes above in this order. That i
 7. Grafana's admin password, if you run the `monitoring` profile.
 8. `docker compose up -d --wait`, which recreates the ledger and the gateway with the new values.
 9. Sign in through the web client, and run `make smoke-auth`.
+
+## Restoring the owner's sign-in
+
+**A locked-out owner is let back in by Keycloak's admin, never by recreating the realm or its
+volume.** The realm closes every way back that the owner could use alone:
+
+- **No password reset.** `resetPasswordAllowed` is off, and no mail server is configured.
+- **No fallback for the second factor.** The owner's only second factor is TOTP, so a lost
+  authenticator locks them out as surely as a forgotten password.
+- **A lockout after five wrong passwords.** Brute-force protection then locks the account for a
+  while, up to fifteen minutes. While it is locked, Keycloak answers every attempt, the right
+  password included, with "Invalid username or password."
+
+Sign the admin CLI in, as [above](#signing-in-the-admin-cli). Then read a temporary password for
+the owner and run all four steps at once:
+
+```bash
+read -rs KC_CLI_PASSWORD && export KC_CLI_PASSWORD   # the owner's temporary password; nothing is echoed
+docker compose exec -T -e KC_CLI_PASSWORD keycloak sh -c '
+  k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }
+  id=6c4a4be0-7c38-4145-845f-f4311ef64202
+  k delete attack-detection/brute-force/users/$id -r finassist &&
+  k set-password -r finassist --userid $id --temporary &&
+  k get users/$id/credentials -r finassist --fields id,type --format csv --noquotes |
+    grep ",otp$" | cut -d, -f1 | while read -r c; do k delete users/$id/credentials/$c -r finassist; done &&
+  k update users/$id -r finassist -s "requiredActions=[\"UPDATE_PASSWORD\",\"CONFIGURE_TOTP\"]"'
+unset KC_CLI_PASSWORD
+```
+
+`id` is the owner's id, which `finassist-realm.json` pins. For a viewer, use theirs instead, from
+`k get users -r finassist -q exact=true -q username=<name> --fields id`. Each step also has an
+admin-console route, under Users → `owner`:
+
+1. **Clear the lockout.** In the console, switch "Temporarily locked" off on the Details tab. The
+   change applies at once.
+2. **Set a temporary password.** `set-password --temporary` takes it from `KC_CLI_PASSWORD`,
+   which here holds the owner's new password, not the admin's. The realm's policy applies to it:
+   - at least 12 characters;
+   - not the username or the email;
+   - none of the owner's last three passwords.
+
+   In the console, use Credentials → "Reset password", with "Temporary" left on.
+3. **Remove the lost authenticator.** This deletes every `otp` credential the owner has. In the
+   console, use Credentials → the Otp row's ⋮ menu → "Delete".
+4. **Ask for a new device.** This sets the required actions to "Update Password" and
+   "Configure OTP". In the console, choose both under "Required user actions" on the Details tab,
+   then Save.
+   - **Do not skip this step.** The realm's browser flow asks for a one-time code only from a user
+     who has an OTP credential. After step 3, the owner would sign in with a password alone, and
+     never be asked to enrol a device again.
+   - The update replaces the whole list, which is why it names both.
+
+The owner then signs in as at [first sign-in](../../README.md#first-sign-in): the temporary
+password, then a new password, then a new TOTP device. Their user is never recreated, so their id
+stays the same. That id is the `sub` every journal row they wrote names
+([ADR-033](../ADRs/ADR-033-the-journal-records-who.md)). A forgotten password with the device
+still at hand needs steps 1 and 2 only.
+
+## Recovering Keycloak's admin account
+
+**A lost admin password is recovered with a temporary admin, and `keycloak-db-data` is never
+touched.** Recreating that volume would bring the admin back from `.env`, but it would delete the
+realm's users with it ([above](#changing-the-realm-or-its-secrets)). Instead, Keycloak's
+[`bootstrap-admin`](https://www.keycloak.org/server/bootstrap-admin-recovery) command adds a
+temporary admin to the existing database. Every Keycloak node must be stopped while it runs:
+
+```bash
+docker compose stop keycloak
+read -rs TEMP_ADMIN_PASSWORD && export TEMP_ADMIN_PASSWORD   # a password for the temporary admin
+docker compose run --rm -e TEMP_ADMIN_PASSWORD keycloak bootstrap-admin user --optimized --username temp-admin --password:env TEMP_ADMIN_PASSWORD --no-prompt
+docker compose up -d --wait keycloak
+```
+
+`docker compose run` keeps the image's `kc.sh` entrypoint and the service's own database settings,
+as the realm re-import above does.
+
+**Check its output for `Created temporary admin user with username temp-admin`.** If a
+`temp-admin` is left from an earlier recovery, Keycloak logs `user with username exists` and
+still exits 0. In that case, run the command again with another name.
+
+Then, as the temporary admin, set the real admin's password to `KEYCLOAK_ADMIN_PASSWORD` from
+`.env`. Sign in as the real admin, and delete the temporary one:
+
+```bash
+export KC_CLI_PASSWORD="$TEMP_ADMIN_PASSWORD"
+docker compose exec -T -e KC_CLI_PASSWORD keycloak sh -c '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user temp-admin --config /tmp/kcadm.config'
+unset KC_CLI_PASSWORD TEMP_ADMIN_PASSWORD
+docker compose exec -T keycloak sh -c '/opt/keycloak/bin/kcadm.sh set-password -r master --username "$KC_BOOTSTRAP_ADMIN_USERNAME" --new-password "$KC_BOOTSTRAP_ADMIN_PASSWORD" --config /tmp/kcadm.config'
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" k config credentials --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" && id=$(k get users -r master -q exact=true -q username=temp-admin --fields id --format csv --noquotes) && k delete "users/$id" -r master'
+```
+
+To give the admin a new password rather than the one `.env` holds, write it into `.env` before you
+start. The realm's users, the owner's TOTP enrolment and the books are untouched throughout.
 
 ## Backing up and restoring
 

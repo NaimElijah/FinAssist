@@ -79,7 +79,9 @@ From the repository root unless stated:
   imported again. `docs/operations/operations.md`'s "Changing the realm or its secrets" gives
   both recipes — a re-import with `kc.sh import --override true`, or a recreated
   `keycloak-db-data` — and both delete the realm's users. A changed secret takes neither: its
-  "Rotating a secret" changes each one in place, `.env` first, and keeps every user.
+  "Rotating a secret" changes each one in place, `.env` first, and keeps every user. A locked-out
+  owner or a lost admin password is restored with `kcadm.sh` or `kc.sh bootstrap-admin`, never by
+  recreating `keycloak-db-data`.
 - **Every secret and credential in the realm is a `${VAR}` placeholder**, pinned by
   `KeycloakRealmTest`; `KeycloakRealmIT` proves the whole file against a real Keycloak. Both live in
   the gateway module.

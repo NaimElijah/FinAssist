@@ -552,8 +552,8 @@ with dashboards provisioned from `ops/grafana/`.
 > in `db-data` and the owner's identity in `keycloak-db-data` included. `make stop` keeps both.
 
 Running the stack day to day — restarts and logs, upgrading a ledger volume from before `V1_2`,
-the authentication smoke check, realm changes, rotating a secret, backups and restores, the
-telemetry backend — is in
+the authentication smoke check, realm changes, rotating a secret, letting a locked-out owner or
+admin back in, backups and restores, the telemetry backend — is in
 [docs/operations/operations.md](docs/operations/operations.md).
 
 ## Project structure
@@ -673,6 +673,11 @@ ledger client behind its own `LedgerPort`.
   needs neither: each one is
   [rotated in place](docs/operations/operations.md#rotating-a-secret). The smoke check
   sees a stale `ASSISTANT_CLIENT_SECRET`, but not a stale gateway secret or stale redirect URIs.
+- **Nobody can recover their own sign-in.** The realm offers no password reset and has no mail
+  server. So a forgotten password, a lost authenticator or a brute-force lockout needs Keycloak's
+  admin ([runbook](docs/operations/operations.md#restoring-the-owners-sign-in)). A lost admin
+  password needs Keycloak's own `bootstrap-admin`
+  ([recovery](docs/operations/operations.md#recovering-keycloaks-admin-account)).
 <details>
 <summary>The narrower limitations</summary>
 

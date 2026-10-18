@@ -22,6 +22,21 @@ history; write the commit message well and this file writes itself.
   and the sequence that rotates them all at once, was run against an isolated Compose project and
   ended in a sign-in and a passing smoke check
   ([#140](https://github.com/NaimElijah/FinAssist/issues/140)).
+- **A locked-out owner, or a lost admin password, has a way back that keeps the realm's users.**
+  `docs/operations/operations.md` gains two procedures.
+  - **"Restoring the owner's sign-in"**, in one `kcadm.sh` command or through the admin console:
+    1. Clear the brute-force lockout.
+    2. Set a temporary password.
+    3. Delete the lost OTP credential.
+    4. Ask for a new device again.
+
+    Without step 4, the realm's conditional OTP would let the owner sign in with a password
+    alone. The owner's id, and so the `sub` their journal rows name, is unchanged.
+  - **"Recovering Keycloak's admin account"** adds a temporary admin with Keycloak's own
+    `bootstrap-admin`, and `keycloak-db-data` is never touched.
+
+  Both were run end to end in an isolated Compose project
+  ([#140](https://github.com/NaimElijah/FinAssist/issues/140)).
 - **A restore proves the books it put back are the ones backed up.** `make backup` records a
   digest of every account and journal row, never an amount, taken before and after the dumps,
   and it fails if the books changed in between. `make restore` and `make restore-check` then
