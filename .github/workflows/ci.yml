@@ -251,7 +251,7 @@ jobs:
           variables="$variables GATEWAY_CLIENT_SECRET"
           variables="$variables ASSISTANT_CLIENT_SECRET GRAFANA_ADMIN_PASSWORD"
           status=0
-          docker compose run --rm secret-check > "$RUNNER_TEMP/refused.txt" || status=$?
+          docker compose run --rm secret-check > "$RUNNER_TEMP/refused.txt" 2>&1 || status=$?
           cat "$RUNNER_TEMP/refused.txt"
           test "$status" -eq 1
           for name in $variables; do
