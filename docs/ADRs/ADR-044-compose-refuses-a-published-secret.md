@@ -102,6 +102,14 @@ secret that a file in the clone holds.**
     not run again. It passed when those containers were first started.
   - A native run, such as `./mvnw spring-boot:run`, reads no `.env` and is not covered.
   - History is not searched. A value committed once and removed since is not found.
+  - **A tracked file that an ignore pattern matches is published but never searched.** That
+    happens to a file added with `git add -f`, or one committed before its pattern existed. The
+    check reads the patterns, not the index, and gitignore(5) says tracked files are not
+    affected by them.
+    - The guard is `Given_this_checkout_When_walked_Then_every_tracked_file_is_scanned`, which
+      fails in CI the day such a file appears.
+    - Until [#134](https://github.com/NaimElijah/FinAssist/issues/134) makes CI a merge gate,
+      that failure is a red run, not a refusal.
 - **A second one-shot.** ADR-039's restart and log rules exempt it, as they exempt `auth-smoke`,
   and CI's compose job names both.
 - **Running it in CI does not erode ADR-034.**

@@ -220,7 +220,9 @@ def scanned_files(root: Path) -> Iterator[str]:
 
     Ignore rules come from each directory's `.gitignore` and from `.git/info/exclude` when `root`
     holds one. An ignored directory is never entered, which is also why git cannot re-include a
-    file below one.
+    file below one. A file git tracks although a pattern matches it, as `git add -f` makes, is not
+    yielded: only the index knows it, and this reads the patterns alone. The checkout test in
+    `tests/test_secret_check.py` fails the day one appears (ADR-044).
 
     :raises SecretCheckError: if a directory git does not ignore cannot be listed.
     """
