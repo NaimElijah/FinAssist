@@ -410,29 +410,32 @@ temporary admin to the existing database. Every Keycloak node must be stopped wh
 
 ```bash
 docker compose stop keycloak
+export TEMP_ADMIN=temp-admin                                 # any username the master realm does not hold
 read -rs TEMP_ADMIN_PASSWORD && export TEMP_ADMIN_PASSWORD   # a password for the temporary admin
-docker compose run --rm -e TEMP_ADMIN_PASSWORD keycloak bootstrap-admin user --optimized --username temp-admin --password:env TEMP_ADMIN_PASSWORD --no-prompt
+docker compose run --rm -e TEMP_ADMIN_PASSWORD keycloak bootstrap-admin user --optimized --username "$TEMP_ADMIN" --password:env TEMP_ADMIN_PASSWORD --no-prompt
 docker compose up -d --wait keycloak
 ```
 
 `docker compose run` keeps the image's `kc.sh` entrypoint and the service's own database settings,
 as the realm re-import above does.
 
-**Check its output for `Created temporary admin user with username temp-admin`.** If a
-`temp-admin` is left from an earlier recovery, Keycloak logs `user with username exists` and
-still exits 0. In that case, run the command again with another name.
+**Check its output for `Created temporary admin user with username` and your name.** If an account
+of that name is left from an earlier recovery, Keycloak logs `user with username exists` and still
+exits 0. In that case, `export TEMP_ADMIN` with another name and run `docker compose run` again:
+every command below reads the name from `TEMP_ADMIN`.
 
 Then, as the temporary admin, set the real admin's password to `KEYCLOAK_ADMIN_PASSWORD` from
 `.env`. Sign in as the real admin, and delete the temporary one:
 
 ```bash
 export KC_CLI_PASSWORD="$TEMP_ADMIN_PASSWORD"
-docker compose exec -T -e KC_CLI_PASSWORD keycloak sh -c '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user temp-admin --config /tmp/kcadm.config'
+docker compose exec -T -e KC_CLI_PASSWORD -e TEMP_ADMIN keycloak sh -c '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user "$TEMP_ADMIN" --config /tmp/kcadm.config'
 unset KC_CLI_PASSWORD TEMP_ADMIN_PASSWORD
 docker compose exec -T keycloak sh -c 'KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" /opt/keycloak/bin/kcadm.sh set-password -r master --username "$KC_BOOTSTRAP_ADMIN_USERNAME" --config /tmp/kcadm.config'
-docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" k config credentials --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" && id=$(k get users -r master -q exact=true -q username=temp-admin --fields id --format csv --noquotes) && k delete "users/$id" -r master'
+docker compose exec -T -e TEMP_ADMIN keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" k config credentials --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" && id=$(k get users -r master -q exact=true -q "username=$TEMP_ADMIN" --fields id --format csv --noquotes) && k delete "users/$id" -r master'
 ```
 
+An account left by an earlier recovery is deleted the same way, with `TEMP_ADMIN` set to its name.
 To give the admin a new password rather than the one `.env` holds, write it into `.env` before you
 start. The realm's users, the owner's TOTP enrolment and the books are untouched throughout.
 
