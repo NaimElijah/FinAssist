@@ -305,14 +305,18 @@ def Given_nested_negated_and_anchored_patterns_When_walked_Then_it_sees_what_git
             ".env.example": b"x",
             "cfg[1].txt": b"x",
             "cfg2.txt": b"x",
+            "drop.secret": b"x",
+            "keep.secret": b"x",
         },
         gitignore=(
             b"# a comment\n\n*.log\ntarget/\n/anchored/\n*.jar\n"
             b"!**/.mvn/wrapper/maven-wrapper.jar\ncache/\n.env\n.env.*\n!.env.example\n"
-            b"cfg[0-9].txt\n"
+            b"cfg[0-9].txt\n!keep.secret\n"
         ),
     )
     _git(root, "init", "-q")
+    # Below every .gitignore in precedence, so the root one re-includes `keep.secret`.
+    (root / ".git" / "info" / "exclude").write_bytes(b"*.secret\n")
     _git(root, "add", "keep.txt", "nested/.gitignore")
     seen_by_git = set(
         _git(root, "ls-files", "--cached", "--others", "--exclude-standard").splitlines()
@@ -365,4 +369,5 @@ def Given_this_checkout_When_walked_Then_every_tracked_file_is_scanned() -> None
 
     walked = set(secret_check.scanned_files(REPOSITORY_ROOT))
 
+    assert tracked, "git ls-files listed nothing, so there was nothing to compare"
     assert tracked - walked == set()
