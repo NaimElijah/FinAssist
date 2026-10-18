@@ -15,6 +15,7 @@ Compose stack ([ADR-005](../ADRs/ADR-005-docker-compose-as-the-run-mechanism.md)
 [Upgrading an existing ledger volume](#upgrading-an-existing-ledger-volume) ·
 [Smoke-testing authentication](#smoke-testing-authentication) ·
 [Changing the realm or its secrets](#changing-the-realm-or-its-secrets) ·
+[Rotating a secret](#rotating-a-secret) ·
 [Backing up and restoring](#backing-up-and-restoring) ·
 [Running the telemetry backend](#running-the-telemetry-backend)
 
@@ -107,7 +108,9 @@ Keycloak imports `ops/keycloak/finassist-realm.json` at start-up only into an em
 `keycloak-db-data` volume, filling its `${VAR}` placeholders from `.env` as it does. An edit to
 the file, or to `GATEWAY_CLIENT_SECRET`, `ASSISTANT_CLIENT_SECRET` or
 `FINASSIST_OWNER_INITIAL_PASSWORD` in `.env`, changes nothing in Keycloak until the realm is
-imported again. There are two ways to do that.
+imported again. There are two ways to do that. **To change a secret, do neither:**
+[rotate it in place](#rotating-a-secret), which keeps every user. A re-import is for a change to
+the realm file itself.
 
 **Both delete every user in the `finassist` realm**: the owner's password and TOTP enrolment, and
 every viewer added by hand. Take `make backup` first: restoring its `keycloak.dump` is the only
@@ -154,6 +157,180 @@ defaults. Run `ops/keycloak/Dockerfile` outside that guarded path with one of th
 and Keycloak imports the literal, unresolved `${VAR}` text as the credential rather than refusing
 to start or leaving it blank — for the owner's initial password, that means a publicly known
 value, not a missing one.
+
+## Rotating a secret
+
+**A secret is changed where it is stored, then the service that reads it is restarted — never by
+re-importing the realm or recreating a volume.** Each secret in `.env` is copied into its store
+once:
+
+- PostgreSQL sets a role's password only when it initialises an empty volume.
+- Keycloak copies the two client secrets, and its own admin's password, only into an empty
+  database.
+- Grafana sets its admin's password only on its first start.
+
+After that, editing `.env` alone changes nothing in the store. A service that reads the value on
+every start — the ledger, Keycloak or the gateway — then can no longer sign in to it. A re-import
+would apply the client secrets, but it deletes every user in the realm
+([above](#changing-the-realm-or-its-secrets)). Each recipe below changes the value in place
+instead, so the books, the owner's password, their TOTP enrolment and their `sub` all survive.
+
+**`.env` comes first in every recipe.** Write the new value into `.env`. Then recreate the
+container that holds the store, so its environment carries the new value, and apply the value
+from inside that container. No new value is ever typed into a command line or kept in shell
+history.
+
+Before you start:
+
+- **Take `make backup`.** Restoring it is the undo (see
+  [Backing up and restoring](#backing-up-and-restoring)).
+- **Generate each value with `openssl rand -hex 16`**, which Git Bash carries.
+- **Run the recipes in Git Bash, or another POSIX shell, after `export MSYS_NO_PATHCONV=1`.**
+  - Without `MSYS_NO_PATHCONV`, Git Bash rewrites an argument that starts with `/`, such as
+    `/opt/keycloak/bin/kcadm.sh`, into a Windows path before Docker sees it.
+  - Windows PowerShell 5.1 does not work at all: it strips the double quotes inside the
+    `sh -c '…'` arguments.
+
+### The ledger's database password
+
+`POSTGRES_PASSWORD` and `LEDGER_DB_PASSWORD` hold the same value. Compose creates the role from
+the first, and the ledger signs in with the second. Set both to the new value in `.env`, then:
+
+```bash
+docker compose up -d --wait db       # recreated with the new value, which an initialised volume ignores
+docker compose exec -T db sh -c 'printf "%s\n%s\n" "$POSTGRES_PASSWORD" "$POSTGRES_PASSWORD" | psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\password $POSTGRES_USER"'
+docker compose up -d --wait ledger   # recreated, and signs in with the new value
+```
+
+`psql` connects over the container's own socket, which the image trusts, so it needs no old
+password. `\password` reads the new value from the container's environment and sends the server
+only its hash. Its two "Enter new password" prompts are printed and then answered by the pipe.
+From then on the old password is refused over the network, and the ledger's healthcheck passes on
+the new one.
+
+### Keycloak's database password
+
+The same recipe, on `keycloak-db`. Inside that container `POSTGRES_PASSWORD` is
+`KEYCLOAK_DB_PASSWORD`, under the image's own name, so the command changes only in the service it
+names. Set `KEYCLOAK_DB_PASSWORD` in `.env`, then:
+
+```bash
+docker compose up -d --wait keycloak-db
+docker compose exec -T keycloak-db sh -c 'printf "%s\n%s\n" "$POSTGRES_PASSWORD" "$POSTGRES_PASSWORD" | psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\password $POSTGRES_USER"'
+docker compose up -d --wait keycloak
+```
+
+### Signing in the admin CLI
+
+The Keycloak recipes run `kcadm.sh`, Keycloak's admin CLI, inside the `keycloak` container. Sign
+it in once for each container. It keeps its token in `/tmp/kcadm.config` until the container is
+recreated. When the admin's password is still the `KEYCLOAK_ADMIN_PASSWORD` in `.env`, the
+container already holds it:
+
+```bash
+docker compose exec -T keycloak sh -c 'KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" /opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --config /tmp/kcadm.config'
+```
+
+When the two differ, give the current password from your terminal instead. That happens while the
+admin's own password is being rotated, or after it was changed in the console.
+
+```bash
+read -rs KC_CLI_PASSWORD && export KC_CLI_PASSWORD   # the admin's current password; nothing is echoed
+docker compose exec -T -e KC_CLI_PASSWORD keycloak sh -c '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --config /tmp/kcadm.config'
+unset KC_CLI_PASSWORD
+```
+
+`-e KC_CLI_PASSWORD` with no value hands the variable from your shell to the container, so the
+password never appears on a command line. `kcadm.sh` reads its sign-in password from that
+variable.
+
+### Keycloak's admin password
+
+Keycloak reads `KEYCLOAK_ADMIN_PASSWORD`, as `KC_BOOTSTRAP_ADMIN_PASSWORD`, only when it first
+creates its `master` realm, and ignores it afterwards. Set the new value in `.env`, then:
+
+```bash
+docker compose up -d --wait keycloak   # now carries the new value; the admin still has the old one
+```
+
+Sign the admin CLI in with the current password from your terminal, as
+[above](#signing-in-the-admin-cli). Then set the new one:
+
+```bash
+docker compose exec -T keycloak sh -c '/opt/keycloak/bin/kcadm.sh set-password -r master --username "$KC_BOOTSTRAP_ADMIN_USERNAME" --new-password "$KC_BOOTSTRAP_ADMIN_PASSWORD" --config /tmp/kcadm.config'
+```
+
+You can use the admin console instead:
+
+1. Sign in at `http://localhost:8081/admin` with the current password.
+2. Choose the `master` realm under "Manage realms".
+3. Open Users → `admin` → Credentials → "Reset password".
+4. Enter the new value, with "Temporary" switched off.
+
+### A client secret
+
+`GATEWAY_CLIENT_SECRET` and `ASSISTANT_CLIENT_SECRET` reach Keycloak only at the realm's first
+import. Put the new value in `.env`, then:
+
+```bash
+docker compose up -d --wait keycloak   # now carries the new value in its environment
+```
+
+Sign the admin CLI in, as [above](#signing-in-the-admin-cli). Then set the secret, and restart
+the gateway, which signs in to Keycloak with it:
+
+```bash
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; id=$(k get clients -r finassist -q clientId=finassist-gateway --fields id --format csv --noquotes) && k update "clients/$id" -r finassist -s "secret=$GATEWAY_CLIENT_SECRET"'
+docker compose up -d --wait gateway
+```
+
+Between the last two commands, sign-in fails, because Keycloak expects the new secret while the
+running gateway still sends the old one. Restarting the gateway also signs everyone out, since it
+keeps its sessions in memory.
+
+Only a real sign-in proves the gateway's secret: [the smoke check](#smoke-testing-authentication)
+never exchanges it. For the assistant's secret, run the same command with `finassist-assistant`
+and `$ASSISTANT_CLIENT_SECRET`. The assistant does not use that secret yet, so there is nothing to
+restart. Prove it with `make smoke-auth`, whose first check fails until the secret is set.
+
+With the stack running, the admin console can do it the other way round. Open Clients → the client
+→ Credentials, choose "Regenerate", then "Copy to clipboard", and paste the value into `.env`.
+Then run `docker compose up -d --wait keycloak gateway`.
+
+### The owner's initial password
+
+`FINASSIST_OWNER_INITIAL_PASSWORD` is read once, at the realm's first import. It is the owner's
+password only until their first sign-in replaces it. After that, change it in `.env` and nothing
+else. Keycloak skips the import of a realm that already exists, so the owner's password stays as
+it is.
+
+Before that first sign-in, set a temporary password in Keycloak instead: Users → `owner` →
+Credentials → "Reset password", with "Temporary" left on.
+
+### Grafana's admin password
+
+Grafana writes `GRAFANA_ADMIN_PASSWORD` into `grafana-data` on its first start, and ignores it
+afterwards. Set the new value in `.env`, then:
+
+```bash
+docker compose --profile monitoring up -d grafana
+docker compose --profile monitoring exec -T grafana sh -c 'printf %s "$GF_SECURITY_ADMIN_PASSWORD" | grafana cli admin reset-admin-password --password-from-stdin'
+```
+
+### Every secret at once
+
+To replace every secret in one pass, run the recipes above in this order. That is the case for an
+`.env` whose values were copied from somewhere public.
+
+1. `make backup`, with `db` and `keycloak-db` running.
+2. Write a new value for every secret into `.env`.
+3. `docker compose up -d --wait db keycloak-db`, then both `\password` commands.
+4. `docker compose up -d --wait keycloak`.
+5. Sign the admin CLI in with the admin's *current* password from your terminal.
+6. Set the admin's password, then both client secrets.
+7. Grafana's admin password, if you run the `monitoring` profile.
+8. `docker compose up -d --wait`, which recreates the ledger and the gateway with the new values.
+9. Sign in through the web client, and run `make smoke-auth`.
 
 ## Backing up and restoring
 
@@ -279,8 +456,8 @@ Never use `docker compose down -v`.
 
 **A restored Keycloak keeps the dump's own admin account and client secrets, not `.env`'s.** If
 `KEYCLOAK_ADMIN_PASSWORD`, `GATEWAY_CLIENT_SECRET` or `ASSISTANT_CLIENT_SECRET` changed in `.env`
-since the backup, set them back. Otherwise change them in Keycloak to match, or the gateway
-cannot sign anyone in.
+since the backup, set them back. Otherwise change them in Keycloak to match, as
+[Rotating a secret](#rotating-a-secret) does, or the gateway cannot sign anyone in.
 
 **Undoing a realm re-import** means restoring Keycloak's database alone. A re-import deletes the
 owner's password and TOTP enrolment (see

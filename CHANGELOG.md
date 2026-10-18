@@ -11,6 +11,17 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **Every secret in `.env` can be rotated in place, without a realm re-import.** The new
+  "Rotating a secret" section of `docs/operations/operations.md` covers:
+  - the two database roles, changed with `\password`;
+  - Keycloak's admin and the two client secrets, changed with `kcadm.sh`;
+  - Grafana's admin.
+
+  Each recipe writes `.env` first and applies the value from inside the container that holds it,
+  so no value is typed on a command line. None deletes the realm's users or a volume. Each recipe,
+  and the sequence that rotates them all at once, was run against an isolated Compose project and
+  ended in a sign-in and a passing smoke check
+  ([#140](https://github.com/NaimElijah/FinAssist/issues/140)).
 - **A restore proves the books it put back are the ones backed up.** `make backup` records a
   digest of every account and journal row, never an amount, taken before and after the dumps,
   and it fails if the books changed in between. `make restore` and `make restore-check` then

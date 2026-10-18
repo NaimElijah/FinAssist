@@ -187,7 +187,8 @@ Under Compose, Keycloak and the gateway read `GATEWAY_CLIENT_SECRET` from the sa
 so the two cannot disagree; `ASSISTANT_CLIENT_SECRET` is read only by Keycloak and the smoke check
 until the assistant has a ledger client ([#62](https://github.com/NaimElijah/FinAssist/issues/62)).
 Keycloak copies the secrets into the realm at its first import, and only then
-([details](docs/operations/operations.md#changing-the-realm-or-its-secrets)). Upgrading a
+([details](docs/operations/operations.md#changing-the-realm-or-its-secrets)), so a secret changed
+later is [rotated in place](docs/operations/operations.md#rotating-a-secret). Upgrading a
 `db-data` volume from before `V1_2`?
 [Back it up first](docs/operations/operations.md#upgrading-an-existing-ledger-volume).
 
@@ -551,7 +552,8 @@ with dashboards provisioned from `ops/grafana/`.
 > in `db-data` and the owner's identity in `keycloak-db-data` included. `make stop` keeps both.
 
 Running the stack day to day — restarts and logs, upgrading a ledger volume from before `V1_2`,
-the authentication smoke check, realm changes, backups and restores, the telemetry backend — is in
+the authentication smoke check, realm changes, rotating a secret, backups and restores, the
+telemetry backend — is in
 [docs/operations/operations.md](docs/operations/operations.md).
 
 ## Project structure
@@ -667,7 +669,9 @@ ledger client behind its own `LedgerPort`.
   loss of the machine ([ADR-038](docs/ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md)).
 - **A realm change needs a re-import, and a re-import deletes the realm's users.** Keycloak imports
   the realm file and its secrets only into an empty volume
-  ([recipes](docs/operations/operations.md#changing-the-realm-or-its-secrets)). The smoke check
+  ([recipes](docs/operations/operations.md#changing-the-realm-or-its-secrets)). A changed secret
+  needs neither: each one is
+  [rotated in place](docs/operations/operations.md#rotating-a-secret). The smoke check
   sees a stale `ASSISTANT_CLIENT_SECRET`, but not a stale gateway secret or stale redirect URIs.
 <details>
 <summary>The narrower limitations</summary>
