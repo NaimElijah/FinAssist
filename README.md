@@ -171,6 +171,14 @@ cp .env.example .env        # then set every secret in the table below, before s
 > `required variable X is missing a value: set X in .env` for every one still missing. An `.env`
 > copied before authentication arrived lacks the five identity secrets, from
 > `KEYCLOAK_DB_PASSWORD` to `ASSISTANT_CLIENT_SECRET`.
+>
+> **Never reuse a value from this repository.** CI and the tests publish throwaway ones, such as
+> `ci-only`. Before any database starts, the one-shot `secret-check` service refuses a secret that
+> appears in a file git does not ignore, and `docker compose up` then stops with
+> `service "secret-check" didn't complete successfully: exit 1`.
+> `docker compose logs secret-check` names each variable, never its value. To change one,
+> follow [Rotating a secret](docs/operations/operations.md#rotating-a-secret)
+> ([ADR-044](docs/ADRs/ADR-044-compose-refuses-a-published-secret.md)).
 
 | Secret | What to put in it |
 |---|---|
@@ -184,10 +192,13 @@ cp .env.example .env        # then set every secret in the table below, before s
 | `GRAFANA_ADMIN_PASSWORD` | Any strong value. Only the `monitoring` profile uses it, but Compose interpolates every service, so every `docker compose` command needs it set |
 
 Under Compose, Keycloak and the gateway read `GATEWAY_CLIENT_SECRET` from the same `.env` entry,
-so the two cannot disagree; `ASSISTANT_CLIENT_SECRET` is read only by Keycloak and the smoke check
-until the assistant has a ledger client ([#62](https://github.com/NaimElijah/FinAssist/issues/62)).
-Keycloak copies the secrets into the realm at its first import, and only then
-([details](docs/operations/operations.md#changing-the-realm-or-its-secrets)). Upgrading a
+so the realm's first import gives the gateway's client the secret the gateway signs in with.
+`ASSISTANT_CLIENT_SECRET` is read only by Keycloak and the smoke check until the assistant has a
+ledger client ([#62](https://github.com/NaimElijah/FinAssist/issues/62)). Keycloak copies the
+secrets into the realm at that first import, and only then
+([details](docs/operations/operations.md#changing-the-realm-or-its-secrets)). So a secret changed
+later is [rotated in place](docs/operations/operations.md#rotating-a-secret), in Keycloak as well
+as in `.env`. Upgrading a
 `db-data` volume from before `V1_2`?
 [Back it up first](docs/operations/operations.md#upgrading-an-existing-ledger-volume).
 
@@ -427,17 +438,18 @@ make audit     # pip-audit and npm audit --audit-level=high
 | Prove a backup restores | `make restore-check BACKUP=<folder>` | `uv run ops/backup/backup.py check <folder>` — only ever as the Compose project `finassist-restore-check` |
 | Restore a backup | `make restore BACKUP=<folder> [DATABASE=ledger\|keycloak]` | `uv run ops/backup/backup.py restore <folder> [--database ledger\|keycloak]`, into empty databases with `ledger` and `keycloak` stopped |
 | Smoke-test authentication (opt-in) | `make smoke-auth` | `docker compose --profile smoke run --rm auth-smoke` — see [Smoke-testing authentication](docs/operations/operations.md#smoke-testing-authentication) |
-| Test everything | `make test` | the five test rows below; all but `test-backup` measure coverage |
+| Test everything | `make test` | the six test rows below; all but `test-backup` and `test-secret-check` measure coverage |
 | Test the ledger | `make test-ledger` | `cd backend/ledger && ./mvnw -B verify` |
 | Test the gateway | `make test-gateway` | `cd backend/gateway && ./mvnw -B verify` |
 | Test the assistant | `make test-assistant` | `cd backend/assistant && uv run pytest --cov --cov-report=term-missing --cov-report=xml` |
 | Test the backup CLI | `make test-backup` | `cd backend/assistant && uv run pytest -c pyproject.toml ../../ops/backup/tests` |
+| Test the secret check | `make test-secret-check` | `cd backend/assistant && uv run pytest -c pyproject.toml ../../ops/secret_check/tests` |
 | Test the web client | `make test-web` | `cd frontend/web && npm run test:coverage` |
 | Build the web bundle | `make build-web` | `cd frontend/web && npm run build` |
 | Regenerate the web client's contract types | `make generate-web-api` | `cd frontend/web && npm run generate:api` |
 | Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
-| Lint and types | `make lint` | `./mvnw -B spotless:check` (ledger and gateway); `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; for the smoke check (`make lint-smoke`) and the backup CLI (`make lint-backup`), `uv run ruff check`, `ruff format --check` and `mypy --strict` over `../../ops/smoke` and `../../ops/backup` respectively, all from `backend/assistant`; `npm run lint`, `format:check`, `typecheck` |
-| Format | `make format` | `./mvnw -B spotless:apply` (ledger and gateway); `uv run ruff format . ../../ops/smoke ../../ops/backup`, `uv run ruff check --fix . ../../ops/smoke ../../ops/backup`; `npm run format` |
+| Lint and types | `make lint` | `./mvnw -B spotless:check` (ledger and gateway); `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; for the smoke check (`make lint-smoke`), the backup CLI (`make lint-backup`) and the secret check (`make lint-secret-check`), `uv run ruff check`, `ruff format --check` and `mypy --strict` over `../../ops/smoke`, `../../ops/backup` and `../../ops/secret_check` respectively, all from `backend/assistant`; `npm run lint`, `format:check`, `typecheck` |
+| Format | `make format` | `./mvnw -B spotless:apply` (ledger and gateway); `uv run ruff format . ../../ops/smoke ../../ops/backup ../../ops/secret_check`, `uv run ruff check --fix . ../../ops/smoke ../../ops/backup ../../ops/secret_check`; `npm run format` |
 | Audit | `make audit` | `cd backend/assistant && uv run pip-audit`; `cd frontend/web && npm audit --audit-level=high` |
 | Re-lock Python deps | `make lock` | `cd backend/assistant && uv lock` |
 | Regenerate the ledger's OpenAPI contract | — | `cd backend/ledger && ./mvnw -B verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running); on a mismatch, copy `target/contracts/ledger-v1.openapi.json` over `contracts/ledger-v1.openapi.json` |
@@ -481,6 +493,7 @@ describe, every pull request that changes code adds a line to [CHANGELOG.md](CHA
 | Gateway | Sign-in, CSRF and sign-out; a real code-plus-PKCE sign-in and token relay against a fake OpenID provider; Keycloak timeouts; the packaged jar starting; the realm file, read as data and run in the real Keycloak image | `make test-gateway` |
 | Assistant | Source-parsing architecture rules; FIFO cost basis, grounding, staleness and Money, with Hypothesis; token verification and authorization; the problem shape; the OpenAPI contract | `make test-assistant` |
 | Backup CLI | Redaction, the manifest checks and the owner-project guard, without Docker | `make test-backup` |
+| Secret check | It reads exactly the files git does not ignore, matches a value only as a whole token, and refuses by variable name, never by value | `make test-secret-check` |
 | Web | The file-tree architecture rules; the shared primitives; the sign-in gate; the read-only viewer; every screen end to end against a faked `fetch` | `make test-web` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
 
@@ -491,11 +504,14 @@ is in [docs/testing/testing.md](docs/testing/testing.md).
 
 **What CI runs:** five jobs on every push and pull request to `main` and `dev` — the ledger
 (format check, build, tests); the gateway (the same, `KeycloakRealmIT` included); the assistant
-(Ruff, `mypy --strict`, tests and `pip-audit`, plus the smoke check's and the backup CLI's lint);
+(Ruff, `mypy --strict`, tests and `pip-audit`, plus the smoke check's lint and the backup CLI's and
+the secret check's lint and tests);
 the web client (contract types regenerated with no diff, lint, format check, typecheck, tests,
 production build and `npm audit`); and `docker compose config` across every profile, which also
 fails a service without the shared restart and log policy, or a healthcheck that probes anything
-but readiness. No CI job starts the Compose stack. The branch rules on `main` and `dev` require a
+but readiness. The compose job also runs `secret-check` against a published value, and requires
+it to refuse all eight secrets by name and keep `db` from starting. No CI job starts the rest
+of the Compose stack. The branch rules on `main` and `dev` require a
 pull request but no status check, so a green run before merging is practice, not enforcement
 ([#134](https://github.com/NaimElijah/FinAssist/issues/134)).
 
@@ -551,7 +567,8 @@ with dashboards provisioned from `ops/grafana/`.
 > in `db-data` and the owner's identity in `keycloak-db-data` included. `make stop` keeps both.
 
 Running the stack day to day — restarts and logs, upgrading a ledger volume from before `V1_2`,
-the authentication smoke check, realm changes, backups and restores, the telemetry backend — is in
+the authentication smoke check, realm changes, rotating a secret, letting a locked-out owner or
+admin back in, backups and restores, the telemetry backend — is in
 [docs/operations/operations.md](docs/operations/operations.md).
 
 ## Project structure
@@ -667,8 +684,16 @@ ledger client behind its own `LedgerPort`.
   loss of the machine ([ADR-038](docs/ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md)).
 - **A realm change needs a re-import, and a re-import deletes the realm's users.** Keycloak imports
   the realm file and its secrets only into an empty volume
-  ([recipes](docs/operations/operations.md#changing-the-realm-or-its-secrets)). The smoke check
+  ([recipes](docs/operations/operations.md#changing-the-realm-or-its-secrets)). A changed secret
+  needs neither: each one is
+  [rotated in place](docs/operations/operations.md#rotating-a-secret). The smoke check
   sees a stale `ASSISTANT_CLIENT_SECRET`, but not a stale gateway secret or stale redirect URIs.
+- **Nobody can recover their own sign-in.** The realm offers no password reset and has no mail
+  server. So a forgotten password or a lost authenticator needs Keycloak's admin
+  ([runbook](docs/operations/operations.md#restoring-the-owners-sign-in)). A brute-force lockout
+  lifts by itself within 15 minutes, or sooner if the admin clears it. A lost admin
+  password needs Keycloak's own `bootstrap-admin`
+  ([recovery](docs/operations/operations.md#recovering-keycloaks-admin-account)).
 <details>
 <summary>The narrower limitations</summary>
 

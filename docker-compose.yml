@@ -24,8 +24,9 @@
 name: finassist
 
 # One restart policy and one log bound for every long-running service (ADR-039), stated once and
-# applied by alias. Neither goes on `auth-smoke`, a one-shot `compose run --rm` whose failure must
-# stay a failure rather than loop.
+# applied by alias. Neither goes on the two one-shots, whose failure must stay a failure rather than
+# loop: `auth-smoke`, a `compose run --rm`, and `secret-check`, which every `up` runs first
+# (ADR-044).
 #
 # `unless-stopped`: a service that crashes comes back on its own, and so does the whole stack after
 # Docker itself restarts, while one stopped on purpose (Ctrl+C on `make run`, `docker compose stop`,
@@ -48,10 +49,45 @@ x-logging: &bounded-logs
     max-file: "3"
 
 services:
+  # --- Secret check (ADR-044) ----------------------------------------------------------------
+  # Refuses to start the stack on a secret that a file in this repository already holds (#302).
+  # PostgreSQL applies a password only when it first initialises an empty volume, so the check has
+  # to finish before `db` and `keycloak-db` start. Both wait on it, as Grafana does, and every
+  # other service that takes a secret waits on one of them. It has no profile, so every `up` runs
+  # it again, and anything that starts a database does too: `run`, `--wait` and the restore check.
+  secret-check:
+    # The exact tag auth-smoke and backend/assistant/Dockerfile use; the script is standard library.
+    image: python:3.13.8-slim-trixie
+    # nobody:nogroup, and no network at all: it reads its environment and the files below, and
+    # talks to nothing.
+    user: "65534:65534"
+    network_mode: none
+    volumes:
+      # The whole clone, read-only. The script decides what to read the way git decides what to
+      # track, so `.env`, the backups and the build output are mounted but never opened.
+      - ./:/repo:ro
+    environment:
+      # `:-` rather than `:?`: each service that uses a secret already refuses it unset, and the
+      # check skips an empty one rather than matching it in every file.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      LEDGER_DB_PASSWORD: ${LEDGER_DB_PASSWORD:-}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-}
+      FINASSIST_OWNER_INITIAL_PASSWORD: ${FINASSIST_OWNER_INITIAL_PASSWORD:-}
+      GATEWAY_CLIENT_SECRET: ${GATEWAY_CLIENT_SECRET:-}
+      ASSISTANT_CLIENT_SECRET: ${ASSISTANT_CLIENT_SECRET:-}
+      GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      # Nothing here may be written, and this user could not write it anyway.
+      PYTHONDONTWRITEBYTECODE: "1"
+    command: ["python", "/repo/ops/secret_check/secret_check.py", "/repo"]
+
   db:
     image: postgres:18.6-trixie
     restart: *restart-policy
     logging: *bounded-logs
+    depends_on:
+      secret-check:
+        condition: service_completed_successfully
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-finassist}
       POSTGRES_USER: ${POSTGRES_USER:-finassist}
@@ -170,6 +206,9 @@ services:
     image: postgres:17.11-trixie
     restart: *restart-policy
     logging: *bounded-logs
+    depends_on:
+      secret-check:
+        condition: service_completed_successfully
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
@@ -337,7 +376,10 @@ services:
     ports:
       - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
     depends_on:
-      - prometheus
+      prometheus:
+        condition: service_started
+      secret-check:
+        condition: service_completed_successfully
 
   # --- Smoke test (profile: smoke) ---------------------------------------------------------
   # ops/smoke/auth_smoke.py, run once by hand (`make smoke-auth`), never as part of `docker

@@ -27,9 +27,9 @@ From `backend/assistant`:
   --cov-report=xml`. One test: `uv run pytest tests/test_architecture.py -k <name>`.
 - **Lint** — `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src tests`.
   **Audit** — `uv run pip-audit`.
-- **Format** — `make format` formats `ops/smoke` and `ops/backup` with the assistant:
-  `uv run ruff format . ../../ops/smoke ../../ops/backup`,
-  `uv run ruff check --fix . ../../ops/smoke ../../ops/backup`.
+- **Format** — `make format` formats `ops/smoke`, `ops/backup` and `ops/secret_check` with the
+  assistant: `uv run ruff format . ../../ops/smoke ../../ops/backup ../../ops/secret_check`,
+  `uv run ruff check --fix . ../../ops/smoke ../../ops/backup ../../ops/secret_check`.
 - **In a fresh worktree**, run `uv sync --locked --extra dev` before pytest (`--offline` uses the
   uv cache). The suite needs the `dev` extra (pytest, hypothesis), which `uv run`'s own sync
   leaves out, so `uv run pytest` alone fails — sometimes with an import error naming `jwt`, a

@@ -11,6 +11,45 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **The stack refuses to start on a secret the repository publishes.** A new one-shot Compose
+  service, `secret-check`, runs before `db`, `keycloak-db` and Grafana, which wait on it.
+  - It refuses each secret that appears in a file git does not ignore, such as CI's `ci-only`
+    values or a test's fixture.
+  - It names the variable, never the value or the file.
+  - It runs before either database first starts, because PostgreSQL applies a password only to
+    an empty volume.
+
+  **An existing `.env` that reuses a published value stops starting.** Write new values into
+  `.env` and follow "Every secret at once" in `docs/operations/operations.md`. CI runs the real
+  service against its own published values
+  ([ADR-044](docs/ADRs/ADR-044-compose-refuses-a-published-secret.md),
+  [#302](https://github.com/NaimElijah/FinAssist/issues/302)).
+- **Every secret Compose hands a service can be rotated in place, without a realm re-import.**
+  The new "Rotating a secret" section of `docs/operations/operations.md` covers:
+  - the two database roles, changed with `\password`;
+  - Keycloak's admin and the two client secrets, changed with `kcadm.sh`;
+  - Grafana's admin.
+
+  Each recipe writes `.env` first and applies the value from inside the container that holds it,
+  so no value is typed on a command line. None deletes the realm's users or a volume. Each recipe,
+  and the sequence that rotates them all at once, was run against an isolated Compose project and
+  ended in a sign-in and a passing smoke check
+  ([#140](https://github.com/NaimElijah/FinAssist/issues/140)).
+- **A locked-out owner, or a lost admin password, has a way back that keeps the realm's users.**
+  `docs/operations/operations.md` gains two procedures.
+  - **"Restoring the owner's sign-in"**, in one `kcadm.sh` command or through the admin console:
+    1. Clear the brute-force lockout.
+    2. Set a temporary password.
+    3. Delete the lost OTP credential.
+    4. Ask for a new device again.
+
+    Without step 4, the realm's conditional OTP would let the owner sign in with a password
+    alone. The owner's id, and so the `sub` their journal rows name, is unchanged.
+  - **"Recovering Keycloak's admin account"** adds a temporary admin with Keycloak's own
+    `bootstrap-admin`, and `keycloak-db-data` is never touched.
+
+  Both were run end to end in an isolated Compose project
+  ([#140](https://github.com/NaimElijah/FinAssist/issues/140)).
 - **A restore proves the books it put back are the ones backed up.** `make backup` records a
   digest of every account and journal row, never an amount, taken before and after the dumps,
   and it fails if the books changed in between. `make restore` and `make restore-check` then

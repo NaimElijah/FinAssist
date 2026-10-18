@@ -72,8 +72,10 @@ select = [
 # Test names are the specification and follow Given_When_Then, which is not snake_case;
 # N802 would otherwise force the convention out of the repository.
 "tests/**" = ["S101", "N802"]
-# The same convention for the backup CLI's tests, which borrow these settings (make test-backup).
+# The same convention for the backup CLI's tests, which borrow these settings (make test-backup),
+# and for the secret check's (make test-secret-check).
 "../../ops/backup/tests/**" = ["N802"]
+"../../ops/secret_check/tests/**" = ["N802"]
 
 [tool.mypy]
 python_version = "3.13"

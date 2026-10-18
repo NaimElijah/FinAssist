@@ -44,11 +44,12 @@ append-only history: to change course, add a new record and mark the old one
 | [036](ADR-036-least-privilege-keycloak-client-scoping.md) | Deny each Keycloak client the realm's full scope | Accepted |
 | [037](ADR-037-an-unusable-key-set-is-an-outage.md) | A key set that cannot be read, or holds no key, is an outage, on both services | Accepted |
 | [038](ADR-038-back-up-each-database-as-a-logical-dump.md) | Back up each database as its own logical dump, on demand, proven by an isolated restore check | Accepted |
-| [039](ADR-039-compose-restarts-services-and-bounds-their-logs.md) | Compose restarts a crashed service, and keeps at most 30 MB of each container's logs | Accepted |
+| [039](ADR-039-compose-restarts-services-and-bounds-their-logs.md) | Compose restarts a crashed service, and keeps at most 30 MB of each container's logs | Accepted, extended by 044 |
 | [040](ADR-040-the-smoke-check-trigger-fired.md) | ADR-034's first trigger fired: the smoke check stays manual, and CI starts the packaged gateway | Accepted |
 | [041](ADR-041-consume-fifo-orders-its-own-lots.md) | `consume_fifo` orders its own lots, oldest first | Accepted |
 | [042](ADR-042-agent-instructions-per-codebase.md) | Agent instructions split per codebase, one `CLAUDE.md` beside each | Accepted |
-| [043](ADR-043-github-secret-scanning-and-dependabot-alerts.md) | GitHub's own secret scanning, push protection and Dependabot alerts; no scanner in CI | Accepted |
+| [043](ADR-043-github-secret-scanning-and-dependabot-alerts.md) | GitHub's own secret scanning, push protection and Dependabot alerts; no scanner in CI | Accepted, extended by 044 |
+| [044](ADR-044-compose-refuses-a-published-secret.md) | Compose refuses to start on a secret that a file in the repository holds | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -136,3 +137,11 @@ secret scanning and push protection were turned on. A full-history gitleaks scan
 but false positives, so no scanner was added to CI. Security updates stay off, because they
 would open their pull requests against `main` and skip `dev`
 ([#139](https://github.com/NaimElijah/FinAssist/issues/139)).
+
+044 extends 039 and 043 on 2026-10-18. The repository publishes throwaway passwords on purpose,
+in CI and in the integration tests, and a real `.env` could reuse one unnoticed: 043's scanning
+matches providers' token formats, never a generic password. PostgreSQL applies a password only
+to an empty volume, so the check has to run before either database first starts. A one-shot
+Compose service, `secret-check`, does that: both databases and Grafana wait on it. It is the
+second one-shot that 039's restart and log rules exempt
+([#302](https://github.com/NaimElijah/FinAssist/issues/302)).

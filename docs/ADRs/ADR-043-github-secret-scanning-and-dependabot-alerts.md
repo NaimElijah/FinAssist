@@ -1,6 +1,6 @@
 # ADR-043: GitHub's own secret scanning and Dependabot alerts watch the repository
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by [ADR-044](ADR-044-compose-refuses-a-published-secret.md)
 - **Date:** 2026-10-17
 
 ## Context

@@ -107,6 +107,13 @@ jobs:
       - name: Test (backup CLI)
         run: make test-backup
 
+      # ops/secret_check/secret_check.py, linted the same way and for the same reason (ADR-044).
+      - name: Lint, format check and types (secret check)
+        run: make lint-secret-check
+
+      - name: Test (secret check)
+        run: make test-secret-check
+
       - name: Test
         run: make test-assistant
 
@@ -188,8 +195,8 @@ jobs:
           sed -i 's/^FINASSIST_OWNER_INITIAL_PASSWORD=$/FINASSIST_OWNER_INITIAL_PASSWORD=ci-only-12-chars/' .env
           sed -i 's/^GATEWAY_CLIENT_SECRET=$/GATEWAY_CLIENT_SECRET=ci-only/' .env
           sed -i 's/^ASSISTANT_CLIENT_SECRET=$/ASSISTANT_CLIENT_SECRET=ci-only/' .env
-          # --profile monitoring, or the three monitoring services are never interpolated and
-          # a broken reference among them validates green. --profile smoke does the same for
+          # --profile monitoring, or the three monitoring services are interpolated but never
+          # validated, and a broken reference among them passes. --profile smoke does the same for
           # ops/smoke/auth_smoke.py's auth-smoke service (Refs #38); running the check itself
           # stays a manual step (`make smoke-auth`), never a CI job.
           docker compose --profile monitoring config --quiet
@@ -207,7 +214,7 @@ jobs:
           services = resolved["services"]
           policy = resolved.get("x-restart-policy")
           bounded_logs = resolved.get("x-logging")
-          one_shot = {"auth-smoke"}
+          one_shot = {"auth-smoke", "secret-check"}
           readiness = {
               "ledger": "/actuator/health/readiness",
               "gateway": "/actuator/health/readiness",
@@ -230,3 +237,34 @@ jobs:
           print("\n".join(problems) or "Every service follows the Compose conventions")
           sys.exit(1 if problems else 0)
           '
+
+      # The gate's real wiring, which its own tests cannot reach (ADR-044). The .env above puts
+      # `ci-only` or `ci-only-12-chars`, values this repository publishes, in every secret. So the
+      # check must refuse all eight by name and never print the value, and `up` must leave `db`
+      # unstarted; fresh values must then pass. One container and no database: seconds, not the
+      # minutes that keep the smoke check out of CI (ADR-034). The reports go to $RUNNER_TEMP,
+      # outside the clone the check reads, so the fresh values are never in a file it searches.
+      - name: Refuse a published secret before any database starts
+        run: |
+          variables="POSTGRES_PASSWORD LEDGER_DB_PASSWORD KEYCLOAK_DB_PASSWORD"
+          variables="$variables KEYCLOAK_ADMIN_PASSWORD FINASSIST_OWNER_INITIAL_PASSWORD"
+          variables="$variables GATEWAY_CLIENT_SECRET"
+          variables="$variables ASSISTANT_CLIENT_SECRET GRAFANA_ADMIN_PASSWORD"
+          status=0
+          docker compose run --rm secret-check > "$RUNNER_TEMP/refused.txt" 2>&1 || status=$?
+          cat "$RUNNER_TEMP/refused.txt"
+          test "$status" -eq 1
+          for name in $variables; do
+            grep -q "REFUSED: $name appears" "$RUNNER_TEMP/refused.txt"
+          done
+          if grep -q "ci-only" "$RUNNER_TEMP/refused.txt"; then
+            echo "the refusal printed a value"; exit 1
+          fi
+          if docker compose up -d db; then
+            echo "db started on a published secret"; exit 1
+          fi
+          test -z "$(docker compose ps -q --status running db)"
+          for name in $variables; do
+            echo "$name=$(openssl rand -hex 16)"
+          done > "$RUNNER_TEMP/fresh.env"
+          docker compose --env-file "$RUNNER_TEMP/fresh.env" run --rm secret-check
