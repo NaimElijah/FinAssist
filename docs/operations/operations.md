@@ -228,9 +228,10 @@ docker compose up -d --wait keycloak
 ### Signing in the admin CLI
 
 The Keycloak recipes run `kcadm.sh`, Keycloak's admin CLI, inside the `keycloak` container. Sign
-it in once for each container. It keeps its token in `/tmp/kcadm.config` until the container is
-recreated. When the admin's password is still the `KEYCLOAK_ADMIN_PASSWORD` in `.env`, the
-container already holds it:
+it in once for each container. It keeps a master-realm admin session in `/tmp/kcadm.config` until
+the container is recreated, so remove it once the recipe is done:
+`docker compose exec -T keycloak rm /tmp/kcadm.config`. When the admin's password is still the
+`KEYCLOAK_ADMIN_PASSWORD` in `.env`, the container already holds it:
 
 ```bash
 docker compose exec -T keycloak sh -c 'KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" /opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --config /tmp/kcadm.config'
