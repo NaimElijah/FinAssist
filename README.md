@@ -184,11 +184,13 @@ cp .env.example .env        # then set every secret in the table below, before s
 | `GRAFANA_ADMIN_PASSWORD` | Any strong value. Only the `monitoring` profile uses it, but Compose interpolates every service, so every `docker compose` command needs it set |
 
 Under Compose, Keycloak and the gateway read `GATEWAY_CLIENT_SECRET` from the same `.env` entry,
-so the two cannot disagree; `ASSISTANT_CLIENT_SECRET` is read only by Keycloak and the smoke check
-until the assistant has a ledger client ([#62](https://github.com/NaimElijah/FinAssist/issues/62)).
-Keycloak copies the secrets into the realm at its first import, and only then
-([details](docs/operations/operations.md#changing-the-realm-or-its-secrets)), so a secret changed
-later is [rotated in place](docs/operations/operations.md#rotating-a-secret). Upgrading a
+so the realm's first import gives the gateway's client the secret the gateway signs in with.
+`ASSISTANT_CLIENT_SECRET` is read only by Keycloak and the smoke check until the assistant has a
+ledger client ([#62](https://github.com/NaimElijah/FinAssist/issues/62)). Keycloak copies the
+secrets into the realm at that first import, and only then
+([details](docs/operations/operations.md#changing-the-realm-or-its-secrets)). So a secret changed
+later is [rotated in place](docs/operations/operations.md#rotating-a-secret), in Keycloak as well
+as in `.env`. Upgrading a
 `db-data` volume from before `V1_2`?
 [Back it up first](docs/operations/operations.md#upgrading-an-existing-ledger-volume).
 

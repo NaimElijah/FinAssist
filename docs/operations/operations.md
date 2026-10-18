@@ -96,13 +96,13 @@ check against a live stack stays a manual step.
 [ADR-034](../ADRs/ADR-034-keep-the-compose-smoke-check-manual.md) records why, and what would
 change that.
 
-It sees only part of a stale realm. Keycloak imports the realm only into an empty
-`keycloak-db-data` volume, so what it holds can lag behind the file and `.env`. An
-`ASSISTANT_CLIENT_SECRET` changed in `.env` but never re-imported fails check 1, because the check
-authenticates with the `.env` value while Keycloak still holds the old one. It cannot see a stale
-`GATEWAY_CLIENT_SECRET`, which it never exchanges — only a real sign-in does — nor stale redirect
-URIs: the login-redirect check compares the gateway's redirect with the public URLs Compose
-configured, not with the redirect URIs Keycloak stored.
+It sees only part of a stale realm. Keycloak imports the realm only into an empty `keycloak-db-data`
+volume, so what it holds can lag behind the file and `.env`. An `ASSISTANT_CLIENT_SECRET` changed in
+`.env` but not yet set in Keycloak fails check 1, because the check authenticates with the `.env`
+value while Keycloak still holds the old one. It cannot see a stale `GATEWAY_CLIENT_SECRET`, which
+it never exchanges — only a real sign-in does — nor stale redirect URIs: the login-redirect check
+compares the gateway's redirect with the public URLs Compose configured, not with the redirect URIs
+Keycloak stored.
 
 ## Changing the realm or its secrets
 
