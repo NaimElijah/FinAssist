@@ -251,7 +251,8 @@ variable. If the admin's password is lost altogether, see
 ### Keycloak's admin password
 
 Keycloak reads `KEYCLOAK_ADMIN_PASSWORD`, as `KC_BOOTSTRAP_ADMIN_PASSWORD`, only when it first
-creates its `master` realm, and ignores it afterwards. Set the new value in `.env`, then:
+creates its `master` realm, and ignores it afterwards. Note the current value first: a later step
+signs in with it, after `.env` has stopped holding it. Then set the new value in `.env`, and run:
 
 ```bash
 docker compose up -d --wait keycloak   # now carries the new value; the admin still has the old one
@@ -332,7 +333,8 @@ To replace every secret in one pass, run the recipes above in this order. That i
 `.env` whose values were copied from somewhere public.
 
 1. `make backup`, with `db` and `keycloak-db` running.
-2. Write a new value for every secret into `.env`.
+2. Note the current `KEYCLOAK_ADMIN_PASSWORD`, which step 5 needs. Then write a new value for every
+   secret into `.env`.
 3. `docker compose up -d --wait db keycloak-db`, then both `\password` commands.
 4. `docker compose up -d --wait keycloak`.
 5. Sign the admin CLI in with the admin's *current* password from your terminal.
