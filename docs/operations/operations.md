@@ -163,8 +163,8 @@ value, not a missing one.
 ## Rotating a secret
 
 **A secret is changed where it is stored, then the service that reads it is restarted — never by
-re-importing the realm or recreating a volume.** Each secret in `.env` is copied into its store
-once:
+re-importing the realm or recreating a volume.** Each secret Compose hands a service is copied
+into its store once:
 
 - PostgreSQL sets a role's password only when it initialises an empty volume.
 - Keycloak copies the two client secrets, and its own admin's password, only into an empty
@@ -188,6 +188,8 @@ Before you start:
 - **Take `make backup`.** Restoring it is the undo (see
   [Backing up and restoring](#backing-up-and-restoring)).
 - **Generate each value with `openssl rand -hex 16`**, which Git Bash carries.
+- **`ANTHROPIC_API_KEY` is not rotated here.** Anthropic issues it, so a leaked key is revoked in
+  Anthropic's console and replaced by the one it issues next. Nothing in the stack reads it yet.
 - **Run the recipes in Git Bash, or another POSIX shell, after `export MSYS_NO_PATHCONV=1`.**
   - Without `MSYS_NO_PATHCONV`, Git Bash rewrites an argument that starts with `/`, such as
     `/opt/keycloak/bin/kcadm.sh`, into a Windows path before Docker sees it.
@@ -333,8 +335,8 @@ To replace every secret in one pass, run the recipes above in this order. That i
 `.env` whose values were copied from somewhere public.
 
 1. `make backup`, with `db` and `keycloak-db` running.
-2. Note the current `KEYCLOAK_ADMIN_PASSWORD`, which step 5 needs. Then write a new value for every
-   secret into `.env`.
+2. Note the current `KEYCLOAK_ADMIN_PASSWORD`, which step 5 needs. Then write a new value for each
+   secret above into `.env`.
 3. `docker compose up -d --wait db keycloak-db`, then both `\password` commands.
 4. `docker compose up -d --wait keycloak`.
 5. Sign the admin CLI in with the admin's *current* password from your terminal.

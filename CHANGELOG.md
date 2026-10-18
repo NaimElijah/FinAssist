@@ -11,8 +11,8 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
-- **Every secret in `.env` can be rotated in place, without a realm re-import.** The new
-  "Rotating a secret" section of `docs/operations/operations.md` covers:
+- **Every secret Compose hands a service can be rotated in place, without a realm re-import.**
+  The new "Rotating a secret" section of `docs/operations/operations.md` covers:
   - the two database roles, changed with `\password`;
   - Keycloak's admin and the two client secrets, changed with `kcadm.sh`;
   - Grafana's admin.
