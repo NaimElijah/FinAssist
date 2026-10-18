@@ -694,11 +694,13 @@ still no bare `token`, so a token count survives.
 - **Roles refresh only at the next sign-in** in what the web client shows: `GET /bff/me` reads
   them from the ID token the gateway received at sign-in (ADR-032).
 - **The realm is imported only into an empty `keycloak-db-data` volume.** A change to
-  `finassist-realm.json`, or to the secrets it takes from `.env`, needs that volume recreated or
-  the realm re-imported with `kc.sh import --override true`, which deletes the `finassist` realm,
-  its users included, before importing the file. Either way the owner signs in afresh;
+  `finassist-realm.json` needs that volume recreated or the realm re-imported with
+  `kc.sh import --override true`, which deletes the `finassist` realm, its users included, before
+  importing the file. Either way the owner signs in afresh;
   [Changing the realm or its secrets](../operations/operations.md#changing-the-realm-or-its-secrets)
-  gives both recipes (ADR-031).
+  gives both recipes (ADR-031). A secret the realm takes from `.env` is instead changed in place,
+  `.env` first and then in Keycloak, which keeps every user
+  ([Rotating a secret](../operations/operations.md#rotating-a-secret)).
 - **No deployed origin serves the built bundle**: only the Vite dev and preview servers, with
   their proxy, stand in front of the gateway (ADR-030,
   [#61](https://github.com/NaimElijah/FinAssist/issues/61)).

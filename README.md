@@ -184,10 +184,13 @@ cp .env.example .env        # then set every secret in the table below, before s
 | `GRAFANA_ADMIN_PASSWORD` | Any strong value. Only the `monitoring` profile uses it, but Compose interpolates every service, so every `docker compose` command needs it set |
 
 Under Compose, Keycloak and the gateway read `GATEWAY_CLIENT_SECRET` from the same `.env` entry,
-so the two cannot disagree; `ASSISTANT_CLIENT_SECRET` is read only by Keycloak and the smoke check
-until the assistant has a ledger client ([#62](https://github.com/NaimElijah/FinAssist/issues/62)).
-Keycloak copies the secrets into the realm at its first import, and only then
-([details](docs/operations/operations.md#changing-the-realm-or-its-secrets)). Upgrading a
+so the realm's first import gives the gateway's client the secret the gateway signs in with.
+`ASSISTANT_CLIENT_SECRET` is read only by Keycloak and the smoke check until the assistant has a
+ledger client ([#62](https://github.com/NaimElijah/FinAssist/issues/62)). Keycloak copies the
+secrets into the realm at that first import, and only then
+([details](docs/operations/operations.md#changing-the-realm-or-its-secrets)). So a secret changed
+later is [rotated in place](docs/operations/operations.md#rotating-a-secret), in Keycloak as well
+as in `.env`. Upgrading a
 `db-data` volume from before `V1_2`?
 [Back it up first](docs/operations/operations.md#upgrading-an-existing-ledger-volume).
 
@@ -551,7 +554,8 @@ with dashboards provisioned from `ops/grafana/`.
 > in `db-data` and the owner's identity in `keycloak-db-data` included. `make stop` keeps both.
 
 Running the stack day to day — restarts and logs, upgrading a ledger volume from before `V1_2`,
-the authentication smoke check, realm changes, backups and restores, the telemetry backend — is in
+the authentication smoke check, realm changes, rotating a secret, letting a locked-out owner or
+admin back in, backups and restores, the telemetry backend — is in
 [docs/operations/operations.md](docs/operations/operations.md).
 
 ## Project structure
@@ -667,8 +671,16 @@ ledger client behind its own `LedgerPort`.
   loss of the machine ([ADR-038](docs/ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md)).
 - **A realm change needs a re-import, and a re-import deletes the realm's users.** Keycloak imports
   the realm file and its secrets only into an empty volume
-  ([recipes](docs/operations/operations.md#changing-the-realm-or-its-secrets)). The smoke check
+  ([recipes](docs/operations/operations.md#changing-the-realm-or-its-secrets)). A changed secret
+  needs neither: each one is
+  [rotated in place](docs/operations/operations.md#rotating-a-secret). The smoke check
   sees a stale `ASSISTANT_CLIENT_SECRET`, but not a stale gateway secret or stale redirect URIs.
+- **Nobody can recover their own sign-in.** The realm offers no password reset and has no mail
+  server. So a forgotten password or a lost authenticator needs Keycloak's admin
+  ([runbook](docs/operations/operations.md#restoring-the-owners-sign-in)). A brute-force lockout
+  lifts by itself within 15 minutes, or sooner if the admin clears it. A lost admin
+  password needs Keycloak's own `bootstrap-admin`
+  ([recovery](docs/operations/operations.md#recovering-keycloaks-admin-account)).
 <details>
 <summary>The narrower limitations</summary>
 
