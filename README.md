@@ -171,6 +171,14 @@ cp .env.example .env        # then set every secret in the table below, before s
 > `required variable X is missing a value: set X in .env` for every one still missing. An `.env`
 > copied before authentication arrived lacks the five identity secrets, from
 > `KEYCLOAK_DB_PASSWORD` to `ASSISTANT_CLIENT_SECRET`.
+>
+> **Never reuse a value from this repository.** CI and the tests publish throwaway ones, such as
+> `ci-only`. Before any database starts, the one-shot `secret-check` service refuses a secret that
+> appears in a file git does not ignore, and `docker compose up` then stops with
+> `service "secret-check" didn't complete successfully: exit 1`.
+> `docker compose logs secret-check` names each variable, never its value. To change one,
+> follow [Rotating a secret](docs/operations/operations.md#rotating-a-secret)
+> ([ADR-044](docs/ADRs/ADR-044-compose-refuses-a-published-secret.md)).
 
 | Secret | What to put in it |
 |---|---|
@@ -501,7 +509,9 @@ the secret check's lint and tests);
 the web client (contract types regenerated with no diff, lint, format check, typecheck, tests,
 production build and `npm audit`); and `docker compose config` across every profile, which also
 fails a service without the shared restart and log policy, or a healthcheck that probes anything
-but readiness. No CI job starts the Compose stack. The branch rules on `main` and `dev` require a
+but readiness. The compose job also runs `secret-check` against a published value, and requires
+it to refuse all eight secrets by name and keep `db` from starting. No CI job starts the rest
+of the Compose stack. The branch rules on `main` and `dev` require a
 pull request but no status check, so a green run before merging is practice, not enforcement
 ([#134](https://github.com/NaimElijah/FinAssist/issues/134)).
 

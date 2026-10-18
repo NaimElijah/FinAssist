@@ -31,8 +31,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-# Every secret docker-compose.yml requires through `${VAR:?}`; tests/test_secret_check.py keeps
-# the two lists equal.
+# Every secret docker-compose.yml requires through `${VAR:?}`, and hands the `secret-check` service
+# as `${VAR:-}`; tests/test_secret_check.py keeps all three lists equal.
 SECRET_VARIABLES: Final = (
     "POSTGRES_PASSWORD",
     "LEDGER_DB_PASSWORD",

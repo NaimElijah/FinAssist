@@ -254,6 +254,15 @@ def Given_the_compose_file_When_its_secrets_are_read_Then_the_check_covers_each(
     assert required == set(secret_check.SECRET_VARIABLES)
 
 
+def Given_the_compose_file_When_the_check_service_is_read_Then_it_is_handed_each_secret() -> None:
+    compose = (REPOSITORY_ROOT / "docker-compose.yml").read_bytes().decode()
+
+    # `secret-check` is the one service that takes a secret as `NAME: ${NAME:-}`, empty default.
+    handed = set(re.findall(r"^\s+([A-Z0-9_]+): \$\{\1:-\}$", compose, re.MULTILINE))
+
+    assert handed == set(secret_check.SECRET_VARIABLES)
+
+
 # --- The walk agrees with git --------------------------------------------------------------------
 
 

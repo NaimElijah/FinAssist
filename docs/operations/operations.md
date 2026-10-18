@@ -183,10 +183,20 @@ from inside that container. No value is ever typed into a command line or kept i
 None is passed as a process argument either, where any local user's `ps` could read it on a Linux
 Docker host: each one reaches its tool through the environment or standard input.
 
+**A stack that refuses to start on a published secret is fixed the same way.** Before any
+database starts, `secret-check` refuses each secret that a file git does not ignore holds, and
+`docker compose logs secret-check` names them
+([ADR-044](../ADRs/ADR-044-compose-refuses-a-published-secret.md)). Write a new value for each
+into `.env`, then follow [Every secret at once](#every-secret-at-once): the databases start
+again as soon as no secret is published.
+
 Before you start:
 
 - **Take `make backup`.** Restoring it is the undo (see
-  [Backing up and restoring](#backing-up-and-restoring)).
+  [Backing up and restoring](#backing-up-and-restoring)). On a stack that `secret-check`
+  refuses, the databases cannot start until `.env` holds new values, so write them first.
+  The backup then works anyway, because it reads each database over its own socket, which
+  needs no password.
 - **Generate each value with `openssl rand -hex 16`**, which Git Bash carries.
 - **`ANTHROPIC_API_KEY` is not rotated here.** Anthropic issues it, so a leaked key is revoked in
   Anthropic's console and replaced by the one it issues next. Nothing in the stack reads it yet.
@@ -335,16 +345,18 @@ docker compose --profile monitoring exec -T grafana sh -c 'printf %s "$GF_SECURI
 To replace every secret in one pass, run the recipes above in this order. That is the case for an
 `.env` whose values were copied from somewhere public.
 
-1. `make backup`, with `db` and `keycloak-db` running.
-2. Note the current `KEYCLOAK_ADMIN_PASSWORD`, which step 5 needs. Then write a new value for each
+1. Note the current `KEYCLOAK_ADMIN_PASSWORD`, which step 6 needs. Then write a new value for each
    secret above into `.env`.
-3. `docker compose up -d --wait db keycloak-db`, then both `\password` commands.
-4. `docker compose up -d --wait keycloak`.
-5. Sign the admin CLI in with the admin's *current* password from your terminal.
-6. Set the admin's password, then both client secrets.
-7. Grafana's admin password, if you run the `monitoring` profile.
-8. `docker compose up -d --wait`, which recreates the ledger and the gateway with the new values.
-9. Sign in through the web client, and run `make smoke-auth`.
+2. `docker compose up -d --wait db keycloak-db`. `secret-check` runs first, and passes now that no
+   secret is published.
+3. `make backup`.
+4. Both `\password` commands.
+5. `docker compose up -d --wait keycloak`.
+6. Sign the admin CLI in with the admin's *current* password from your terminal.
+7. Set the admin's password, then both client secrets.
+8. Grafana's admin password, if you run the `monitoring` profile.
+9. `docker compose up -d --wait`, which recreates the ledger and the gateway with the new values.
+10. Sign in through the web client, and run `make smoke-auth`.
 
 ## Restoring the owner's sign-in
 
@@ -499,7 +511,8 @@ make restore-check BACKUP=backups/<UTC time>   # raw: uv run ops/backup/backup.p
 
 **Where it runs.** Always as `finassist-restore-check`, which it passes as `-p` on every call. Its
 ports are 15432, 18080 and 18081, so it runs beside your stack and never touches your project or
-its volumes. It needs `.env` complete, as `docker compose up` does.
+its volumes. It needs `.env` complete, as `docker compose up` does, and with no secret the
+repository publishes, since `secret-check` runs first there too.
 
 **What it does.** It restores both dumps into fresh volumes, then starts Keycloak and the ledger
 on them. The first run builds both images under that project's name, so expect several minutes.

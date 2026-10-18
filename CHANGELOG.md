@@ -11,6 +11,19 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **The stack refuses to start on a secret the repository publishes.** A new one-shot Compose
+  service, `secret-check`, runs before `db`, `keycloak-db` and Grafana, which wait on it.
+  - It refuses each secret that appears in a file git does not ignore, such as CI's `ci-only`
+    values or a test's fixture.
+  - It names the variable, never the value or the file.
+  - It runs before either database first starts, because PostgreSQL applies a password only to
+    an empty volume.
+
+  **An existing `.env` that reuses a published value stops starting.** Write new values into
+  `.env` and follow "Every secret at once" in `docs/operations/operations.md`. CI runs the real
+  service against its own published values
+  ([ADR-044](docs/ADRs/ADR-044-compose-refuses-a-published-secret.md),
+  [#302](https://github.com/NaimElijah/FinAssist/issues/302)).
 - **Every secret Compose hands a service can be rotated in place, without a realm re-import.**
   The new "Rotating a secret" section of `docs/operations/operations.md` covers:
   - the two database roles, changed with `\password`;

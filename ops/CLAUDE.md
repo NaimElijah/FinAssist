@@ -13,7 +13,8 @@ here too, including its rules for `docker-compose.yml`; this file adds what bind
   own, and proves a backup restores (ADR-038). Its tests are in `ops/backup/tests/`.
 - `ops/secret_check/secret_check.py` — a standard-library check, one file with no dependency,
   that refuses a secret that any file git does not ignore holds (#302). It names a variable,
-  never a value or a file. Its tests are in `ops/secret_check/tests/`.
+  never a value or a file. It runs as the one-shot `secret-check` service that both databases
+  and Grafana wait on (ADR-044). Its tests are in `ops/secret_check/tests/`.
 - `ops/smoke/auth_smoke.py` — the only file behind the `smoke` Compose profile (ADR-034).
 - The collector, Prometheus and Grafana provisioning that the `monitoring` Compose profile mounts.
 
