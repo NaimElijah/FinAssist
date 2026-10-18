@@ -357,6 +357,14 @@ To replace every secret in one pass, run the recipes above in this order. That i
 8. Grafana's admin password, if you run the `monitoring` profile.
 9. `docker compose up -d --wait`, which recreates the ledger and the gateway with the new values.
 10. Sign in through the web client, and run `make smoke-auth`.
+11. Take `make backup` again, and run `make restore-check` on it.
+    - Step 3's backup holds the old client secrets. `make restore-check` signs in to the restored
+      Keycloak with `.env`'s `ASSISTANT_CLIENT_SECRET`, so it fails on that backup at "the ledger
+      serves every account the books hold", and on every older one.
+    - Running the check with the old `.env` is not a way round it either: `secret-check` refuses
+      those values.
+    - So the new backup is the first one a restore check can prove. Keep the old one until it
+      has passed.
 
 ## Restoring the owner's sign-in
 
