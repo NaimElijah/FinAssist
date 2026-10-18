@@ -13,12 +13,15 @@ SMOKE     := ../../ops/smoke
 # ops/backup as seen from $(ASSISTANT), linted the same way. Not named BACKUP, which
 # `make restore BACKUP=<folder>` uses for the folder to restore.
 BACKUP_TOOL := ../../ops/backup
+# ops/secret_check as seen from $(ASSISTANT), linted and tested the same way (ADR-044).
+SECRET_CHECK := ../../ops/secret_check
 MVNW      := ./mvnw -B
 UV        := uv
 
 .PHONY: help setup lock run run-monitoring run-identity smoke-auth stop stop-monitoring backup restore restore-check \
-        test test-ledger test-gateway test-assistant test-backup test-web mutation-ledger \
-        lint lint-ledger lint-gateway lint-assistant lint-smoke lint-backup lint-web \
+        test test-ledger test-gateway test-assistant test-backup test-secret-check test-web \
+        mutation-ledger lint lint-ledger lint-gateway lint-assistant lint-smoke lint-backup \
+        lint-secret-check lint-web \
         build-web generate-web-api format audit audit-assistant audit-web clean
 
 help: ## List available targets
@@ -67,7 +70,7 @@ stop: ## Stop the stack, keeping volumes
 stop-monitoring: ## Stop the monitoring profile too, keeping volumes
 	docker compose --profile monitoring down
 
-test: test-ledger test-gateway test-assistant test-backup test-web ## Every test, with coverage. CI also gates lint, build and audit
+test: test-ledger test-gateway test-assistant test-backup test-secret-check test-web ## Every test, with coverage. CI also gates lint, build and audit
 
 test-ledger:
 	cd $(LEDGER) && $(MVNW) verify
@@ -82,13 +85,17 @@ test-assistant:
 test-backup:
 	cd $(ASSISTANT) && $(UV) run pytest -c pyproject.toml $(BACKUP_TOOL)/tests
 
+# The secret check, under the same settings: real git, no Docker (ADR-044).
+test-secret-check:
+	cd $(ASSISTANT) && $(UV) run pytest -c pyproject.toml $(SECRET_CHECK)/tests
+
 test-web:
 	cd $(WEB) && npm run test:coverage
 
 mutation-ledger: ## Mutation testing over the ledger domain; a diagnostic, gated on nothing (ADR-017)
 	cd $(LEDGER) && $(MVNW) -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
 
-lint: lint-ledger lint-gateway lint-assistant lint-smoke lint-backup lint-web ## Format check and static analysis; never rewrites a file
+lint: lint-ledger lint-gateway lint-assistant lint-smoke lint-backup lint-secret-check lint-web ## Format check and static analysis; never rewrites a file
 
 lint-ledger:
 	cd $(LEDGER) && $(MVNW) spotless:check
@@ -111,6 +118,11 @@ lint-backup:
 	cd $(ASSISTANT) && $(UV) run ruff format --check $(BACKUP_TOOL)
 	cd $(ASSISTANT) && $(UV) run mypy --strict $(BACKUP_TOOL)
 
+lint-secret-check:
+	cd $(ASSISTANT) && $(UV) run ruff check $(SECRET_CHECK)
+	cd $(ASSISTANT) && $(UV) run ruff format --check $(SECRET_CHECK)
+	cd $(ASSISTANT) && $(UV) run mypy --strict $(SECRET_CHECK)
+
 lint-web:
 	cd $(WEB) && npm run lint
 	cd $(WEB) && npm run format:check
@@ -125,8 +137,8 @@ generate-web-api: ## Regenerate the web client's contract types from contracts/*
 format: ## Rewrite sources to match the formatters
 	cd $(LEDGER) && $(MVNW) spotless:apply
 	cd $(GATEWAY) && $(MVNW) spotless:apply
-	cd $(ASSISTANT) && $(UV) run ruff format . $(SMOKE) $(BACKUP_TOOL)
-	cd $(ASSISTANT) && $(UV) run ruff check --fix . $(SMOKE) $(BACKUP_TOOL)
+	cd $(ASSISTANT) && $(UV) run ruff format . $(SMOKE) $(BACKUP_TOOL) $(SECRET_CHECK)
+	cd $(ASSISTANT) && $(UV) run ruff check --fix . $(SMOKE) $(BACKUP_TOOL) $(SECRET_CHECK)
 	cd $(WEB) && npm run format
 
 audit: audit-assistant audit-web ## Fail on a known vulnerability in a pinned dependency

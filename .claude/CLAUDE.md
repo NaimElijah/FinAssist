@@ -46,8 +46,8 @@ backups and the smoke check). Keep them in sync with `README.md`'s Development t
   **Never `docker compose down -v`**: it deletes the owner's `db-data` and `keycloak-db-data`.
 - **Telemetry** — `make run-monitoring`: `docker compose --profile monitoring up --build`
   (collector, Prometheus, Grafana); `make stop-monitoring` tears the profile down.
-- **Test** — `make test` runs `test-ledger`, `test-gateway`, `test-assistant`, `test-backup` and
-  `test-web`. **Docker must be running for the ledger's and the gateway's suites**: their `*IT`
+- **Test** — `make test` runs `test-ledger`, `test-gateway`, `test-assistant`, `test-backup`,
+  `test-secret-check` and `test-web`. **Docker must be running for the ledger's and the gateway's suites**: their `*IT`
   tests use Testcontainers and fail rather than skip without it (ADR-025).
 - **Clean** — `make clean`: `./mvnw -B -q clean` (ledger, gateway), then delete the assistant's
   caches and coverage files and the web client's `dist/` and `coverage/`; never `.env` or volumes.

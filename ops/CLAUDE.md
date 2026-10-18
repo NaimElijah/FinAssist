@@ -11,6 +11,9 @@ here too, including its rules for `docker-compose.yml`; this file adds what bind
 - `ops/backup/backup.py` — a standard-library operator CLI, run on the host with `uv run`; its PEP
   723 block declares Python 3.13 and no dependency. It backs up and restores each database on its
   own, and proves a backup restores (ADR-038). Its tests are in `ops/backup/tests/`.
+- `ops/secret_check/secret_check.py` — a standard-library check, one file with no dependency,
+  that refuses a secret that any file git does not ignore holds (#302). It names a variable,
+  never a value or a file. Its tests are in `ops/secret_check/tests/`.
 - `ops/smoke/auth_smoke.py` — the only file behind the `smoke` Compose profile (ADR-034).
 - The collector, Prometheus and Grafana provisioning that the `monitoring` Compose profile mounts.
 
@@ -38,20 +41,26 @@ From the repository root unless stated:
 - **Test the backup CLI** — `make test-backup`: `cd backend/assistant && uv run pytest -c
   pyproject.toml ../../ops/backup/tests`. Its Docker-free logic only; `make restore-check` proves
   the rest.
+- **Test the secret check** — `make test-secret-check`: `cd backend/assistant && uv run pytest
+  -c pyproject.toml ../../ops/secret_check/tests`. Real `git`, never Docker.
 - **Smoke-test authentication** (opt-in, manual) — `make smoke-auth`:
   `docker compose --profile smoke run --rm auth-smoke`, after `make run` reports every service
   healthy. Run cold, `compose run` starts the stack itself, but from existing images, without
   building.
 - **Lint** — from `backend/assistant`, `uv run ruff check`, `uv run ruff format --check` and
-  `uv run mypy --strict` over `../../ops/smoke` (`make lint-smoke`) and over `../../ops/backup`
-  (`make lint-backup`), each its own CI step in the assistant job. `make format` formats both
-  alongside the assistant (`backend/assistant/CLAUDE.md`).
+  `uv run mypy --strict` over `../../ops/smoke` (`make lint-smoke`), `../../ops/backup`
+  (`make lint-backup`) and `../../ops/secret_check` (`make lint-secret-check`), each its own CI
+  step in the assistant job. `make format` formats all three alongside the assistant
+  (`backend/assistant/CLAUDE.md`).
 
 ## Rules
 
-- **The operator CLIs print their report.** `ops/smoke/auth_smoke.py` and `ops/backup/backup.py`
-  are not services: each one's report on stdout is its product, written by one `print` marked
-  `# noqa: T201` with its reason.
+- **The operator CLIs print their report.** `ops/smoke/auth_smoke.py`, `ops/backup/backup.py` and
+  `ops/secret_check/secret_check.py` are not services: each one's report on stdout is its
+  product, written by one `print` marked `# noqa: T201` with its reason.
+- **The secret check's report names a variable, never its value, and never the file holding it.**
+  In a public repository, naming the file gives the value away. An error it did not foresee is
+  reported by its type alone, since its message could quote what was being read.
 - **`backup.py`'s report never carries an amount, a name, an id or a secret.** Every PostgreSQL
   message it repeats goes through `_withheld`, which withholds quoted and parenthesised spans,
   UUIDs and bare numbers, and drops continuation lines. `ops/backup/tests` pins this.

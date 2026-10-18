@@ -107,6 +107,13 @@ jobs:
       - name: Test (backup CLI)
         run: make test-backup
 
+      # ops/secret_check/secret_check.py, linted the same way and for the same reason (ADR-044).
+      - name: Lint, format check and types (secret check)
+        run: make lint-secret-check
+
+      - name: Test (secret check)
+        run: make test-secret-check
+
       - name: Test
         run: make test-assistant
 
