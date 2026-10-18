@@ -26,6 +26,7 @@ import os
 import re
 import sys
 from collections.abc import Iterator, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -55,6 +56,9 @@ TOKEN_CHARACTER: Final = rb"[A-Za-z0-9_-]"
 GIT_METADATA: Final = ".git"
 GITIGNORE: Final = ".gitignore"
 INFO_EXCLUDE: Final = Path(".git", "info", "exclude")
+# Reading the clone over Docker Desktop's bind mount is latency, not work: 691 files took 5.7 s one
+# at a time and 0.7 s on eight threads, measured on the owner's machine on 2026-10-18.
+READ_WORKERS: Final = 8
 
 
 class SecretCheckError(Exception):
@@ -225,19 +229,21 @@ def check(root: Path, environment: Mapping[str, str]) -> Verdict:
     tokens = {
         name: _token(value) for name in SECRET_VARIABLES if (value := environment.get(name, ""))
     }
+    files = list(scanned_files(root))
     found: set[str] = set()
-    files = 0
-    for relative in scanned_files(root):
-        pending = [name for name in tokens if name not in found]
-        if not pending:
-            break
-        try:
-            content = _read(root / relative)
-        except OSError as error:
-            raise SecretCheckError(f"cannot read {relative}: {type(error).__name__}") from error
-        files += 1
-        found.update(name for name in pending if tokens[name].search(content))
-    return Verdict(tuple(name for name in SECRET_VARIABLES if name in found), len(tokens), files)
+    with ThreadPoolExecutor(max_workers=READ_WORKERS) as pool:
+        for content in pool.map(lambda relative: _content(root, relative), files):
+            found.update(name for name, token in tokens.items() if token.search(content))
+    return Verdict(
+        tuple(name for name in SECRET_VARIABLES if name in found), len(tokens), len(files)
+    )
+
+
+def _content(root: Path, relative: str) -> bytes:
+    try:
+        return _read(root / relative)
+    except OSError as error:
+        raise SecretCheckError(f"cannot read {relative}: {type(error).__name__}") from error
 
 
 def _report(line: str) -> None:
