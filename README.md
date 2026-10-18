@@ -674,8 +674,9 @@ ledger client behind its own `LedgerPort`.
   [rotated in place](docs/operations/operations.md#rotating-a-secret). The smoke check
   sees a stale `ASSISTANT_CLIENT_SECRET`, but not a stale gateway secret or stale redirect URIs.
 - **Nobody can recover their own sign-in.** The realm offers no password reset and has no mail
-  server. So a forgotten password, a lost authenticator or a brute-force lockout needs Keycloak's
-  admin ([runbook](docs/operations/operations.md#restoring-the-owners-sign-in)). A lost admin
+  server. So a forgotten password or a lost authenticator needs Keycloak's admin
+  ([runbook](docs/operations/operations.md#restoring-the-owners-sign-in)). A brute-force lockout
+  lifts by itself within 15 minutes, or sooner if the admin clears it. A lost admin
   password needs Keycloak's own `bootstrap-admin`
   ([recovery](docs/operations/operations.md#recovering-keycloaks-admin-account)).
 <details>
