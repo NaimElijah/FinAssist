@@ -323,6 +323,37 @@ def Given_nested_negated_and_anchored_patterns_When_walked_Then_it_sees_what_git
     assert walked == seen_by_git
 
 
+def Given_ignore_files_git_reads_byte_by_byte_When_walked_Then_it_sees_what_git_does_not_ignore(
+    tmp_path: Path,
+) -> None:
+    # Each line is a way the walker once read an ignore file differently from git, and hid a file
+    # that git would publish: a trailing tab kept, a lone carriage return as a line break, a BOM
+    # cancelling a first-line negation, and an unclosed `[` matched as a literal.
+    root = _clone(
+        tmp_path / "repo",
+        {
+            "foo": b"x",
+            "a": b"x",
+            "b": b"x",
+            "bar[": b"x",
+            "baz": b"x",
+            "sub/.gitignore": b"\xef\xbb\xbf!keep.txt\n",
+            "sub/keep.txt": b"x",
+            "sub/drop.txt": b"x",
+        },
+        gitignore=b"foo\t\na\rb\nbar[\nbaz   \n*.txt\n",
+    )
+    _git(root, "init", "-q")
+    seen_by_git = set(
+        _git(root, "ls-files", "--cached", "--others", "--exclude-standard").splitlines()
+    )
+
+    walked = set(secret_check.scanned_files(root))
+
+    assert walked == seen_by_git
+    assert {"foo", "a", "b", "bar[", "sub/keep.txt"} <= walked
+
+
 def Given_this_checkout_When_walked_Then_every_tracked_file_is_scanned() -> None:
     tracked = set(
         subprocess.run(

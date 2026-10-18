@@ -56,6 +56,8 @@ TOKEN_CHARACTER: Final = rb"[A-Za-z0-9_-]"
 GIT_METADATA: Final = ".git"
 GITIGNORE: Final = ".gitignore"
 INFO_EXCLUDE: Final = Path(".git", "info", "exclude")
+# git's wildmatch never matches a pattern with an unclosed `[`, so neither does this.
+NEVER: Final = re.compile(r"(?!)")
 # Reading the clone over Docker Desktop's bind mount is latency, not work: 691 files took 5.7 s one
 # at a time and 0.7 s on eight threads, measured on the owner's machine on 2026-10-18.
 READ_WORKERS: Final = 8
@@ -121,7 +123,10 @@ def _glob(pattern: str) -> re.Pattern[str]:
         elif pattern[index] == "?":
             parts.append("[^/]")
             index += 1
-        elif pattern[index] == "[" and (end := pattern.find("]", index + 2)) != -1:
+        elif pattern[index] == "[":
+            end = pattern.find("]", index + 2)
+            if end == -1:
+                return NEVER
             members = pattern[index + 1 : end].replace("\\", "\\\\")
             if members.startswith("!"):
                 members = f"^{members[1:]}"
@@ -136,11 +141,24 @@ def _glob(pattern: str) -> re.Pattern[str]:
     return re.compile("".join(parts))
 
 
+def _trailing_spaces_removed(line: str) -> str:
+    """Drops trailing spaces as git does: spaces only, and never one escaped with a backslash."""
+    end = len(line)
+    while end > 0 and line[end - 1] == " " and not line[: end - 1].endswith("\\"):
+        end -= 1
+    return line[:end]
+
+
 def _rules(text: str, base: str) -> tuple[_IgnoreRule, ...]:
-    """Parses one ignore file, whose patterns apply below `base`."""
+    """Parses one ignore file, whose patterns apply below `base`.
+
+    Lines are split as git splits them, on a line feed alone, with one carriage return before it
+    dropped. `str.splitlines` would also break at a lone carriage return, a form feed or a
+    vertical tab, and so read patterns that git does not.
+    """
     rules: list[_IgnoreRule] = []
-    for line in text.splitlines():
-        pattern = line.rstrip()
+    for line in text.split("\n"):
+        pattern = _trailing_spaces_removed(line.removesuffix("\r"))
         if not pattern or pattern.startswith("#"):
             continue
         negated = pattern.startswith("!")
@@ -167,6 +185,12 @@ def _read(path: Path) -> bytes:
     return path.read_bytes()
 
 
+def _ignore_file(path: Path) -> str:
+    # git skips a UTF-8 byte-order mark, which PowerShell writes; kept, it would turn a first-line
+    # `!pattern` into a pattern that matches nothing.
+    return _read(path).decode("utf-8-sig", "replace")
+
+
 def _walk(root: Path, directory: str, inherited: tuple[_IgnoreRule, ...]) -> Iterator[str]:
     here = root / directory if directory else root
     try:
@@ -176,7 +200,7 @@ def _walk(root: Path, directory: str, inherited: tuple[_IgnoreRule, ...]) -> Ite
         raise SecretCheckError(f"cannot list {directory or '.'}: {type(error).__name__}") from error
     rules = inherited
     if any(entry.name == GITIGNORE and entry.is_file(follow_symlinks=False) for entry in entries):
-        rules += _rules(_read(here / GITIGNORE).decode("utf-8", "replace"), directory)
+        rules += _rules(_ignore_file(here / GITIGNORE), directory)
     for entry in entries:
         # A symlink's target may lie outside the clone, and git stores only the link itself.
         if entry.name == GIT_METADATA or entry.is_symlink():
@@ -201,7 +225,7 @@ def scanned_files(root: Path) -> Iterator[str]:
     :raises SecretCheckError: if a directory git does not ignore cannot be listed.
     """
     exclude = root / INFO_EXCLUDE
-    rules = _rules(_read(exclude).decode("utf-8", "replace"), "") if exclude.is_file() else ()
+    rules = _rules(_ignore_file(exclude), "") if exclude.is_file() else ()
     yield from _walk(root, "", rules)
 
 
