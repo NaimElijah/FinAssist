@@ -195,8 +195,8 @@ jobs:
           sed -i 's/^FINASSIST_OWNER_INITIAL_PASSWORD=$/FINASSIST_OWNER_INITIAL_PASSWORD=ci-only-12-chars/' .env
           sed -i 's/^GATEWAY_CLIENT_SECRET=$/GATEWAY_CLIENT_SECRET=ci-only/' .env
           sed -i 's/^ASSISTANT_CLIENT_SECRET=$/ASSISTANT_CLIENT_SECRET=ci-only/' .env
-          # --profile monitoring, or the three monitoring services are never interpolated and
-          # a broken reference among them validates green. --profile smoke does the same for
+          # --profile monitoring, or the three monitoring services are interpolated but never
+          # validated, and a broken reference among them passes. --profile smoke does the same for
           # ops/smoke/auth_smoke.py's auth-smoke service (Refs #38); running the check itself
           # stays a manual step (`make smoke-auth`), never a CI job.
           docker compose --profile monitoring config --quiet
