@@ -392,9 +392,9 @@ admin-console route, under Users → `owner`:
      never be asked to enrol a device again.
    - The update replaces the whole list, which is why it names both.
 
-The owner then signs in as at [first sign-in](../../README.md#first-sign-in): the temporary
-password, then a new password, then a new TOTP device. Their user is never recreated, so their id
-stays the same. That id is the `sub` every journal row they wrote names
+The owner then signs in as at [first sign-in](../../README.md#first-sign-in), with the temporary
+password. Keycloak then asks for a new TOTP device first and a new password second. Their user is
+never recreated, so their id stays the same. That id is the `sub` every journal row they wrote names
 ([ADR-033](../ADRs/ADR-033-the-journal-records-who.md)). A forgotten password with the device
 still at hand needs steps 1 and 2 only.
 
