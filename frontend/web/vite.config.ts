@@ -94,6 +94,9 @@ export default defineConfig({
         // per-file pragmas or a projects split; a pragma states each test file's environment in
         // that file, where a split would move it into this config, away from the test it governs.
         environment: 'node',
+        // Supplies, in jsdom files only, the browser APIs jsdom lacks, such as ResizeObserver,
+        // so a screen test rendering a component that uses one needs no stub of its own.
+        setupFiles: ['./src/shared/testing/browserGlobals.ts'],
         include: [
             'tests/**/*.test.ts',
             'tests/**/*.test.tsx',

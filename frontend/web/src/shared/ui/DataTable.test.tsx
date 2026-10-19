@@ -4,6 +4,8 @@
 import { act, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { isObserved, resizeElement } from '@/shared/testing/fakeResizeObserver';
+
 import { type Column, DataTable } from './DataTable';
 
 interface AccountRow {
@@ -81,17 +83,59 @@ describe('DataTable', () => {
         expect(screen.getByRole('region', { name: 'Accounts' }).tabIndex).toBe(0);
     });
 
-    it('Given_a_table_that_fits_When_the_window_narrows_until_it_overflows_Then_the_region_becomes_a_Tab_stop', () => {
+    it('Given_a_table_that_fits_When_its_region_narrows_until_it_overflows_Then_the_region_becomes_a_Tab_stop', () => {
+        // A narrower window, a zoom, or a sibling taking room all reach the table as its region
+        // shrinking.
         layOut({ scrollWidth: 300, clientWidth: 300 });
         renderAccounts();
         const region = screen.getByRole('region', { name: 'Accounts' });
 
         layOut({ scrollWidth: 900, clientWidth: 300 });
         act(() => {
-            window.dispatchEvent(new Event('resize'));
+            resizeElement(region);
         });
 
         expect(region.tabIndex).toBe(0);
+    });
+
+    it('Given_a_table_that_fits_When_its_content_reflows_wider_without_a_window_resize_Then_the_region_becomes_a_Tab_stop', () => {
+        // A web font finishing loading widens the columns: the table grows inside a region whose
+        // own size is unchanged, and no window resize is fired.
+        layOut({ scrollWidth: 300, clientWidth: 300 });
+        renderAccounts();
+        const region = screen.getByRole('region', { name: 'Accounts' });
+
+        layOut({ scrollWidth: 900, clientWidth: 300 });
+        act(() => {
+            resizeElement(screen.getByRole('table', { name: 'Accounts' }));
+        });
+
+        expect(region.tabIndex).toBe(0);
+    });
+
+    it('Given_a_table_that_overflows_When_its_region_widens_until_it_fits_Then_the_region_is_no_longer_a_Tab_stop', () => {
+        layOut({ scrollWidth: 900, clientWidth: 300 });
+        renderAccounts();
+        const region = screen.getByRole('region', { name: 'Accounts' });
+
+        layOut({ scrollWidth: 900, clientWidth: 900 });
+        act(() => {
+            resizeElement(region);
+        });
+
+        expect(region.hasAttribute('tabindex')).toBe(false);
+    });
+
+    it('Given_a_rendered_table_When_it_unmounts_Then_neither_the_region_nor_the_table_is_observed', () => {
+        const { unmount } = renderAccounts();
+        const region = screen.getByRole('region', { name: 'Accounts' });
+        const table = screen.getByRole('table', { name: 'Accounts' });
+        expect([isObserved(region), isObserved(table)]).toEqual([true, true]);
+
+        unmount();
+
+        expect(isObserved(region)).toBe(false);
+        expect(isObserved(table)).toBe(false);
     });
 
     it('Given_a_visually_hidden_caption_When_rendered_Then_it_still_names_the_scroll_region', () => {
