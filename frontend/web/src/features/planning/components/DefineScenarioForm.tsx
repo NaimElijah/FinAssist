@@ -244,12 +244,12 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
     }, [failure]);
 
     function toggleFlow(flowId: string) {
-        clearSettledOutcome(defineScenario);
+        clearSettledOutcome(defineScenario, submitting);
         setSelectedFlowIds((previous) => toggled(previous, flowId));
     }
 
     function changeCurrency(nextCurrency: Currency) {
-        clearSettledOutcome(defineScenario);
+        clearSettledOutcome(defineScenario, submitting);
         setCurrency(nextCurrency);
         // Every currently selected flow was offered under the currency just left, and a scenario
         // admits no flow in another currency, so the whole selection is cleared.
@@ -313,7 +313,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                         value={name}
                         error={errors.fields.name}
                         onChange={(event) => {
-                            clearSettledOutcome(defineScenario);
+                            clearSettledOutcome(defineScenario, submitting);
                             setName(event.target.value);
                         }}
                     />
@@ -335,7 +335,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                         value={growthRatePerStep}
                         error={errors.fields.growthRatePerStep}
                         onChange={(event) => {
-                            clearSettledOutcome(defineScenario);
+                            clearSettledOutcome(defineScenario, submitting);
                             setGrowthRatePerStep(event.target.value);
                         }}
                     />
