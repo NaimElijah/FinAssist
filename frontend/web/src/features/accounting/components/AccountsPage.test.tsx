@@ -615,6 +615,61 @@ describe('AccountsPage opening an account', () => {
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
 
+    it('Given_a_failed_open_When_a_field_is_edited_before_the_resubmit_has_rendered_Then_the_resubmit_is_answered_and_the_form_still_submits', async () => {
+        // A resubmit's pending status renders a tick after it starts, so an edit in that tick
+        // still reads the last failure. Resetting the mutation then would detach the running
+        // request, whose onSettled releases the in-flight guard, and every later submit would be
+        // ignored.
+        let answerResubmit: (response: Response) => void = () => {
+            throw new Error('the resubmit has not reached fetch');
+        };
+        const requests = fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL && request.method === 'POST') {
+                const attempt = requests.filter(({ method }) => method === 'POST').length;
+                if (attempt === 2) {
+                    return new Promise<Response>((resolve) => {
+                        answerResubmit = resolve;
+                    });
+                }
+                return problemResponse({
+                    status: 500,
+                    code: 'INTERNAL_ERROR',
+                    detail: `Attempt ${attempt.toString()} failed.`,
+                });
+            }
+            if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderAccounts();
+        await openVisa(userEvent.setup({ delay: null }));
+        await screen.findByText('Attempt 1 failed.');
+        const form = screen.getByLabelText('Name').closest('form');
+        if (form === null) {
+            throw new Error('the Name field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+        fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Visa Gold' } });
+        await waitFor(() => {
+            expect(requests.filter(({ method }) => method === 'POST')).toHaveLength(2);
+        });
+        act(() => {
+            answerResubmit(
+                problemResponse({
+                    status: 500,
+                    code: 'INTERNAL_ERROR',
+                    detail: 'Attempt 2 failed.',
+                }),
+            );
+        });
+
+        await screen.findByText('Attempt 2 failed.');
+        fireEvent.submit(form);
+        await waitFor(() => {
+            expect(requests.filter(({ method }) => method === 'POST')).toHaveLength(3);
+        });
+    });
+
     it('Given_a_400_whose_field_errors_name_a_field_the_form_lacks_When_opened_Then_the_whole_problem_is_an_error_state', async () => {
         // Placing only the errors the form recognises would silently drop the rest.
         fakeFetch((request) => {

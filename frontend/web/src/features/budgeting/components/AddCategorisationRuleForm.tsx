@@ -183,7 +183,7 @@ export function AddCategorisationRuleForm({
                         value={fragment}
                         error={errors.fields.fragment}
                         onChange={(event) => {
-                            clearSettledOutcome(addRule);
+                            clearSettledOutcome(addRule, submitting);
                             setFragment(event.target.value);
                         }}
                     />
@@ -194,7 +194,7 @@ export function AddCategorisationRuleForm({
                         value={category}
                         error={errors.fields.category}
                         onChange={(event) => {
-                            clearSettledOutcome(addRule);
+                            clearSettledOutcome(addRule, submitting);
                             setCategory(event.target.value);
                         }}
                     />

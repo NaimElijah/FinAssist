@@ -209,7 +209,7 @@ export function DisposalSection({ symbol, initialCurrency }: DisposalSectionProp
                         value={quantity}
                         error={errors.fields.quantity}
                         onChange={(event) => {
-                            clearSettledOutcome(pricing);
+                            clearSettledOutcome(pricing, submitting);
                             setQuantity(event.target.value);
                         }}
                     />
@@ -222,7 +222,7 @@ export function DisposalSection({ symbol, initialCurrency }: DisposalSectionProp
                         value={amount}
                         error={errors.fields.amount}
                         onChange={(event) => {
-                            clearSettledOutcome(pricing);
+                            clearSettledOutcome(pricing, submitting);
                             setAmount(event.target.value);
                         }}
                     />
@@ -232,7 +232,7 @@ export function DisposalSection({ symbol, initialCurrency }: DisposalSectionProp
                         options={CURRENCY_OPTIONS}
                         value={currency}
                         onChange={(event) => {
-                            clearSettledOutcome(pricing);
+                            clearSettledOutcome(pricing, submitting);
                             setCurrency(oneOf(CURRENCIES, event.target.value));
                         }}
                     />
