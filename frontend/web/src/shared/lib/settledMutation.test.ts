@@ -62,6 +62,16 @@ describe('clearSettledOutcome', () => {
         expect(reset).not.toHaveBeenCalled();
     });
 
+    it('Given_a_rendered_pending_whose_form_has_no_request_in_flight_When_its_outcome_is_cleared_Then_it_is_reset', () => {
+        // The guard is released in onSettled a tick before the settled status renders. With it
+        // clear every callback has run, so the answer arriving must not stand beside an edit.
+        const { mutation, reset } = mutationIn('pending');
+
+        clearSettledOutcome(mutation, IDLE_FORM);
+
+        expect(reset).toHaveBeenCalledTimes(1);
+    });
+
     it('Given_a_rendered_success_whose_form_has_a_request_in_flight_When_its_outcome_is_cleared_Then_it_is_left_alone', () => {
         const { mutation, reset } = mutationIn('success');
 

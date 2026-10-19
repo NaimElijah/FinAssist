@@ -214,7 +214,8 @@ history; write the commit message well and this file writes itself.
   failure or result, so it reset the running request. The request's answer was then never shown,
   and the in-flight guard was never released, so every later submit was ignored. The form's own
   in-flight guard now decides whether a request is running, in all nine forms that clear a settled
-  answer on edit ([#71](https://github.com/NaimElijah/FinAssist/issues/71)).
+  answer on edit. An edit in the tick after a request settles now clears its answer too, where it
+  used to be left beside the edited inputs ([#71](https://github.com/NaimElijah/FinAssist/issues/71)).
 - **`consume_fifo` refuses a holding `position()` refuses, before it sells anything.** It
   consumed lots of two symbols as one instrument, with no error. Lots in two currencies were
   refused only when a sale happened to reach into the second one, so a smaller sale priced a

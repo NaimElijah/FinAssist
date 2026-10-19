@@ -108,12 +108,12 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
   asserting the whole invalidation set and that another cached entity stays valid.
 - **Editing any field of a settled form clears its answer.** Each field's change handler calls
   `clearSettledOutcome(mutation, submitting)` from `src/shared/lib/settledMutation.ts`, which
-  resets a mutation whose status is `error` or `success`, so its alert, its field errors or its
-  result, such as a priced disposal, never stands beside inputs it no longer answers. A mutation in
-  flight is left alone: resetting it would detach the `onSettled` that releases the in-flight
-  guard, and the form would stay locked. The form's in-flight guard decides that, never the
-  render-time status, which still reads the last answer for a tick after a resubmit starts (#71).
-  Each form has a test that editing a field clears its failure, and, for the disposal, its result.
+  resets a mutation that has been sent, so its alert, its field errors or its result, such as a
+  priced disposal, never stands beside inputs it no longer answers. A mutation in flight is left
+  alone: resetting it would detach the `onSettled` that releases the in-flight guard, and the form
+  would stay locked. The form's in-flight guard decides that, never the render-time status, which
+  lags a tick behind both a resubmit and a settle (#71). Each form has a test that editing a field
+  clears its failure, and, for the disposal, its result.
 - **A failed read offers "Try again" only when `isRetryable(error)` holds** — a network failure,
   or a 5xx other than a 503. The predicate lives in `src/shared/api/retry.ts`, and the query
   client's automatic retry imports the same one, so the two never disagree; a 4xx is the server's
