@@ -66,24 +66,32 @@ export function DataTable<Row>({
 }: DataTableProps<Row>) {
     const captionId = useId();
     const regionRef = useRef<HTMLDivElement>(null);
+    const tableRef = useRef<HTMLTableElement>(null);
     const [overflowing, setOverflowing] = useState(false);
 
-    // Measured after layout, and again whenever the window's size changes: whether the table
-    // overflows depends on both what it holds and how much room the page gives it.
+    // Measured after layout, then whenever the region or the table changes size. The region
+    // changes when the page gives it more or less room: a window resize or a page zoom, which
+    // fire a window resize event, and a sibling appearing, which does not. The table changes when
+    // what it holds reflows: new rows, a web font loading, or a change to the browser's font size
+    // widening the columns inside an unchanged region. None of those fires a window resize
+    // event, so a window listener missed them (#72).
     useEffect(() => {
         const region = regionRef.current;
-        if (region === null) {
+        const table = tableRef.current;
+        if (region === null || table === null) {
             return;
         }
         const measure = () => {
             setOverflowing(region.scrollWidth > region.clientWidth);
         };
         measure();
-        window.addEventListener('resize', measure);
+        const observer = new ResizeObserver(measure);
+        observer.observe(region);
+        observer.observe(table);
         return () => {
-            window.removeEventListener('resize', measure);
+            observer.disconnect();
         };
-    }, [rows, columns]);
+    }, []);
 
     return (
         <div
@@ -93,7 +101,7 @@ export function DataTable<Row>({
             tabIndex={overflowing ? 0 : undefined}
             className={styles.region}
         >
-            <table className={styles.table}>
+            <table ref={tableRef} className={styles.table}>
                 <caption
                     id={captionId}
                     className={captionHidden ? styles.hiddenCaption : styles.caption}

@@ -209,6 +209,20 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **A table that starts or stops overflowing without a window resize gains or loses its Tab stop.**
+  `DataTable`'s scroll region is a Tab stop only while the table overflows it. That was measured
+  only on a window `resize`, so a web font loading, a sibling appearing or a change to the
+  browser's font size left a table that overflowed unreachable by keyboard, or one that fit still in
+  the tab order. It now observes the
+  region and the table with a `ResizeObserver`
+  ([#72](https://github.com/NaimElijah/FinAssist/issues/72)).
+- **Editing a form in the tick after a resubmit no longer locks it.** A form's pending state
+  renders a tick after the submit starts the request. An edit in that tick still read the last
+  failure or result, so it reset the running request. The request's answer was then never shown,
+  and the in-flight guard was never released, so every later submit was ignored. The form's own
+  in-flight guard now decides whether a request is running, in all nine forms that clear a settled
+  answer on edit. An edit in the tick after a request settles now clears its answer too, where it
+  used to be left beside the edited inputs ([#71](https://github.com/NaimElijah/FinAssist/issues/71)).
 - **`consume_fifo` refuses a holding `position()` refuses, before it sells anything.** It
   consumed lots of two symbols as one instrument, with no error. Lots in two currencies were
   refused only when a sale happened to reach into the second one, so a smaller sale priced a

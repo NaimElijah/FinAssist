@@ -107,12 +107,13 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
   invalidates `portfolioKeys.holding(symbol)` through `useRefreshHolding`, pinned by a test
   asserting the whole invalidation set and that another cached entity stays valid.
 - **Editing any field of a settled form clears its answer.** Each field's change handler calls
-  `clearSettledOutcome(mutation)` from `src/shared/lib/settledMutation.ts`, which resets a
-  mutation whose status is `error` or `success`, so its alert, its field errors or its result,
-  such as a priced disposal, never stands beside inputs it no longer answers. A pending mutation is
-  left alone: resetting it would detach the `onSettled` that releases the in-flight guard, and the
-  form would stay locked. Each form has a test that editing a field clears its failure, and, for
-  the disposal, its result.
+  `clearSettledOutcome(mutation, submitting)` from `src/shared/lib/settledMutation.ts`, which
+  resets a mutation that has been sent, so its alert, its field errors or its result, such as a
+  priced disposal, never stands beside inputs it no longer answers. A mutation in flight is left
+  alone: resetting it would detach the `onSettled` that releases the in-flight guard, and the form
+  would stay locked. The form's in-flight guard decides that, never the render-time status, which
+  lags a tick behind both a resubmit and a settle (#71). Each form has a test that editing a field
+  clears its failure, and, for the disposal, its result.
 - **A failed read offers "Try again" only when `isRetryable(error)` holds** — a network failure,
   or a 5xx other than a 503. The predicate lives in `src/shared/api/retry.ts`, and the query
   client's automatic retry imports the same one, so the two never disagree; a 4xx is the server's
@@ -131,3 +132,9 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
   `DisposalSection`, which stays offered because pricing a disposal is a read. A `FORBIDDEN`
   problem is rendered by `ErrorState` with a fixed sentence rather than the server's own detail,
   through the same `hasProblemCode` machinery, never a bespoke check.
+- **A component that depends on its own size watches it with a `ResizeObserver`, never a window
+  `resize` listener**, which misses a web font loading, a sibling appearing and a change to the
+  browser's font size (#72). `DataTable` observes both its scroll region and its table. jsdom has no
+  `ResizeObserver`, so `src/shared/testing/browserGlobals.ts`, a `setupFiles` entry, installs
+  `FakeResizeObserver` in every jsdom file, and a test reports a size change with `resizeElement`
+  inside `act`.

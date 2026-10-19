@@ -259,19 +259,19 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
     }, [monthRefusals]);
 
     function updateCategory(key: number, category: string) {
-        clearSettledOutcome(defineBudget);
+        clearSettledOutcome(defineBudget, submitting);
         setRows((previous) =>
             previous.map((row) => (row.key === key ? { ...row, category } : row)),
         );
     }
 
     function updateAmount(key: number, amount: string) {
-        clearSettledOutcome(defineBudget);
+        clearSettledOutcome(defineBudget, submitting);
         setRows((previous) => previous.map((row) => (row.key === key ? { ...row, amount } : row)));
     }
 
     function addRow() {
-        clearSettledOutcome(defineBudget);
+        clearSettledOutcome(defineBudget, submitting);
         // The key is read and advanced here, in the event handler, rather than inside the
         // updater below: React may invoke an updater more than once for one state transition
         // (Strict Mode's double-invoke among them), and an updater that mutates a ref each time
@@ -282,7 +282,7 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
     }
 
     function removeRow(key: number) {
-        clearSettledOutcome(defineBudget);
+        clearSettledOutcome(defineBudget, submitting);
         setRows((previous) =>
             previous.length <= 1 ? previous : previous.filter((row) => row.key !== key),
         );
@@ -341,7 +341,7 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                         value={month}
                         error={monthRefusals === 0 ? undefined : MONTH_REFUSED_MESSAGE}
                         onChange={(event) => {
-                            clearSettledOutcome(defineBudget);
+                            clearSettledOutcome(defineBudget, submitting);
                             setMonthRefusals(0);
                             setMonth(event.target.value);
                         }}
@@ -352,7 +352,7 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                         value={currency}
                         error={errors.fields.currency}
                         onChange={(event) => {
-                            clearSettledOutcome(defineBudget);
+                            clearSettledOutcome(defineBudget, submitting);
                             setCurrency(oneOf(CURRENCIES, event.target.value));
                         }}
                     />
