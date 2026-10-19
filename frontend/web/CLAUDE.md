@@ -133,8 +133,8 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
   problem is rendered by `ErrorState` with a fixed sentence rather than the server's own detail,
   through the same `hasProblemCode` machinery, never a bespoke check.
 - **A component that depends on its own size watches it with a `ResizeObserver`, never a window
-  `resize` listener**, which misses a web font loading, a sibling appearing and most zoom changes
-  (#72). `DataTable` observes both its scroll region and its table. jsdom has no
+  `resize` listener**, which misses a web font loading, a sibling appearing and a change to the
+  browser's font size (#72). `DataTable` observes both its scroll region and its table. jsdom has no
   `ResizeObserver`, so `src/shared/testing/browserGlobals.ts`, a `setupFiles` entry, installs
   `FakeResizeObserver` in every jsdom file, and a test reports a size change with `resizeElement`
   inside `act`.

@@ -70,9 +70,10 @@ export function DataTable<Row>({
     const [overflowing, setOverflowing] = useState(false);
 
     // Measured after layout, then whenever the region or the table changes size. The region
-    // changes when the page gives it more or less room: a window resize, a zoom, a sibling
-    // appearing. The table changes when what it holds reflows: new rows, or a web font loading
-    // and widening the columns inside an unchanged region. Most of these fire no window resize
+    // changes when the page gives it more or less room: a window resize or a page zoom, which
+    // fire a window resize event, and a sibling appearing, which does not. The table changes when
+    // what it holds reflows: new rows, a web font loading, or a change to the browser's font size
+    // widening the columns inside an unchanged region. None of those fires a window resize
     // event, so a window listener missed them (#72).
     useEffect(() => {
         const region = regionRef.current;

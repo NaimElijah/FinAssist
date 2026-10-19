@@ -211,8 +211,9 @@ history; write the commit message well and this file writes itself.
 
 - **A table that starts or stops overflowing without a window resize gains or loses its Tab stop.**
   `DataTable`'s scroll region is a Tab stop only while the table overflows it. That was measured
-  only on a window `resize`, so a web font loading, a sibling appearing or a zoom left a table that
-  overflowed unreachable by keyboard, or one that fit still in the tab order. It now observes the
+  only on a window `resize`, so a web font loading, a sibling appearing or a change to the
+  browser's font size left a table that overflowed unreachable by keyboard, or one that fit still in
+  the tab order. It now observes the
   region and the table with a `ResizeObserver`
   ([#72](https://github.com/NaimElijah/FinAssist/issues/72)).
 - **Editing a form in the tick after a resubmit no longer locks it.** A form's pending state
