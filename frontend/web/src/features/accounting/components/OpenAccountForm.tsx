@@ -216,7 +216,7 @@ export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
                         value={name}
                         error={errors.fields.name}
                         onChange={(event) => {
-                            clearSettledOutcome(openAccount);
+                            clearSettledOutcome(openAccount, submitting);
                             setName(event.target.value);
                         }}
                     />
@@ -227,7 +227,7 @@ export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
                         value={type}
                         error={errors.fields.type}
                         onChange={(event) => {
-                            clearSettledOutcome(openAccount);
+                            clearSettledOutcome(openAccount, submitting);
                             setType(oneOf(ACCOUNT_TYPES, event.target.value));
                         }}
                     />
@@ -238,7 +238,7 @@ export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
                         value={currency}
                         error={errors.fields.currency}
                         onChange={(event) => {
-                            clearSettledOutcome(openAccount);
+                            clearSettledOutcome(openAccount, submitting);
                             setCurrency(oneOf(CURRENCIES, event.target.value));
                         }}
                     />

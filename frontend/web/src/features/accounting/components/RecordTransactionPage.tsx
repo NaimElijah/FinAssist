@@ -252,14 +252,14 @@ function RecordTransactionForm({
     }, [rowErrors, failure]);
 
     function updateAccount(index: number, accountId: string) {
-        clearSettledOutcome(record);
+        clearSettledOutcome(record, submitting);
         setRows((previous) =>
             previous.map((row, i) => (i === index ? { ...row, accountId } : row)),
         );
     }
 
     function updateDebit(index: number, value: string) {
-        clearSettledOutcome(record);
+        clearSettledOutcome(record, submitting);
         setRows((previous) => {
             const next = previous.map((row, i) => (i === index ? { ...row, debit: value } : row));
             if (index === 0 && mirrorActive) {
@@ -278,7 +278,7 @@ function RecordTransactionForm({
     }
 
     function updateCredit(index: number, value: string) {
-        clearSettledOutcome(record);
+        clearSettledOutcome(record, submitting);
         setRows((previous) => {
             const next = previous.map((row, i) => (i === index ? { ...row, credit: value } : row));
             if (index === 0 && mirrorActive) {
@@ -295,7 +295,7 @@ function RecordTransactionForm({
     }
 
     function addRow() {
-        clearSettledOutcome(record);
+        clearSettledOutcome(record, submitting);
         // Adding a row stops the mirror for good: there is no longer a single "row 2" the owner
         // unambiguously means, so guessing which row to write into would be as likely to
         // surprise as to help.
@@ -309,7 +309,7 @@ function RecordTransactionForm({
     }
 
     function removeRow(key: number) {
-        clearSettledOutcome(record);
+        clearSettledOutcome(record, submitting);
         // Removing a row stops the mirror for good too: whichever row now sits at position 1 may
         // hold an amount the owner already typed there on purpose, and the mirror must never
         // overwrite it.
@@ -366,7 +366,7 @@ function RecordTransactionForm({
                         value={occurredOn}
                         error={errors.fields.occurredOn}
                         onChange={(event) => {
-                            clearSettledOutcome(record);
+                            clearSettledOutcome(record, submitting);
                             setOccurredOn(event.target.value);
                         }}
                     />
@@ -377,7 +377,7 @@ function RecordTransactionForm({
                         value={description}
                         error={errors.fields.description}
                         onChange={(event) => {
-                            clearSettledOutcome(record);
+                            clearSettledOutcome(record, submitting);
                             setDescription(event.target.value);
                         }}
                     />

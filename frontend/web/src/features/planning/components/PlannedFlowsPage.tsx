@@ -240,7 +240,7 @@ function LifecycleActionPanel({
                     required
                     value={on}
                     onChange={(event) => {
-                        clearSettledOutcome(mutation);
+                        clearSettledOutcome(mutation, submitting);
                         setOn(event.target.value);
                     }}
                 />
@@ -250,7 +250,7 @@ function LifecycleActionPanel({
                         required
                         value={reason}
                         onChange={(event) => {
-                            clearSettledOutcome(mutation);
+                            clearSettledOutcome(mutation, submitting);
                             setReason(event.target.value);
                         }}
                     />
