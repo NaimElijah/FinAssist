@@ -13,7 +13,10 @@ interface Watch {
     readonly targets: Set<Element>;
 }
 
-/** Every observer watching at least one element since it last disconnected. */
+/**
+ * Every observer that has observed an element since it last disconnected. One that has unobserved
+ * everything keeps its entry with an empty set, which `resizeElement` and `isObserved` both read.
+ */
 const watches = new Map<FakeResizeObserver, Watch>();
 
 /**
