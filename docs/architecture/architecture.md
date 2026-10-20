@@ -846,7 +846,7 @@ the classes and tests that enforce them in
 | **`src/shared` imports nothing from `src/app`**, the composition root nothing may import back into | `frontend/web/tests/architecture.test.ts` |
 | **Every `@Value` placeholder in the ledger's production code resolves from `application.yml` alone**, with no environment and no container | `ApplicationYmlPlaceholdersTest` |
 | **Every endpoint the running ledger maps is in a named inventory**, so one added without a URL rule fails the build rather than shipping open | `LedgerAuthorizationIT.Given_the_running_ledger_When_its_handler_mappings_are_read_Then_they_equal_the_named_inventory` |
-| **Every route `portfolio_router` declares carries exactly one permission dependency** — today every business route the assistant serves | `test_authorization.py::Given_the_portfolio_router_When_routes_are_inspected_Then_each_declares_one_permission` |
+| **Every `APIRoute` the assembled assistant serves carries exactly one permission dependency**, behind any depth of `include_router`, so a second router is covered without a change to the test | `test_authorization.py::Given_the_assembled_app_When_routes_are_inspected_Then_each_declares_one_permission` |
 | **The packaged gateway starts**: the repackaged jar the image ships, run with `java -jar`, reports ready. A suite on the test classpath cannot see a library the jar lacks (#233) | `GatewayPackagedJarIT.Given_the_packaged_jar_When_it_is_run_Then_it_starts_and_reports_ready` |
 | **The gateway's `HostAllowListFilter` runs before its security chain**, in the filter chain the server actually built | `GatewayApplicationIT.Given_the_running_gateway_When_its_filter_chain_is_read_Then_the_host_allow_list_runs_before_security` |
 
@@ -860,8 +860,9 @@ ArchUnit's importer, without loading it.
 `JournalIsAppendOnlyIT` query a real PostgreSQL. `LedgerContractIT`, `LedgerAuthorizationIT` and
 `GatewayApplicationIT` are integration tests that boot their service and read what it actually
 built: the generated document, the request mappings, the filter chain. The assistant's
-route-coverage test imports the composition root, assembles the use cases with `assemble()`, and
-inspects the routes `portfolio_router` builds from them. A static reading could see none of that.
+route-coverage test builds the app with `create_app`, which assembles the use cases with
+`assemble()`, and walks every route the app serves with FastAPI's own `iter_route_contexts`. A
+static reading could see none of that.
 
 The assistant's scanner is itself under test. Its rules are only as good as the helper that
 resolves imports, and nothing checked that helper — so a refactor could have neutered every
