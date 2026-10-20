@@ -329,6 +329,11 @@
                      ever mutate. -->
                 <param>io.github.naimelijah.finassist.ledger.accounting.adapter.out.persistence.JournalActorMigrationIT</param>
                 <param>io.github.naimelijah.finassist.ledger.LedgerUpgradeIT</param>
+                <!-- Boots the full context to compare the wire contract, which holds no logic PIT
+                     mutates. It finds the committed contract through finassist.contracts.dir, which
+                     only surefire and failsafe set, so PIT's minion runs it without the property and
+                     it fails before the first mutant, aborting the whole run. -->
+                <param>io.github.naimelijah.finassist.ledger.LedgerContractIT</param>
               </excludedTestClasses>
               <excludedClasses>
                 <!-- Excluded because LedgerCompositionIT, the test that exists to cover it, is excluded above.
