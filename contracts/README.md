@@ -1,13 +1,15 @@
 # Contracts
 
-What the two services agree on, versioned and reviewed like code. Two kinds of artefact live
-here.
+What the services and the web client agree on, versioned and reviewed like code. Two kinds of
+artefact live here.
 
 **The wire contracts.** Each service's OpenAPI document is committed here:
-`ledger-v1.openapi.json` for the ledger and `assistant-v1.openapi.json` for the assistant
+`ledger-v1.openapi.json` for the ledger, `assistant-v1.openapi.json` for the assistant and
+`gateway-v1.openapi.json` for the gateway
 ([ADR-028](../docs/ADRs/ADR-028-http-wire-conventions.md)). The web client's types are generated
-from both. The assistant has no ledger client yet, so only its `Problem` schema is checked against
-the ledger's document, as described below.
+from all three. The assistant's and the gateway's `Problem` schemas are each checked against the
+ledger's document, as described below. The assistant has no ledger client yet, so that schema is
+all of its document that is checked against the ledger's.
 
 - `ledger-v1.openapi.json` exists. springdoc generates it from the ledger's code, and
   `LedgerContractIT` pins it. It now carries every accounting, budgeting and planning path
@@ -17,6 +19,12 @@ the ledger's document, as described below.
   `tests/test_contract.py` pins it. It carries the portfolio paths alongside `info`, `servers`
   and a `Problem` schema that the same suite holds identical to the ledger's, so one client parses
   both services' failures alike.
+- `gateway-v1.openapi.json` exists. springdoc generates it from the gateway's code, and
+  `GatewayContractIT` pins it. It carries the gateway's own `GET /bff/me` and `POST /bff/logout`
+  alongside `info`, `servers` and a `Problem` schema that the same test holds identical to the
+  ledger's. The gateway serves no `/v3/api-docs`: its security chain denies that path, so the test
+  asks springdoc for the document directly
+  ([ADR-030](../docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)).
 
 **Value-semantics conformance vectors.** `money-vectors.v1.json` is the behaviour both `Money`
 implementations must agree on, read by `MoneyVectorsTest` in the ledger and
@@ -35,7 +43,8 @@ Rules, per [ADR-004](../docs/ADRs/ADR-004-http-openapi-service-contract.md) (**A
 - Each service's suite compares the document its code generates with the committed one, as
   parsed trees rather than bytes, so key order and whitespace never fail it. On a mismatch the
   test writes the generated document to a git-ignored path and fails, naming the file to copy.
-  The ledger's test is `LedgerContractIT`, and the assistant's is `tests/test_contract.py`.
+  The ledger's test is `LedgerContractIT`, the assistant's is `tests/test_contract.py`, and the
+  gateway's is `GatewayContractIT`.
 - A vector file is **data**: values and language-neutral error categories, never expressions
   and never code. Both suites assert that every vector in the file was consumed, so adding
   one to the file without teaching both sides to read it fails the build.
@@ -81,3 +90,29 @@ cp .contract-drift/assistant-v1.openapi.json ../../contracts/assistant-v1.openap
 ```
 
 Review the copied file's diff before committing it, as for the ledger's.
+
+## Regenerating the gateway's document
+
+Any change to one of the gateway's own endpoints or its response types changes the generated
+document, and `GatewayContractIT` fails until the committed one agrees. From `backend/gateway`; no
+container is needed:
+
+```bash
+./mvnw -B verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=GatewayContractIT
+```
+
+On a mismatch the test writes the document the code produces to
+`backend/gateway/target/contracts/gateway-v1.openapi.json`, formatted as the ledger's is. If the
+change is intended, copy that file over the committed one and run the test again:
+
+```bash
+cp target/contracts/gateway-v1.openapi.json ../../contracts/gateway-v1.openapi.json
+```
+
+Review the copied file's diff before committing it, as for the ledger's.
+
+## Regenerating the web client's types
+
+The web client's types are generated from all three documents. After any of them changes, run
+`make generate-web-api` (`cd frontend/web && npm run generate:api`) and commit the result with
+the document.
