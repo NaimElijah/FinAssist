@@ -127,7 +127,7 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 
 | Layer | Technology | Version | Why |
 |---|---|---:|---|
-| Ledger | Java + Spring Boot, built by the Maven wrapper | 21 / 4.1.1 / 3.9.6 | Records and sealed types make illegal ledger states unrepresentable; Actuator gives health and readiness without bespoke code; a clone needs only a JDK |
+| Ledger | Java + Spring Boot, built by the Maven wrapper | 21 / 4.1.1 / 3.10.0 | Records and sealed types make illegal ledger states unrepresentable; Actuator gives health and readiness without bespoke code; a clone needs only a JDK |
 | Ledger store | PostgreSQL, Flyway, hand-written SQL over `JdbcClient` | 18.6 | `NUMERIC` for exact money, a schema per context, and a journal the database refuses to rewrite ([ADR-024](docs/ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
 | Gateway | Spring Cloud Gateway Server Web MVC | 5.0.3 (train 2025.1.3) | OIDC sign-in, tokens kept in the server-side session, and `TokenRelay` to both services ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) |
 | Identity | Keycloak, on its own PostgreSQL | 26.7.4 / 17.11 | Self-hosted OIDC, its realm committed as code with every secret a placeholder ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) |
