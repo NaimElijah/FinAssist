@@ -40,7 +40,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <spotless.version>3.10.4</spotless.version>
     <palantir-java-format.version>2.97.0</palantir-java-format.version>
-    <archunit.version>1.5.0</archunit.version>
+    <archunit.version>1.5.1</archunit.version>
     <jacoco.version>0.8.15</jacoco.version>
     <pitest.version>1.30.0</pitest.version>
     <pitest-junit5.version>1.2.3</pitest-junit5.version>
