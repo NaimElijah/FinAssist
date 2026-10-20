@@ -199,10 +199,10 @@ services:
 
   # --- Identity (ADR-030, ADR-031) ----------------------------------------------------------
   keycloak-db:
-    # A PostgreSQL major Keycloak 26.7 supports (confirmed tested up to 17 on
-    # keycloak.org/server/supported-configurations); the ledger's own `db` is on 18, which
-    # Keycloak has not been tested against, so the two intentionally run different majors
-    # rather than share one image tag by coincidence.
+    # A PostgreSQL major Keycloak 26.8 supports: keycloak.org/server/supported-configurations
+    # lists 17 and 18. The ledger's own `db` is already on 18. Moving this one too is a major
+    # upgrade by dump and restore, not a tag change (#314), so until then the two run different
+    # majors.
     image: postgres:17.11-trixie
     restart: *restart-policy
     logging: *bounded-logs

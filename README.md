@@ -127,20 +127,20 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 
 | Layer | Technology | Version | Why |
 |---|---|---:|---|
-| Ledger | Java + Spring Boot, built by the Maven wrapper | 21 / 4.1.1 / 3.9.6 | Records and sealed types make illegal ledger states unrepresentable; Actuator gives health and readiness without bespoke code; a clone needs only a JDK |
+| Ledger | Java + Spring Boot, built by the Maven wrapper | 21 / 4.1.1 / 3.10.0 | Records and sealed types make illegal ledger states unrepresentable; Actuator gives health and readiness without bespoke code; a clone needs only a JDK |
 | Ledger store | PostgreSQL, Flyway, hand-written SQL over `JdbcClient` | 18.6 | `NUMERIC` for exact money, a schema per context, and a journal the database refuses to rewrite ([ADR-024](docs/ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
 | Gateway | Spring Cloud Gateway Server Web MVC | 5.0.3 (train 2025.1.3) | OIDC sign-in, tokens kept in the server-side session, and `TokenRelay` to both services ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) |
-| Identity | Keycloak, on its own PostgreSQL | 26.7.4 / 17.11 | Self-hosted OIDC, its realm committed as code with every secret a placeholder ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) |
+| Identity | Keycloak, on its own PostgreSQL | 26.8.1 / 17.11 | Self-hosted OIDC, its realm committed as code with every secret a placeholder ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) |
 | Assistant | Python + FastAPI | 3.13 / 0.141.1 | Native home for the Anthropic SDK and pandas; typed validation from the same Pydantic models the domain uses |
-| Assistant tooling | uv, Ruff, mypy `--strict`, PyJWT `crypto` | 0.12.7 in the image / 0.16.5 / 2.3.1 / 2.15.0 | One tool resolves, locks and fetches the interpreter; RS256 tokens checked against the injected clock |
+| Assistant tooling | uv, Ruff, mypy `--strict`, PyJWT `crypto` | 0.12.7 in the image / 0.16.10 / 2.3.1 / 2.15.0 | One tool resolves, locks and fetches the interpreter; RS256 tokens checked against the injected clock |
 | Web | React + Vite + TypeScript | 19.2 / 8.2 / 6.0.3 | A static bundle, no Node server to run; TypeScript held below 6.1 because `typescript-eslint` caps there |
 | Web data | React Router, TanStack Query, @hey-api/openapi-ts | 8.3.1 / 5.102.8 / 0.99.0 | Deep links, cached server state, and types generated from all three contracts ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
 | Web runtime | Node | 24 | Pinned in `.nvmrc` and `engines`, because tests pin dates and amounts as that major's ICU data formats them |
 | Contracts | springdoc-openapi (API starter only) | 3.1.1 | Each service's OpenAPI document is generated, then pinned by a test to `contracts/` |
 | Architecture tests | ArchUnit | 1.5.0 | Layering, context isolation, no floating-point money, a one-way composition root |
-| Tests | JUnit + Testcontainers, pytest + Hypothesis, Vitest + Testing Library | Boot-managed / 9.1.1 + 6.167.0 / 4.1 + 16.3 | Integration tests against a real PostgreSQL and a real Keycloak image; property tests seeded on both sides |
-| Coverage, mutation | JaCoCo, pytest-cov, coverage-v8; PIT | 0.8.13 / 7.1.0 / 4.1.11; 1.19.1 | Measured and gating nothing; mutation testing answers whether a test would notice ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
-| Format and lint | Spotless + palantir-java-format, ESLint + Prettier | 3.10.1 / 2.97.0, 10.9 / 3.9 | One authoritative formatter per language, checked in CI |
+| Tests | JUnit + Testcontainers, pytest + Hypothesis, Vitest + Testing Library | Boot-managed / 9.1.1 + 6.168.0 / 5.0 + 16.3 | Integration tests against a real PostgreSQL and a real Keycloak image; property tests seeded on both sides |
+| Coverage, mutation | JaCoCo, pytest-cov, coverage-v8; PIT | 0.8.15 / 7.1.0 / 5.0.4; 1.30.0 | Measured and gating nothing; mutation testing answers whether a test would notice ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
+| Format and lint | Spotless + palantir-java-format, ESLint + Prettier | 3.10.4 / 2.97.0, 10.11 / 3.9 | One authoritative formatter per language, checked in CI |
 | Telemetry | OpenTelemetry + Micrometer; Collector, Prometheus, Grafana | 1.44.0 (Python) / Boot 4.1.1 starter; 0.139.0 / v3.7.3 / 12.3.1 | Vendor-neutral: the backend is an environment variable, not a rewrite ([ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 
 Every version above is pinned in `backend/ledger/pom.xml`, `backend/gateway/pom.xml`,
@@ -485,6 +485,14 @@ describe, every pull request that changes code adds a line to [CHANGELOG.md](CHA
 `[Unreleased]`, and a decision that shapes the architecture gets an ADR, indexed in
 [docs/ADRs/README.md](docs/ADRs/README.md).
 
+**Dependency updates.** Dependabot opens its version updates into `dev` every week, and they are
+triaged that same week ([ADR-045](docs/ADRs/ADR-045-dependabot-triage-and-toolchain-holds.md)).
+Rebase a PR that is behind `dev` with `@dependabot rebase` before trusting its checks. Then merge
+it, or close it with a one-line reason. When a bump leaves a document naming the old version, apply
+it by hand on a branch with the documents in the same commit, and close the PR with a pointer to
+it. A Keycloak, PyJWT or Spring Security bump goes to the owner first. The ledger and the gateway
+take each bump in one PR, and Temurin and Python stay on 21 and 3.13 until an ADR moves them.
+
 ## Testing
 
 | Suite | What it proves | Command |
@@ -724,9 +732,11 @@ ledger client behind its own `LedgerPort`.
 - **Clock drift under WSL2 can refuse a valid token.** Both services allow 30 seconds of leeway on
   `exp`, `nbf` and `iat`; past that a fresh token is answered 401 with the reason `lifetime`.
   `wsl --shutdown`, then starting Docker Desktop again, resyncs the clock.
-- **Some versions are bumped by hand.** TypeScript is held at 6.0.3 until `typescript-eslint`
-  supports 7, the image tags named directly in `docker-compose.yml` have no Dependabot ecosystem,
-  and uv is pinned in the assistant's image but not in CI.
+- **Some versions are held, and some are bumped by hand.** Temurin stays on 21 and Python on 3.13
+  until an ADR moves them, so Dependabot ignores their next lines
+  ([ADR-045](docs/ADRs/ADR-045-dependabot-triage-and-toolchain-holds.md)). TypeScript is held at
+  6.0.3 until `typescript-eslint` supports 7, the image tags named directly in `docker-compose.yml`
+  have no Dependabot ecosystem, and uv is pinned in the assistant's image but not in CI.
 
 </details>
 

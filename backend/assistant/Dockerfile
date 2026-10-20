@@ -2,7 +2,7 @@
 # `docker manifest inspect` before this file was committed (CI's setup-uv pins no Python of its
 # own; the development machine's `.python-version` names "3.13"). uv is taken from its own
 # official image rather than installed with pip, pinned to 0.12.7 to match `uv --version` on the
-# development machine; CI's astral-sh/setup-uv@v10.0.1 step states no uv version of its own.
+# development machine; CI's astral-sh/setup-uv@v10.3.0 step states no uv version of its own.
 
 # --- Build -----------------------------------------------------------------------------------
 FROM python:3.13.8-slim-trixie AS build
