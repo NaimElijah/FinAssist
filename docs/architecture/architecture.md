@@ -428,7 +428,8 @@ gateway → Spring's authorization endpoint, on the `ClientRegistration` `Keyclo
 builds by hand, stores the request in the session and answers 302 to Keycloak's *public*
 authorization endpoint, with PKCE `S256` and a `redirect_uri` of
 `GATEWAY_PUBLIC_URL/bff/login/oauth2/code/keycloak` → the browser signs in on Keycloak's own page,
-which asks for a new password and a TOTP device the first time → Keycloak answers 302 to that
+which, the first time, asks for a TOTP device, a new password and the owner's email and names
+([First sign-in](../../README.md#first-sign-in)) → Keycloak answers 302 to that
 callback, which the dev proxy forwards to the gateway → the gateway exchanges the code at
 Keycloak's token endpoint over the *backchannel*, authenticating as `finassist-gateway` with
 `client_secret_basic` and sending the PKCE verifier → it validates the ID token against the
