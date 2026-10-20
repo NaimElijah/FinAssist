@@ -1,6 +1,6 @@
 # ADR-034: The Compose authentication smoke check stays manual, out of CI
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by [ADR-040](ADR-040-the-smoke-check-trigger-fired.md)
 - **Date:** 2026-09-22
 
 ## Context

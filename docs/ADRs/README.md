@@ -50,6 +50,7 @@ append-only history: to change course, add a new record and mark the old one
 | [042](ADR-042-agent-instructions-per-codebase.md) | Agent instructions split per codebase, one `CLAUDE.md` beside each | Accepted |
 | [043](ADR-043-github-secret-scanning-and-dependabot-alerts.md) | GitHub's own secret scanning, push protection and Dependabot alerts; no scanner in CI | Accepted, extended by 044 |
 | [044](ADR-044-compose-refuses-a-published-secret.md) | Compose refuses to start on a secret that a file in the repository holds | Accepted |
+| [045](ADR-045-dependabot-triage-and-toolchain-holds.md) | Dependabot's updates are triaged weekly, the Java pair moves together, and the toolchain lines move only by ADR | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -67,6 +68,14 @@ follow.
 chose to build authentication to a professional standard before the threat model asked for it.
 030 keeps 027's loopback binding, Host allow-lists and JSON-only writes as defence in depth. 031
 records the identity provider it relies on, and 032 the authorisation model.
+
+031's last revisit trigger was discharged on 2026-09-21, five days after the record. Before
+`keycloak-db-data` is ever recreated while the journal holds attributed rows, it asks that the
+owner's user id be pinned in the realm file. `ops/keycloak/finassist-realm.json` has pinned it
+since then, and `KeycloakRealmIT` proves that Keycloak keeps the pinned id on import. So the
+accepted cost 031 names for recreating that volume is smaller than it says: the owner repeats the
+first sign-in, TOTP included, but keeps the same `sub`, and every journal row they wrote still
+names them. 031's own text stays as written, because these records are append-only.
 
 033 extends 020 and 024 on 2026-09-22, once authentication existed to discharge the "who" both
 records had deferred: every journal row now names the authenticated subject that wrote it, from
@@ -145,3 +154,10 @@ to an empty volume, so the check has to run before either database first starts.
 Compose service, `secret-check`, does that: both databases and Grafana wait on it. It is the
 second one-shot that 039's restart and log rules exempt
 ([#302](https://github.com/NaimElijah/FinAssist/issues/302)).
+
+045 records on 2026-10-20 how Dependabot's version updates are handled, after 26 of them had
+piled up unmerged, their checks stale and the two Java services drifting apart. Temurin and
+Python stay on the lines ADR-002 and ADR-003 chose until an ADR moves them, the ledger and the
+gateway take each bump in one PR, a Keycloak, PyJWT or Spring Security bump goes to the owner
+first, and the PRs are triaged in the week they open
+([#138](https://github.com/NaimElijah/FinAssist/issues/138)).

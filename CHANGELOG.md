@@ -186,6 +186,19 @@ history; write the commit message well and this file writes itself.
 
 ### Changed
 
+- **Keycloak is 26.8.1. Take `make backup` before the next `make run`.** Keycloak migrates its
+  database on its first start and cannot be downgraded afterwards. `keycloak-db` stays on
+  PostgreSQL 17, which 26.8 supports; moving it to 18 is
+  [#314](https://github.com/NaimElijah/FinAssist/issues/314).
+- **The 26 open Dependabot PRs are cleared, and the dependencies they proposed are current.**
+  - The ledger and the gateway move together: Maven 3.10.0, Spotless 3.10.4, JaCoCo 0.8.15, and PIT
+    1.30.0 in the ledger.
+  - Vitest is on 5.0.4.
+  - The other npm, Python and CI action bumps are patch or minor releases.
+  - Temurin 24 and Python 3.14 were declined. Dependabot now ignores them until an ADR moves Java
+    or Python off 21 and 3.13, and bumps the two Java services in one PR. Its PRs are triaged
+    weekly ([ADR-045](docs/ADRs/ADR-045-dependabot-triage-and-toolchain-holds.md),
+    [#138](https://github.com/NaimElijah/FinAssist/issues/138)).
 - **The quick start's one-off `pg_dump > finassist-before-upgrade.sql` is now `make backup`.**
   The old line wrote a dump of the books into the working tree, where `*.sql` is not ignored, and
   left checking it to `wc -c`. `/backups/` and `*.dump` are now git-ignored
@@ -209,6 +222,10 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **`make mutation-ledger` runs again.** It had aborted before its first mutant since
+  2026-09-14. `LedgerContractIT` reads a system property only Surefire and Failsafe set, so it
+  failed under PIT. The mutation profile now leaves it out, as it already leaves out the other ITs
+  that boot the whole application ([#138](https://github.com/NaimElijah/FinAssist/issues/138)).
 - **A table that starts or stops overflowing without a window resize gains or loses its Tab stop.**
   `DataTable`'s scroll region is a Tab stop only while the table overflows it. That was measured
   only on a window `resize`, so a web font loading, a sibling appearing or a change to the
