@@ -19,7 +19,7 @@ the ledger's document, as described below.
   both services' failures alike.
 
 **Value-semantics conformance vectors.** `money-vectors.v1.json` is the behaviour both `Money`
-implementations must agree on, read by `MoneyTest`/`MoneyVectorsTest` in the ledger and
+implementations must agree on, read by `MoneyVectorsTest` in the ledger and
 `test_money_vectors.py` in the assistant. ADR-010 forbids a shared kernel across languages and
 asks that equivalent tests keep the two honest; this is what makes "equivalent" checkable
 rather than a claim in a docstring. See
