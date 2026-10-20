@@ -485,6 +485,14 @@ describe, every pull request that changes code adds a line to [CHANGELOG.md](CHA
 `[Unreleased]`, and a decision that shapes the architecture gets an ADR, indexed in
 [docs/ADRs/README.md](docs/ADRs/README.md).
 
+**Dependency updates.** Dependabot opens its version updates into `dev` every week, and they are
+triaged that same week ([ADR-045](docs/ADRs/ADR-045-dependabot-triage-and-toolchain-holds.md)).
+Rebase a PR that is behind `dev` with `@dependabot rebase` before trusting its checks. Then merge
+it, or close it with a one-line reason. When a bump leaves a document naming the old version, apply
+it by hand on a branch with the documents in the same commit, and close the PR with a pointer to
+it. A Keycloak, PyJWT or Spring Security bump goes to the owner first. The ledger and the gateway
+take each bump in one PR, and Temurin and Python stay on 21 and 3.13 until an ADR moves them.
+
 ## Testing
 
 | Suite | What it proves | Command |
@@ -724,9 +732,11 @@ ledger client behind its own `LedgerPort`.
 - **Clock drift under WSL2 can refuse a valid token.** Both services allow 30 seconds of leeway on
   `exp`, `nbf` and `iat`; past that a fresh token is answered 401 with the reason `lifetime`.
   `wsl --shutdown`, then starting Docker Desktop again, resyncs the clock.
-- **Some versions are bumped by hand.** TypeScript is held at 6.0.3 until `typescript-eslint`
-  supports 7, the image tags named directly in `docker-compose.yml` have no Dependabot ecosystem,
-  and uv is pinned in the assistant's image but not in CI.
+- **Some versions are held, and some are bumped by hand.** Temurin stays on 21 and Python on 3.13
+  until an ADR moves them, so Dependabot ignores their next lines
+  ([ADR-045](docs/ADRs/ADR-045-dependabot-triage-and-toolchain-holds.md)). TypeScript is held at
+  6.0.3 until `typescript-eslint` supports 7, the image tags named directly in `docker-compose.yml`
+  have no Dependabot ecosystem, and uv is pinned in the assistant's image but not in CI.
 
 </details>
 
