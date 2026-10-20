@@ -10,12 +10,12 @@ license = { text = "Proprietary - all rights reserved. See LICENSE at the reposi
 # Exact pins only. Ranges make a lockfile a suggestion; see docs/ADRs/ADR-003.
 dependencies = [
     "fastapi==0.141.1",
-    "uvicorn[standard]==0.52.4",
+    "uvicorn[standard]==0.53.0",
     "pydantic==2.13.5",
     "pydantic-settings==2.15.0",
     "httpx==0.28.1",          # talks to the ledger over its OpenAPI contract
-    "anthropic==1.2.0",
-    "pandas==3.0.5",
+    "anthropic==1.7.0",
+    "pandas==3.0.6",
     "structlog==26.1.0",      # structured logging; never `print`
     # Telemetry (ADR-019). The instrumentation package tracks the API/SDK on its own 0.x
     # line, which is why its version looks unlike the other two rather than being a typo.
