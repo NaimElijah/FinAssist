@@ -130,7 +130,7 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 | Ledger | Java + Spring Boot, built by the Maven wrapper | 21 / 4.1.1 / 3.10.0 | Records and sealed types make illegal ledger states unrepresentable; Actuator gives health and readiness without bespoke code; a clone needs only a JDK |
 | Ledger store | PostgreSQL, Flyway, hand-written SQL over `JdbcClient` | 18.6 | `NUMERIC` for exact money, a schema per context, and a journal the database refuses to rewrite ([ADR-024](docs/ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
 | Gateway | Spring Cloud Gateway Server Web MVC | 5.0.3 (train 2025.1.3) | OIDC sign-in, tokens kept in the server-side session, and `TokenRelay` to both services ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) |
-| Identity | Keycloak, on its own PostgreSQL | 26.7.4 / 17.11 | Self-hosted OIDC, its realm committed as code with every secret a placeholder ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) |
+| Identity | Keycloak, on its own PostgreSQL | 26.8.1 / 17.11 | Self-hosted OIDC, its realm committed as code with every secret a placeholder ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) |
 | Assistant | Python + FastAPI | 3.13 / 0.141.1 | Native home for the Anthropic SDK and pandas; typed validation from the same Pydantic models the domain uses |
 | Assistant tooling | uv, Ruff, mypy `--strict`, PyJWT `crypto` | 0.12.7 in the image / 0.16.10 / 2.3.1 / 2.15.0 | One tool resolves, locks and fetches the interpreter; RS256 tokens checked against the injected clock |
 | Web | React + Vite + TypeScript | 19.2 / 8.2 / 6.0.3 | A static bundle, no Node server to run; TypeScript held below 6.1 because `typescript-eslint` caps there |
