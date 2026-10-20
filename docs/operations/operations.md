@@ -117,8 +117,9 @@ the realm file itself.
 **Both delete every user in the `finassist` realm**: the owner's password and TOTP enrolment, and
 every viewer added by hand. Take `make backup` first: restoring its `keycloak.dump` is the only
 undo (see [Backing up and restoring](#backing-up-and-restoring)). Afterwards the owner signs in again with
-`FINASSIST_OWNER_INITIAL_PASSWORD`, sets a new password and enrols TOTP again, as at
-[first sign-in](../../README.md#first-sign-in), and each viewer is created again. The owner keeps the same `sub`,
+`FINASSIST_OWNER_INITIAL_PASSWORD` and goes through every page of
+[first sign-in](../../README.md#first-sign-in) again: a TOTP device, a new password, and the
+owner's email and names, which the recreated user no longer has. Each viewer is created again. The owner keeps the same `sub`,
 because the realm pins the owner's id, so every journal row the owner wrote still names them.
 **Neither touches `db-data`, the ledger's volume.**
 
