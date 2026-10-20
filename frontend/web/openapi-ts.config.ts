@@ -1,5 +1,6 @@
 /**
- * Generates TypeScript types from both services' committed OpenAPI documents (ADR-029).
+ * Generates TypeScript types from the ledger's, the assistant's and the gateway's committed
+ * OpenAPI documents (ADR-029).
  *
  * Types only: `plugins` names `@hey-api/typescript` alone, so no SDK and no HTTP client are
  * generated. `src/shared/api/client.ts` stays the one place the app talks HTTP, and a

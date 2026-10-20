@@ -234,15 +234,19 @@ cd frontend/web && npm ci && npm run dev
 ### First sign-in
 
 Keycloak seeds one user, `FINASSIST_OWNER_USERNAME` (`owner` by default), with the `owner` role
-and a *temporary* password, `FINASSIST_OWNER_INITIAL_PASSWORD`. Its first sign-in must set a real
-password and enrol a TOTP device, so it is done by hand:
+and a *temporary* password, `FINASSIST_OWNER_INITIAL_PASSWORD`. Its first sign-in must enrol a
+TOTP device, set a real password and fill in the owner's profile, so it is done by hand:
 
 1. Open [http://localhost:5173](http://localhost:5173) — `localhost`, never `127.0.0.1` (see
    [Usage](#usage)). With nobody signed in, it shows a sign-in screen.
 2. Click "Sign in with Keycloak", and sign in on Keycloak's own page with
    `FINASSIST_OWNER_USERNAME` and `FINASSIST_OWNER_INITIAL_PASSWORD`.
-3. Keycloak asks for a new password, under the policy above, and then for a TOTP device: scan the
-   QR code with any authenticator app, or note the secret and generate a code by hand.
+3. Keycloak shows three pages, in this order:
+   1. **A TOTP device.** Scan the QR code with any authenticator app, or choose "Unable to scan?"
+      for the secret and generate a code by hand.
+   2. **A new password**, under the policy above.
+   3. **The owner's email, first name and last name**, all three required. Keycloak's default user
+      profile requires them, and the realm seeds the owner with none of them.
 4. Keycloak sends you back to [http://localhost:5173](http://localhost:5173), on Accounts, with
    your name in the header.
 

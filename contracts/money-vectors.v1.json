@@ -1,7 +1,7 @@
 {
   "version": 1,
   "about": [
-    "Behavioural vectors for Money, read by MoneyTest.java and test_money.py.",
+    "Behavioural vectors for Money, read by MoneyVectorsTest.java and test_money_vectors.py.",
     "ADR-010 forbids a shared kernel across languages and asks that the two implementations be",
     "kept honest by equivalent tests on both sides. Until now that was mirrored prose, and it had",
     "already drifted: times_rounded raised on a large product in Python where Java succeeded.",

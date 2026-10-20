@@ -69,6 +69,14 @@ chose to build authentication to a professional standard before the threat model
 030 keeps 027's loopback binding, Host allow-lists and JSON-only writes as defence in depth. 031
 records the identity provider it relies on, and 032 the authorisation model.
 
+031's last revisit trigger was discharged on 2026-09-21, five days after the record. Before
+`keycloak-db-data` is ever recreated while the journal holds attributed rows, it asks that the
+owner's user id be pinned in the realm file. `ops/keycloak/finassist-realm.json` has pinned it
+since then, and `KeycloakRealmIT` proves that Keycloak keeps the pinned id on import. So the
+accepted cost 031 names for recreating that volume is smaller than it says: the owner repeats the
+first sign-in, TOTP included, but keeps the same `sub`, and every journal row they wrote still
+names them. 031's own text stays as written, because these records are append-only.
+
 033 extends 020 and 024 on 2026-09-22, once authentication existed to discharge the "who" both
 records had deferred: every journal row now names the authenticated subject that wrote it, from
 `V1_2__journal_recorded_by.sql` onward. 021's rule that identity is generated inside the service

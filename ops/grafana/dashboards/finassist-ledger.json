@@ -7,13 +7,13 @@
   "version": 1,
   "refresh": "10s",
   "time": { "from": "now-30m", "to": "now" },
-  "description": "Every panel here is a metric that exists today. The ledger serves Actuator and nothing else, so HTTP panels describe probe traffic until the first business endpoint ships (ADR-019).",
+  "description": "Every panel here is a metric that exists today. The ledger serves its accounting, budgeting and planning endpoints under /api/v1 beside Actuator, and the HTTP panels sum every URI it records, with no filter on the path (ADR-019).",
   "panels": [
     {
       "id": 1,
       "type": "stat",
       "title": "Ledger reachable",
-      "description": "Prometheus scrape success. 0 means the ledger is not running natively on the host, which is the usual cause of every other panel being empty.",
+      "description": "Prometheus scrape success for the Compose ledger service, at ledger:8080 (ops/prometheus.yml). 0 means that container is stopped or not answering, which is the usual cause of every other panel being empty. A ledger run natively on the host is never scraped, so it reads 0 too.",
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
       "targets": [{ "expr": "up{job=\"finassist-ledger\"}", "refId": "A" }],
       "fieldConfig": {
