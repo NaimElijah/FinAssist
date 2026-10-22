@@ -133,7 +133,7 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 | Identity | Keycloak, on its own PostgreSQL | 26.8.1 / 17.11 | Self-hosted OIDC, its realm committed as code with every secret a placeholder ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) |
 | Assistant | Python + FastAPI | 3.13 / 0.141.1 | Native home for the Anthropic SDK and pandas; typed validation from the same Pydantic models the domain uses |
 | Assistant tooling | uv, Ruff, mypy `--strict`, PyJWT `crypto` | 0.12.7 in the image / 0.16.10 / 2.3.1 / 2.15.0 | One tool resolves, locks and fetches the interpreter; RS256 tokens checked against the injected clock |
-| Web | React + Vite + TypeScript | 19.2 / 8.2 / 6.0.3 | A static bundle, no Node server to run; TypeScript held below 6.1 because `typescript-eslint` caps there |
+| Web | React + Vite + TypeScript | 19.2 / 8.3 / 6.0.3 | A static bundle, no Node server to run; TypeScript held below 6.1 because `typescript-eslint` caps there |
 | Web data | React Router, TanStack Query, @hey-api/openapi-ts | 8.3.1 / 5.102.8 / 0.99.0 | Deep links, cached server state, and types generated from all three contracts ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
 | Web runtime | Node | 24 | Pinned in `.nvmrc` and `engines`, because tests pin dates and amounts as that major's ICU data formats them |
 | Contracts | springdoc-openapi (API starter only) | 3.1.1 | Each service's OpenAPI document is generated, then pinned by a test to `contracts/` |
@@ -141,7 +141,7 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 | Tests | JUnit + Testcontainers, pytest + Hypothesis, Vitest + Testing Library | Boot-managed / 9.1.1 + 6.168.0 / 5.0 + 16.3 | Integration tests against a real PostgreSQL and a real Keycloak image; property tests seeded on both sides |
 | Coverage, mutation | JaCoCo, pytest-cov, coverage-v8; PIT | 0.8.15 / 7.1.0 / 5.0.4; 1.30.0 | Measured and gating nothing; mutation testing answers whether a test would notice ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
 | Format and lint | Spotless + palantir-java-format, ESLint + Prettier | 3.10.4 / 2.97.0, 10.11 / 3.9 | One authoritative formatter per language, checked in CI |
-| Telemetry | OpenTelemetry + Micrometer; Collector, Prometheus, Grafana | 1.44.0 (Python) / Boot 4.1.1 starter; 0.139.0 / v3.7.3 / 12.3.1 | Vendor-neutral: the backend is an environment variable, not a rewrite ([ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
+| Telemetry | OpenTelemetry + Micrometer; Collector, Prometheus, Grafana | 1.45.1 (Python) / Boot 4.1.1 starter; 0.139.0 / v3.7.3 / 12.3.1 | Vendor-neutral: the backend is an environment variable, not a rewrite ([ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 
 Every version above is pinned in `backend/ledger/pom.xml`, `backend/gateway/pom.xml`,
 `.mvn/wrapper/maven-wrapper.properties` in each, `backend/assistant/pyproject.toml`,
@@ -487,7 +487,12 @@ history, so today each of those merges takes the owner's bypass
 ([#134](https://github.com/NaimElijah/FinAssist/issues/134)). Documentation changes ship in the same commit as the behaviour they
 describe, every pull request that changes code adds a line to [CHANGELOG.md](CHANGELOG.md) under
 `[Unreleased]`, and a decision that shapes the architecture gets an ADR, indexed in
-[docs/ADRs/README.md](docs/ADRs/README.md).
+[docs/ADRs/README.md](docs/ADRs/README.md). Every pull request description states the problem,
+the approach, the trade-off accepted, what changed, how it was verified, and the ADR when one
+applies; [the pull request template](.github/pull_request_template.md) opens with those six
+sections and a checklist of the rules above. A new bug, decision, feature, or operations or
+infrastructure issue starts from its template in [.github/ISSUE_TEMPLATE/](.github/ISSUE_TEMPLATE/),
+which applies its `type:` label; any other kind starts blank.
 
 **Dependency updates.** Dependabot opens its version updates into `dev` every week, and they are
 triaged that same week ([ADR-045](docs/ADRs/ADR-045-dependabot-triage-and-toolchain-holds.md)).
@@ -617,7 +622,7 @@ ops/                    Infrastructure configuration, not application code
   backup/                 backup.py - backs up, restores, and proves a restore (ADR-038)
   grafana/                dashboards; beside it, the collector and Prometheus configuration
 docs/                   requirements/, architecture/, operations/, testing/, ADRs/
-.github/                CI workflow and Dependabot configuration
+.github/                CI workflow, Dependabot configuration, and the PR and issue templates
 ```
 
 Java packages sit under `backend/ledger/src/main/java/io/github/naimelijah/finassist/ledger/`
