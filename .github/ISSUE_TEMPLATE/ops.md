@@ -8,8 +8,9 @@ assignees: NaimElijah
 
 <!--
 Before filing, add what a template cannot: one "priority:" label, one "size:" label, at least one
-"area:" label ("area: ops" for the local stack, "area: infra" for AWS), a milestone, and a place on
-project board #2 at Backlog.
+"area:" label ("area: ops" for the local stack, "area: infra" for AWS, "area: ci" for .github/), a
+milestone, and a place on project board #2 at Backlog. Title a CI change "ci: …" rather than
+"ops(<area>): …".
 -->
 
 ## Problem
