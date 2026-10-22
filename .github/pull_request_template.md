@@ -38,4 +38,5 @@ Into dev, cite each issue with "Refs #N"; into main, a promotion closes them wit
       `tests/test_contract.py` or `GatewayContractIT`), then the web types
       (`make generate-web-api`).
 - [ ] A change to code adds a bold-lead bullet to `CHANGELOG.md` under `[Unreleased]`.
-- [ ] A new or superseded ADR is linked above and indexed in `docs/ADRs/README.md`.
+- [ ] A new ADR is linked above, with a row and a dated note in `docs/ADRs/README.md`, and each
+      ADR it extends or supersedes says so in its Status line and in its row there.
