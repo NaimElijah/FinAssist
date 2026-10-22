@@ -11,6 +11,8 @@ Before filing, add what a template cannot: one "priority:" label, one "size:" la
 "area:" label, a milestone, and a place on project board #2 at Backlog.
 -->
 
+Owner:
+
 ## Problem
 
 <!-- What cannot proceed until this is decided, and the forces and constraints that bear on it. -->
@@ -29,8 +31,6 @@ Before filing, add what a template cannot: one "priority:" label, one "size:" la
 ## What would make us revisit it
 
 <!-- The concrete threshold or event: a load, a team size, a failure mode, a compliance need. -->
-
-Owner:
 
 ## Acceptance
 
