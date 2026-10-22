@@ -490,7 +490,9 @@ describe, every pull request that changes code adds a line to [CHANGELOG.md](CHA
 [docs/ADRs/README.md](docs/ADRs/README.md). Every pull request description states the problem,
 the approach, the trade-off accepted, what changed, how it was verified, and the ADR when one
 applies; [the pull request template](.github/pull_request_template.md) opens with those six
-sections and a checklist of the rules above.
+sections and a checklist of the rules above. A new issue starts from one of the four templates in
+[.github/ISSUE_TEMPLATE/](.github/ISSUE_TEMPLATE/) — bug, decision, feature, and operations or
+infrastructure — each applying its `type:` label.
 
 **Dependency updates.** Dependabot opens its version updates into `dev` every week, and they are
 triaged that same week ([ADR-045](docs/ADRs/ADR-045-dependabot-triage-and-toolchain-holds.md)).
@@ -620,7 +622,7 @@ ops/                    Infrastructure configuration, not application code
   backup/                 backup.py - backs up, restores, and proves a restore (ADR-038)
   grafana/                dashboards; beside it, the collector and Prometheus configuration
 docs/                   requirements/, architecture/, operations/, testing/, ADRs/
-.github/                CI workflow, Dependabot configuration, and the pull request template
+.github/                CI workflow, Dependabot configuration, and the PR and issue templates
 ```
 
 Java packages sit under `backend/ledger/src/main/java/io/github/naimelijah/finassist/ledger/`
