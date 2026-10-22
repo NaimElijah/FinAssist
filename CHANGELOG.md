@@ -481,6 +481,15 @@ history; write the commit message well and this file writes itself.
 
 ### Security
 
+- **A traced assistant no longer stalls on a hostile `tracestate` header.** OpenTelemetry 1.44.0
+  parsed the header in quadratic time, before the Host allow-list or any authentication ran. With
+  `OTEL_EXPORT_ENABLED` on, one unauthenticated 100 KB header would cost about 20 s of CPU, and
+  1.45.1 parses it in 0.02 s (GHSA-xcq7-p3pf-p88h). Two more advisories turned the audits red on
+  `dev`:
+  - `certifi` 2026.10.19 no longer trusts the emSign intermediates whose keys were compromised
+    (GHSA-6q48-6c7w-9gw2);
+  - Vite 8.3.5 clears six advisories against its dev server
+    ([#334](https://github.com/NaimElijah/FinAssist/issues/334)).
 - **GitHub now watches the public repository.** Dependabot alerts, secret scanning and push
   protection were all off when the repository went public. All three are now on: an advisory
   against the npm or Python trees raises an alert without waiting for a push, and a push that

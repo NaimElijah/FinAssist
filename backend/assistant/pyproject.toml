@@ -19,9 +19,9 @@ dependencies = [
     "structlog==26.1.0",      # structured logging; never `print`
     # Telemetry (ADR-019). The instrumentation package tracks the API/SDK on its own 0.x
     # line, which is why its version looks unlike the other two rather than being a typo.
-    "opentelemetry-sdk==1.44.0",
-    "opentelemetry-exporter-otlp-proto-http==1.44.0",
-    "opentelemetry-instrumentation-fastapi==0.65b0",
+    "opentelemetry-sdk==1.45.1",
+    "opentelemetry-exporter-otlp-proto-http==1.45.1",
+    "opentelemetry-instrumentation-fastapi==0.66b1",
     # JWT bearer-token verification (ADR-032). The `crypto` extra brings `cryptography`,
     # which RS256 needs; the standard library has no JOSE support.
     "PyJWT[crypto]==2.15.0",
