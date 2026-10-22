@@ -133,7 +133,7 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 | Identity | Keycloak, on its own PostgreSQL | 26.8.1 / 17.11 | Self-hosted OIDC, its realm committed as code with every secret a placeholder ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) |
 | Assistant | Python + FastAPI | 3.13 / 0.141.1 | Native home for the Anthropic SDK and pandas; typed validation from the same Pydantic models the domain uses |
 | Assistant tooling | uv, Ruff, mypy `--strict`, PyJWT `crypto` | 0.12.7 in the image / 0.16.10 / 2.3.1 / 2.15.0 | One tool resolves, locks and fetches the interpreter; RS256 tokens checked against the injected clock |
-| Web | React + Vite + TypeScript | 19.2 / 8.2 / 6.0.3 | A static bundle, no Node server to run; TypeScript held below 6.1 because `typescript-eslint` caps there |
+| Web | React + Vite + TypeScript | 19.2 / 8.3 / 6.0.3 | A static bundle, no Node server to run; TypeScript held below 6.1 because `typescript-eslint` caps there |
 | Web data | React Router, TanStack Query, @hey-api/openapi-ts | 8.3.1 / 5.102.8 / 0.99.0 | Deep links, cached server state, and types generated from all three contracts ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
 | Web runtime | Node | 24 | Pinned in `.nvmrc` and `engines`, because tests pin dates and amounts as that major's ICU data formats them |
 | Contracts | springdoc-openapi (API starter only) | 3.1.1 | Each service's OpenAPI document is generated, then pinned by a test to `contracts/` |
