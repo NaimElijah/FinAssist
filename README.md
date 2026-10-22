@@ -487,7 +487,10 @@ history, so today each of those merges takes the owner's bypass
 ([#134](https://github.com/NaimElijah/FinAssist/issues/134)). Documentation changes ship in the same commit as the behaviour they
 describe, every pull request that changes code adds a line to [CHANGELOG.md](CHANGELOG.md) under
 `[Unreleased]`, and a decision that shapes the architecture gets an ADR, indexed in
-[docs/ADRs/README.md](docs/ADRs/README.md).
+[docs/ADRs/README.md](docs/ADRs/README.md). Every pull request description states the problem,
+the approach, the trade-off accepted, what changed, how it was verified, and the ADR when one
+applies; [the pull request template](.github/pull_request_template.md) opens with those six
+sections and a checklist of the rules above.
 
 **Dependency updates.** Dependabot opens its version updates into `dev` every week, and they are
 triaged that same week ([ADR-045](docs/ADRs/ADR-045-dependabot-triage-and-toolchain-holds.md)).
@@ -617,7 +620,7 @@ ops/                    Infrastructure configuration, not application code
   backup/                 backup.py - backs up, restores, and proves a restore (ADR-038)
   grafana/                dashboards; beside it, the collector and Prometheus configuration
 docs/                   requirements/, architecture/, operations/, testing/, ADRs/
-.github/                CI workflow and Dependabot configuration
+.github/                CI workflow, Dependabot configuration, and the pull request template
 ```
 
 Java packages sit under `backend/ledger/src/main/java/io/github/naimelijah/finassist/ledger/`
