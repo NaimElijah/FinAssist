@@ -35,4 +35,4 @@ Owner:
 ## Acceptance
 
 - [ ] The owner chooses an option.
-- [ ] The ADR is written and indexed in `docs/ADRs/README.md`.
+- [ ] The ADR is written, with a row and a dated note in `docs/ADRs/README.md`.
