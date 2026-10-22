@@ -34,6 +34,8 @@ path.
 <!-- Tick an item that does not apply, and say so beside it. -->
 
 - [ ] Build, tests, format and lint run locally, and the result is stated above.
+- [ ] The change was run, not only tested: the packaged artefact, or the stack in an isolated
+      Compose project (`-p finassist-<purpose>`), never the owner's `finassist` project.
 - [ ] `docs/requirements/requirements.md`, `docs/architecture/architecture.md` and the README
       change in the same commit as the behaviour they describe.
 - [ ] After an endpoint change, the service's contract is regenerated (`LedgerContractIT`,
