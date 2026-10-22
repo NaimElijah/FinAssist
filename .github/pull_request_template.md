@@ -1,6 +1,8 @@
 <!--
 Every pull request states the six sections below (README, "Conventions").
 Into dev, cite each issue with "Refs #N"; into main, a promotion closes them with "Closes #N".
+Link a file by its full https://github.com/NaimElijah/FinAssist/blob/<ref>/ URL, not a relative
+path.
 -->
 
 ## Problem
