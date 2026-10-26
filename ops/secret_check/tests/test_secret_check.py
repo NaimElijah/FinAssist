@@ -26,6 +26,8 @@ if sys.platform == "win32":
     POSIX_PERMISSIONS_BIND = False
 else:
     POSIX_PERMISSIONS_BIND = os.geteuid() != 0
+# ERROR_PRIVILEGE_NOT_HELD: how Windows refuses a symlink to a user without Developer Mode.
+WINDOWS_PRIVILEGE_NOT_HELD = 1314
 
 
 def _clone(root: Path, files: dict[str, bytes], gitignore: bytes | None = None) -> Path:
@@ -228,7 +230,10 @@ def Given_a_symlink_to_a_file_holding_a_secret_When_checked_Then_it_is_not_follo
     root = _clone(tmp_path / "clone", {})
     try:
         (root / "link").symlink_to(outside, target_is_directory=True)
-    except OSError:
+    except OSError as error:
+        # Only Windows without Developer Mode may refuse this; anywhere else it is a real failure.
+        if getattr(error, "winerror", None) != WINDOWS_PRIVILEGE_NOT_HELD:
+            raise
         pytest.skip("this machine does not let an unprivileged user create a symlink")
 
     status, _ = _run(root, _environment(POSTGRES_PASSWORD=PUBLISHED), capsys)
@@ -307,8 +312,12 @@ def Given_an_unexpected_failure_When_checked_Then_only_its_type_is_reported(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = _clone(tmp_path, {"README.md": b"text\n"})
+    read = secret_check._read
 
     def failing_read(path: Path) -> bytes:
+        # Fails on the content read alone: the ignore files before it are still read as usual.
+        if path.name != "README.md":
+            return read(path)
         raise RuntimeError(f"could not read a file holding {PUBLISHED}")
 
     monkeypatch.setattr(secret_check, "_read", failing_read)
@@ -335,10 +344,21 @@ def Given_the_compose_file_When_its_secrets_are_read_Then_the_check_covers_each(
 def Given_the_compose_file_When_the_check_service_is_read_Then_it_is_handed_each_secret() -> None:
     compose = (REPOSITORY_ROOT / "docker-compose.yml").read_bytes().decode()
 
-    # `secret-check` is the one service that takes a secret as `NAME: ${NAME:-}`, empty default.
-    handed = set(re.findall(r"^\s+([A-Z0-9_]+): \$\{\1:-\}$", compose, re.MULTILINE))
+    # The `secret-check` service takes each secret as `NAME: ${NAME:-}`, with an empty default.
+    block = _service_block(compose, "secret-check")
+    handed = set(re.findall(r"^\s+([A-Z0-9_]+): \$\{\1:-\}$", block, re.MULTILINE))
 
     assert handed == set(secret_check.SECRET_VARIABLES)
+
+
+def _service_block(compose: str, service: str) -> str:
+    """The lines under `service`'s key in `services:`, up to the next key at its indent or less."""
+    lines = compose.splitlines()
+    start = lines.index(f"  {service}:")
+    ends = (
+        index for index in range(start + 1, len(lines)) if re.match(r"^ {0,2}[^\s#]", lines[index])
+    )
+    return "\n".join(lines[start + 1 : next(ends, len(lines))])
 
 
 # --- The walk agrees with git --------------------------------------------------------------------
