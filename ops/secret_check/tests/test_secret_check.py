@@ -110,6 +110,33 @@ def Given_a_value_only_inside_a_longer_token_When_checked_Then_it_passes(
     assert status == secret_check.EXIT_PASSED
 
 
+# Read as a pattern, `.` takes any character, `y+` a run of them, and `(Lk9)` a group: so the
+# literal text would not match it, and the near miss below would.
+METACHARACTER_SECRET = "Fixture.only+7Qv2(Lk9)"
+NEAR_MISS = "FixtureXonlyyy7Qv2Lk9"
+
+
+def Given_a_secret_holding_regex_metacharacters_When_checked_Then_its_literal_text_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"ci.yml": f"PASSWORD={METACHARACTER_SECRET}\n".encode()})
+
+    status, output = _run(root, _environment(GATEWAY_CLIENT_SECRET=METACHARACTER_SECRET), capsys)
+
+    assert status == secret_check.EXIT_REFUSED
+    assert "GATEWAY_CLIENT_SECRET" in output
+
+
+def Given_a_secret_holding_regex_metacharacters_When_only_a_near_miss_is_held_Then_it_passes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"ci.yml": f"PASSWORD={NEAR_MISS}\n".encode()})
+
+    status, _ = _run(root, _environment(GATEWAY_CLIENT_SECRET=METACHARACTER_SECRET), capsys)
+
+    assert status == secret_check.EXIT_PASSED
+
+
 def Given_an_unset_or_empty_secret_When_checked_Then_it_is_skipped_rather_than_matched(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
