@@ -509,7 +509,7 @@ take each bump in one PR, and Temurin and Python stay on 21 and 3.13 until an AD
 | Ledger | Ten ArchUnit rules; the domain's invariants and properties from a fixed seed; every repository and the append-only journal against a real PostgreSQL; every endpoint's authorization against a named inventory; each controller's validation; the OpenAPI contract | `make test-ledger` |
 | Gateway | Sign-in, CSRF and sign-out; a real code-plus-PKCE sign-in and token relay against a fake OpenID provider; Keycloak timeouts; the packaged jar starting; the realm file, read as data and run in the real Keycloak image | `make test-gateway` |
 | Assistant | Source-parsing architecture rules; FIFO cost basis, grounding, staleness and Money, with Hypothesis; token verification and authorization; the problem shape; the OpenAPI contract | `make test-assistant` |
-| Backup CLI | Redaction, the manifest checks and the owner-project guard, without Docker | `make test-backup` |
+| Backup CLI | Redaction, the manifest checks, every restore precondition, a backup's refusals, the command line and the owner-project guard, without Docker | `make test-backup` |
 | Secret check | It reads exactly the files git does not ignore, matches a value only as a whole token, and refuses by variable name, never by value | `make test-secret-check` |
 | Web | The file-tree architecture rules; the shared primitives; the sign-in gate; the read-only viewer; every screen end to end against a faked `fetch` | `make test-web` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |

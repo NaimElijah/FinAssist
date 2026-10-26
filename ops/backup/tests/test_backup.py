@@ -15,12 +15,13 @@ import json
 import os
 import re
 import stat
+import subprocess
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from typing import IO
+from typing import IO, cast
 
 import backup
 import pytest
@@ -104,9 +105,11 @@ def Given_detail_context_and_hint_lines_When_withheld_Then_they_are_dropped() ->
 
 
 def Given_more_lines_than_the_budget_When_withheld_Then_only_the_first_are_reported() -> None:
-    lines = _withheld(*(f"pg_dump: warning: number {n}" for n in range(10)))
+    words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf"]
 
-    assert len(lines) == backup.MAX_REPORTED_LINES
+    lines = _withheld(*(f"pg_dump: warning: {word}" for word in words))
+
+    assert lines == [f"pg_dump: warning: {word}" for word in words[: backup.MAX_REPORTED_LINES]]
 
 
 def Given_a_message_that_is_not_ascii_When_withheld_Then_it_is_reported_in_ascii() -> None:
@@ -256,49 +259,49 @@ def Given_the_owners_project_When_isolated_Then_it_is_refused() -> None:
         backup._isolated(backup.OWNER_PROJECT)
 
 
-def Given_the_check_project_When_isolated_Then_every_command_names_it() -> None:
-    compose = backup._isolated(backup.CHECK_PROJECT)
+def Given_the_check_project_When_isolated_Then_every_command_names_it_on_the_checks_own_ports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ran: list[tuple[list[str], object]] = []
 
-    command = compose._command("up", "-d")
+    def docker_not_run(command: list[str], **options: object) -> subprocess.CompletedProcess[bytes]:
+        ran.append((command, options.get("env")))
+        return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
 
+    # The process boundary: these tests never run Docker, so what it would be handed is recorded.
+    # Every Compose command goes through `require`, so this one stands for all of them.
+    monkeypatch.setattr(subprocess, "run", docker_not_run)
+
+    backup._isolated(backup.CHECK_PROJECT).require("starting db", "up", "-d", "db")
+
+    [(command, environment)] = ran
+    assert command[:2] == ["docker", "compose"]
     assert command[command.index("-p") + 1] == backup.CHECK_PROJECT
-    assert command[-2:] == ["up", "-d"]
+    assert command[-3:] == ["up", "-d", "db"]
+    # No assertion names the environment itself, so a failure never prints it into a public CI
+    # log: pytest's assertion rewriting would show `environment` in full. The cast only tells mypy
+    # what `handed_a_dict` proved, and only the port variables are compared.
+    handed_a_dict = isinstance(environment, dict)
+    assert handed_a_dict
+    handed = cast("dict[str, str]", environment)
+    ports = {name: handed.get(name) for name, _ in backup.CHECK_PORTS}
+    assert ports == dict(backup.CHECK_PORTS)
 
 
 # --- check reads the backup before it starts any container -------------------------------------
 
 
-class _RecordingCompose(backup.Compose):
-    """A Compose that records each command it is asked to run, and refuses to run any."""
-
-    def require(
-        self,
-        what: str,
-        *args: str,
-        stdin: object = None,
-        stdout: object = None,
-        input_bytes: bytes | None = None,
-    ) -> bytes:
-        _CALLS.append(what)
-        raise backup.BackupError(f"no container may be started here: {what}")
-
-
-_CALLS: list[str] = []
-
-
 def Given_a_changed_dump_When_checked_Then_it_fails_before_any_container_starts(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _CALLS.clear()
-    manifest = _manifest_for(b"PGDMP-archive")
-    folder = _backup_folder(tmp_path, manifest, dump=b"PGDMP-archivf")
+    folder = _written_backup(tmp_path)
+    (folder / backup.LEDGER.dump_name).write_bytes(LEDGER_DUMP + b"!")
+    project = _Project(project=backup.CHECK_PROJECT)
 
-    status = backup._run_checks(
-        backup._CheckRun(), _RecordingCompose(project=backup.CHECK_PROJECT), folder
-    )
+    status = backup._run_checks(backup._CheckRun(), project, folder)
 
     assert status == 1
-    assert _CALLS == []
+    assert project.calls == []
     assert "FAILED check 1 (both dumps match their manifest)" in capsys.readouterr().out
 
 
@@ -699,7 +702,20 @@ def Given_books_that_hold_still_When_backed_up_Then_the_manifest_records_their_d
     folder = backup.backup(_Project(digests=[BOOKS_DIGEST, BOOKS_DIGEST]), tmp_path, NOW)
 
     manifest = json.loads((folder / backup.MANIFEST_NAME).read_text(encoding="utf-8"))
+    assert folder == tmp_path / "20261013T120000Z"
     assert manifest[backup.BOOKS_DIGEST_KEY] == BOOKS_DIGEST
+
+
+def Given_a_clock_in_another_zone_When_backed_up_Then_the_backup_is_named_for_its_utc_time(
+    tmp_path: Path,
+) -> None:
+    in_jerusalem = datetime(2026, 10, 13, 15, 0, tzinfo=timezone(timedelta(hours=3)))
+
+    folder = backup.backup(_Project(), tmp_path, in_jerusalem)
+
+    manifest = json.loads((folder / backup.MANIFEST_NAME).read_text(encoding="utf-8"))
+    assert folder == tmp_path / "20261013T120000Z"
+    assert manifest["created"] == "20261013T120000Z"
 
 
 def Given_running_databases_When_backed_up_Then_each_dump_is_read_back_and_no_container_started(
