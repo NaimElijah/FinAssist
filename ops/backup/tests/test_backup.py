@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import stat
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -326,6 +328,9 @@ class _Project(backup.Compose):
         Empty means the ledger database holds no journal yet.
     :param dumps: what pg_dump writes, by database service.
     :param unreadable: the database services whose read-back of a dump fails.
+
+    `dump_modes` records, for each dump, the file's mode and its folder's, in octal, as pg_dump
+    writes it.
     """
 
     states: Mapping[str, str] = field(default_factory=lambda: dict(BOTH_RUNNING))
@@ -338,6 +343,7 @@ class _Project(backup.Compose):
     calls: list[tuple[str, ...]] = field(default_factory=list)
     read_back: list[tuple[str, bytes]] = field(default_factory=list)
     restored: list[tuple[str, bytes]] = field(default_factory=list)
+    dump_modes: list[tuple[str, str, str]] = field(default_factory=list)
 
     def require(
         self,
@@ -380,6 +386,10 @@ class _Project(backup.Compose):
             return self._query(service, (input_bytes or b"").decode("utf-8"))
         if command == backup.DUMP_COMMAND:
             assert stdout is not None, "pg_dump must write into the dump file"
+            # Read as the dump is written, so a mode tightened only afterwards shows.
+            file_mode = oct(stat.S_IMODE(os.fstat(stdout.fileno()).st_mode))
+            folder_mode = oct(stat.S_IMODE(Path(stdout.name).parent.stat().st_mode))
+            self.dump_modes.append((service, file_mode, folder_mode))
             stdout.write(self.dumps[service])
             return b""
         if command == backup.READ_BACK_COMMAND:
@@ -746,6 +756,32 @@ def Given_keycloak_db_not_running_When_backed_up_Then_it_is_refused(tmp_path: Pa
 
     assert not root.exists()
     assert not any(call[0] == "exec" for call in project.calls)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows ignores a POSIX mode; the folder takes its parent's ACL",
+)
+def Given_a_backup_When_written_on_posix_Then_the_folder_is_0700_and_each_file_0600(
+    tmp_path: Path,
+) -> None:
+    project = _Project()
+    # The most permissive umask, so only the modes the CLI sets itself can make these owner-only.
+    previous = os.umask(0)
+    try:
+        folder = backup.backup(project, tmp_path, NOW)
+    finally:
+        os.umask(previous)
+
+    # Owner-only while pg_dump writes, not just once the backup is done: a dump that others could
+    # read for that long has already leaked.
+    assert project.dump_modes == [("db", "0o600", "0o700"), ("keycloak-db", "0o600", "0o700")]
+    assert stat.S_IMODE(folder.stat().st_mode) == 0o700
+    assert {path.name: stat.S_IMODE(path.stat().st_mode) for path in folder.iterdir()} == {
+        backup.LEDGER.dump_name: 0o600,
+        backup.KEYCLOAK.dump_name: 0o600,
+        backup.MANIFEST_NAME: 0o600,
+    }
 
 
 # --- what a backup writes is what a restore accepts --------------------------------------------
