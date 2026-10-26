@@ -795,6 +795,47 @@ def Given_the_real_PyJWKClient_serving_a_matching_key_When_verified_Then_the_pri
     assert principal == Principal(subject=SUBJECT)
 
 
+_ROTATED_AWAY_KEY_ID = "rotated-away"
+"""A ``kid`` the served key set does not hold: a key the realm has since rotated out."""
+
+
+def Given_the_real_PyJWKClient_and_a_kid_the_served_set_lacks_When_verified_Then_it_is_refused(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey], jwks_server: str, fixed_clock: Clock
+) -> None:
+    """ADR-037: a set holding keys, none of which the token names, is a refusal, not an outage.
+
+    The key set is reachable, parses, and holds a key - only not this one. The stand-in in
+    ``Given_an_unknown_key_id_When_verified_Then_it_is_refused`` raises the error by hand; this
+    proves the real client's own lookup failure still reaches the verifier as a refusal, so a
+    change widening the outage mapping around the lookup turns this red rather than turning a
+    rotated-away key into a 503.
+    """
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock()), key_id=_ROTATED_AWAY_KEY_ID)
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(jwks_key_source(jwks_server), fixed_clock)(token)
+
+    assert refused.value.reason == REASON_UNKNOWN_KEY
+
+
+def Given_the_real_PyJWKClient_and_a_foreign_key_under_the_served_kid_When_verified_Then_refused(
+    jwks_server: str, fixed_clock: Clock
+) -> None:
+    """The served set holds the named ``kid``, but its key did not sign this token: a refusal.
+
+    Mirrors the stand-in case for a key the verifier does not hold, through the real lookup
+    rather than a key source that ignores the ``kid``.
+    """
+    foreign_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    token = _encode(foreign_key, _valid_claims(fixed_clock()), key_id=KEY_ID)
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(jwks_key_source(jwks_server), fixed_clock)(token)
+
+    assert refused.value.reason == REASON_REJECTED
+
+
 def Given_a_real_PyJWKClient_with_a_dead_port_When_verified_Then_it_is_unavailable(
     rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey], fixed_clock: Clock
 ) -> None:
@@ -1226,6 +1267,35 @@ def Given_no_token_verifier_When_create_app_builds_its_own_Then_it_refuses_a_for
 
     assert response.status_code == 401
     assert response.json()["code"] == "UNAUTHENTICATED"
+
+
+def Given_no_token_verifier_and_a_kid_the_served_set_lacks_When_a_route_is_requested_Then_it_is_401(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    jwks_server: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """ADR-037 at the HTTP boundary, through the verifier ``create_app`` builds itself: a key set
+    that holds keys none of which verifies the token is a refusal - 401 and one WARN line - and
+    never the outage's 503 and ERROR line."""
+    private_key, _ = rsa_key_pair
+    app = create_app(_live_settings(jwks_server))
+    token = _encode(private_key, _live_claims(), key_id=_ROTATED_AWAY_KEY_ID)
+    capsys.readouterr()
+
+    with TestClient(app, headers={"Authorization": f"Bearer {token}"}) as client:
+        response = client.get(_POSITION_URL)
+
+    records = [
+        json.loads(line)
+        for line in capsys.readouterr().out.strip().splitlines()
+        if line.startswith("{")
+    ]
+    refusals = [record for record in records if record.get("level") == "warning"]
+    outages = [record for record in records if record.get("level") == "error"]
+    assert response.status_code == 401
+    assert response.json()["code"] == "UNAUTHENTICATED"
+    assert [refusal["reason"] for refusal in refusals] == [REASON_UNKNOWN_KEY]
+    assert outages == []
 
 
 def Given_no_token_verifier_and_a_JWKS_answering_non_JSON_When_a_route_is_requested_Then_it_is_503(
