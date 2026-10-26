@@ -265,6 +265,44 @@ def Given_an_unreadable_directory_git_does_not_ignore_When_checked_Then_it_fails
     assert "locked" in output
 
 
+@pytest.mark.skipif(
+    not POSIX_PERMISSIONS_BIND, reason="needs POSIX permissions, as a non-root user"
+)
+def Given_an_unreadable_file_git_does_not_ignore_When_checked_Then_it_fails_misconfigured(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"locked.txt": f"PASSWORD={PUBLISHED}\n".encode()})
+    (root / "locked.txt").chmod(0)
+    try:
+        status, output = _run(root, _environment(), capsys)
+    finally:
+        (root / "locked.txt").chmod(0o644)
+
+    assert status == secret_check.EXIT_MISCONFIGURED
+    assert "cannot read" in output
+    assert "PermissionError" in output
+
+
+def Given_no_root_argument_When_checked_Then_it_fails_misconfigured(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    status = secret_check.main([], _environment())
+
+    assert status == secret_check.EXIT_MISCONFIGURED
+    assert "the repository's root as the only argument" in capsys.readouterr().out
+
+
+def Given_two_root_arguments_When_checked_Then_it_fails_misconfigured(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"README.md": b"text\n"})
+
+    status = secret_check.main([str(root), str(root)], _environment())
+
+    assert status == secret_check.EXIT_MISCONFIGURED
+    assert "the repository's root as the only argument" in capsys.readouterr().out
+
+
 def Given_an_unexpected_failure_When_checked_Then_only_its_type_is_reported(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
