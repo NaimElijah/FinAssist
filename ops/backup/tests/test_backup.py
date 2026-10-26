@@ -620,3 +620,107 @@ def Given_a_finished_backup_When_its_folder_is_restored_Then_both_dumps_match_an
     backup.restore(empty, folder, backup.DATABASES)
 
     assert empty.restored == [("db", LEDGER_DUMP), ("keycloak-db", KEYCLOAK_DUMP)]
+
+
+# --- the command line, with Compose replaced by a project in memory ----------------------------
+
+
+@pytest.fixture
+def cli_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Project:
+    """The project every `Compose()` the CLI builds stands for.
+
+    The default backup root is moved under `tmp_path` as well, so a run that ignores
+    BACKUP_DIR writes there rather than into this checkout's own `backups/`.
+    """
+    project = _Project()
+    monkeypatch.setattr(backup, "Compose", lambda: project)
+    monkeypatch.setattr(backup, "DEFAULT_BACKUP_ROOT", tmp_path / "default-root")
+    return project
+
+
+def Given_database_keycloak_When_restore_runs_Then_only_keycloak_db_is_touched(
+    cli_project: _Project, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    folder = _written_backup(tmp_path / "backup")
+
+    status = backup.main(["restore", str(folder), "--database", "keycloak"], NOW)
+
+    assert status == 0
+    assert cli_project.restored == [("keycloak-db", KEYCLOAK_DUMP)]
+    assert {call[2] for call in cli_project.calls if call[0] == "exec"} == {"keycloak-db"}
+    assert "Restore complete" in capsys.readouterr().out
+
+
+def Given_no_database_option_When_restore_runs_Then_both_are_restored(
+    cli_project: _Project, tmp_path: Path
+) -> None:
+    folder = _written_backup(tmp_path / "backup")
+
+    status = backup.main(["restore", str(folder)], NOW)
+
+    assert status == 0
+    assert cli_project.restored == [("db", LEDGER_DUMP), ("keycloak-db", KEYCLOAK_DUMP)]
+
+
+def Given_BACKUP_DIR_When_backup_runs_Then_the_folder_is_created_under_it(
+    cli_project: _Project,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv(backup.BACKUP_DIR_ENV, str(tmp_path / "chosen"))
+
+    status = backup.main(["backup"], NOW)
+
+    assert status == 0
+    assert (tmp_path / "chosen" / "20261013T120000Z" / backup.MANIFEST_NAME).is_file()
+    assert not (tmp_path / "default-root").exists()
+    assert "Backup complete" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("backup_dir", [None, ""], ids=["unset", "empty"])
+def Given_no_BACKUP_DIR_When_backup_runs_Then_the_folder_is_created_under_the_default_root(
+    backup_dir: str | None,
+    cli_project: _Project,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if backup_dir is None:
+        monkeypatch.delenv(backup.BACKUP_DIR_ENV, raising=False)
+    else:
+        monkeypatch.setenv(backup.BACKUP_DIR_ENV, backup_dir)
+
+    status = backup.main(["backup"], NOW)
+
+    assert status == 0
+    assert (tmp_path / "default-root" / "20261013T120000Z" / backup.MANIFEST_NAME).is_file()
+
+
+def Given_a_refusal_When_main_runs_Then_it_exits_1_reporting_FAILED(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    busy = _Project(states=BOTH_RUNNING | {"ledger": "running"})
+    monkeypatch.setattr(backup, "Compose", lambda: busy)
+    folder = _written_backup(tmp_path / "backup")
+
+    status = backup.main(["restore", str(folder)], NOW)
+
+    assert status == 1
+    assert capsys.readouterr().out.splitlines()[-1].startswith("FAILED: ledger is not stopped")
+    assert busy.restored == []
+
+
+def Given_a_backup_dir_that_is_a_file_When_backup_runs_Then_it_exits_1_reporting_the_error_type(
+    cli_project: _Project,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    occupied = tmp_path / "occupied"
+    occupied.write_bytes(b"")
+    monkeypatch.setenv(backup.BACKUP_DIR_ENV, str(occupied))
+
+    status = backup.main(["backup"], NOW)
+
+    assert status == 1
+    assert capsys.readouterr().out.splitlines()[-1].startswith("FAILED: FileExistsError")
