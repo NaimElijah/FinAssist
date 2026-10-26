@@ -18,7 +18,9 @@ import structlog
 import uvicorn
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
+from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.util._once import Once
 from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.testclient import WebSocketDenialResponse
@@ -605,3 +607,57 @@ def Given_both_an_endpoint_and_permission_When_settings_are_read_Then_tracing_is
 
 def Given_tracing_is_disabled_When_configured_Then_no_provider_is_installed() -> None:
     assert configure_tracing(Settings(OTEL_EXPORT_ENABLED=False)) is None
+
+
+# --- tracing enabled: the OTLP provider is installed, and only once ---------------------------
+
+_UNUSED_COLLECTOR = "http://127.0.0.1:4318"
+"""Named, never reached: no span is started while the provider is installed, so its batch
+processor's queue is empty at shutdown and it sends nothing - no collector, no network."""
+
+
+@pytest.fixture
+def fresh_tracer_provider_global(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Gives one test a process whose global tracer provider has never been set, then restores it.
+
+    OpenTelemetry lets ``set_tracer_provider`` succeed once per process and offers no public
+    reset, so this swaps its two module globals for fresh ones and lets ``monkeypatch`` put the
+    originals back. Private names of a library this project does not own, which is the price of
+    testing an install-once global at all; OpenTelemetry's own test utilities reset the same two.
+    Whatever provider the test installed is shut down first, so no batch thread outlives it.
+    """
+    monkeypatch.setattr(trace, "_TRACER_PROVIDER", None)
+    monkeypatch.setattr(trace, "_TRACER_PROVIDER_SET_ONCE", Once())
+    yield
+    installed = trace.get_tracer_provider()
+    if isinstance(installed, TracerProvider):
+        installed.shutdown()
+
+
+def _export_enabled() -> Settings:
+    return Settings(
+        ASSISTANT_SERVICE_NAME="finassist-assistant-under-test",
+        OTEL_EXPORTER_OTLP_ENDPOINT=_UNUSED_COLLECTOR,
+        OTEL_EXPORT_ENABLED=True,
+    )
+
+
+@pytest.mark.usefixtures("fresh_tracer_provider_global")
+def Given_export_enabled_When_tracing_is_configured_Then_an_OTLP_provider_is_installed() -> None:
+    provider = configure_tracing(_export_enabled())
+
+    assert isinstance(provider, TracerProvider)
+    assert trace.get_tracer_provider() is provider
+    assert provider.resource.attributes["service.name"] == "finassist-assistant-under-test"
+
+
+@pytest.mark.usefixtures("fresh_tracer_provider_global")
+def Given_a_provider_already_installed_When_tracing_is_configured_Then_it_is_refused() -> None:
+    """OpenTelemetry would only log a warning and keep the first provider, so the caller would
+    be handed a pipeline that is not running; ``configure_tracing`` refuses instead."""
+    first = TracerProvider()
+    trace.set_tracer_provider(first)
+
+    with pytest.raises(RuntimeError, match="already installed"):
+        configure_tracing(_export_enabled())
+    assert trace.get_tracer_provider() is first
