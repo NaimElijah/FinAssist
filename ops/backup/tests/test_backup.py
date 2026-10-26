@@ -273,8 +273,6 @@ LEDGER_DUMP = b"PGDMP-ledger-archive"
 KEYCLOAK_DUMP = b"PGDMP-keycloak-archive"
 POSTGRES_IMAGE = "postgres:18.6-trixie"
 BOTH_RUNNING = {"db": "running", "keycloak-db": "running"}
-# Any of these would start a container, which neither backup nor restore may ever do (ADR-038).
-CONTAINER_STARTS = frozenset({"up", "start", "restart", "run", "create"})
 
 
 @dataclass(frozen=True)
@@ -282,7 +280,10 @@ class _Project(backup.Compose):
     """A Compose project in memory, standing in for `docker compose` behind `require`.
 
     It answers only the commands backup.py is known to send, records every one in `calls`, and
-    fails the test on any other, so a step the CLI must never take cannot pass unseen.
+    fails the test on any other, so a step the CLI must never take cannot pass unseen. That
+    refusal is what makes "starts no container" hold for backup and restore (ADR-038): `up`,
+    `start`, `restart`, `run` and `create` are none of the shapes it answers, so a test needs no
+    assertion of its own about them.
 
     :param states: each service's container state; a service not named has no container.
     :param tables: how many tables each database service holds; none when not named.
@@ -418,7 +419,6 @@ def Given_empty_databases_and_stopped_consumers_When_both_are_restored_Then_each
     backup.restore(project, _written_backup(tmp_path), backup.DATABASES)
 
     assert project.restored == [("db", LEDGER_DUMP), ("keycloak-db", KEYCLOAK_DUMP)]
-    assert not any(call[0] in CONTAINER_STARTS for call in project.calls)
 
 
 def Given_a_restarting_ledger_When_its_database_is_restored_Then_the_restore_is_refused(
@@ -538,52 +538,30 @@ def Given_a_manifest_recording_no_usable_digest_When_read_Then_it_is_refused(
         backup._recorded_books_digest(folder)
 
 
-# --- a backup records the books' digest, and refuses books that change while it runs ----------
+# --- a backup proves it can be read, and never starts a container (ADR-038) --------------------
 
 NOW = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
-
-
-@dataclass(frozen=True)
-class _RunningProject(backup.Compose):
-    """A running project whose ledger database reports each of `digests` in turn."""
-
-    digests: list[str] = field(default_factory=list)
-
-    def require(
-        self,
-        what: str,
-        *args: str,
-        stdin: IO[bytes] | None = None,
-        stdout: IO[bytes] | None = None,
-        input_bytes: bytes | None = None,
-    ) -> bytes:
-        if args[0] == "config":
-            return b'{"name": "finassist-test"}'
-        if args[0] == "ps" and "--format" in args:
-            return json.dumps({"Service": args[-1], "Image": "postgres:18.6-trixie"}).encode()
-        if args[0] == "ps":
-            return b"db\nkeycloak-db\n"
-        if "pg_dump" in " ".join(args):
-            assert stdout is not None
-            stdout.write(b"PGDMP-archive")
-            return b""
-        sql = (input_bytes or b"").decode("utf-8")
-        if "to_regclass" in sql:
-            return b"t\n"
-        if "sha256" in sql:
-            return f"{self.digests.pop(0)}\n".encode()
-        if "pg_tables" in sql:
-            return b"1\n"
-        return b""
 
 
 def Given_books_that_hold_still_When_backed_up_Then_the_manifest_records_their_digest(
     tmp_path: Path,
 ) -> None:
-    folder = backup.backup(_RunningProject(digests=[BOOKS_DIGEST, BOOKS_DIGEST]), tmp_path, NOW)
+    folder = backup.backup(_Project(digests=[BOOKS_DIGEST, BOOKS_DIGEST]), tmp_path, NOW)
 
     manifest = json.loads((folder / backup.MANIFEST_NAME).read_text(encoding="utf-8"))
     assert manifest[backup.BOOKS_DIGEST_KEY] == BOOKS_DIGEST
+
+
+def Given_running_databases_When_backed_up_Then_each_dump_is_read_back_and_no_container_started(
+    tmp_path: Path,
+) -> None:
+    project = _Project(tables={"db": 9, "keycloak-db": 90})
+
+    folder = backup.backup(project, tmp_path, NOW)
+
+    assert (folder / backup.LEDGER.dump_name).read_bytes() == LEDGER_DUMP
+    assert (folder / backup.KEYCLOAK.dump_name).read_bytes() == KEYCLOAK_DUMP
+    assert project.read_back == [("db", LEDGER_DUMP), ("keycloak-db", KEYCLOAK_DUMP)]
 
 
 def Given_books_that_change_during_the_backup_When_backed_up_Then_it_fails_and_leaves_nothing(
@@ -592,6 +570,39 @@ def Given_books_that_change_during_the_backup_When_backed_up_Then_it_fails_and_l
     with pytest.raises(
         backup.BackupError, match="the books changed while they were being backed up"
     ):
-        backup.backup(_RunningProject(digests=[BOOKS_DIGEST, "b" * 64]), tmp_path, NOW)
+        backup.backup(_Project(digests=[BOOKS_DIGEST, "b" * 64]), tmp_path, NOW)
 
     assert list(tmp_path.iterdir()) == []
+
+
+def Given_an_empty_dump_When_backed_up_Then_it_fails_and_leaves_nothing(tmp_path: Path) -> None:
+    project = _Project(dumps={"db": LEDGER_DUMP, "keycloak-db": b""})
+
+    with pytest.raises(backup.BackupError, match="pg_dump of keycloak wrote nothing"):
+        backup.backup(project, tmp_path, NOW)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def Given_a_failing_read_back_When_backed_up_Then_it_fails_and_leaves_nothing(
+    tmp_path: Path,
+) -> None:
+    project = _Project(unreadable=frozenset({"db"}))
+
+    with pytest.raises(backup.BackupError, match=re.escape("reading back ledger.dump failed")):
+        backup.backup(project, tmp_path, NOW)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def Given_keycloak_db_not_running_When_backed_up_Then_it_is_refused(tmp_path: Path) -> None:
+    project = _Project(states={"db": "running"})
+    root = tmp_path / "backups"
+
+    with pytest.raises(
+        backup.BackupError, match=f"^keycloak-db not running in project {PROJECT_NAME}"
+    ):
+        backup.backup(project, root, NOW)
+
+    assert not root.exists()
+    assert not any(call[0] == "exec" for call in project.calls)
