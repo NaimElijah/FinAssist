@@ -94,6 +94,15 @@ only an ``exp`` or ``nbf`` strictly past the skew and whose ``issuedAtValidator`
 strictly after it."""
 
 
+_SERVER_POLL_SECONDS = 0.01
+"""How often a test JWKS server checks for ``shutdown``. ``serve_forever``'s default, 0.5 s, made
+every teardown wait half a second for nothing - most of this file's run time."""
+
+_SOCKET_TIMEOUT_SECONDS = 5.0
+"""The longest a hand-written test server waits on its client, so a change that stops the fetch
+fails the test rather than hanging the build."""
+
+
 def _encode(
     private_key: rsa.RSAPrivateKey,
     claims: Mapping[str, Any],
@@ -803,7 +812,11 @@ def jwks_server(rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]) -> Ite
             pass  # silences http.server's default stderr access log during the test run
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": _SERVER_POLL_SECONDS},
+        daemon=True,
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}/certs"
@@ -900,7 +913,11 @@ def jwks_server_that_hangs_up() -> Iterator[str]:
             pass  # silences http.server's default stderr access log during the test run
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": _SERVER_POLL_SECONDS},
+        daemon=True,
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}/certs"
@@ -934,10 +951,12 @@ def jwks_server_that_resets_mid_body() -> Iterator[str]:
     give. Written over a raw socket, because ``http.server`` cannot stop halfway through a body.
     """
     listener = socket.create_server(("127.0.0.1", 0))
+    listener.settimeout(_SOCKET_TIMEOUT_SECONDS)
 
     def answer_then_reset() -> None:
         connection, _ = listener.accept()
         with connection:
+            connection.settimeout(_SOCKET_TIMEOUT_SECONDS)
             connection.recv(65_536)
             connection.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n{"keys": [')
             connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
@@ -947,8 +966,9 @@ def jwks_server_that_resets_mid_body() -> Iterator[str]:
     try:
         yield f"http://127.0.0.1:{listener.getsockname()[1]}/certs"
     finally:
-        thread.join()
+        thread.join(timeout=_SOCKET_TIMEOUT_SECONDS)
         listener.close()
+    assert not thread.is_alive(), "the reset-mid-body server never finished answering"
 
 
 def Given_a_JWKS_endpoint_that_resets_mid_body_When_verified_Then_it_is_unavailable(
@@ -989,7 +1009,11 @@ def _serving(body: bytes, content_type: str) -> Iterator[str]:
             pass  # silences http.server's default stderr access log during the test run
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": _SERVER_POLL_SECONDS},
+        daemon=True,
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}/certs"
