@@ -215,21 +215,80 @@ def _context_imported_by(module: str) -> str | None:
     return None
 
 
+INBOUND_SEGMENT = "inbound"
+OUTBOUND_SEGMENT = "outbound"
+
+
+def _is_inbound_adapter(path: Path) -> bool:
+    """A module under a context's ``adapters/inbound``: what calls the context."""
+    parts = path.relative_to(SRC).parts
+    return parts[0] in CONTEXTS and parts[1:3] == (ADAPTER_SEGMENT, INBOUND_SEGMENT)
+
+
+def _names_outbound_adapter(module: str) -> bool:
+    """A module name under any context's ``adapters/outbound``: what a context calls."""
+    parts = module.split(".")
+    return (
+        parts[0] == ROOT_PACKAGE
+        and len(parts) > 1
+        and parts[1] in CONTEXTS
+        and parts[2:4] == [ADAPTER_SEGMENT, OUTBOUND_SEGMENT]
+    )
+
+
+# Each rule runs over the files it holds, filtered here once, rather than over every file with
+# the rest skipped. A skip is not a check, and a filter rendered as hundreds of skips hid the one
+# failure that matters: a layer renamed out of its filter's reach, so that every case of its rule
+# skipped and the suite stayed green. An empty list now fails its guard below instead.
+INWARD_FILES = [path for path in SOURCE_FILES if _is_inward(path)]
+CONTEXT_FILES = [path for path in SOURCE_FILES if _context_of(path) is not None]
+COMPOSITION_ROOT_HELD_FILES = [
+    path for path in SOURCE_FILES if _context_of(path) is not None or _is_domain(path)
+]
+INBOUND_ADAPTER_FILES = [path for path in SOURCE_FILES if _is_inbound_adapter(path)]
+DOMAIN_FILES = [path for path in SOURCE_FILES if _is_domain(path)]
+
+RULE_SCOPES = {
+    "inward": INWARD_FILES,
+    "context": CONTEXT_FILES,
+    "composition-root-held": COMPOSITION_ROOT_HELD_FILES,
+    "inbound-adapter": INBOUND_ADAPTER_FILES,
+    "domain": DOMAIN_FILES,
+}
+
+
+def _relative_id(path: Path) -> str:
+    return str(path.relative_to(SRC))
+
+
 def Given_the_source_tree_When_collected_Then_it_is_not_empty() -> None:
     """Guards every rule below from passing because it found nothing to check."""
     assert SOURCE_FILES, f"no Python sources found under {SRC}"
 
 
 def Given_the_source_tree_When_collected_Then_some_of_it_is_domain() -> None:
-    """The same guard for the two domain-scoped rules, which skip everything else.
+    """The same guard for the domain-scoped rules, which hold only :data:`DOMAIN_FILES`.
 
-    Without it, renaming ``portfolio/domain/`` to ``portfolio/core/`` would make every case of
-    both rules skip and the suite stay green - the behaviour the ledger deliberately removed
-    when it deleted ``archRule.failOnEmptyShould=false``.
+    Without it, renaming ``portfolio/domain/`` to ``portfolio/core/`` would leave those rules
+    nothing to check and the suite green - the behaviour the ledger deliberately removed when
+    it deleted ``archRule.failOnEmptyShould=false``.
     """
-    assert any(_is_domain(path) for path in SOURCE_FILES), (
-        f"no domain or shared module found under {SRC}; the float and clock rules would skip "
-        "every file and pass without checking anything"
+    assert DOMAIN_FILES, (
+        f"no domain or shared module found under {SRC}; the domain-scoped rules would pass "
+        "without checking anything"
+    )
+
+
+@pytest.mark.parametrize("scope", RULE_SCOPES)
+def Given_the_files_a_rule_holds_When_filtered_Then_there_is_at_least_one(scope: str) -> None:
+    """Guards each rule below from passing because its filter matched nothing.
+
+    A rule parametrised over an empty list collects no case at all, so renaming
+    ``adapters/inbound`` or ``domain`` would otherwise leave that rule checking nothing while the
+    suite stayed green.
+    """
+    assert RULE_SCOPES[scope], (
+        f"no {scope} module found under {SRC}; the rules held to that scope would check nothing"
     )
 
 
@@ -308,11 +367,8 @@ def Given_the_cryptography_package_When_derived_Then_it_is_unreachable() -> None
     assert "cryptography" in FORBIDDEN_FRAMEWORKS
 
 
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
+@pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
 def Given_an_inward_module_When_parsed_Then_it_imports_no_framework(path: Path) -> None:
-    if not _is_inward(path):
-        pytest.skip("adapters are the layer allowed to import frameworks")
-
     leaked = sorted(
         module for module in _imported_modules(path) if module.split(".")[0] in FORBIDDEN_FRAMEWORKS
     )
@@ -322,11 +378,8 @@ def Given_an_inward_module_When_parsed_Then_it_imports_no_framework(path: Path) 
     )
 
 
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
+@pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
 def Given_an_inward_module_When_parsed_Then_it_imports_no_adapter(path: Path) -> None:
-    if not _is_inward(path):
-        pytest.skip("adapters may import each other within their own context")
-
     prefix = f"{ROOT_PACKAGE}."
     leaked = sorted(
         module
@@ -339,11 +392,9 @@ def Given_an_inward_module_When_parsed_Then_it_imports_no_adapter(path: Path) ->
     )
 
 
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
+@pytest.mark.parametrize("path", CONTEXT_FILES, ids=_relative_id)
 def Given_a_module_When_parsed_Then_it_imports_no_other_context(path: Path) -> None:
     own = _context_of(path)
-    if own is None:
-        pytest.skip("shared and the root package belong to no context")
 
     leaked = sorted(
         module
@@ -356,7 +407,7 @@ def Given_a_module_When_parsed_Then_it_imports_no_other_context(path: Path) -> N
     )
 
 
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
+@pytest.mark.parametrize("path", COMPOSITION_ROOT_HELD_FILES, ids=_relative_id)
 def Given_a_context_module_When_parsed_Then_it_imports_no_composition_root(path: Path) -> None:
     """The composition root wires frameworks; a context must not reach back into it.
 
@@ -365,9 +416,6 @@ def Given_a_context_module_When_parsed_Then_it_imports_no_composition_root(path:
     it, and it lives under an ``adapters`` path, so the framework rule skips it too - which
     would leave nothing at all watching the direction of this dependency.
     """
-    if _context_of(path) is None and not _is_domain(path):
-        pytest.skip("the composition root and the root package may wire themselves")
-
     composition_root = f"{ROOT_PACKAGE}.{ADAPTER_SEGMENT}"
     leaked = sorted(
         module
@@ -380,28 +428,7 @@ def Given_a_context_module_When_parsed_Then_it_imports_no_composition_root(path:
     )
 
 
-INBOUND_SEGMENT = "inbound"
-OUTBOUND_SEGMENT = "outbound"
-
-
-def _is_inbound_adapter(path: Path) -> bool:
-    """A module under a context's ``adapters/inbound``: what calls the context."""
-    parts = path.relative_to(SRC).parts
-    return parts[0] in CONTEXTS and parts[1:3] == (ADAPTER_SEGMENT, INBOUND_SEGMENT)
-
-
-def _names_outbound_adapter(module: str) -> bool:
-    """A module name under any context's ``adapters/outbound``: what a context calls."""
-    parts = module.split(".")
-    return (
-        parts[0] == ROOT_PACKAGE
-        and len(parts) > 1
-        and parts[1] in CONTEXTS
-        and parts[2:4] == [ADAPTER_SEGMENT, OUTBOUND_SEGMENT]
-    )
-
-
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
+@pytest.mark.parametrize("path", INBOUND_ADAPTER_FILES, ids=_relative_id)
 def Given_an_inbound_adapter_When_parsed_Then_it_imports_no_outbound_adapter(path: Path) -> None:
     """What calls a context reaches what the context calls only through a use case.
 
@@ -410,9 +437,6 @@ def Given_an_inbound_adapter_When_parsed_Then_it_imports_no_outbound_adapter(pat
     rules above covers it: both adapters sit under ``adapters``, which the inward rules skip, and
     in one context, which the cross-context rule allows.
     """
-    if not _is_inbound_adapter(path):
-        pytest.skip("only a context's inbound adapters are held to this")
-
     leaked = sorted(module for module in _imported_modules(path) if _names_outbound_adapter(module))
     assert not leaked, (
         f"{path.relative_to(SRC)} imports an outbound adapter: {leaked}. An inbound adapter calls "
@@ -420,11 +444,8 @@ def Given_an_inbound_adapter_When_parsed_Then_it_imports_no_outbound_adapter(pat
     )
 
 
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
+@pytest.mark.parametrize("path", DOMAIN_FILES, ids=_relative_id)
 def Given_a_domain_module_When_parsed_Then_it_names_no_float(path: Path) -> None:
-    if not _is_domain(path):
-        pytest.skip("only the domain is held to exact decimal arithmetic")
-
     found = _float_uses_in(path.read_text(encoding="utf-8"), str(path))
     assert not found, (
         f"{path.relative_to(SRC)} uses floating point: {found}. Money is exact decimal - "
@@ -433,11 +454,8 @@ def Given_a_domain_module_When_parsed_Then_it_names_no_float(path: Path) -> None
     )
 
 
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
+@pytest.mark.parametrize("path", DOMAIN_FILES, ids=_relative_id)
 def Given_a_domain_module_When_parsed_Then_it_reads_no_clock(path: Path) -> None:
-    if not _is_domain(path):
-        pytest.skip("only the domain is required to take its time as an argument")
-
     found = _clock_reads_in(path.read_text(encoding="utf-8"), str(path))
     assert not found, (
         f"{path.relative_to(SRC)} reads the wall clock: {found}. A domain function takes the "
