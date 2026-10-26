@@ -3,8 +3,9 @@
 Everything that reaches a database or a container is proved by running the CLI against real ones:
 `check` is that proof for a backup. What is here is the logic a mistake in which would go unseen
 there: the redaction every reported PostgreSQL message passes through, the manifest a restore
-trusts, the parsing of `docker compose ps`, and the guard that keeps `check` off the owner's
-project.
+trusts, the parsing of `docker compose ps`, the guard that keeps `check` off the owner's project,
+and, against a Compose project held in memory, what restore, backup and the CLI do with it.
+`conftest.py` keeps every test off a real `docker`.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -119,6 +121,42 @@ def Given_a_compose_error_on_one_line_When_withheld_Then_it_is_reported() -> Non
 
 def Given_no_output_When_withheld_Then_nothing_is_reported() -> None:
     assert _withheld("", "   ") == []
+
+
+# --- a failed command's own output reaches the report only through _withheld -------------------
+
+# `_require` is called directly: every public path to it runs `docker`, which these tests never
+# do. A real child process stands in for the container, so its stderr crosses a real pipe; each
+# test starting one is marked `child_process`, its opt-in past conftest's `no_docker`.
+
+
+def _child(script: str) -> list[str]:
+    return [sys.executable, "-c", script]
+
+
+@pytest.mark.child_process
+def Given_a_failing_command_quoting_an_amount_When_required_Then_the_error_withholds_it() -> None:
+    stderr = (
+        f"pg_restore: error: ERROR:  transaction {ACCOUNT_ID} does not balance: "
+        f"its entries sum to {AMOUNT}\n"
+        f'DETAIL:  Failing row contains ("{AMOUNT}").\n'
+    )
+    command = _child(f"import sys; sys.stderr.write({stderr!r}); sys.exit(1)")
+
+    with pytest.raises(backup.BackupError) as raised:
+        backup._require("pg_restore of ledger.dump", command)
+
+    message = str(raised.value)
+    assert message.startswith("pg_restore of ledger.dump failed with exit status 1: pg_restore:")
+    assert AMOUNT not in message
+    assert ACCOUNT_ID not in message
+
+
+@pytest.mark.child_process
+def Given_a_command_that_succeeds_When_required_Then_its_stdout_is_returned() -> None:
+    command = _child("import sys; sys.stdout.buffer.write(b't|f\\n')")
+
+    assert backup._require("a query", command) == b"t|f\n"
 
 
 # --- the manifest a restore trusts -------------------------------------------------------------
