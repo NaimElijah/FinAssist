@@ -1419,16 +1419,17 @@ def Given_no_override_When_settings_are_built_Then_the_oidc_defaults_target_loca
     "key",
     ["cookie", "Cookie", "FINASSIST-XSRF-TOKEN", "xsrf", "csrf", "session", "bearer", "jwt"],
 )
-def Given_the_new_auth_redaction_fragments_When_a_field_matches_Then_its_value_is_redacted(
+def Given_an_authentication_credential_fragment_When_a_field_matches_Then_its_value_is_redacted(
     key: str,
 ) -> None:
     assert redact_secrets(None, "info", {key: "should-not-survive"}) == {key: REDACTED}
 
 
-def Given_the_new_fragments_When_redacted_Then_input_tokens_still_survives() -> None:
-    """None of the six new fragments is a substring of ``input_tokens``, so the assistance
-    context's usage measurement stays visible, exactly as the bare ``token`` fragment's
-    deliberate absence already protects it from the existing ones."""
+def Given_the_credential_fragments_When_token_counts_are_redacted_Then_they_survive() -> None:
+    """None of the six authentication fragments - ``cookie``, ``xsrf``, ``csrf``, ``session``,
+    ``bearer`` and ``jwt`` - is a substring of ``input_tokens``, so the assistance context's usage
+    measurement stays visible, exactly as the bare ``token`` fragment's deliberate absence already
+    protects it from the other fragments."""
     assert redact_secrets(None, "info", {"input_tokens": 1200, "output_tokens": 340}) == {
         "input_tokens": 1200,
         "output_tokens": 340,

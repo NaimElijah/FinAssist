@@ -37,9 +37,10 @@ def Given_a_blank_symbol_When_built_Then_it_is_refused() -> None:
         Symbol("   ")
 
 
-def Given_a_lot_of_zero_or_fewer_units_When_built_Then_it_is_refused() -> None:
+@pytest.mark.parametrize("quantity", ["0", "-1", "-0.0001"], ids=["zero", "negative", "fraction"])
+def Given_a_lot_of_zero_or_fewer_units_When_built_Then_it_is_refused(quantity: str) -> None:
     with pytest.raises(ValueError, match="positive quantity"):
-        Lot(VWCE, Decimal(0), usd("100.00"), date(2026, 1, 1))
+        Lot(VWCE, Decimal(quantity), usd("100.00"), date(2026, 1, 1))
 
 
 def Given_several_lots_When_a_position_is_taken_Then_quantity_and_cost_are_summed() -> None:
