@@ -1,6 +1,6 @@
 """Enforces the structural rules declared in docs/architecture/architecture.md.
 
-Eight rules:
+Nine rules:
 
 1. Dependencies point inward - no inward layer imports a framework.
 2. No inward layer imports the adapter layer, where the anti-corruption layers live.
@@ -12,6 +12,8 @@ Eight rules:
 7. No inbound adapter imports an outbound one. A route reaches a client only through a use case.
 8. No domain module imports the application layer. The use cases call the domain, never the
    reverse - the inward half of ``LedgerArchitectureTest.layers_point_inward``.
+9. ``shared`` imports no context. It is the common ground every context may use, so a
+   dependency from it onto one context would reach every other through it.
 
 Rules 5 and 6 mirror commitments the ledger already enforces or documents:
 ``LedgerArchitectureTest.money_is_never_floating_point`` for the first, and the "pass the
@@ -317,6 +319,7 @@ COMPOSITION_ROOT_HELD_FILES = [
 ]
 INBOUND_ADAPTER_FILES = [path for path in SOURCE_FILES if _is_inbound_adapter(path)]
 DOMAIN_FILES = [path for path in SOURCE_FILES if _is_domain(path)]
+SHARED_FILES = [path for path in SOURCE_FILES if path.relative_to(SRC).parts[0] == SHARED_PACKAGE]
 
 RULE_SCOPES = {
     "inward": INWARD_FILES,
@@ -324,6 +327,7 @@ RULE_SCOPES = {
     "composition-root-held": COMPOSITION_ROOT_HELD_FILES,
     "inbound-adapter": INBOUND_ADAPTER_FILES,
     "domain": DOMAIN_FILES,
+    "shared": SHARED_FILES,
 }
 
 
@@ -472,6 +476,22 @@ def Given_a_module_When_parsed_Then_it_imports_no_other_context(path: Path) -> N
     assert not leaked, (
         f"{path.relative_to(SRC)} (context '{own}') imports {leaked}. Contexts collaborate "
         "through a published port and an explicit translation, never through an import."
+    )
+
+
+@pytest.mark.parametrize("path", SHARED_FILES, ids=_relative_id)
+def Given_a_shared_module_When_parsed_Then_it_imports_no_context(path: Path) -> None:
+    """``shared`` belongs to no context, so the cross-context rule above does not hold it.
+
+    Without this, ``shared`` importing ``portfolio`` passed every rule, and every other
+    context importing ``shared`` would then depend on ``portfolio`` through it.
+    """
+    leaked = sorted(
+        module for module in _imported_modules(path) if _context_imported_by(module) is not None
+    )
+    assert not leaked, (
+        f"{path.relative_to(SRC)} imports a bounded context: {leaked}. Every context depends "
+        "on shared, so shared may depend on none of them."
     )
 
 
