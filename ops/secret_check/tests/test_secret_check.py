@@ -359,7 +359,9 @@ def Given_ignore_files_git_reads_byte_by_byte_When_walked_Then_it_sees_what_git_
 ) -> None:
     # Each line is a way the walker once read an ignore file differently from git, and hid a file
     # that git would publish: a trailing tab kept, a lone carriage return as a line break, a BOM
-    # cancelling a first-line negation, and an unclosed `[` matched as a literal.
+    # cancelling a first-line negation, and an unclosed `[` matched as a literal. The lines after
+    # `*.txt` pin the rest of gitignore(5)'s glob forms: a trailing `/**`, one negated, `**` between
+    # two components, `?`, `[!...]`, and a backslash escaping `#`, `!` or a trailing space.
     root = _clone(
         tmp_path / "repo",
         {
@@ -371,8 +373,28 @@ def Given_ignore_files_git_reads_byte_by_byte_When_walked_Then_it_sees_what_git_
             "sub/.gitignore": b"\xef\xbb\xbf!keep.txt\n",
             "sub/keep.txt": b"x",
             "sub/drop.txt": b"x",
+            "logs/run.dat": b"x",
+            "logs/deep/run.dat": b"x",
+            "drop.out": b"x",
+            "keep/a.out": b"x",
+            "keep/deep/b.out": b"x",
+            "deep/z.bin": b"x",
+            "deep/x/y/z.bin": b"x",
+            "other/deep/z.bin": b"x",
+            "data.bin": b"x",
+            "dat.bin": b"x",
+            "datum.bin": b"x",
+            "va.bin": b"x",
+            "v1.bin": b"x",
+            "#hash": b"x",
+            "!bang": b"x",
+            "space": b"x",
         },
-        gitignore=b"foo\t\na\rb\nbar[\nbaz   \n*.txt\n",
+        gitignore=(
+            b"foo\t\na\rb\nbar[\nbaz   \n*.txt\n"
+            b"logs/**\n*.out\n!keep/**\ndeep/**/z.bin\ndat?.bin\nv[!0-9].bin\n"
+            b"\\#hash\n\\!bang\nspace\\ \n"
+        ),
     )
     _git(root, "init", "-q")
     seen_by_git = set(
@@ -383,6 +405,31 @@ def Given_ignore_files_git_reads_byte_by_byte_When_walked_Then_it_sees_what_git_
 
     assert walked == seen_by_git
     assert {"foo", "a", "b", "bar[", "sub/keep.txt"} <= walked
+    assert {"keep/a.out", "keep/deep/b.out", "other/deep/z.bin", "dat.bin", "datum.bin"} <= walked
+    assert {"v1.bin", "space"} <= walked
+    assert walked.isdisjoint(
+        {"logs/run.dat", "logs/deep/run.dat", "drop.out", "deep/z.bin", "deep/x/y/z.bin"}
+    )
+    assert walked.isdisjoint({"data.bin", "va.bin", "#hash", "!bang"})
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows cannot name a file with a trailing space"
+)
+def Given_an_escaped_trailing_space_When_walked_Then_it_sees_what_git_does_not_ignore(
+    tmp_path: Path,
+) -> None:
+    root = _clone(tmp_path / "repo", {"space ": b"x", "space": b"x"}, gitignore=b"space\\ \n")
+    _git(root, "init", "-q")
+    seen_by_git = set(
+        _git(root, "ls-files", "--cached", "--others", "--exclude-standard").splitlines()
+    )
+
+    walked = set(secret_check.scanned_files(root))
+
+    assert walked == seen_by_git
+    assert "space" in walked
+    assert "space " not in walked
 
 
 def Given_this_checkout_When_walked_Then_every_tracked_file_is_scanned() -> None:
