@@ -93,6 +93,22 @@ FORBIDDEN_FRAMEWORKS = _declared_runtime_distributions() | frozenset(
     {"opentelemetry", "pydantic_core", "starlette", "sqlalchemy", "jwt", "cryptography"}
 )
 
+# Standard-library modules no inward layer may import: the network, processes, a database and
+# an event loop are I/O however they arrive, and `http` is a transport type besides. The
+# derivation above reads only pyproject.toml, so the standard library is invisible to it - an
+# inward module could open a socket and the framework rule passed. Nothing inward imports any of
+# these today; the composition root and the inbound adapters use `http.HTTPStatus`, where it
+# belongs.
+FORBIDDEN_STANDARD_IO = frozenset(
+    {"socket", "ssl", "http", "urllib", "sqlite3", "subprocess", "asyncio"}
+)
+
+
+def _is_forbidden_inward(module: str) -> bool:
+    """Whether an inward module importing *module* reaches a framework or the I/O beneath one."""
+    root = module.split(".")[0]
+    return root in FORBIDDEN_FRAMEWORKS or root in FORBIDDEN_STANDARD_IO
+
 
 DOMAIN_SEGMENT = "domain"
 
@@ -423,9 +439,7 @@ def Given_the_cryptography_package_When_derived_Then_it_is_unreachable() -> None
 
 @pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
 def Given_an_inward_module_When_parsed_Then_it_imports_no_framework(path: Path) -> None:
-    leaked = sorted(
-        module for module in _imported_modules(path) if module.split(".")[0] in FORBIDDEN_FRAMEWORKS
-    )
+    leaked = sorted(module for module in _imported_modules(path) if _is_forbidden_inward(module))
     assert not leaked, (
         f"{path.relative_to(SRC)} imports {leaked}. Frameworks and I/O live in adapters; "
         "the inward layers stay testable by calling them."
@@ -742,3 +756,20 @@ def Given_a_relative_import_of_the_application_layer_When_scanned_Then_it_is_nam
     imported = _imports_in("from ...application.port import LedgerPort", package)
 
     assert any(_names_application_layer(module) for module in imported), imported
+
+
+@pytest.mark.parametrize("module", sorted(FORBIDDEN_STANDARD_IO))
+def Given_a_standard_library_io_import_When_checked_Then_it_is_forbidden_inward(
+    module: str,
+) -> None:
+    imported = _imports_in(f"import {module}", PACKAGE) | _imports_in(
+        f"from {module} import member", PACKAGE
+    )
+
+    assert all(_is_forbidden_inward(name) for name in imported), imported
+
+
+def Given_an_ordinary_standard_library_import_When_checked_Then_it_is_allowed_inward() -> None:
+    # The domain imports these every day; refusing them would make the rule uninstallable.
+    for module in ("decimal", "datetime", "dataclasses", "enum", "collections.abc"):
+        assert not _is_forbidden_inward(module), module

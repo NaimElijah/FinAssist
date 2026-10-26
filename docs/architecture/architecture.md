@@ -835,7 +835,7 @@ the classes and tests that enforce them in
 | **The ledger's generated OpenAPI document matches the committed `contracts/ledger-v1.openapi.json`** | `LedgerContractIT` |
 | **No `operationId` carries a springdoc collision suffix** (`..._1` on a name reused across contexts) | `LedgerContractIT.Given_the_generated_document_When_operation_ids_are_read_Then_none_carries_a_springdoc_collision_suffix` |
 | **Every response schema declares `required` for its always-present members**, so a client generated from the document trusts which fields it can rely on | `LedgerContractIT.Given_the_generated_document_When_response_schemas_are_read_Then_they_require_what_is_always_present` |
-| No inward assistant layer imports a framework | `test_architecture.py::…Then_it_imports_no_framework` |
+| No inward assistant layer imports a framework, or standard-library I/O (`socket`, `ssl`, `http`, `urllib`, `sqlite3`, `subprocess`, `asyncio`) | `test_architecture.py::…Then_it_imports_no_framework` |
 | No inward assistant layer imports the adapters | `test_architecture.py::…Then_it_imports_no_adapter` |
 | **No assistant domain module imports the application layer**, so dependencies point inward inside a context too | `test_architecture.py::…Then_it_imports_no_application_layer` |
 | **No assistant context imports another** | `test_architecture.py::…Then_it_imports_no_other_context` |
