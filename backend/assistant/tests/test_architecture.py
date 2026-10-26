@@ -1,6 +1,6 @@
 """Enforces the structural rules declared in docs/architecture/architecture.md.
 
-Seven rules:
+Eight rules:
 
 1. Dependencies point inward - no inward layer imports a framework.
 2. No inward layer imports the adapter layer, where the anti-corruption layers live.
@@ -9,6 +9,8 @@ Seven rules:
 5. No domain module names ``float``. Money is exact decimal, in both languages.
 6. No domain module reads the wall clock. The caller passes the time in.
 7. No inbound adapter imports an outbound one. A route reaches a client only through a use case.
+8. No domain module imports the application layer. The use cases call the domain, never the
+   reverse - the inward half of ``LedgerArchitectureTest.layers_point_inward``.
 
 Rules 4 and 5 mirror commitments the ledger already enforces or documents:
 ``LedgerArchitectureTest.money_is_never_floating_point`` for the first, and the "pass the
@@ -236,6 +238,20 @@ def _names_outbound_adapter(module: str) -> bool:
     )
 
 
+APPLICATION_SEGMENT = "application"
+
+
+def _names_application_layer(module: str) -> bool:
+    """A module name under any context's ``application``: its ports and use cases."""
+    parts = module.split(".")
+    return (
+        len(parts) > 2
+        and parts[0] == ROOT_PACKAGE
+        and parts[1] in CONTEXTS
+        and parts[2] == APPLICATION_SEGMENT
+    )
+
+
 # Each rule runs over the files it holds, filtered here once, rather than over every file with
 # the rest skipped. A skip is not a check, and a filter rendered as hundreds of skips hid the one
 # failure that matters: a layer renamed out of its filter's reach, so that every case of its rule
@@ -445,6 +461,23 @@ def Given_an_inbound_adapter_When_parsed_Then_it_imports_no_outbound_adapter(pat
 
 
 @pytest.mark.parametrize("path", DOMAIN_FILES, ids=_relative_id)
+def Given_a_domain_module_When_parsed_Then_it_imports_no_application_layer(path: Path) -> None:
+    """Dependencies point inward: a use case calls the domain, and the domain never calls back.
+
+    The inward rules above stop a domain module reaching an adapter or a framework, but not
+    the application layer beside it - and that is the one import a domain function reaches
+    for first, to name a port. The ledger forbids it in ``layers_point_inward``.
+    """
+    leaked = sorted(
+        module for module in _imported_modules(path) if _names_application_layer(module)
+    )
+    assert not leaked, (
+        f"{path.relative_to(SRC)} imports the application layer: {leaked}. The domain is the "
+        "innermost layer; the ports and use cases depend on it, never the reverse."
+    )
+
+
+@pytest.mark.parametrize("path", DOMAIN_FILES, ids=_relative_id)
 def Given_a_domain_module_When_parsed_Then_it_names_no_float(path: Path) -> None:
     found = _float_uses_in(path.read_text(encoding="utf-8"), str(path))
     assert not found, (
@@ -597,3 +630,21 @@ def Given_a_module_name_When_asked_Then_only_a_contexts_outbound_adapters_are_ou
     assert not _names_outbound_adapter(f"{ROOT_PACKAGE}.portfolio.adapters.inbound.api")
     assert not _names_outbound_adapter(f"{ROOT_PACKAGE}.adapters.wiring")
     assert not _names_outbound_adapter("outbound.adapters")
+
+
+def Given_a_module_name_When_asked_Then_only_a_contexts_application_layer_is_application() -> None:
+    assert _names_application_layer(f"{ROOT_PACKAGE}.portfolio.application.port.LedgerPort")
+    assert _names_application_layer(f"{ROOT_PACKAGE}.marketdata.application")
+    assert not _names_application_layer(f"{ROOT_PACKAGE}.portfolio.domain.model")
+    assert not _names_application_layer(f"{ROOT_PACKAGE}.shared.money")
+    assert not _names_application_layer(f"{ROOT_PACKAGE}.application")
+    assert not _names_application_layer("application")
+
+
+def Given_a_relative_import_of_the_application_layer_When_scanned_Then_it_is_named() -> None:
+    # A domain module two levels deep reaches its own context's ports with `from ...application`;
+    # the rule sees that only because the scanner resolves it to an absolute name first.
+    package = f"{ROOT_PACKAGE}.portfolio.domain.model"
+    imported = _imports_in("from ...application.port import LedgerPort", package)
+
+    assert any(_names_application_layer(module) for module in imported), imported
