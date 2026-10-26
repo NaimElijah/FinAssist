@@ -137,6 +137,19 @@ def Given_a_secret_holding_regex_metacharacters_When_only_a_near_miss_is_held_Th
     assert status == secret_check.EXIT_PASSED
 
 
+def Given_a_non_ascii_secret_When_a_utf8_file_holds_it_Then_it_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret = "Fixture-only-Ünïcødé-שלום"
+    root = _clone(tmp_path, {"docs/notes.md": f"password: {secret}\n".encode()})
+
+    status, output = _run(root, _environment(KEYCLOAK_ADMIN_PASSWORD=secret), capsys)
+
+    assert status == secret_check.EXIT_REFUSED
+    assert "KEYCLOAK_ADMIN_PASSWORD" in output
+    assert secret not in output
+
+
 def Given_an_unset_or_empty_secret_When_checked_Then_it_is_skipped_rather_than_matched(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
