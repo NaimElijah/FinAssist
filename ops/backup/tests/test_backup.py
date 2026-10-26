@@ -9,8 +9,10 @@ project.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -263,107 +265,268 @@ def Given_a_changed_dump_When_checked_Then_it_fails_before_any_container_starts(
     assert "FAILED check 1 (both dumps match their manifest)" in capsys.readouterr().out
 
 
-# --- a restore refuses while the database's consumer is anything but stopped -------------------
+# --- a Compose project held in memory, for restore and backup ---------------------------------
+
+PROJECT_NAME = "finassist-test"
+BOOKS_DIGEST = "a" * 64
+LEDGER_DUMP = b"PGDMP-ledger-archive"
+KEYCLOAK_DUMP = b"PGDMP-keycloak-archive"
+POSTGRES_IMAGE = "postgres:18.6-trixie"
+BOTH_RUNNING = {"db": "running", "keycloak-db": "running"}
+# Any of these would start a container, which neither backup nor restore may ever do (ADR-038).
+CONTAINER_STARTS = frozenset({"up", "start", "restart", "run", "create"})
 
 
-class _RestartingLedger(backup.Compose):
-    """A project whose databases run and whose ledger is caught in a crash loop."""
+@dataclass(frozen=True)
+class _Project(backup.Compose):
+    """A Compose project in memory, standing in for `docker compose` behind `require`.
+
+    It answers only the commands backup.py is known to send, records every one in `calls`, and
+    fails the test on any other, so a step the CLI must never take cannot pass unseen.
+
+    :param states: each service's container state; a service not named has no container.
+    :param tables: how many tables each database service holds; none when not named.
+    :param digests: what the books' digest query answers, one per query; the last one repeats.
+        Empty means the ledger database holds no journal yet.
+    :param dumps: what pg_dump writes, by database service.
+    :param unreadable: the database services whose read-back of a dump fails.
+    """
+
+    states: Mapping[str, str] = field(default_factory=lambda: dict(BOTH_RUNNING))
+    tables: Mapping[str, int] = field(default_factory=dict)
+    digests: list[str] = field(default_factory=lambda: [BOOKS_DIGEST])
+    dumps: Mapping[str, bytes] = field(
+        default_factory=lambda: {"db": LEDGER_DUMP, "keycloak-db": KEYCLOAK_DUMP}
+    )
+    unreadable: frozenset[str] = frozenset()
+    calls: list[tuple[str, ...]] = field(default_factory=list)
+    read_back: list[tuple[str, bytes]] = field(default_factory=list)
+    restored: list[tuple[str, bytes]] = field(default_factory=list)
 
     def require(
         self,
         what: str,
         *args: str,
-        stdin: object = None,
-        stdout: object = None,
+        stdin: IO[bytes] | None = None,
+        stdout: IO[bytes] | None = None,
         input_bytes: bytes | None = None,
     ) -> bytes:
-        if args[0] == "config":
-            return b'{"name": "finassist-test"}'
-        if args[0] == "ps":
-            statuses = [args[i + 1] for i, arg in enumerate(args) if arg == "--status"]
-            return (
-                b"db\nkeycloak-db\nledger\n" if "restarting" in statuses else b"db\nkeycloak-db\n"
-            )
-        if args[0] == "exec":
-            return b"0\n"
-        raise AssertionError(f"unexpected command: {args}")
+        self.calls.append(args)
+        match args:
+            case ("config", "--format", "json"):
+                return json.dumps({"name": PROJECT_NAME}).encode()
+            case ("ps", "--format", "json", service):
+                if self.states.get(service) != "running":
+                    return b""
+                return json.dumps({"Service": service, "Image": POSTGRES_IMAGE}).encode()
+            case ("ps", *filters, "--services"):
+                assert set(filters[0::2]) == {"--status"}, f"unexpected ps filters: {filters}"
+                statuses = set(filters[1::2])
+                listed = [name for name, state in self.states.items() if state in statuses]
+                return "\n".join(listed).encode()
+            case ("exec", "-T", service, *command):
+                return self._exec(what, service, tuple(command), stdin, stdout, input_bytes)
+        raise AssertionError(f"backup.py sent a command this project does not expect: {args}")
+
+    def _exec(
+        self,
+        what: str,
+        service: str,
+        command: tuple[str, ...],
+        stdin: IO[bytes] | None,
+        stdout: IO[bytes] | None,
+        input_bytes: bytes | None,
+    ) -> bytes:
+        if self.states.get(service) != "running":
+            # What `docker compose exec` answers when the service has no running container.
+            raise backup.BackupError(f'{what} failed with exit status 1: service "..." not running')
+        if command == backup.PSQL_COMMAND:
+            return self._query(service, (input_bytes or b"").decode("utf-8"))
+        if command == backup.DUMP_COMMAND:
+            assert stdout is not None, "pg_dump must write into the dump file"
+            stdout.write(self.dumps[service])
+            return b""
+        if command == backup.READ_BACK_COMMAND:
+            assert stdin is not None, "a read-back must read the dump file"
+            self.read_back.append((service, stdin.read()))
+            if service in self.unreadable:
+                raise backup.BackupError(
+                    f"{what} failed with exit status 1: pg_restore: error: could not read input"
+                )
+            return b""
+        if command == backup.RESTORE_COMMAND:
+            assert stdin is not None, "pg_restore must read the dump file"
+            self.restored.append((service, stdin.read()))
+            return b""
+        raise AssertionError(f"backup.py ran a command this project does not expect: {command}")
+
+    def _query(self, service: str, sql: str) -> bytes:
+        if sql == backup.COUNT_TABLES_SQL:
+            return f"{self.tables.get(service, 0)}\n".encode()
+        if service == backup.LEDGER.service and sql == backup.BOOKS_PRESENT_SQL:
+            return b"t\n" if self.digests else b"f\n"
+        if service == backup.LEDGER.service and sql == backup.BOOKS_DIGEST_SQL:
+            digest = self.digests.pop(0) if len(self.digests) > 1 else self.digests[0]
+            return f"{digest}\n".encode()
+        raise AssertionError(f"backup.py ran a query this project does not expect in {service}")
+
+
+def _written_backup(
+    folder: Path,
+    dumps: Mapping[backup.Database, bytes] | None = None,
+    digest: object = BOOKS_DIGEST,
+) -> Path:
+    """A backup folder laid out as `backup` writes one, its SHA-256s computed by hashlib.
+
+    :param dumps: the dump each database's file holds; both, by default.
+    """
+    if dumps is None:
+        dumps = {backup.LEDGER: LEDGER_DUMP, backup.KEYCLOAK: KEYCLOAK_DUMP}
+    folder.mkdir(parents=True, exist_ok=True)
+    entries = []
+    for database, content in dumps.items():
+        (folder / database.dump_name).write_bytes(content)
+        entries.append(
+            {
+                "database": database.key,
+                "file": database.dump_name,
+                "bytes": len(content),
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "service": database.service,
+                "image": POSTGRES_IMAGE,
+            }
+        )
+    manifest = {
+        "format": backup.MANIFEST_FORMAT,
+        "created": "20261013T120000Z",
+        "project": PROJECT_NAME,
+        backup.BOOKS_DIGEST_KEY: digest,
+        "dumps": entries,
+    }
+    (folder / backup.MANIFEST_NAME).write_bytes(json.dumps(manifest).encode("utf-8"))
+    return folder
+
+
+# --- a restore writes only into an empty database, with its consumer stopped (ADR-038) ---------
+
+
+def Given_empty_databases_and_stopped_consumers_When_both_are_restored_Then_each_gets_its_dump(
+    tmp_path: Path,
+) -> None:
+    project = _Project()
+
+    backup.restore(project, _written_backup(tmp_path), backup.DATABASES)
+
+    assert project.restored == [("db", LEDGER_DUMP), ("keycloak-db", KEYCLOAK_DUMP)]
+    assert not any(call[0] in CONTAINER_STARTS for call in project.calls)
 
 
 def Given_a_restarting_ledger_When_its_database_is_restored_Then_the_restore_is_refused(
     tmp_path: Path,
 ) -> None:
-    folder = _backup_folder(tmp_path, _manifest_for(b"PGDMP-archive", tmp_path))
+    project = _Project(states=BOTH_RUNNING | {"ledger": "restarting"})
 
     with pytest.raises(backup.BackupError, match="ledger is not stopped"):
-        backup.restore(_RestartingLedger(), folder, (backup.LEDGER,))
+        backup.restore(project, _written_backup(tmp_path), (backup.LEDGER,))
+
+    assert project.restored == []
+
+
+def Given_a_running_ledger_When_its_database_is_restored_Then_it_is_refused_and_nothing_restored(
+    tmp_path: Path,
+) -> None:
+    project = _Project(states=BOTH_RUNNING | {"ledger": "running"})
+
+    with pytest.raises(backup.BackupError, match="ledger is not stopped"):
+        backup.restore(project, _written_backup(tmp_path), (backup.LEDGER,))
+
+    assert project.restored == []
+
+
+def Given_a_paused_keycloak_When_keycloak_db_is_restored_Then_it_is_refused_and_nothing_restored(
+    tmp_path: Path,
+) -> None:
+    project = _Project(states=BOTH_RUNNING | {"keycloak": "paused"})
+
+    with pytest.raises(backup.BackupError, match="keycloak is not stopped"):
+        backup.restore(project, _written_backup(tmp_path), (backup.KEYCLOAK,))
+
+    assert project.restored == []
+
+
+def Given_a_stopped_db_When_its_database_is_restored_Then_it_is_refused_and_nothing_restored(
+    tmp_path: Path,
+) -> None:
+    project = _Project(states={"keycloak-db": "running"})
+
+    with pytest.raises(backup.BackupError, match=f"^db not running in project {PROJECT_NAME}"):
+        backup.restore(project, _written_backup(tmp_path), (backup.LEDGER,))
+
+    assert project.restored == []
+
+
+def Given_keycloak_db_holding_tables_When_both_are_restored_Then_neither_is_restored(
+    tmp_path: Path,
+) -> None:
+    project = _Project(tables={"keycloak-db": 4})
+
+    with pytest.raises(backup.BackupError, match=r"keycloak-db .* already holds 4 tables"):
+        backup.restore(project, _written_backup(tmp_path), backup.DATABASES)
+
+    assert project.restored == []
+
+
+def Given_a_changed_dump_When_restored_Then_it_is_refused_before_any_compose_command(
+    tmp_path: Path,
+) -> None:
+    folder = _written_backup(tmp_path)
+    (folder / backup.LEDGER.dump_name).write_bytes(LEDGER_DUMP + b"!")
+    project = _Project()
+
+    with pytest.raises(backup.BackupError, match="no longer matches the SHA-256"):
+        backup.restore(project, folder, backup.DATABASES)
+
+    assert project.calls == []
 
 
 # --- a restore proves the books it restored are the ones backed up -----------------------------
-
-BOOKS_DIGEST = "a" * 64
-
-
-@dataclass(frozen=True)
-class _RestorableProject(backup.Compose):
-    """An empty, running project whose restored ledger database reports `digest` for its books."""
-
-    digest: str = BOOKS_DIGEST
-
-    def require(
-        self,
-        what: str,
-        *args: str,
-        stdin: object = None,
-        stdout: object = None,
-        input_bytes: bytes | None = None,
-    ) -> bytes:
-        if args[0] == "config":
-            return b'{"name": "finassist-test"}'
-        if args[0] == "ps":
-            return b"db\nkeycloak-db\n"
-        sql = (input_bytes or b"").decode("utf-8")
-        if "to_regclass" in sql:
-            return b"t\n"
-        if "sha256" in sql:
-            return f"{self.digest}\n".encode()
-        if "pg_tables" in sql:
-            return b"0\n"
-        return b""
-
-
-def _backup_with_digest(tmp_path: Path, digest: object) -> Path:
-    manifest = _manifest_for(b"PGDMP-archive", tmp_path)
-    manifest[backup.BOOKS_DIGEST_KEY] = digest
-    return _backup_folder(tmp_path, manifest)
 
 
 def Given_restored_books_matching_the_digest_When_restored_Then_it_succeeds(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    folder = _backup_with_digest(tmp_path, BOOKS_DIGEST)
+    project = _Project()
 
-    backup.restore(_RestorableProject(), folder, (backup.LEDGER,))
+    backup.restore(project, _written_backup(tmp_path), (backup.LEDGER,))
 
+    assert project.restored == [("db", LEDGER_DUMP)]
     assert "the restored books match the digest the backup recorded" in capsys.readouterr().out
 
 
 def Given_restored_books_differing_from_the_digest_When_restored_Then_it_is_refused(
     tmp_path: Path,
 ) -> None:
-    folder = _backup_with_digest(tmp_path, BOOKS_DIGEST)
+    project = _Project(digests=["b" * 64])
 
     with pytest.raises(backup.BackupError, match="do not match the digest the backup recorded"):
-        backup.restore(_RestorableProject(digest="b" * 64), folder, (backup.LEDGER,))
+        backup.restore(project, _written_backup(tmp_path), (backup.LEDGER,))
 
 
 def Given_a_backup_from_before_the_journal_When_restored_Then_no_digest_is_compared(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    folder = _backup_with_digest(tmp_path, None)
+    project = _Project(digests=["b" * 64])
 
-    backup.restore(_RestorableProject(digest="b" * 64), folder, (backup.LEDGER,))
+    backup.restore(project, _written_backup(tmp_path, digest=None), (backup.LEDGER,))
 
+    assert project.restored == [("db", LEDGER_DUMP)]
     assert "no digest is compared" in capsys.readouterr().out
+
+
+def _backup_with_digest(tmp_path: Path, digest: object) -> Path:
+    manifest = _manifest_for(b"PGDMP-archive", tmp_path)
+    manifest[backup.BOOKS_DIGEST_KEY] = digest
+    return _backup_folder(tmp_path, manifest)
 
 
 def Given_a_manifest_recording_no_usable_digest_When_read_Then_it_is_refused(
