@@ -168,15 +168,14 @@ def _backup_folder(tmp_path: Path, manifest: object, dump: bytes = b"PGDMP-archi
     return tmp_path
 
 
-def _manifest_for(dump: bytes, tmp_path: Path) -> dict[str, object]:
-    (tmp_path / "probe").write_bytes(dump)
+def _manifest_for(dump: bytes) -> dict[str, object]:
     return {
         "format": backup.MANIFEST_FORMAT,
         "dumps": [
             {
                 "database": backup.LEDGER.key,
                 "file": backup.LEDGER.dump_name,
-                "sha256": backup._sha256(tmp_path / "probe"),
+                "sha256": hashlib.sha256(dump).hexdigest(),
             }
         ],
     }
@@ -185,7 +184,7 @@ def _manifest_for(dump: bytes, tmp_path: Path) -> dict[str, object]:
 def Given_a_dump_matching_its_manifest_When_verified_Then_its_path_is_returned(
     tmp_path: Path,
 ) -> None:
-    folder = _backup_folder(tmp_path, _manifest_for(b"PGDMP-archive", tmp_path))
+    folder = _backup_folder(tmp_path, _manifest_for(b"PGDMP-archive"))
 
     path = backup._verify(folder, backup.LEDGER, backup._manifest_entries(folder))
 
@@ -193,16 +192,14 @@ def Given_a_dump_matching_its_manifest_When_verified_Then_its_path_is_returned(
 
 
 def Given_a_dump_changed_after_the_backup_When_verified_Then_it_is_refused(tmp_path: Path) -> None:
-    folder = _backup_folder(
-        tmp_path, _manifest_for(b"PGDMP-archive", tmp_path), dump=b"PGDMP-archivf"
-    )
+    folder = _backup_folder(tmp_path, _manifest_for(b"PGDMP-archive"), dump=b"PGDMP-archivf")
 
     with pytest.raises(backup.BackupError, match="no longer matches the SHA-256"):
         backup._verify(folder, backup.LEDGER, backup._manifest_entries(folder))
 
 
 def Given_a_manifest_naming_no_such_dump_When_verified_Then_it_is_refused(tmp_path: Path) -> None:
-    folder = _backup_folder(tmp_path, _manifest_for(b"PGDMP-archive", tmp_path))
+    folder = _backup_folder(tmp_path, _manifest_for(b"PGDMP-archive"))
 
     with pytest.raises(backup.BackupError, match=re.escape("holds no keycloak.dump")):
         backup._verify(folder, backup.KEYCLOAK, backup._manifest_entries(folder))
@@ -291,7 +288,7 @@ def Given_a_changed_dump_When_checked_Then_it_fails_before_any_container_starts(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _CALLS.clear()
-    manifest = _manifest_for(b"PGDMP-archive", tmp_path)
+    manifest = _manifest_for(b"PGDMP-archive")
     folder = _backup_folder(tmp_path, manifest, dump=b"PGDMP-archivf")
 
     status = backup._run_checks(
@@ -527,6 +524,111 @@ def Given_a_changed_dump_When_restored_Then_it_is_refused_before_any_compose_com
     assert project.calls == []
 
 
+# --- a restore trusts only a manifest this CLI could have written, and dumps that match it ------
+
+# Larger than one read of the hash, so a hash of the first chunk alone shows.
+LARGE_DUMP = bytes(range(256)) * (2 * backup.HASH_CHUNK_BYTES // 256) + b"tail"
+
+
+def Given_a_dump_larger_than_one_hash_chunk_When_restored_unchanged_Then_it_matches(
+    tmp_path: Path,
+) -> None:
+    project = _Project()
+
+    backup.restore(
+        project, _written_backup(tmp_path, {backup.LEDGER: LARGE_DUMP}), (backup.LEDGER,)
+    )
+
+    assert project.restored == [("db", LARGE_DUMP)]
+
+
+def Given_a_dump_changed_only_past_its_first_hash_chunk_When_restored_Then_it_is_refused(
+    tmp_path: Path,
+) -> None:
+    taken = _Project(dumps={"db": LARGE_DUMP, "keycloak-db": KEYCLOAK_DUMP})
+    folder = backup.backup(taken, tmp_path, NOW)
+    changed = bytearray(LARGE_DUMP)
+    changed[backup.HASH_CHUNK_BYTES + 10] ^= 0xFF
+    (folder / backup.LEDGER.dump_name).write_bytes(bytes(changed))
+    project = _Project()
+
+    with pytest.raises(
+        backup.BackupError, match=re.escape("ledger.dump no longer matches the SHA-256")
+    ):
+        backup.restore(project, folder, backup.DATABASES)
+
+    assert project.calls == []
+
+
+def Given_a_dump_its_manifest_does_not_record_When_restored_Then_it_is_refused(
+    tmp_path: Path,
+) -> None:
+    folder = _written_backup(tmp_path, {backup.LEDGER: LEDGER_DUMP})
+    (folder / backup.KEYCLOAK.dump_name).write_bytes(KEYCLOAK_DUMP)
+    project = _Project()
+
+    with pytest.raises(backup.BackupError, match=re.escape("holds no keycloak.dump that its")):
+        backup.restore(project, folder, (backup.KEYCLOAK,))
+
+    assert project.calls == []
+
+
+def Given_a_manifest_entry_whose_dump_is_missing_When_restored_Then_it_is_refused(
+    tmp_path: Path,
+) -> None:
+    folder = _written_backup(tmp_path)
+    (folder / backup.KEYCLOAK.dump_name).unlink()
+    project = _Project()
+
+    with pytest.raises(backup.BackupError, match=re.escape("holds no keycloak.dump that its")):
+        backup.restore(project, folder, backup.DATABASES)
+
+    assert project.calls == []
+
+
+LEDGER_SHA256 = hashlib.sha256(LEDGER_DUMP).hexdigest()
+NOT_A_MANIFEST = "is not a manifest this made"
+
+
+@pytest.mark.parametrize(
+    ("manifest", "refusal"),
+    [
+        pytest.param([], NOT_A_MANIFEST, id="not-an-object"),
+        pytest.param({"dumps": []}, NOT_A_MANIFEST, id="no-format"),
+        pytest.param({"format": backup.MANIFEST_FORMAT}, NOT_A_MANIFEST, id="no-dumps"),
+        pytest.param(
+            {"format": backup.MANIFEST_FORMAT, "dumps": {}}, NOT_A_MANIFEST, id="dumps-not-a-list"
+        ),
+        pytest.param(
+            {"format": backup.MANIFEST_FORMAT, "dumps": ["ledger"]},
+            NOT_A_MANIFEST,
+            id="entry-not-an-object",
+        ),
+        pytest.param(
+            {"format": backup.MANIFEST_FORMAT, "dumps": [{"sha256": LEDGER_SHA256}]},
+            NOT_A_MANIFEST,
+            id="entry-without-database",
+        ),
+        pytest.param(
+            {"format": backup.MANIFEST_FORMAT, "dumps": [{"database": "ledger"}]},
+            "ledger.dump no longer matches the SHA-256",
+            id="entry-without-sha256",
+        ),
+    ],
+)
+def Given_a_malformed_manifest_When_restored_Then_it_is_refused_before_any_compose_command(
+    manifest: object, refusal: str, tmp_path: Path
+) -> None:
+    (tmp_path / backup.LEDGER.dump_name).write_bytes(LEDGER_DUMP)
+    (tmp_path / backup.MANIFEST_NAME).write_bytes(json.dumps(manifest).encode("utf-8"))
+    project = _Project()
+
+    with pytest.raises(backup.BackupError, match=re.escape(refusal)):
+        backup.restore(project, tmp_path, (backup.LEDGER,))
+
+    assert project.calls == []
+
+
 # --- a restore proves the books it restored are the ones backed up -----------------------------
 
 
@@ -562,7 +664,7 @@ def Given_a_backup_from_before_the_journal_When_restored_Then_no_digest_is_compa
 
 
 def _backup_with_digest(tmp_path: Path, digest: object) -> Path:
-    manifest = _manifest_for(b"PGDMP-archive", tmp_path)
+    manifest = _manifest_for(b"PGDMP-archive")
     manifest[backup.BOOKS_DIGEST_KEY] = digest
     return _backup_folder(tmp_path, manifest)
 
