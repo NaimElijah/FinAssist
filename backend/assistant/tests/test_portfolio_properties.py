@@ -26,14 +26,30 @@ from finassist_assistant.shared import Currency, Money
 VWCE = Symbol("VWCE")
 EPOCH = date(2026, 1, 1)
 
+QUANTITY_PLACES = 4
+"""The finest quantity a generated lot holds: fractional units, as a fund share often is. Every
+generated quantity, and every quantity sold, is a whole number of these."""
+
+_QUANTUM = Decimal(1).scaleb(-QUANTITY_PLACES)
+
 
 @st.composite
 def lots(draw: st.DrawFn) -> tuple[Lot, ...]:
-    """A holding of one to six lots in one currency, each acquired on its own day, oldest first."""
+    """A holding of one to six lots in one currency, each acquired on its own day, oldest first.
+
+    The currency is drawn per holding - one holding is one currency - and each unit cost is
+    exact at that currency's minor units, so a JPY holding costs whole yen. Quantities are whole
+    or fractional, down to :data:`QUANTITY_PLACES` places.
+    """
+    currency = draw(st.sampled_from(list(Currency)))
     count = draw(st.integers(min_value=1, max_value=6))
     quantities = draw(
         st.lists(
-            st.integers(min_value=1, max_value=500),
+            st.builds(
+                lambda units, places: Decimal(units).scaleb(-places),
+                st.integers(min_value=1, max_value=500 * 10**QUANTITY_PLACES),
+                st.integers(min_value=0, max_value=QUANTITY_PLACES),
+            ),
             min_size=count,
             max_size=count,
         )
@@ -44,8 +60,8 @@ def lots(draw: st.DrawFn) -> tuple[Lot, ...]:
     return tuple(
         Lot(
             VWCE,
-            Decimal(quantity),
-            Money(Decimal(cost).scaleb(-2), Currency.USD),
+            quantity,
+            Money(Decimal(cost).scaleb(-currency.minor_units), currency),
             EPOCH + timedelta(days=index),
         )
         for index, (quantity, cost) in enumerate(zip(quantities, costs, strict=True))
@@ -54,6 +70,12 @@ def lots(draw: st.DrawFn) -> tuple[Lot, ...]:
 
 def held(holding: tuple[Lot, ...]) -> Decimal:
     return sum((lot.quantity for lot in holding), Decimal(0))
+
+
+def a_sale_of(holding: tuple[Lot, ...], data: st.DataObject) -> Decimal:
+    """Draws a quantity to sell: at least one quantum, and no more than the holding holds."""
+    units_held = int(held(holding) / _QUANTUM)
+    return Decimal(data.draw(st.integers(min_value=1, max_value=units_held))) * _QUANTUM
 
 
 @given(lots())
@@ -79,11 +101,11 @@ def Given_any_disposal_When_consumed_Then_the_remainder_is_what_was_not_sold(
     holding: tuple[Lot, ...], data: st.DataObject
 ) -> None:
     total = held(holding)
-    sold = data.draw(st.integers(min_value=1, max_value=int(total)))
+    sold = a_sale_of(holding, data)
 
-    disposal = consume_fifo(holding, Decimal(sold))
+    disposal = consume_fifo(holding, sold)
 
-    assert held(disposal.remaining) == total - Decimal(sold)
+    assert held(disposal.remaining) == total - sold
 
 
 @given(lots(), st.data())
@@ -91,9 +113,9 @@ def Given_any_disposal_When_consumed_Then_the_input_lots_are_untouched(
     holding: tuple[Lot, ...], data: st.DataObject
 ) -> None:
     before = tuple(holding)
-    sold = data.draw(st.integers(min_value=1, max_value=int(held(holding))))
+    sold = a_sale_of(holding, data)
 
-    consume_fifo(holding, Decimal(sold))
+    consume_fifo(holding, sold)
 
     assert holding == before
 
@@ -102,9 +124,9 @@ def Given_any_disposal_When_consumed_Then_the_input_lots_are_untouched(
 def Given_any_disposal_When_consumed_Then_the_oldest_lots_go_first(
     holding: tuple[Lot, ...], data: st.DataObject
 ) -> None:
-    sold = data.draw(st.integers(min_value=1, max_value=int(held(holding))))
+    sold = a_sale_of(holding, data)
 
-    remaining = consume_fifo(holding, Decimal(sold)).remaining
+    remaining = consume_fifo(holding, sold).remaining
 
     # Whatever survives is a *suffix* of the input: FIFO consumes from the front, so the
     # remaining acquisition dates must be the last N of the original, in order.
@@ -123,7 +145,7 @@ def Given_lots_in_any_order_When_consumed_Then_the_disposal_is_the_oldest_first_
     # Every lot has a date of its own, so oldest first is one order only, and whichever order
     # the lots arrive in must sell exactly what that order sells (#69).
     shuffled = tuple(data.draw(st.permutations(holding)))
-    sold = Decimal(data.draw(st.integers(min_value=1, max_value=int(held(holding)))))
+    sold = a_sale_of(holding, data)
 
     assert consume_fifo(shuffled, sold) == consume_fifo(holding, sold)
 
