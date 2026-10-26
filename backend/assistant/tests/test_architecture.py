@@ -7,12 +7,13 @@ Eight rules:
 3. No context imports another context. Only ``shared`` is common ground.
 4. No context imports the composition root, where the frameworks are wired.
 5. No domain module names ``float``. Money is exact decimal, in both languages.
-6. No domain module reads the wall clock. The caller passes the time in.
+6. No inward module reads the wall clock - not the domain, not a use case, not ``shared``.
+   The caller passes the time in; the composition root reads the clock once.
 7. No inbound adapter imports an outbound one. A route reaches a client only through a use case.
 8. No domain module imports the application layer. The use cases call the domain, never the
    reverse - the inward half of ``LedgerArchitectureTest.layers_point_inward``.
 
-Rules 4 and 5 mirror commitments the ledger already enforces or documents:
+Rules 5 and 6 mirror commitments the ledger already enforces or documents:
 ``LedgerArchitectureTest.money_is_never_floating_point`` for the first, and the "pass the
 clock in" convention for the second, which every domain function here already follows and
 nothing checked.
@@ -97,8 +98,31 @@ DOMAIN_SEGMENT = "domain"
 
 # Attribute calls that read the wall clock. Matched as calls, never by name: `is_stale` and
 # `age` both take a parameter called `now`, and a name-based rule would fail the build on the
-# very convention it exists to enforce.
-CLOCK_READS = frozenset({"now", "today", "utcnow", "time", "monotonic", "time_ns"})
+# very convention it exists to enforce. The process clocks are here too: a use case that times
+# itself has read a clock just as surely as one that stamps a date.
+CLOCK_READS = frozenset(
+    {
+        "now",
+        "today",
+        "utcnow",
+        "time",
+        "time_ns",
+        "monotonic",
+        "monotonic_ns",
+        "perf_counter",
+        "perf_counter_ns",
+        "process_time",
+        "process_time_ns",
+        "localtime",
+        "gmtime",
+        "ctime",
+    }
+)
+
+# The modules whose members CLOCK_READS names. Importing a reader out of one of them binds it
+# to a name of the importer's choosing - `from time import time as clock` - which no name-based
+# match on the call could follow, so the import itself is the violation.
+CLOCK_MODULES = frozenset({"time", "datetime"})
 
 ADAPTER_SEGMENT = "adapters"
 
@@ -184,18 +208,32 @@ def _clock_reads_in(source: str, filename: str = "<test>") -> list[str]:
 
     A parameter *named* ``now`` is still not a violation - ``is_stale`` and ``age`` both take
     one - so a bare name is flagged only where it is being called.
+
+    Two indirections are matched as well: importing a reader (or everything) out of ``time`` or
+    ``datetime``, which lets it be called under any alias, and ``getattr`` naming a reader as a
+    string, which no attribute node shows.
     """
     tree = ast.parse(source, filename=filename)
     found: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in CLOCK_READS:
             found.append(f"{node.attr} at line {node.lineno}")
-        elif (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id in CLOCK_READS
-        ):
-            found.append(f"{node.func.id}() at line {node.lineno}")
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module in CLOCK_MODULES:
+            found.extend(
+                f"import of {node.module}.{alias.name} at line {node.lineno}"
+                for alias in node.names
+                if alias.name in CLOCK_READS or alias.name == "*"
+            )
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id in CLOCK_READS:
+                found.append(f"{node.func.id}() at line {node.lineno}")
+            elif (
+                node.func.id == "getattr"
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value in CLOCK_READS
+            ):
+                found.append(f"getattr(..., {node.args[1].value!r}) at line {node.lineno}")
     return found
 
 
@@ -487,11 +525,17 @@ def Given_a_domain_module_When_parsed_Then_it_names_no_float(path: Path) -> None
     )
 
 
-@pytest.mark.parametrize("path", DOMAIN_FILES, ids=_relative_id)
-def Given_a_domain_module_When_parsed_Then_it_reads_no_clock(path: Path) -> None:
+@pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
+def Given_an_inward_module_When_parsed_Then_it_reads_no_clock(path: Path) -> None:
+    """Pass the clock in: the domain, the use cases and ``shared`` all take time as an argument.
+
+    The composition root reads the clock once (``utc_now``) and passes it down, so the only
+    clock reads in the tree belong under ``adapters``. A use case reading one would make its
+    behaviour depend on when the test ran, exactly as a domain function would.
+    """
     found = _clock_reads_in(path.read_text(encoding="utf-8"), str(path))
     assert not found, (
-        f"{path.relative_to(SRC)} reads the wall clock: {found}. A domain function takes the "
+        f"{path.relative_to(SRC)} reads the wall clock: {found}. An inward function takes the "
         "current time as an argument - is_stale and age already do - so its behaviour is a "
         "function of its inputs and a test never has to freeze anything."
     )
@@ -585,6 +629,56 @@ def Given_source_reading_the_clock_When_scanned_Then_the_call_is_found() -> None
     assert _clock_reads_in("import datetime\nx = datetime.datetime.now()")
     assert _clock_reads_in("from datetime import date\nx = date.today()")
     assert _clock_reads_in("import time\nx = time.time()")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import time\nx = time.perf_counter()",
+        "import time\nx = time.perf_counter_ns()",
+        "import time\nx = time.monotonic_ns()",
+        "import time\nx = time.process_time()",
+        "import time\nx = time.process_time_ns()",
+        "import time\nx = time.localtime()",
+        "import time\nx = time.gmtime()",
+        "import time\nx = time.ctime()",
+    ],
+)
+def Given_source_reading_a_process_or_calendar_clock_When_scanned_Then_it_is_found(
+    source: str,
+) -> None:
+    assert _clock_reads_in(source), source
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from time import time as clock\nx = clock()",
+        "from time import perf_counter as tick\nx = tick()",
+        "from time import localtime",
+        "from datetime import datetime as dt, now",
+        "from time import *\nx = monotonic()",
+    ],
+)
+def Given_a_clock_reader_imported_under_any_name_When_scanned_Then_the_import_is_found(
+    source: str,
+) -> None:
+    # An alias moves the call out of reach of any name match - `clock()` names nothing in
+    # CLOCK_READS - so the import that binds it is what the rule must see.
+    assert any("import of" in found for found in _clock_reads_in(source)), source
+
+
+def Given_a_clock_reader_named_through_getattr_When_scanned_Then_it_is_found() -> None:
+    # No Attribute node: the reader's name is a string constant.
+    found = _clock_reads_in('import datetime\nx = getattr(datetime.datetime, "now")()')
+
+    assert any("getattr" in item for item in found), found
+
+
+def Given_a_non_clock_import_from_datetime_When_scanned_Then_it_is_not_a_violation() -> None:
+    # Every domain module imports `date` or `datetime` as a type; the import rule must not flag
+    # that, or it would be uninstallable.
+    assert _clock_reads_in("from datetime import UTC, date, datetime, timedelta") == []
 
 
 def Given_an_uncalled_clock_reference_When_scanned_Then_it_is_still_a_violation() -> None:
