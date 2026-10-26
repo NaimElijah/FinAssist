@@ -606,3 +606,17 @@ def Given_keycloak_db_not_running_When_backed_up_Then_it_is_refused(tmp_path: Pa
 
     assert not root.exists()
     assert not any(call[0] == "exec" for call in project.calls)
+
+
+# --- what a backup writes is what a restore accepts --------------------------------------------
+
+
+def Given_a_finished_backup_When_its_folder_is_restored_Then_both_dumps_match_and_are_restored(
+    tmp_path: Path,
+) -> None:
+    folder = backup.backup(_Project(tables={"db": 9, "keycloak-db": 90}), tmp_path, NOW)
+    empty = _Project()
+
+    backup.restore(empty, folder, backup.DATABASES)
+
+    assert empty.restored == [("db", LEDGER_DUMP), ("keycloak-db", KEYCLOAK_DUMP)]
