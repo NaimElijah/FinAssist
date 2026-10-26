@@ -505,8 +505,12 @@ def Given_proceeds_in_any_wire_currency_When_a_disposal_is_priced_Then_the_code_
 ) -> None:
     """Proceeds in the lots' currency realise a gain; in any other they cannot be combined with the
     cost. Either way the code was understood: a refusal about the request, never a 500."""
-    expected = 200 if code == OLDER.unit_cost.currency.code else 422
+    same_currency = code == OLDER.unit_cost.currency.code
 
     response = client.post(DISPOSAL_URL, json=_disposal(amount="3000", currency=code))
 
-    assert response.status_code == expected
+    if same_currency:
+        assert response.status_code == 200
+    else:
+        assert response.status_code == 422
+        assert response.json()["code"] == "CURRENCY_MISMATCH"

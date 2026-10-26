@@ -267,10 +267,14 @@ def Given_an_owner_or_viewer_token_When_any_route_is_requested_Then_it_is_admitt
     path: str,
     body: dict[str, Any] | None,
 ) -> None:
+    """Nothing is held, so every route answers 404 ``HOLDING_NOT_FOUND`` - the answer only a caller
+    past both authentication and authorization ever sees, where "not 401 or 403" would also
+    have admitted a 500."""
     with TestClient(app, headers=headers_for([role])) as client:
         response = client.request(method, path, json=body)
 
-    assert response.status_code not in (401, 403)
+    assert response.status_code == 404
+    assert response.json()["code"] == "HOLDING_NOT_FOUND"
 
 
 @pytest.mark.parametrize(
@@ -384,7 +388,8 @@ def Given_a_principal_whose_role_grants_the_permission_When_required_Then_nothin
 ):
     require = RequirePermission(READ_PORTFOLIO)
 
-    require(_with(Principal(subject="owner-user", roles=frozenset({"owner"}))))
+    # A FastAPI dependency admits by returning; the only other outcome is the 403 it raises.
+    assert require(_with(Principal(subject="owner-user", roles=frozenset({"owner"})))) is None  # type: ignore[func-returns-value]
 
 
 def Given_a_principal_whose_role_lacks_the_permission_When_required_Then_403_is_raised() -> None:

@@ -193,6 +193,7 @@ def Given_an_active_span_When_the_correlation_id_is_chosen_Then_the_span_wins() 
 def Given_a_request_When_it_is_logged_Then_the_header_and_the_log_line_agree(
     settings: Settings, token_verifier: TokenVerifier, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The id a caller is handed in the response header is the one its request line carries."""
     app = create_app(settings, token_verifier=token_verifier)
     with TestClient(app) as running:
         capsys.readouterr()
@@ -200,8 +201,8 @@ def Given_a_request_When_it_is_logged_Then_the_header_and_the_log_line_agree(
             "/health", headers={"traceparent": f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"}
         )
 
-    structlog.get_logger("t").info("probe")
-    assert response.headers[CORRELATION_ID_HEADER] == VALID_TRACE_ID
+    [line] = _request_lines(capsys.readouterr().out)
+    assert response.headers[CORRELATION_ID_HEADER] == line["correlation_id"] == VALID_TRACE_ID
 
 
 # --- the request line ----------------------------------------------------------------------
@@ -508,13 +509,28 @@ def Given_a_secret_nested_in_a_payload_When_redacted_Then_it_is_still_removed() 
     assert redacted["request"]["path"] == "/v1/messages"
 
 
+_CYCLE_DESCENT_BOUND = 100
+"""Far deeper than any payload a log line should carry; reaching it means the descent never
+stopped."""
+
+
 def Given_a_cyclic_payload_When_redacted_Then_it_terminates() -> None:
     """Unbounded descent turns a log call into a RecursionError, which is worse than the line
     it failed to write. The web client's redactor is bounded for the same reason."""
     cyclic: dict[str, Any] = {"name": "loop"}
     cyclic["self"] = cyclic
 
-    assert redact_secrets(None, "info", {"payload": cyclic}) is not None
+    redacted = redact_secrets(None, "info", {"payload": cyclic})
+
+    # The descent stops at a bounded depth and puts the redaction marker where it stopped, so the
+    # value returned holds no cycle; what it passed through on the way keeps its ordinary members.
+    level: Any = redacted["payload"]
+    for _ in range(_CYCLE_DESCENT_BOUND):
+        if not isinstance(level, dict):
+            break
+        level = level["self"]
+    assert level == REDACTED
+    assert redacted["payload"]["name"] == "loop"
 
 
 def Given_a_short_value_When_registered_Then_it_is_ignored() -> None:
