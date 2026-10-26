@@ -88,6 +88,11 @@ configures."""
 _WITHIN_LEEWAY = timedelta(seconds=29)
 """One second inside it."""
 
+_AT_LEEWAY = timedelta(seconds=30)
+"""Exactly the leeway: still inside it, as on the ledger, whose ``JwtTimestampValidator`` refuses
+only an ``exp`` or ``nbf`` strictly past the skew and whose ``issuedAtValidator`` only an ``iat``
+strictly after it."""
+
 
 def _encode(
     private_key: rsa.RSAPrivateKey,
@@ -252,6 +257,29 @@ def Given_a_token_expired_within_the_leeway_When_verified_Then_it_is_accepted(
     private_key, _ = rsa_key_pair
     now = fixed_clock()
     token = _encode(private_key, _valid_claims(now, exp=int((now - _WITHIN_LEEWAY).timestamp())))
+
+    principal = _verifier(static_key_source, fixed_clock)(token)
+
+    assert principal.subject == SUBJECT
+
+
+@pytest.mark.parametrize(
+    ("claim", "offset"),
+    [("exp", -_AT_LEEWAY), ("iat", _AT_LEEWAY), ("nbf", _AT_LEEWAY)],
+    ids=["exp-in-the-past", "iat-in-the-future", "nbf-in-the-future"],
+)
+def Given_a_lifetime_claim_exactly_at_the_leeway_When_verified_Then_it_is_accepted(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    static_key_source: KeySource,
+    fixed_clock: Clock,
+    claim: str,
+    offset: timedelta,
+) -> None:
+    """The edge itself belongs to the leeway: 29 s and 31 s alone would let a strict comparison
+    become an inclusive one, refusing a token the ledger accepts, with every test green."""
+    private_key, _ = rsa_key_pair
+    now = fixed_clock()
+    token = _encode(private_key, _valid_claims(now, **{claim: int((now + offset).timestamp())}))
 
     principal = _verifier(static_key_source, fixed_clock)(token)
 
