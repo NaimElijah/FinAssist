@@ -7,7 +7,6 @@ import { type UserEvent, userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
-import { todayIsoDate } from '@/shared/lib/today';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -18,6 +17,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
+import { pinClockJustAfterLocalMidnight } from '@/shared/testing/localClock';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { planKeys } from '../hooks/planQueries';
@@ -115,23 +115,26 @@ const COMPARISON_KEY = planKeys.comparison({
     invested: [],
 });
 
-/** The pinned instant a lifecycle panel's Date field defaults from, and the ISO date it maps to. */
-const FAKE_NOW = new Date(2026, 8, 15, 12, 0);
-const TODAY = todayIsoDate(FAKE_NOW);
+/**
+ * The local date a lifecycle panel's Date field defaults to, written out rather than computed by the code under
+ * test, so a call site reading the date some other way cannot agree with itself.
+ */
+const TODAY = '2026-09-15';
 
 let restoreSink: () => void = () => undefined;
+let restoreClock: () => void = () => undefined;
 
 beforeEach(() => {
     // The client logs every failed request; several tests fail requests on purpose.
     restoreSink = setLogSink(() => undefined);
-    // Pins Date so a run crossing local midnight cannot flake the default-to-today assertions.
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(FAKE_NOW);
+    // Pins the clock just after local midnight in a zone where UTC is still on the day before,
+    // so a default read through toISOString() would name 2026-09-14 and fail.
+    restoreClock = pinClockJustAfterLocalMidnight(TODAY);
 });
 
 afterEach(() => {
     restoreSink();
-    vi.useRealTimers();
+    restoreClock();
 });
 
 describe('PlannedFlowsPage', () => {
