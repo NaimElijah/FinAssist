@@ -329,12 +329,14 @@ function isLayer(name: string): name is Layer {
  * Where a path inside `src/features` sits: its feature, and its layer or `'root'` for a file
  * directly in the feature's directory. Undefined outside `src/features`.
  *
- * A specifier naming a layer's directory itself, such as `../types`, resolves to that layer.
+ * A specifier naming a layer's directory itself, such as `../types`, resolves to that layer; one
+ * naming the feature's directory, such as `..` or `@/features/<feature>`, resolves to its root.
  */
 function featurePlace(path: string): { feature: string; layer: Layer | 'root' } | undefined {
     if (!isWithin(FEATURES_DIR, path)) return undefined;
     const [feature = '', second = '', ...rest] = relative(FEATURES_DIR, path).split(sep);
-    if (feature === '' || second === '') return undefined;
+    if (feature === '') return undefined;
+    if (second === '') return { feature, layer: 'root' };
     if (isLayer(second)) return { feature, layer: second };
     return rest.length === 0 ? { feature, layer: 'root' } : undefined;
 }
