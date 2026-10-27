@@ -112,6 +112,9 @@ export function fakeFetch(answer: FetchAnswer): readonly RecordedRequest[] {
             try {
                 return await answer(request);
             } catch (error) {
+                if (error instanceof Error && plannedNetworkFailures.has(error)) {
+                    throw error;
+                }
                 failures.push(
                     `${label}: ${error instanceof Error ? error.message : 'a non-Error was thrown'}`,
                 );
@@ -154,6 +157,25 @@ export function problemResponse(
  */
 export function pendingResponse(): Promise<Response> {
     return new Promise<Response>(() => undefined);
+}
+
+/**
+ * The errors `networkFailure` raised, so `fakeFetch` can tell a failure the test planned from a
+ * mistake. Weak, so an error is forgotten once the test that raised it lets go of it.
+ */
+const plannedNetworkFailures = new WeakSet<Error>();
+
+/**
+ * A request that never reaches the server, as `fetch` reports a network failure: it rejects with
+ * a `TypeError`. Unlike a throw from an answer, `fakeFetch` does not count it as a mistake, so a
+ * test can show what the app does when the network fails.
+ *
+ * @returns a promise rejecting with `TypeError('Failed to fetch')`, the message browsers use.
+ */
+export function networkFailure(): Promise<Response> {
+    const failure = new TypeError('Failed to fetch');
+    plannedNetworkFailures.add(failure);
+    return Promise.reject(failure);
 }
 
 /**

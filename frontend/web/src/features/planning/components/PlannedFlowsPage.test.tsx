@@ -8,9 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import {
-    type FetchAnswer,
     fakeFetch,
+    type FetchAnswer,
     jsonResponse,
+    networkFailure,
     pendingResponse,
     problemResponse,
     unexpectedRequest,
@@ -225,6 +226,28 @@ describe('PlannedFlowsPage', () => {
         await waitFor(() => {
             expect(focusedElementHolds(screen.getByText('No planned flows yet'))).toBe(true);
         });
+    });
+
+    it('Given_the_network_fails_When_the_list_is_read_Then_an_error_state_offers_a_retry_that_refetches', async () => {
+        // A request that never reached the server is worth repeating, unlike a 4xx answer, so the
+        // failure offers "Try again" (isRetryable).
+        let failing = true;
+        const requests = fakeFetch((request) => {
+            if (request.url === SCENARIOS_URL && request.method === 'GET') return jsonResponse([]);
+            if (request.url !== FLOWS_URL) return unexpectedRequest(request);
+            return failing ? networkFailure() : jsonResponse([]);
+        });
+
+        renderFlows();
+
+        const alert = await screen.findByRole('alert');
+        failing = false;
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
+
+        expect(await screen.findByText('No planned flows yet')).toBeDefined();
+        expect(requests.filter((request) => request.url === FLOWS_URL)).toHaveLength(2);
     });
 });
 
@@ -1017,6 +1040,34 @@ describe('PlannedFlowsPage plan-flow form', () => {
         expect((post?.body as { amount?: { amount?: string } } | undefined)?.amount?.amount).toBe(
             '-250.00',
         );
+    });
+
+    it('Given_the_ledger_refuses_the_write_as_FORBIDDEN_When_a_flow_is_planned_Then_the_fixed_sentence_is_shown_instead_of_its_detail', async () => {
+        // The server enforces access whatever the client hides (ADR-032), and a refusal never
+        // tells the user which permission it was (ErrorState's fixed sentence).
+        fakeFetch(
+            ledger([], (request) => {
+                if (request.url === FLOWS_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 403,
+                        code: 'FORBIDDEN',
+                        detail: 'Role viewer lacks ledger:write.',
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+        await user.type(screen.getByLabelText('Description'), 'Rent');
+        await user.type(screen.getByLabelText('Amount'), '250.00');
+
+        await user.click(screen.getByRole('button', { name: 'Plan flow' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(alert.textContent).toContain("You don't have permission to see this.");
+        expect(alert.textContent).not.toContain('ledger:write');
     });
 
     // Every field of the form, since each calls clearSettledOutcome on its own (frontend/web

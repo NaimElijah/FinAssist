@@ -367,6 +367,28 @@ describe('DisposalSection', () => {
         expect(screen.queryByText('Realised gain')).toBeNull();
     });
 
+    it('Given_the_assistant_refuses_the_pricing_as_FORBIDDEN_When_priced_Then_the_fixed_sentence_is_shown_instead_of_its_detail', async () => {
+        // The server enforces access whatever the client hides (ADR-032), and a refusal never
+        // tells the user which permission it was (ErrorState's fixed sentence).
+        fakeFetch(
+            assistant(() =>
+                problemResponse({
+                    status: 403,
+                    code: 'FORBIDDEN',
+                    detail: 'Role guest lacks portfolio:read.',
+                }),
+            ),
+        );
+        await renderSettledHolding();
+
+        await price(userEvent.setup({ delay: null }));
+
+        const section = screen.getByRole('region', { name: SECTION });
+        const alert = await within(section).findByRole('alert');
+        expect(alert.textContent).toContain("You don't have permission to see this.");
+        expect(alert.textContent).not.toContain('portfolio:read');
+    });
+
     // Every field of the form, since each calls clearSettledOutcome on its own (frontend/web
     // CLAUDE.md: editing any field of a settled form clears its answer, and, for the disposal,
     // its result).

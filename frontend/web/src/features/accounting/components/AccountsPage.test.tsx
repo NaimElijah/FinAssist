@@ -10,6 +10,7 @@ import { setLogSink } from '@/shared/lib/logger';
 import {
     fakeFetch,
     jsonResponse,
+    networkFailure,
     pendingResponse,
     problemResponse,
     type RecordedRequest,
@@ -218,6 +219,27 @@ describe('AccountsPage', () => {
                 true,
             );
         });
+    });
+
+    it('Given_the_network_fails_When_the_list_is_read_Then_an_error_state_offers_a_retry_that_refetches', async () => {
+        // A request that never reached the ledger is worth repeating, unlike a 4xx answer, so the
+        // failure offers "Try again" (isRetryable).
+        let failing = true;
+        const requests = fakeFetch((request) => {
+            if (request.url !== ACCOUNTS_URL) return unexpectedRequest(request);
+            return failing ? networkFailure() : jsonResponse([]);
+        });
+
+        renderAccounts();
+
+        const alert = await screen.findByRole('alert');
+        failing = false;
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
+
+        expect(await screen.findByText('No accounts yet — open one below')).toBeDefined();
+        expect(requests.filter((request) => request.url === ACCOUNTS_URL)).toHaveLength(2);
     });
 });
 
@@ -468,6 +490,29 @@ describe('AccountsPage opening an account', () => {
             expect(screen.getByLabelText('Name').getAttribute('aria-invalid')).toBeNull();
         });
     }
+
+    it('Given_the_ledger_refuses_the_write_as_FORBIDDEN_When_an_account_is_opened_Then_the_fixed_sentence_is_shown_instead_of_its_detail', async () => {
+        // The server enforces access whatever the client hides (ADR-032), and a refusal never
+        // tells the user which permission it was (ErrorState's fixed sentence).
+        fakeFetch((request) => {
+            if (request.url === ACCOUNTS_URL && request.method === 'POST') {
+                return problemResponse({
+                    status: 403,
+                    code: 'FORBIDDEN',
+                    detail: 'Role viewer lacks ledger:write.',
+                });
+            }
+            if (request.url === ACCOUNTS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderAccounts();
+
+        await openVisa(userEvent.setup({ delay: null }));
+
+        const alert = await screen.findByRole('alert');
+        expect(alert.textContent).toContain("You don't have permission to see this.");
+        expect(alert.textContent).not.toContain('ledger:write');
+    });
 
     it('Given_a_failure_with_nothing_to_place_on_a_field_When_opened_Then_focus_moves_to_the_error_state', async () => {
         fakeFetch((request) => {

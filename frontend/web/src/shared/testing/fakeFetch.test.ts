@@ -8,6 +8,7 @@ import {
     assertNoUnplannedRequests,
     fakeFetch,
     jsonResponse,
+    networkFailure,
     type RecordedRequest,
     unexpectedRequest,
 } from './fakeFetch';
@@ -44,6 +45,17 @@ describe('fakeFetch failing a mistaken test', () => {
         expect(() => {
             assertNoUnplannedRequests(failures);
         }).toThrow(failures.join('\n'));
+    });
+
+    it('Given_a_planned_network_failure_When_requested_Then_fetch_rejects_with_a_TypeError_and_the_test_still_passes', async () => {
+        // Passing at all is half the assertion: had fakeFetch recorded the planned failure as a
+        // mistake, its onTestFinished check would fail this test after the body returned.
+        const requests = fakeFetch(() => networkFailure());
+
+        await expect(fetch('https://ledger.test/api/v1/accounts')).rejects.toStrictEqual(
+            new TypeError('Failed to fetch'),
+        );
+        expect(requests).toHaveLength(1);
     });
 
     it('Given_every_request_was_planned_When_the_test_finishes_Then_it_passes', () => {
