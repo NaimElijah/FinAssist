@@ -42,6 +42,21 @@ function headersOf(init: RequestInit | undefined): Readonly<Record<string, strin
 }
 
 /**
+ * The check `fakeFetch` runs when a test finishes, exported so the double's own guarantee can be
+ * tested without a test of its own failing.
+ *
+ * @param failures - one line per request the fake could not serve as planned, naming it.
+ * @throws Error - when there is any, listing every one.
+ */
+export function assertNoUnplannedRequests(failures: readonly string[]): void {
+    if (failures.length > 0) {
+        throw new Error(
+            `fakeFetch received requests the test did not plan for:\n${failures.join('\n')}`,
+        );
+    }
+}
+
+/**
  * Replace the global `fetch` with one answering every request through `answer`, for the rest of
  * the current test.
  *
@@ -62,11 +77,7 @@ export function fakeFetch(answer: FetchAnswer): readonly RecordedRequest[] {
 
     onTestFinished(() => {
         vi.unstubAllGlobals();
-        if (failures.length > 0) {
-            throw new Error(
-                `fakeFetch received requests the test did not plan for:\n${failures.join('\n')}`,
-            );
-        }
+        assertNoUnplannedRequests(failures);
     });
 
     function parsedBody(body: BodyInit | null | undefined, label: string): unknown {
