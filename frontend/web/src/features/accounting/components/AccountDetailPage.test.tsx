@@ -694,7 +694,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         },
         {
             field: 'date',
-            edit: () => changeValue('On', '2026-09-14'),
+            edit: () => changeValue('On', '2026-09-10'),
         },
     ] satisfies readonly FieldEdit[]) {
         it(`Given_a_refused_void_shown_in_its_panel_When_its_${field}_is_edited_Then_the_refusal_clears`, async () => {

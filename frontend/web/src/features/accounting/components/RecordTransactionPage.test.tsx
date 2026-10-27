@@ -435,7 +435,7 @@ describe('RecordTransactionPage submission', () => {
             field: 'an_account_is_changed',
             edit: (user) => user.selectOptions(screen.getByLabelText('Account 2'), CHECKING.id),
         },
-        { field: 'the_date_is_edited', edit: () => changeValue('Date', '2026-09-14') },
+        { field: 'the_date_is_edited', edit: () => changeValue('Date', '2026-09-10') },
         {
             field: 'the_description_is_edited',
             edit: (user) => user.type(screen.getByLabelText('Description'), ' for October'),
