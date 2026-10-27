@@ -537,6 +537,38 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         expect(within(rowOf('Rent')).queryByRole('button', { name: 'Commit' })).toBeNull();
         expect(committedText).toBeDefined();
     });
+
+    it('Given_a_lifecycle_panel_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
+        // Two submit events can arrive in one tick, before pending has rendered. The panel's own
+        // pending check reads render-time state, so only its in-flight ref stops the second, and
+        // a flow's lifecycle moves one way only (ADR-028: no double submit).
+        const requests = fakeFetch(
+            lifecycleLedger(
+                () => [RENT],
+                (request) =>
+                    request.url === `${FLOWS_URL}/${RENT_ID}/commit` && request.method === 'POST'
+                        ? pendingResponse()
+                        : unexpectedRequest(request),
+            ),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+        await user.click(within(rowOf('Rent')).getByRole('button', { name: 'Commit' }));
+        const form = screen.getByLabelText('On').closest('form');
+        if (form === null) {
+            throw new Error('the On field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+        fireEvent.submit(form);
+
+        // By the time pending has rendered, every request either submit started has reached fetch.
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: 'Commit' })).toHaveProperty('disabled', true);
+        });
+        expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
+    });
 });
 
 describe('PlannedFlowsPage plan-flow form', () => {
