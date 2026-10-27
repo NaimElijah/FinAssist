@@ -152,7 +152,7 @@ describe('RecordTransactionPage entry rows', () => {
     it('Given_two_rows_When_a_debit_is_typed_on_row_1_Then_the_same_string_mirrors_into_row_2s_credit', async () => {
         fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await user.type(await screen.findByLabelText('Debit 1'), '250.00');
 
@@ -162,7 +162,7 @@ describe('RecordTransactionPage entry rows', () => {
     it('Given_two_rows_When_a_credit_is_typed_on_row_1_Then_the_same_string_mirrors_into_row_2s_debit', async () => {
         fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await user.type(await screen.findByLabelText('Credit 1'), '90.00');
 
@@ -172,7 +172,7 @@ describe('RecordTransactionPage entry rows', () => {
     it('Given_row_2_was_edited_directly_When_row_1_is_typed_into_again_Then_row_2_no_longer_mirrors', async () => {
         fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await user.type(await screen.findByLabelText('Debit 1'), '100.00');
         expect(screen.getByLabelText('Credit 2')).toHaveProperty('value', '100.00');
 
@@ -236,7 +236,7 @@ describe('RecordTransactionPage entry rows', () => {
         // clobbering its typed '70.00'.
         fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await screen.findByLabelText('Account 1');
         await user.click(screen.getByRole('button', { name: 'Add entry' }));
 
@@ -250,7 +250,7 @@ describe('RecordTransactionPage entry rows', () => {
     it('Given_a_row_was_added_and_then_removed_back_to_two_When_row_1_is_typed_into_Then_the_mirror_does_not_resume', async () => {
         fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await screen.findByLabelText('Account 1');
         await user.click(screen.getByRole('button', { name: 'Add entry' }));
 
