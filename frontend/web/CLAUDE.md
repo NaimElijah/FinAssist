@@ -54,14 +54,17 @@ From `frontend/web`:
   `typescript: >=4.8.4 <6.1.0` — past that, `npm ci` fails with ERESOLVE. Dependabot is configured
   to ignore `typescript >=6.1.0` so it stops proposing the bump every week. Lift the pin and that
   ignore entry together, once typescript-eslint supports 7.
+- **A feature's layers point inward**: `types`, then `api`, `hooks`, `components`, each importing
+  only those before it; the feature's root (`index.ts`, `routes.tsx`) is imported only by tests;
+  and only its `api/` imports a generated contract type. `tests/architecture.test.ts` fails the
+  build otherwise.
 
 ## Review conventions
 
 Nothing here fails CI. These are patterns to check for in review, named so they stay consistent.
 
 - **A feature's `api/` is its anti-corruption layer.** It types each response with the generated
-  wire type and maps it, member by member, onto the feature's own type in `types/`; nothing
-  outside `api/` imports a generated type (ADR-029).
+  wire type and maps it, member by member, onto the feature's own type in `types/` (ADR-029).
 - **A feature's query keys come from one factory constant**, such as `accountKeys`, never a key
   literal spelled at the call site. A mutation invalidates only the keys that can have changed,
   never a wider prefix that would refetch data nothing touched.

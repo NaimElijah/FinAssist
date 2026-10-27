@@ -6,7 +6,8 @@
  *
  * A feature mirrors a bounded context and must not import another feature. Composition happens
  * in `src/app`, which is the only place allowed to know about every feature at once. Without
- * this rule, `src/features` is a naming convention rather than a boundary.
+ * this rule, `src/features` is a naming convention rather than a boundary. Inside a feature,
+ * dependencies point inward through its layers, and only its `api/` sees a generated contract.
  *
  * The backend counterparts are `LedgerArchitectureTest` (ArchUnit) and the assistant's
  * `tests/test_architecture.py`. See docs/ADRs/ADR-010-bounded-context-map.md.
@@ -223,6 +224,132 @@ describe('composition direction', () => {
         expect(
             offences,
             'src/shared depends on the app that composes it. Pass what it needs in instead.',
+        ).toEqual([]);
+    });
+});
+
+/**
+ * A feature's layers, innermost first. A module may import its own layer or one listed before
+ * it, never one after: `types` holds the feature's own model and depends on nothing in the
+ * feature, `api` maps the wire onto those types, `hooks` wraps `api` in queries and mutations,
+ * and `components` renders them. The feature's root files (`index.ts`, `routes.tsx`) sit above
+ * every layer, since they compose them.
+ */
+const LAYERS = ['types', 'api', 'hooks', 'components'] as const;
+type Layer = (typeof LAYERS)[number];
+
+function isLayer(name: string): name is Layer {
+    return (LAYERS as readonly string[]).includes(name);
+}
+
+/**
+ * Where a path inside `src/features` sits: its feature, and its layer or `'root'` for a file
+ * directly in the feature's directory. Undefined outside `src/features`.
+ *
+ * A specifier naming a layer's directory itself, such as `../types`, resolves to that layer.
+ */
+function featurePlace(path: string): { feature: string; layer: Layer | 'root' } | undefined {
+    if (!isWithin(FEATURES_DIR, path)) return undefined;
+    const [feature = '', second = '', ...rest] = relative(FEATURES_DIR, path).split(sep);
+    if (feature === '' || second === '') return undefined;
+    if (isLayer(second)) return { feature, layer: second };
+    return rest.length === 0 ? { feature, layer: 'root' } : undefined;
+}
+
+/**
+ * Every import from one layer of `feature` to another of the same feature, counted, and those
+ * that reach outward listed as offences: to a later layer, or, from production code, to the
+ * feature's root. A test may import the root, since it drives its screen through the routes the
+ * feature's index exports, the way the app does.
+ */
+function crossLayerImportsOf(feature: string): { count: number; offences: string[] } {
+    const offences: string[] = [];
+    let count = 0;
+
+    for (const file of sourceFilesUnder(join(FEATURES_DIR, feature))) {
+        const from = featurePlace(file);
+        if (from === undefined || from.layer === 'root') continue;
+        for (const specifier of importSpecifiers(file)) {
+            const resolved = resolveInSrc(specifier, file);
+            const to = resolved === undefined ? undefined : featurePlace(resolved);
+            if (to?.feature !== feature || to.layer === from.layer) continue;
+            count += 1;
+            const reachesRoot = to.layer === 'root' && !isTestFile(file);
+            const reachesOutward =
+                to.layer !== 'root' && LAYERS.indexOf(to.layer) > LAYERS.indexOf(from.layer);
+            if (reachesRoot || reachesOutward) {
+                offences.push(`${relative(SRC, file)} -> ${specifier}`);
+            }
+        }
+    }
+    return { count, offences };
+}
+
+const GENERATED_CONTRACTS_DIR = join(SRC, 'shared', 'api', 'contracts');
+
+describe('layers inside a feature', () => {
+    it('Given_each_feature_When_its_directories_are_listed_Then_each_is_a_known_layer', () => {
+        // The layer rule below ranks only the directories it knows. A new directory would sit
+        // outside it, unranked and unchecked, so it must be placed in LAYERS first.
+        const unknown = features.flatMap((feature) =>
+            readdirSync(join(FEATURES_DIR, feature))
+                .filter((entry) => statSync(join(FEATURES_DIR, feature, entry)).isDirectory())
+                .filter((entry) => !isLayer(entry))
+                .map((entry) => `${feature}/${entry}`),
+        );
+
+        expect(unknown, `rank each directory in LAYERS (${LAYERS.join(', ')})`).toEqual([]);
+    });
+
+    for (const feature of features) {
+        it(`Given_feature_${feature}_When_its_layers_are_read_Then_each_imports_only_the_layers_below_it`, () => {
+            expect(
+                crossLayerImportsOf(feature).offences,
+                `a layer of '${feature}' imports one above it (order: ${LAYERS.join(' < ')}).`,
+            ).toEqual([]);
+        });
+    }
+
+    it('Given_the_features_When_their_layers_are_read_Then_some_layer_imports_another', () => {
+        // Guards the rule above from passing vacuously. Every feature's components use its hooks
+        // and types, so a scan that counts no import between two layers has stopped resolving
+        // specifiers, not found none.
+        const count = features.reduce(
+            (sum, feature) => sum + crossLayerImportsOf(feature).count,
+            0,
+        );
+
+        expect(count, 'no import between two layers of a feature').toBeGreaterThan(0);
+    });
+
+    it('Given_the_features_When_their_sources_are_read_Then_only_a_features_api_imports_a_generated_contract_type', () => {
+        // A feature's api/ is its anti-corruption layer (ADR-029): it maps each generated wire
+        // type onto the feature's own, so a contract change stops there instead of rippling into
+        // every screen that would otherwise name the wire shape.
+        const offences: string[] = [];
+        let apiImports = 0;
+
+        for (const file of sourceFilesUnder(FEATURES_DIR)) {
+            for (const specifier of importSpecifiers(file)) {
+                const resolved = resolveInSrc(specifier, file);
+                if (resolved === undefined || !isWithin(GENERATED_CONTRACTS_DIR, resolved))
+                    continue;
+                if (featurePlace(file)?.layer === 'api') {
+                    apiImports += 1;
+                } else {
+                    offences.push(`${relative(SRC, file)} -> ${specifier}`);
+                }
+            }
+        }
+
+        // Guards the rule from passing vacuously: every feature with a backend types its responses
+        // with the generated contract, so a scan that finds no api/ importing one has gone blind.
+        expect(apiImports, "no feature's api/ imports a generated contract type").toBeGreaterThan(
+            0,
+        );
+        expect(
+            offences,
+            "a generated contract type is used outside a feature's api/. Map it there instead.",
         ).toEqual([]);
     });
 });
