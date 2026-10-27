@@ -17,6 +17,7 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
@@ -682,39 +683,54 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         });
     });
 
-    it('Given_a_refused_void_shown_in_its_panel_When_its_reason_is_edited_Then_the_refusal_clears', async () => {
-        // The refusal answered the void as it was sent; once the owner changes it, the message no
-        // longer describes anything in the panel.
-        fakeFetch(
-            lifecycleLedger(
-                () => [PENDING_TX],
-                (request) => {
-                    if (
-                        request.url === `${RECORD_URL}/${PENDING_TX.id}/void` &&
-                        request.method === 'POST'
-                    ) {
-                        return problemResponse({
-                            status: 422,
-                            code: 'RULE_VIOLATED',
-                            detail: 'A transaction cannot be voided before it occurred.',
-                        });
-                    }
-                    return unexpectedRequest(request);
-                },
-            ),
-        );
-        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
-        const user = userEvent.setup({ delay: null });
-        await screen.findByRole('table', { name: 'Transactions' });
-        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Void' }));
-        await user.type(screen.getByLabelText('Reason'), 'Entered twice');
-        await user.click(screen.getByRole('button', { name: 'Void' }));
-        await screen.findByRole('alert');
+    // Every field of the panel, since each calls clearSettledOutcome on its own (frontend/web
+    // CLAUDE.md: editing any field of a settled form clears its answer).
+    for (const { field, edit } of [
+        {
+            field: 'reason',
+            edit: (user) => user.type(screen.getByLabelText('Reason'), ' by mistake'),
+        },
+        {
+            field: 'date',
+            edit: () => changeValue('On', '2026-09-14'),
+        },
+    ] satisfies readonly FieldEdit[]) {
+        it(`Given_a_refused_void_shown_in_its_panel_When_its_${field}_is_edited_Then_the_refusal_clears`, async () => {
+            // The refusal answered the void as it was sent; once the owner changes it, the message no
+            // longer describes anything in the panel.
+            fakeFetch(
+                lifecycleLedger(
+                    () => [PENDING_TX],
+                    (request) => {
+                        if (
+                            request.url === `${RECORD_URL}/${PENDING_TX.id}/void` &&
+                            request.method === 'POST'
+                        ) {
+                            return problemResponse({
+                                status: 422,
+                                code: 'RULE_VIOLATED',
+                                detail: 'A transaction cannot be voided before it occurred.',
+                            });
+                        }
+                        return unexpectedRequest(request);
+                    },
+                ),
+            );
+            renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+            const user = userEvent.setup({ delay: null });
+            await screen.findByRole('table', { name: 'Transactions' });
+            await user.click(
+                within(rowOf('Pending purchase')).getByRole('button', { name: 'Void' }),
+            );
+            await user.type(screen.getByLabelText('Reason'), 'Entered twice');
+            await user.click(screen.getByRole('button', { name: 'Void' }));
+            await screen.findByRole('alert');
 
-        await user.type(screen.getByLabelText('Reason'), ' by mistake');
+            await edit(user);
 
-        expect(screen.queryByRole('alert')).toBeNull();
-    });
+            expect(screen.queryByRole('alert')).toBeNull();
+        });
+    }
 
     it('Given_a_lifecycle_panel_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
         // Two submit events can arrive in one tick, before pending has rendered. The panel's own

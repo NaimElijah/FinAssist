@@ -14,6 +14,7 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
@@ -306,29 +307,67 @@ describe('BudgetsPage defining a budget', () => {
         });
     });
 
-    it('Given_a_refusal_shown_When_a_limit_is_edited_Then_the_refusal_clears', async () => {
-        // The refusal answered the limits that were sent; kept on screen, it would describe
-        // limits the owner has since changed.
-        fakeFetch((request) => {
-            if (request.url === BUDGETS_URL && request.method === 'POST') {
-                return problemResponse({
-                    status: 422,
-                    code: 'RULE_VIOLATED',
-                    detail: 'A limit must be positive.',
-                });
-            }
-            if (request.url === BUDGETS_URL) return jsonResponse([]);
-            return unexpectedRequest(request);
+    // Every field and row control of the form, since each calls clearSettledOutcome on its own
+    // (frontend/web CLAUDE.md: editing any field of a settled form clears its answer).
+    for (const { field, arrange, edit } of [
+        {
+            field: 'a_limit_is_edited',
+            edit: (user) => user.type(screen.getByLabelText('Limit amount 1'), '0'),
+        },
+        {
+            field: 'a_category_is_edited',
+            edit: (user) => user.type(screen.getByLabelText('Category 1'), ' and drinks'),
+        },
+        { field: 'the_month_is_edited', edit: () => changeValue('Month', '2026-10') },
+        {
+            field: 'the_currency_is_changed',
+            edit: (user) => user.selectOptions(screen.getByLabelText('Currency'), 'USD'),
+        },
+        {
+            field: 'a_limit_is_added',
+            edit: (user) => user.click(screen.getByRole('button', { name: 'Add category' })),
+        },
+        {
+            field: 'a_limit_is_removed',
+            arrange: async (user) => {
+                await user.click(screen.getByRole('button', { name: 'Add category' }));
+                await user.type(screen.getByLabelText('Category 2'), 'rent');
+                await user.type(screen.getByLabelText('Limit amount 2'), '4000.00');
+            },
+            edit: (user) => user.click(screen.getByRole('button', { name: 'Remove limit 2' })),
+        },
+    ] satisfies readonly FieldEdit[]) {
+        it(`Given_a_refusal_shown_When_${field}_Then_the_refusal_clears`, async () => {
+            // The refusal answered the budget that was sent; kept on screen, it would describe
+            // limits the owner has since changed.
+            fakeFetch((request) => {
+                if (request.url === BUDGETS_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 422,
+                        code: 'RULE_VIOLATED',
+                        detail: 'A limit must be positive.',
+                    });
+                }
+                if (request.url === BUDGETS_URL) return jsonResponse([]);
+                return unexpectedRequest(request);
+            });
+            renderBudgets();
+            const user = userEvent.setup({ delay: null });
+            fireEvent.change(await screen.findByLabelText('Month'), {
+                target: { value: '2026-09' },
+            });
+            await user.selectOptions(screen.getByLabelText('Currency'), 'ILS');
+            await user.type(screen.getByLabelText('Category 1'), 'groceries');
+            await user.type(screen.getByLabelText('Limit amount 1'), '1000.00');
+            await arrange?.(user);
+            await user.click(screen.getByRole('button', { name: 'Define budget' }));
+            await screen.findByRole('alert');
+
+            await edit(user);
+
+            expect(screen.queryByRole('alert')).toBeNull();
         });
-        renderBudgets();
-        const user = userEvent.setup({ delay: null });
-        await defineSeptemberGroceries(user);
-        await screen.findByRole('alert');
-
-        await user.type(screen.getByLabelText('Limit amount 1'), '0');
-
-        expect(screen.queryByRole('alert')).toBeNull();
-    });
+    }
 
     it('Given_a_400_naming_the_currency_field_When_defined_Then_its_message_is_the_Currency_fields_error', async () => {
         fakeFetch((request) => {

@@ -16,6 +16,7 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { accountKeys } from '../hooks/accountQueries';
@@ -398,31 +399,67 @@ describe('RecordTransactionPage submission', () => {
         expect(alert.textContent).toContain('The entries do not sum to zero.');
     });
 
-    it('Given_a_422_refusal_shown_When_an_amount_is_edited_Then_the_refusal_clears', async () => {
-        // The refusal described the entries that were sent; kept on screen, it would contradict
-        // the entries the owner has since corrected.
-        fakeFetch(
-            ledger((request) => {
-                if (request.url === RECORD_URL && request.method === 'POST') {
-                    return problemResponse({
-                        status: 422,
-                        code: 'RULE_VIOLATED',
-                        detail: 'The entries do not sum to zero.',
-                    });
-                }
-                return unexpectedRequest(request);
-            }),
-        );
-        renderForm();
-        const user = userEvent.setup({ delay: null });
-        await fillValidTransaction(user);
-        await user.click(screen.getByRole('button', { name: 'Record transaction' }));
-        await screen.findByRole('alert');
+    // Every field and row control of the form, since each calls clearSettledOutcome on its own
+    // (frontend/web CLAUDE.md: editing any field of a settled form clears its answer).
+    for (const { field, arrange, edit } of [
+        {
+            field: 'an_amount_is_edited',
+            edit: (user) => user.type(screen.getByLabelText('Debit 2'), '0'),
+        },
+        {
+            field: 'a_credit_is_edited',
+            edit: (user) => user.type(screen.getByLabelText('Credit 1'), '0'),
+        },
+        {
+            field: 'an_account_is_changed',
+            edit: (user) => user.selectOptions(screen.getByLabelText('Account 2'), CHECKING.id),
+        },
+        { field: 'the_date_is_edited', edit: () => changeValue('Date', '2026-09-14') },
+        {
+            field: 'the_description_is_edited',
+            edit: (user) => user.type(screen.getByLabelText('Description'), ' for October'),
+        },
+        {
+            field: 'an_entry_is_added',
+            edit: (user) => user.click(screen.getByRole('button', { name: 'Add entry' })),
+        },
+        {
+            field: 'an_entry_is_removed',
+            arrange: async (user) => {
+                await user.click(screen.getByRole('button', { name: 'Add entry' }));
+                await user.selectOptions(screen.getByLabelText('Account 3'), RENT.id);
+                await user.type(screen.getByLabelText('Debit 3'), '1.00');
+            },
+            edit: (user) => user.click(screen.getByRole('button', { name: 'Remove entry 3' })),
+        },
+    ] satisfies readonly FieldEdit[]) {
+        it(`Given_a_422_refusal_shown_When_${field}_Then_the_refusal_clears`, async () => {
+            // The refusal described the entries that were sent; kept on screen, it would
+            // contradict the entries the owner has since corrected.
+            fakeFetch(
+                ledger((request) => {
+                    if (request.url === RECORD_URL && request.method === 'POST') {
+                        return problemResponse({
+                            status: 422,
+                            code: 'RULE_VIOLATED',
+                            detail: 'The entries do not sum to zero.',
+                        });
+                    }
+                    return unexpectedRequest(request);
+                }),
+            );
+            renderForm();
+            const user = userEvent.setup({ delay: null });
+            await fillValidTransaction(user);
+            await arrange?.(user);
+            await user.click(screen.getByRole('button', { name: 'Record transaction' }));
+            await screen.findByRole('alert');
 
-        await user.type(screen.getByLabelText('Debit 2'), '0');
+            await edit(user);
 
-        expect(screen.queryByRole('alert')).toBeNull();
-    });
+            expect(screen.queryByRole('alert')).toBeNull();
+        });
+    }
 
     it('Given_a_request_in_flight_When_submitted_Then_the_submit_button_is_disabled', async () => {
         fakeFetch(
