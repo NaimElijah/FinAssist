@@ -54,6 +54,19 @@ SETTINGS_ENVIRONMENT_NAMES: Final = frozenset({"ANTHROPIC_API_KEY"})
 """The one setting whose name carries neither prefix."""
 
 
+def names_a_setting(name: str) -> bool:
+    """Whether the environment variable *name* is one ``Settings`` or the OpenTelemetry SDK reads.
+
+    Compared upper-cased, because pydantic-settings matches a name case-insensitively unless a
+    model says otherwise, and ``Settings`` does not: on Linux an exported
+    ``assistant_dev_seed=true`` is read as ``ASSISTANT_DEV_SEED``, so it must be cleared as one.
+    Windows upper-cases every ``os.environ`` key itself, which is why the case-sensitive version
+    passed there.
+    """
+    upper = name.upper()
+    return upper.startswith(SETTINGS_ENVIRONMENT_PREFIXES) or upper in SETTINGS_ENVIRONMENT_NAMES
+
+
 @pytest.fixture(autouse=True)
 def _clear_settings_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Removes every setting the shell running the suite happens to export.
@@ -66,7 +79,7 @@ def _clear_settings_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     ``monkeypatch`` itself, after this has run.
     """
     for name in list(os.environ):
-        if name.startswith(SETTINGS_ENVIRONMENT_PREFIXES) or name in SETTINGS_ENVIRONMENT_NAMES:
+        if names_a_setting(name):
             monkeypatch.delenv(name, raising=False)
 
 
