@@ -62,8 +62,13 @@ function renderUserMenu(session: Session, answer: FetchAnswer) {
     return { ...rendered, queryClient, requests };
 }
 
+/** The CSRF cookie the gateway sets, which one test plants in jsdom's cookie jar. */
+const XSRF_COOKIE = 'FINASSIST-XSRF-TOKEN';
+
 describe('UserMenu', () => {
     afterEach(() => {
+        // An expired cookie is removed from the jar, so no later test sends a token it never set.
+        document.cookie = `${XSRF_COOKIE}=; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
         Object.defineProperty(window, 'location', {
             value: REAL_LOCATION,
             writable: true,
@@ -93,7 +98,7 @@ describe('UserMenu', () => {
     });
 
     it('Given_sign_out_is_clicked_When_it_succeeds_Then_the_csrf_header_is_sent_the_cache_is_cleared_and_the_browser_navigates_to_keycloaks_logout_url', async () => {
-        document.cookie = 'FINASSIST-XSRF-TOKEN=csrf-token-value';
+        document.cookie = `${XSRF_COOKIE}=csrf-token-value`;
         const assign = spyOnAssign();
         const requests = fakeFetch((request) =>
             request.url === LOGOUT_URL

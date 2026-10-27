@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { useWriteAccess } from '@/shared/lib/writeAccess';
 import {
@@ -49,6 +49,12 @@ function renderGate(answer: FetchAnswer, child: ReactElement = <ProtectedChild /
 }
 
 describe('SessionGate', () => {
+    afterEach(() => {
+        // A test that lands on a URL of its own, such as a failed sign-in redirect, must not
+        // leave it for the next: SignIn reads the query string on every render.
+        window.history.pushState({}, '', '/');
+    });
+
     it('Given_the_session_is_still_loading_When_rendered_Then_a_loading_message_shows', () => {
         renderGate(() => pendingResponse());
 
@@ -116,9 +122,7 @@ describe('SessionGate', () => {
                 : unexpectedRequest(request),
         );
 
-        expect(await screen.findByRole('alert')).toBeDefined();
-
-        window.history.pushState({}, '', '/');
+        expect((await screen.findByRole('alert')).textContent).toBe('Sign-in failed. Try again.');
     });
 
     it('Given_the_session_check_fails_with_a_5xx_When_rendered_Then_a_retryable_error_shows_instead_of_the_sign_in_link', async () => {
