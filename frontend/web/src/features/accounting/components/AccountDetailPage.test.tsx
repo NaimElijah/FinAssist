@@ -2,9 +2,10 @@
 // Renders an account's page through the feature's own routes, so it needs a DOM. fetch is faked,
 // so the feature's real api/ module and its mapping run under test.
 
+import type { QueryClient } from '@tanstack/react-query';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import { todayIsoDate } from '@/shared/lib/today';
@@ -417,6 +418,26 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
      * A ledger holding Checking, a fixed balance, and whichever transactions `getTransactions`
      * returns at the time of each read; `extra` answers everything else, such as a lifecycle POST.
      */
+    /**
+     * Asserts a lifecycle action invalidated exactly the balance and transactions of the two
+     * accounts its transaction names - Checking and Groceries - once each, and nothing wider:
+     * a mutation invalidates only the keys that can have changed (frontend/web/CLAUDE.md).
+     */
+    function expectOnlyItsAccountsInvalidated(
+        invalidateSpy: MockInstance<QueryClient['invalidateQueries']>,
+    ): void {
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toHaveLength(4);
+        expect(invalidatedKeys).toEqual(
+            expect.arrayContaining([
+                accountKeys.balance(CHECKING.id),
+                accountKeys.transactions(CHECKING.id),
+                accountKeys.balance(GROCERIES_ID),
+                accountKeys.transactions(GROCERIES_ID),
+            ]),
+        );
+    }
+
     function lifecycleLedger(
         getTransactions: () => readonly unknown[],
         extra: FetchAnswer,
@@ -519,13 +540,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
             { method: 'POST', url: `${RECORD_URL}/${PENDING_TX.id}/clear`, body: { on: today } },
         ]);
         // The balance is invalidated too, not only the transactions list the badge already proves.
-        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
-        expect(invalidatedKeys).toEqual(
-            expect.arrayContaining([
-                accountKeys.balance(CHECKING.id),
-                accountKeys.transactions(CHECKING.id),
-            ]),
-        );
+        expectOnlyItsAccountsInvalidated(invalidateSpy);
     });
 
     it('Given_a_cleared_transaction_When_reconciled_Then_it_posts_on_and_the_row_shows_the_Reconciled_badge', async () => {
@@ -561,13 +576,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         await user.click(screen.getByRole('button', { name: 'Reconcile' }));
 
         expect(await within(rowOf('Cleared purchase')).findByText('Reconciled')).toBeDefined();
-        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
-        expect(invalidatedKeys).toEqual(
-            expect.arrayContaining([
-                accountKeys.balance(CHECKING.id),
-                accountKeys.transactions(CHECKING.id),
-            ]),
-        );
+        expectOnlyItsAccountsInvalidated(invalidateSpy);
     });
 
     it('Given_a_pending_transaction_When_voided_without_a_reason_Then_the_required_field_refuses_submission_and_nothing_is_sent', async () => {
@@ -632,13 +641,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
                 body: { on: today, reason: 'Entered twice' },
             },
         ]);
-        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
-        expect(invalidatedKeys).toEqual(
-            expect.arrayContaining([
-                accountKeys.balance(CHECKING.id),
-                accountKeys.transactions(CHECKING.id),
-            ]),
-        );
+        expectOnlyItsAccountsInvalidated(invalidateSpy);
     });
 
     it('Given_a_409_response_When_an_action_is_submitted_Then_the_server_detail_is_shown_in_the_panel_and_it_stays_open', async () => {
