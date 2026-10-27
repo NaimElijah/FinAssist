@@ -140,7 +140,11 @@ CLOCK_READS = frozenset(
 # The modules whose members CLOCK_READS names. Importing a reader out of one of them binds it
 # to a name of the importer's choosing - `from time import time as clock` - which no name-based
 # match on the call could follow, so the import itself is the violation.
-CLOCK_MODULES = frozenset({"time", "datetime"})
+#
+# `datetime` is deliberately absent. Its readers are methods - `datetime.now`, `date.today` -
+# reached through a class the attribute match already sees, and the one member it exports whose
+# name CLOCK_READS holds is `time`, the time-of-day class: a type, not a reader.
+CLOCK_MODULES = frozenset({"time"})
 
 ADAPTER_SEGMENT = "adapters"
 
@@ -227,9 +231,9 @@ def _clock_reads_in(source: str, filename: str = "<test>") -> list[str]:
     A parameter *named* ``now`` is still not a violation - ``is_stale`` and ``age`` both take
     one - so a bare name is flagged only where it is being called.
 
-    Two indirections are matched as well: importing a reader (or everything) out of ``time`` or
-    ``datetime``, which lets it be called under any alias, and ``getattr`` naming a reader as a
-    string, which no attribute node shows.
+    Two indirections are matched as well: importing a reader (or everything) out of ``time``,
+    which lets it be called under any alias, and ``getattr`` naming a reader as a string, which
+    no attribute node shows.
     """
     tree = ast.parse(source, filename=filename)
     found: list[str] = []
@@ -697,7 +701,7 @@ def Given_source_reading_a_process_or_calendar_clock_When_scanned_Then_it_is_fou
         "from time import time as clock\nx = clock()",
         "from time import perf_counter as tick\nx = tick()",
         "from time import localtime",
-        "from datetime import datetime as dt, now",
+        "from time import monotonic as tick",
         "from time import *\nx = monotonic()",
     ],
 )
@@ -720,6 +724,8 @@ def Given_a_non_clock_import_from_datetime_When_scanned_Then_it_is_not_a_violati
     # Every domain module imports `date` or `datetime` as a type; the import rule must not flag
     # that, or it would be uninstallable.
     assert _clock_reads_in("from datetime import UTC, date, datetime, timedelta") == []
+    # `datetime.time` is the time-of-day class, whose name only happens to be a reader's.
+    assert _clock_reads_in("from datetime import time") == []
 
 
 def Given_an_uncalled_clock_reference_When_scanned_Then_it_is_still_a_violation() -> None:
