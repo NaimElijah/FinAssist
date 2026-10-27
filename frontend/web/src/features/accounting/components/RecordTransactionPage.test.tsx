@@ -32,19 +32,27 @@ const CHECKING = {
     type: 'ASSET',
     currency: 'ILS',
 } as const;
-// A different currency from Checking's, on purpose: it proves each entry's currency comes from
-// its own posted-to account, not from the first row or a hardcoded default.
+// Checking's currency, so a transaction between the two balances and the fake ledger may accept
+// it: the real one refuses entries that do not balance in a single currency.
 const RENT = {
     id: '1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b',
     name: 'Rent',
     type: 'EXPENSE',
+    currency: 'ILS',
+} as const;
+// A different currency from Checking's, on purpose: it proves each entry's currency comes from
+// its own posted-to account, not from the first row or a hardcoded default.
+const US_SAVINGS = {
+    id: '6a7b8c9d-0e1f-4a2b-8c3d-4e5f6a7b8c9d',
+    name: 'US savings',
+    type: 'ASSET',
     currency: 'USD',
 } as const;
 
-/** A ledger holding Checking and Rent, so both accounts can be picked in an entry row. */
+/** A ledger holding Checking, Rent and US savings, so each can be picked in an entry row. */
 function ledger(overrides?: FetchAnswer): FetchAnswer {
     return (request) => {
-        if (request.url === ACCOUNTS_URL) return jsonResponse([CHECKING, RENT]);
+        if (request.url === ACCOUNTS_URL) return jsonResponse([CHECKING, RENT, US_SAVINGS]);
         if (overrides !== undefined) return overrides(request);
         return unexpectedRequest(request);
     };
@@ -86,7 +94,7 @@ const RECORDED_TRANSACTION = {
     description: 'Rent',
     entries: [
         { account: CHECKING.id, amount: { amount: '-250.00', currency: 'ILS' } },
-        { account: RENT.id, amount: { amount: '250.00', currency: 'USD' } },
+        { account: RENT.id, amount: { amount: '250.00', currency: 'ILS' } },
     ],
     state: { status: 'PENDING' },
 };
@@ -255,10 +263,17 @@ describe('RecordTransactionPage entry rows', () => {
 
 describe('RecordTransactionPage submission', () => {
     it('Given_a_filled_form_When_submitted_Then_it_posts_the_mapped_entries_with_each_accounts_own_currency', async () => {
+        // An ILS and a USD entry, so each entry's currency must come from its own account. The
+        // ledger refuses such a set - it does not balance in one currency - so the fake does too,
+        // rather than accept a transaction the real service never would.
         const requests = fakeFetch(
-            ledgerWithChecking((request) => {
+            ledger((request) => {
                 if (request.url === RECORD_URL && request.method === 'POST') {
-                    return jsonResponse({ ...RECORDED_TRANSACTION, occurredOn: TODAY }, 201);
+                    return problemResponse({
+                        status: 422,
+                        code: 'RULE_VIOLATED',
+                        detail: 'The entries do not balance.',
+                    });
                 }
                 return unexpectedRequest(request);
             }),
@@ -266,10 +281,13 @@ describe('RecordTransactionPage submission', () => {
         renderForm();
         const user = userEvent.setup({ delay: null });
 
-        await fillValidTransaction(user);
+        await user.type(await screen.findByLabelText('Description'), 'Rent');
+        await user.selectOptions(screen.getByLabelText('Account 1'), CHECKING.id);
+        await user.selectOptions(screen.getByLabelText('Account 2'), US_SAVINGS.id);
+        await user.type(screen.getByLabelText('Credit 1'), '250.00');
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));
 
-        await screen.findByRole('heading', { level: 1, name: 'Checking' });
+        await screen.findByRole('alert');
         const posts = requests
             .filter((request) => request.method === 'POST')
             // Projected before comparing: RecordedRequest also carries headers, which this
@@ -285,10 +303,10 @@ describe('RecordTransactionPage submission', () => {
                     occurredOn: TODAY,
                     description: 'Rent',
                     entries: [
-                        // Checking is ILS, Rent is USD: each entry carries its own account's
-                        // currency, not the first row's or a hardcoded default.
+                        // Checking is ILS, US savings is USD: each entry carries its own
+                        // account's currency, not the first row's or a hardcoded default.
                         { account: CHECKING.id, amount: { amount: '-250.00', currency: 'ILS' } },
-                        { account: RENT.id, amount: { amount: '250.00', currency: 'USD' } },
+                        { account: US_SAVINGS.id, amount: { amount: '250.00', currency: 'USD' } },
                     ],
                 },
             },
@@ -333,7 +351,7 @@ describe('RecordTransactionPage submission', () => {
             ...RECORDED_TRANSACTION,
             entries: [
                 { account: CHECKING.id, amount: { amount: '-100.00', currency: 'ILS' } },
-                { account: RENT.id, amount: { amount: '150.00', currency: 'USD' } },
+                { account: RENT.id, amount: { amount: '150.00', currency: 'ILS' } },
                 { account: CHECKING.id, amount: { amount: '-50.00', currency: 'ILS' } },
             ],
         };

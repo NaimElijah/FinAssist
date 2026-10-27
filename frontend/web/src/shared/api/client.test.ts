@@ -279,7 +279,7 @@ describe('failure logging', () => {
         },
     );
 
-    it('Given_a_transport_failure_When_requested_Then_it_is_logged_and_rethrown', async () => {
+    it('Given_a_transport_failure_When_requested_Then_the_same_error_is_rethrown_and_logged_as_a_failed_request', async () => {
         // The one failure mode that reaches none of the status checks, so without its own
         // branch it would be the only one producing no record at all.
         const boom = new TypeError('network down');
@@ -293,7 +293,7 @@ describe('failure logging', () => {
         expect(events()).toEqual(['http request failed']);
     });
 
-    it('Given_a_204_When_requested_Then_the_missing_body_is_logged', async () => {
+    it('Given_a_204_When_requested_Then_it_is_logged_as_a_response_that_carried_no_body', async () => {
         stubFetch(() => new Response(null, { status: 204 }));
 
         await expect(requestJson(URL)).rejects.toBeInstanceOf(ApiBodyError);
