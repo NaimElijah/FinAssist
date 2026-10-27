@@ -308,16 +308,30 @@ def _names_application_layer(module: str) -> bool:
     )
 
 
+def _module_name(path: Path) -> str:
+    """The dotted name a file is imported by: its package, plus its stem unless it is one."""
+    package = _module_package(path)
+    return package if path.name == "__init__.py" else f"{package}.{path.stem}"
+
+
 # Each rule runs over the files it holds, filtered here once, rather than over every file with
 # the rest skipped. A skip is not a check, and a filter rendered as hundreds of skips hid the one
 # failure that matters: a layer renamed out of its filter's reach, so that every case of its rule
 # skipped and the suite stayed green. An empty list now fails its guard below instead.
+#
+# The inbound-adapter rule also refuses an import by the name it carries: one under
+# ``adapters/outbound``. Renaming that directory would leave the name match recognising nothing
+# and the rule green with nothing left to refuse, so the files that same match recognises are a
+# scope of their own, and the guard fails on the rename instead.
 INWARD_FILES = [path for path in SOURCE_FILES if _is_inward(path)]
 CONTEXT_FILES = [path for path in SOURCE_FILES if _context_of(path) is not None]
 COMPOSITION_ROOT_HELD_FILES = [
     path for path in SOURCE_FILES if _context_of(path) is not None or _is_domain(path)
 ]
 INBOUND_ADAPTER_FILES = [path for path in SOURCE_FILES if _is_inbound_adapter(path)]
+OUTBOUND_ADAPTER_FILES = [
+    path for path in SOURCE_FILES if _names_outbound_adapter(_module_name(path))
+]
 DOMAIN_FILES = [path for path in SOURCE_FILES if _is_domain(path)]
 SHARED_FILES = [path for path in SOURCE_FILES if path.relative_to(SRC).parts[0] == SHARED_PACKAGE]
 
@@ -326,6 +340,7 @@ RULE_SCOPES = {
     "context": CONTEXT_FILES,
     "composition-root-held": COMPOSITION_ROOT_HELD_FILES,
     "inbound-adapter": INBOUND_ADAPTER_FILES,
+    "outbound-adapter": OUTBOUND_ADAPTER_FILES,
     "domain": DOMAIN_FILES,
     "shared": SHARED_FILES,
 }
@@ -340,26 +355,15 @@ def Given_the_source_tree_When_collected_Then_it_is_not_empty() -> None:
     assert SOURCE_FILES, f"no Python sources found under {SRC}"
 
 
-def Given_the_source_tree_When_collected_Then_some_of_it_is_domain() -> None:
-    """The same guard for the domain-scoped rules, which hold only :data:`DOMAIN_FILES`.
-
-    Without it, renaming ``portfolio/domain/`` to ``portfolio/core/`` would leave those rules
-    nothing to check and the suite green - the behaviour the ledger deliberately removed when
-    it deleted ``archRule.failOnEmptyShould=false``.
-    """
-    assert DOMAIN_FILES, (
-        f"no domain or shared module found under {SRC}; the domain-scoped rules would pass "
-        "without checking anything"
-    )
-
-
 @pytest.mark.parametrize("scope", RULE_SCOPES)
 def Given_the_files_a_rule_holds_When_filtered_Then_there_is_at_least_one(scope: str) -> None:
     """Guards each rule below from passing because its filter matched nothing.
 
-    A rule parametrised over an empty list collects no case at all, so renaming
-    ``adapters/inbound`` or ``domain`` would otherwise leave that rule checking nothing while the
-    suite stayed green.
+    A rule parametrised over an empty list collects a single case that pytest skips ("got
+    empty parameter set"), and a skip never fails the run - so renaming ``adapters/inbound`` or
+    ``domain`` would otherwise leave that rule checking nothing while the suite stayed green, the
+    behaviour the ledger deliberately removed when it deleted
+    ``archRule.failOnEmptyShould=false``.
     """
     assert RULE_SCOPES[scope], (
         f"no {scope} module found under {SRC}; the rules held to that scope would check nothing"
@@ -577,7 +581,7 @@ def Given_an_inward_module_When_parsed_Then_it_reads_no_clock(path: Path) -> Non
 
 # ---------------------------------------------------------------------------------------------
 # The rules above are only as good as the helpers underneath them. Nothing tested those, so a
-# refactor of the import scanner could have neutered all five while every case stayed green -
+# refactor of the import scanner could have neutered every one while every case stayed green -
 # the same class of failure as the sys.modules version this file's docstring describes, which
 # also passed green on code it could not see. These assert the scanner itself.
 # ---------------------------------------------------------------------------------------------
