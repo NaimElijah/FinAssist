@@ -66,7 +66,8 @@ import tools.jackson.databind.json.JsonMapper;
  *       refused {@code invalid_grant}, as Keycloak refuses it, so the sign-in itself fails rather
  *       than a flag alone recording the mismatch.
  *   <li>{@link #lastAccessToken()}, {@link #lastRefreshToken()} and {@link #lastIdToken()} — the
- *       exact values last issued, for the log sweep to search for.
+ *       exact values last issued — and {@link #lastCodeVerifier()}, the PKCE verifier the gateway
+ *       last presented, for the log sweep to search for.
  *   <li>{@link #stall(Endpoint)} and {@link #releaseStalledRequests()} — the endpoint accepts the
  *       connection and then never answers, which is what an unbounded HTTP client hangs on
  *       forever (see {@code GatewayKeycloakTimeoutIT}). {@link #stalledArrivals(Endpoint)} says
@@ -110,6 +111,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     private final AtomicReference<String> lastAccessToken = new AtomicReference<>();
     private final AtomicReference<String> lastRefreshToken = new AtomicReference<>();
     private final AtomicReference<String> lastIdToken = new AtomicReference<>();
+    private final AtomicReference<String> lastCodeVerifier = new AtomicReference<>();
     private volatile boolean lastAuthorizationRequestHadPkce;
     private volatile boolean lastTokenRequestPassedPkce;
 
@@ -252,6 +254,11 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         return lastIdToken.get();
     }
 
+    /** The {@code code_verifier} the last authorization-code exchange carried, whether or not it matched. */
+    public String lastCodeVerifier() {
+        return lastCodeVerifier.get();
+    }
+
     @Override
     public void close() {
         releaseStalledRequests();
@@ -299,6 +306,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
             respondJson(exchange, 400, "{\"error\":\"invalid_grant\",\"error_description\":\"Code not valid\"}");
             return;
         }
+        lastCodeVerifier.set(form.get("code_verifier"));
         boolean passed = s256Matches(form.get("code_verifier"), pending.codeChallenge());
         lastTokenRequestPassedPkce = passed;
         if (!passed) {

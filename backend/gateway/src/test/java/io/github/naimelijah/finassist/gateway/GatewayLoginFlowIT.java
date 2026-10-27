@@ -59,7 +59,7 @@ import org.springframework.test.context.DynamicPropertySource;
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "finassist.oidc.client-secret=a-test-client-secret")
+        properties = "finassist.oidc.client-secret=" + GatewayLoginFlowIT.CLIENT_SECRET)
 @ExtendWith(OutputCaptureExtension.class)
 class GatewayLoginFlowIT {
 
@@ -92,6 +92,18 @@ class GatewayLoginFlowIT {
 
     /** A W3C trace id the client picks, so the value asserted downstream can only have come from it. */
     private static final String CLIENT_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
+
+    /**
+     * The gateway's client secret in this context. Spelled once, because the log sweep searches
+     * for it as well as configuring it. Not private, because the class's own annotation names it.
+     */
+    static final String CLIENT_SECRET = "a-test-client-secret";
+
+    /**
+     * The fixed WARN line {@code GatewayRelayProblems} writes for a refused refresh. The sweep below
+     * requires it, so a capture that holds no gateway line at all cannot pass for a clean one.
+     */
+    private static final String REFUSED_REFRESH_LINE = "A relay's authorization could not be renewed";
 
     /** A disposal request body, shaped like the assistant's, so the relayed POST really carries one. */
     private static final String DISPOSAL_BODY =
@@ -831,6 +843,12 @@ class GatewayLoginFlowIT {
      * unit level: nothing this flow logs carries a value that would let a reader impersonate the
      * session or redeem anything on the owner's behalf. A refused refresh is the highest-risk
      * moment in the whole relay, so it is the one this sweep deliberately drives through.
+     *
+     * <p>Every secret value the flow handles is searched for: the three tokens, the authorization
+     * {@code code} and {@code state} the browser carried to the callback, the PKCE verifier, the
+     * client secret, the CSRF token, and the session id both before and after the sign-in. The
+     * refused refresh's own WARN line must be there too: without it, a capture that saw none of
+     * the gateway's output would pass this test as easily as a clean log.
      */
     @Test
     void Given_a_login_and_a_refused_refresh_When_the_logs_are_swept_Then_no_token_code_or_session_value_appears(
@@ -839,21 +857,39 @@ class GatewayLoginFlowIT {
             idp.setAccessTokenExpiresInSeconds(-120);
             idp.refuseNextRefresh();
 
-            HttpResponse<Void> callback = completeCallback(client);
-            assertThat(callback.statusCode()).isEqualTo(302);
+            URI authorizeUri = startLogin(client);
+            String preSignInSession = sessionCookieValue(client);
+            URI authorizationResponse = authorizationResponse(client, authorizeUri);
+            String code = queryParam(authorizationResponse, "code");
+            String state = queryParam(authorizationResponse, "state");
+            HttpResponse<Void> callback =
+                    sendCallback(client, authorizationResponse.getPath(), authorizationResponse.getQuery());
+            assertThat(callback.headers().firstValue("Location")).hasValue(WEB_ORIGIN + "/");
             String accessToken = idp.lastAccessToken();
             String refreshToken = idp.lastRefreshToken();
             String idToken = idp.lastIdToken();
+            String codeVerifier = idp.lastCodeVerifier();
             String sessionCookie = sessionCookieValue(client);
+            String csrfToken = csrfTokenValue(client);
 
             HttpResponse<String> response = relay(client, "/ledger/api/v1/accounts");
             assertThat(response.statusCode()).isEqualTo(401);
 
             String logs = output.getAll();
+            assertThat(logs).as("the capture holds the gateway's own output").contains(REFUSED_REFRESH_LINE);
+            assertThat(List.of(code, state, codeVerifier, csrfToken, preSignInSession))
+                    .as("values the sweep searches for")
+                    .allSatisfy(value -> assertThat(value).isNotBlank());
             assertThat(logs)
                     .doesNotContain(accessToken)
                     .doesNotContain(refreshToken)
                     .doesNotContain(idToken)
+                    .doesNotContain(code)
+                    .doesNotContain(state)
+                    .doesNotContain(codeVerifier)
+                    .doesNotContain(CLIENT_SECRET)
+                    .doesNotContain(csrfToken)
+                    .doesNotContain(preSignInSession)
                     .doesNotContain(sessionCookie);
         }
     }
@@ -865,7 +901,7 @@ class GatewayLoginFlowIT {
     @Nested
     @SpringBootTest(
             webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-            properties = "finassist.oidc.client-secret=a-test-client-secret")
+            properties = "finassist.oidc.client-secret=" + CLIENT_SECRET)
     class LedgerDown {
 
         /** The address {@code server.address} defaults to in {@code application.yml}. */

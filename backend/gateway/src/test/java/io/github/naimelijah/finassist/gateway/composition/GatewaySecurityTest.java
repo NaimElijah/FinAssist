@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -76,6 +77,13 @@ class GatewaySecurityTest {
     private static final String UNKNOWN_PROVIDER_SEGMENT = "not-a-registered-provider";
 
     private static final String UNKNOWN_LOGIN_ENTRY = "/bff/oauth2/authorization/" + UNKNOWN_PROVIDER_SEGMENT;
+
+    /**
+     * Logged at WARN by this test, in the gateway's own package, after the request: the capture
+     * must hold it, or an empty capture would satisfy every {@code doesNotContain} below.
+     */
+    private static final String CAPTURE_CONTROL_LINE = "gateway-security-test-capture-control";
+
     private static final String LEDGER_ACCOUNTS = "/ledger/api/v1/accounts";
 
     private static final String XSRF_COOKIE = "FINASSIST-XSRF-TOKEN";
@@ -329,7 +337,11 @@ class GatewaySecurityTest {
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
                 .andExpect(header().doesNotExist(HttpHeaders.LOCATION));
+        LoggerFactory.getLogger(GatewaySecurityTest.class).warn(CAPTURE_CONTROL_LINE);
 
+        assertThat(output.getAll())
+                .as("the capture holds a WARN line logged in this package")
+                .contains(CAPTURE_CONTROL_LINE);
         assertThat(output.getAll())
                 .doesNotContain(UNKNOWN_PROVIDER_SEGMENT)
                 .doesNotContain("InvalidClientRegistrationIdException")
