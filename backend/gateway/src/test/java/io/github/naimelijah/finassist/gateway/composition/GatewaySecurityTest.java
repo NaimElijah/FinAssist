@@ -64,8 +64,21 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * <p>Wire values are spelled out rather than borrowed from the production constants: they are the
  * contract the web client and Keycloak are configured against, and a test that borrowed them would
  * pass through a change to any of them.
+ *
+ * <p>Every property an assertion here reads a literal for is pinned below, because {@code
+ * application.yml} resolves each from a {@code GATEWAY_*} variable of the process environment, and a
+ * developer's shell exporting one would otherwise turn this red, or green, for a reason that is not
+ * the code's.
  */
-@SpringBootTest(properties = "finassist.oidc.client-secret=a-test-client-secret")
+@SpringBootTest(
+        properties = {
+            "finassist.oidc.client-secret=a-test-client-secret",
+            "finassist.web.public-url=http://localhost:5173",
+            "finassist.oidc.public-url=http://localhost:8081",
+            "finassist.oidc.internal-url=http://localhost:8081",
+            "finassist.http.allowed-hosts=localhost,127.0.0.1",
+            "finassist.http.cookie-secure=false"
+        })
 @AutoConfigureMockMvc
 @ExtendWith(OutputCaptureExtension.class)
 class GatewaySecurityTest {

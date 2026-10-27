@@ -59,7 +59,14 @@ import org.springframework.test.context.DynamicPropertySource;
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "finassist.oidc.client-secret=" + GatewayLoginFlowIT.CLIENT_SECRET)
+        properties = {
+            "finassist.oidc.client-secret=" + GatewayLoginFlowIT.CLIENT_SECRET,
+            // WEB_ORIGIN, the plain-HTTP cookie jar and the localhost Host header depend on these,
+            // which application.yml would otherwise take from the process environment.
+            "finassist.web.public-url=http://localhost:5173",
+            "finassist.http.allowed-hosts=localhost,127.0.0.1",
+            "finassist.http.cookie-secure=false"
+        })
 @ExtendWith(OutputCaptureExtension.class)
 class GatewayLoginFlowIT {
 
@@ -932,7 +939,12 @@ class GatewayLoginFlowIT {
     @Nested
     @SpringBootTest(
             webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-            properties = "finassist.oidc.client-secret=" + CLIENT_SECRET)
+            properties = {
+                "finassist.oidc.client-secret=" + CLIENT_SECRET,
+                "finassist.web.public-url=http://localhost:5173",
+                "finassist.http.allowed-hosts=localhost,127.0.0.1",
+                "finassist.http.cookie-secure=false"
+            })
     class UpstreamsDown {
 
         /** The address {@code server.address} defaults to in {@code application.yml}. */

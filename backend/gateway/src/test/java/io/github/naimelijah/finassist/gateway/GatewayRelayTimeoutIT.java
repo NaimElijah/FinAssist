@@ -38,6 +38,11 @@ import org.springframework.test.context.DynamicPropertySource;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
             "finassist.oidc.client-secret=a-test-client-secret",
+            // WEB_ORIGIN, the plain-HTTP cookie jar and the localhost Host header depend on these,
+            // which application.yml would otherwise take from the process environment.
+            "finassist.web.public-url=http://localhost:5173",
+            "finassist.http.allowed-hosts=localhost,127.0.0.1",
+            "finassist.http.cookie-secure=false",
             "spring.http.clients.connect-timeout=" + GatewayRelayTimeoutIT.BUDGET,
             "spring.http.clients.read-timeout=" + GatewayRelayTimeoutIT.BUDGET
         })

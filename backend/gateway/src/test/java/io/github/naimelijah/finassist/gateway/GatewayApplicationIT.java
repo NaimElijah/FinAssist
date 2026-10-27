@@ -46,10 +46,19 @@ import org.springframework.boot.web.server.servlet.context.ServletWebServerAppli
  * <p>Uses the JDK's {@link HttpClient} rather than {@code TestRestTemplate}, which Spring Boot 4
  * moved out of {@code spring-boot-starter-test} into a separate artefact the ledger also declined
  * to add for the same reason.
+ *
+ * <p>Every property an assertion here reads a literal for is pinned below, because {@code
+ * application.yml} resolves each from a {@code GATEWAY_*} variable of the process environment, and a
+ * developer's shell exporting one would otherwise turn this red, or green, for a reason that is not
+ * the code's.
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "finassist.oidc.client-secret=a-test-client-secret")
+        properties = {
+            "finassist.oidc.client-secret=a-test-client-secret",
+            "finassist.http.allowed-hosts=localhost,127.0.0.1",
+            "finassist.http.cookie-secure=false"
+        })
 class GatewayApplicationIT {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
@@ -307,7 +316,11 @@ class GatewayApplicationIT {
     @Nested
     @SpringBootTest(
             webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-            properties = {"finassist.oidc.client-secret=a-test-client-secret", "finassist.http.cookie-secure=true"})
+            properties = {
+                "finassist.oidc.client-secret=a-test-client-secret",
+                "finassist.http.allowed-hosts=localhost,127.0.0.1",
+                "finassist.http.cookie-secure=true"
+            })
     class BehindTls {
 
         @LocalServerPort
