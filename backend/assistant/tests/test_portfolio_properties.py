@@ -154,10 +154,13 @@ def Given_lots_in_any_order_When_consumed_Then_the_disposal_is_the_oldest_first_
 def Given_a_disposal_larger_than_the_holding_When_consumed_Then_it_is_refused(
     holding: tuple[Lot, ...], data: st.DataObject
 ) -> None:
-    excess = data.draw(st.integers(min_value=1, max_value=1000))
+    # Drawn in quanta, not whole units, so selling a single quantum more than a fractional
+    # holding is tried - the excess a whole-unit draw never reached.
+    excess = Decimal(data.draw(st.integers(min_value=1, max_value=1000 * 10**QUANTITY_PLACES)))
+    excess *= _QUANTUM
 
     with pytest.raises(InsufficientHoldingError):
-        consume_fifo(holding, held(holding) + Decimal(excess))
+        consume_fifo(holding, held(holding) + excess)
 
 
 @given(lots())
