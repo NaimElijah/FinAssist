@@ -319,10 +319,11 @@ def _module_name(path: Path) -> str:
 # failure that matters: a layer renamed out of its filter's reach, so that every case of its rule
 # skipped and the suite stayed green. An empty list now fails its guard below instead.
 #
-# The inbound-adapter rule also refuses an import by the name it carries: one under
-# ``adapters/outbound``. Renaming that directory would leave the name match recognising nothing
-# and the rule green with nothing left to refuse, so the files that same match recognises are a
-# scope of their own, and the guard fails on the rename instead.
+# Two rules also refuse an import by the name it carries: the inbound-adapter rule one under
+# ``adapters/outbound``, the domain rule one under ``application``. Renaming either directory
+# would leave its name match recognising nothing and its rule green with nothing left to refuse,
+# so the files each match recognises are a scope of their own, and the guard fails on the rename
+# instead.
 INWARD_FILES = [path for path in SOURCE_FILES if _is_inward(path)]
 CONTEXT_FILES = [path for path in SOURCE_FILES if _context_of(path) is not None]
 COMPOSITION_ROOT_HELD_FILES = [
@@ -332,6 +333,7 @@ INBOUND_ADAPTER_FILES = [path for path in SOURCE_FILES if _is_inbound_adapter(pa
 OUTBOUND_ADAPTER_FILES = [
     path for path in SOURCE_FILES if _names_outbound_adapter(_module_name(path))
 ]
+APPLICATION_FILES = [path for path in SOURCE_FILES if _names_application_layer(_module_name(path))]
 DOMAIN_FILES = [path for path in SOURCE_FILES if _is_domain(path)]
 SHARED_FILES = [path for path in SOURCE_FILES if path.relative_to(SRC).parts[0] == SHARED_PACKAGE]
 
@@ -341,6 +343,7 @@ RULE_SCOPES = {
     "composition-root-held": COMPOSITION_ROOT_HELD_FILES,
     "inbound-adapter": INBOUND_ADAPTER_FILES,
     "outbound-adapter": OUTBOUND_ADAPTER_FILES,
+    "application": APPLICATION_FILES,
     "domain": DOMAIN_FILES,
     "shared": SHARED_FILES,
 }
