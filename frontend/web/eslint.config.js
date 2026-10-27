@@ -3,6 +3,10 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
+const SKIPPED_TEST_MESSAGE =
+    'Do not commit .skip, .todo or .only: each silently removes tests from the suite. Fix or ' +
+    'delete the test; mark an expected failure with it.fails.';
+
 export default tseslint.config(
     {
         // Generated from the committed OpenAPI documents (ADR-029); hand-editing would be
@@ -35,6 +39,29 @@ export default tseslint.config(
             // Structured records go through src/shared/lib/logger.ts, which is the only file
             // that disables this. Mirrors ruff's T20 ban on `print` in the backend (ADR-019).
             'no-console': 'error',
+        },
+    },
+    {
+        // A committed `.skip` or `.todo` drops a specification from the suite while it still
+        // reports green, and a committed `.only` drops every other test in its file. Core
+        // `no-restricted-syntax` covers the direct form (`it.skip`, `describe.only`, which also
+        // reaches `it.skip.each`) and one chained modifier (`it.concurrent.skip`). `it.fails`
+        // stays allowed: it asserts that a test fails, and fails itself once it passes.
+        files: ['**/*.test.{ts,tsx}'],
+        rules: {
+            'no-restricted-syntax': [
+                'error',
+                {
+                    selector:
+                        'MemberExpression[object.name=/^(it|test|describe)$/][property.name=/^(skip|todo|only)$/]',
+                    message: SKIPPED_TEST_MESSAGE,
+                },
+                {
+                    selector:
+                        'MemberExpression[object.object.name=/^(it|test|describe)$/][property.name=/^(skip|todo|only)$/]',
+                    message: SKIPPED_TEST_MESSAGE,
+                },
+            ],
         },
     },
 );
