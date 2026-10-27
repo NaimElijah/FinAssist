@@ -976,3 +976,208 @@ describe('compareScenarios', () => {
         ).rejects.toMatchObject({ status: 422, problem: { code: 'UNKNOWN_SCENARIO' } });
     });
 });
+
+/**
+ * Values the wire never carries for a decimal (ADR-028): a JSON number, which would pass a pattern
+ * test once coerced to text, and a string that is not a decimal at all.
+ */
+const NOT_DECIMAL_STRINGS: readonly { readonly name: string; readonly value: unknown }[] = [
+    { name: 'a_JSON_number', value: 12.5 },
+    { name: 'not_a_decimal_string', value: '1,234.50' },
+];
+
+/** ILS money carrying `amount` as it arrived, unvalidated. */
+function money(amount: unknown): { amount: unknown; currency: string } {
+    return { amount, currency: 'ILS' };
+}
+
+/** A planned flow response whose amount is `amount`. */
+function decimalFlow(amount: unknown): unknown {
+    return {
+        id: FLOW_ID,
+        description: 'Rent',
+        amount: money(amount),
+        direction: 'OUTFLOW',
+        startsOn: '2026-09-01',
+        recurrence: { kind: 'ONCE' },
+        state: { status: 'COMMITTED', on: '2026-09-02' },
+    };
+}
+
+/** A scenario response whose growth rate per step is `growthRatePerStep`. */
+function decimalScenario(growthRatePerStep: unknown): unknown {
+    return { id: 's1', name: 'Saving', currency: 'ILS', flows: [], growthRatePerStep };
+}
+
+/** The three amounts of a balance point; one of them may be replaced. */
+type PointAmounts = Partial<Record<'cash' | 'invested' | 'total', unknown>>;
+
+/** A balance point on `date` whose amounts default to valid decimal strings. */
+function decimalPoint(
+    date: string,
+    { cash = '1.00', invested = '2.00', total = '3.00' }: PointAmounts = {},
+) {
+    return { date, cash: money(cash), invested: money(invested), total: money(total) };
+}
+
+/** A projection response, without a shortfall, whose first point carries `amounts`. */
+function decimalProjection(amounts: PointAmounts): unknown {
+    return {
+        scenario: 's1',
+        horizon: { from: '2026-09-01', to: '2026-10-01' },
+        step: 'MONTHLY',
+        currency: 'ILS',
+        points: [decimalPoint('2026-09-01', amounts), decimalPoint('2026-10-01')],
+    };
+}
+
+/** Where a compared scenario carries balance points: its series, its end state, its divergence. */
+type ComparedPart = 'points' | 'endState' | 'divergence';
+
+/** A comparison of two scenarios, the second carrying `amounts` in `part`. */
+function decimalComparison(part: ComparedPart, amounts: PointAmounts): unknown {
+    const scenario = (id: string, replaced: boolean) => ({
+        id,
+        name: id,
+        points: [decimalPoint('2026-09-01', replaced && part === 'points' ? amounts : {})],
+        endState: decimalPoint('2026-09-01', replaced && part === 'endState' ? amounts : {}),
+        divergence: [decimalPoint('2026-09-01', replaced && part === 'divergence' ? amounts : {})],
+    });
+    return {
+        baseline: 's1',
+        currency: 'ILS',
+        horizon: { from: '2026-09-01', to: '2026-10-01' },
+        step: 'MONTHLY',
+        scenarios: [scenario('s1', false), scenario('s2', true)],
+    };
+}
+
+const HORIZON = {
+    from: '2026-09-01',
+    to: '2026-10-01',
+    step: 'MONTHLY',
+    cash: [],
+    invested: [],
+} as const;
+
+/** A decimal member, how a response carries `value` in it alone, and the read that maps it. */
+interface DecimalMember {
+    readonly subject: string;
+    readonly when: string;
+    readonly body: (value: unknown) => unknown;
+    readonly status?: number;
+    readonly read: () => Promise<unknown>;
+}
+
+const FLOW_READS: readonly DecimalMember[] = [
+    {
+        subject: 'a_listed_flows_amount',
+        when: 'listed',
+        body: (value) => [decimalFlow(value)],
+        read: () => listPlannedFlows(),
+    },
+    {
+        subject: 'a_planned_flows_amount',
+        when: 'planned',
+        body: decimalFlow,
+        status: 201,
+        read: () =>
+            planFlow({
+                description: 'Rent',
+                amount: { amount: '250.00', currency: 'ILS' },
+                direction: 'OUTFLOW',
+                startsOn: '2026-09-01',
+                recurrence: { kind: 'ONCE' },
+            }),
+    },
+    {
+        subject: 'a_committed_flows_amount',
+        when: 'committed',
+        body: decimalFlow,
+        read: () => commitFlow(FLOW_ID, '2026-09-02'),
+    },
+    {
+        subject: 'a_realised_flows_amount',
+        when: 'realised',
+        body: decimalFlow,
+        read: () => realiseFlow(FLOW_ID, '2026-09-02'),
+    },
+    {
+        subject: 'a_cancelled_flows_amount',
+        when: 'cancelled',
+        body: decimalFlow,
+        read: () => cancelFlow(FLOW_ID, '2026-09-02', 'No longer needed'),
+    },
+];
+
+const SCENARIO_READS: readonly DecimalMember[] = [
+    {
+        subject: 'a_listed_scenarios_growth_rate_per_step',
+        when: 'listed',
+        body: (value) => [decimalScenario(value)],
+        read: () => listScenarios(),
+    },
+    {
+        subject: 'a_defined_scenarios_growth_rate_per_step',
+        when: 'defined',
+        body: decimalScenario,
+        status: 201,
+        read: () =>
+            defineScenario({ name: 'Saving', currency: 'ILS', flows: [], growthRatePerStep: '0' }),
+    },
+];
+
+const POINT_MEMBERS = ['cash', 'invested', 'total'] as const;
+
+const PROJECTION_READS: readonly DecimalMember[] = POINT_MEMBERS.map((member) => ({
+    subject: `a_projected_points_${member}_amount`,
+    when: 'projected',
+    body: (value: unknown) => decimalProjection({ [member]: value }),
+    read: () => projectScenario({ scenarioId: 's1', ...HORIZON }),
+}));
+
+const COMPARED_PARTS: readonly { readonly part: ComparedPart; readonly name: string }[] = [
+    { part: 'points', name: 'point' },
+    { part: 'endState', name: 'end_state' },
+    { part: 'divergence', name: 'divergence' },
+];
+
+const COMPARISON_READS: readonly DecimalMember[] = COMPARED_PARTS.flatMap(({ part, name }) =>
+    POINT_MEMBERS.map((member) => ({
+        subject: `a_compared_scenarios_${name}_${member}_amount`,
+        when: 'compared',
+        body: (value: unknown) => decimalComparison(part, { [member]: value }),
+        read: () => compareScenarios({ scenarioIds: ['s1', 's2'], baselineId: 's1', ...HORIZON }),
+    })),
+);
+
+/** Every decimal member each read returns. */
+const DECIMAL_MEMBERS: readonly DecimalMember[] = [
+    ...FLOW_READS,
+    ...SCENARIO_READS,
+    ...PROJECTION_READS,
+    ...COMPARISON_READS,
+];
+
+describe('a decimal the contract does not allow', () => {
+    // Accounting already refuses one (accountingApi.test.ts); a malformed amount or rate would
+    // otherwise reach MoneyText or the chart's scale and fail at render, not as one failed read.
+    it('Given_every_fixture_with_valid_decimals_When_read_Then_each_read_succeeds', async () => {
+        // The control for the tests below: each fixture is a valid response but for the one
+        // member a test replaces, so a rejection there is that member's doing.
+        for (const { body, status, read } of DECIMAL_MEMBERS) {
+            stubFetch(jsonResponse(body('1.00'), status));
+            await expect(read()).resolves.toBeDefined();
+        }
+    });
+
+    for (const { subject, when, body, status, read } of DECIMAL_MEMBERS) {
+        for (const { name, value } of NOT_DECIMAL_STRINGS) {
+            it(`Given_${subject}_that_is_${name}_When_${when}_Then_it_rejects_with_an_ApiBodyError`, async () => {
+                stubFetch(jsonResponse(body(value), status));
+
+                await expect(read()).rejects.toBeInstanceOf(ApiBodyError);
+            });
+        }
+    }
+});

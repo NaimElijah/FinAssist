@@ -6,7 +6,8 @@
  * onto the feature's own type. A generated type stops here: components and hooks see only
  * `types/`. Amounts stay the strings the ledger sent, and `interval`/`count` stay integers -
  * never converted (ADR-028, ADR-029). A planned flow's amount travels positive and is never
- * negated (ADR-015).
+ * negated (ADR-015). An amount or a growth rate that is not a decimal string is refused here with
+ * `ApiBodyError`, as the other features refuse theirs.
  */
 import { ApiBodyError, LEDGER_API, requestJson, sendJson } from '@/shared/api/client';
 import type {
@@ -25,6 +26,7 @@ import type {
     RecurrenceResponse,
     ScenarioResponse,
 } from '@/shared/api/contracts/ledger/types.gen';
+import { decimalString } from '@/shared/api/decimal';
 import { log } from '@/shared/lib/logger';
 
 import type { ComparedScenario, Comparison, ComparisonParams } from '../types/comparison';
@@ -65,7 +67,7 @@ function toMoney(wire: MoneyDto, url: string): Money {
     if (!CURRENCIES.includes(wire.currency)) {
         return unknownCurrency(url);
     }
-    return { amount: wire.amount, currency: wire.currency };
+    return { amount: decimalString(wire.amount, url, 'amount'), currency: wire.currency };
 }
 
 /**
@@ -218,7 +220,7 @@ function toScenario(wire: ScenarioResponse, url: string): Scenario {
         name: wire.name,
         currency: CURRENCIES.includes(wire.currency) ? wire.currency : unknownCurrency(url),
         flows: wire.flows,
-        growthRatePerStep: wire.growthRatePerStep,
+        growthRatePerStep: decimalString(wire.growthRatePerStep, url, 'growthRatePerStep'),
     };
 }
 
@@ -364,7 +366,8 @@ function appendSettings(query: URLSearchParams, settings: ProjectionSettings): v
  * @returns the flows, in the ledger's order.
  * @throws ApiError - on a non-2xx response.
  * @throws ApiBodyError - when the response carries no JSON body, a state or recurrence lacks a
- *   member its variant always carries, or names a status or kind the contract does not name.
+ *   member its variant always carries or names a status or kind the contract does not name, or an
+ *   amount is not a decimal string.
  */
 export async function listPlannedFlows(): Promise<PlannedFlow[]> {
     const wire = await requestJson<PlannedFlowResponse[]>(PLANNED_FLOWS_URL);
@@ -381,7 +384,8 @@ export async function listPlannedFlows(): Promise<PlannedFlow[]> {
  * @throws ApiError - on a non-2xx response: 400 `MALFORMED_REQUEST`, possibly listing field
  *   `errors` (an incomplete recurrence among them, as `recurrence.completeForKind`), 422
  *   `RULE_VIOLATED` for a rule the domain refuses, such as a non-positive amount.
- * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws ApiBodyError - when the response carries no JSON body, or anything `listPlannedFlows`
+ *   refuses.
  */
 export async function planFlow(input: PlanFlowInput): Promise<PlannedFlow> {
     const body: PlanFlowRequest = {
@@ -403,7 +407,8 @@ export async function planFlow(input: PlanFlowInput): Promise<PlannedFlow> {
  * @returns the flow in its new, `COMMITTED` state.
  * @throws ApiError - on a non-2xx response: 404 `PLAN_NOT_FOUND`, 409 `ILLEGAL_TRANSITION` when
  *   the flow is not `PLANNED`, 422 `RULE_VIOLATED`.
- * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws ApiBodyError - when the response carries no JSON body, or anything `listPlannedFlows`
+ *   refuses.
  */
 export async function commitFlow(flowId: string, on: string): Promise<PlannedFlow> {
     const url = flowActionUrl(flowId, 'commit');
@@ -420,7 +425,8 @@ export async function commitFlow(flowId: string, on: string): Promise<PlannedFlo
  * @returns the flow in its new, `REALISED` state.
  * @throws ApiError - on a non-2xx response: 404 `PLAN_NOT_FOUND`, 409 `ILLEGAL_TRANSITION` when
  *   the flow is not `COMMITTED`, 422 `RULE_VIOLATED`.
- * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws ApiBodyError - when the response carries no JSON body, or anything `listPlannedFlows`
+ *   refuses.
  */
 export async function realiseFlow(flowId: string, on: string): Promise<PlannedFlow> {
     const url = flowActionUrl(flowId, 'realise');
@@ -438,7 +444,8 @@ export async function realiseFlow(flowId: string, on: string): Promise<PlannedFl
  * @returns the flow in its new, `CANCELLED` state.
  * @throws ApiError - on a non-2xx response: 404 `PLAN_NOT_FOUND`, 409 `ILLEGAL_TRANSITION` when
  *   the flow is already `REALISED` or `CANCELLED`, 422 `RULE_VIOLATED`.
- * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws ApiBodyError - when the response carries no JSON body, or anything `listPlannedFlows`
+ *   refuses.
  */
 export async function cancelFlow(flowId: string, on: string, reason: string): Promise<PlannedFlow> {
     const url = flowActionUrl(flowId, 'cancel');
@@ -452,7 +459,8 @@ export async function cancelFlow(flowId: string, on: string, reason: string): Pr
  *
  * @returns the scenarios, in the ledger's order.
  * @throws ApiError - on a non-2xx response.
- * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws ApiBodyError - when the response carries no JSON body, a currency the contract does
+ *   not name, or a growth rate that is not a decimal string.
  */
 export async function listScenarios(): Promise<Scenario[]> {
     const wire = await requestJson<ScenarioResponse[]>(SCENARIOS_URL);
@@ -469,7 +477,8 @@ export async function listScenarios(): Promise<Scenario[]> {
  * @throws ApiError - on a non-2xx response: 422 `UNKNOWN_PLAN` for a flow id naming no plan, 422
  *   `RULE_VIOLATED` for a flow in another currency or listed twice, 400 `MALFORMED_REQUEST`,
  *   possibly listing field `errors`.
- * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws ApiBodyError - when the response carries no JSON body, a currency the contract does
+ *   not name, or a growth rate that is not a decimal string.
  */
 export async function defineScenario(input: DefineScenarioInput): Promise<Scenario> {
     const body: DefineScenarioRequest = {
@@ -491,8 +500,8 @@ export async function defineScenario(input: DefineScenarioInput): Promise<Scenar
  * @throws ApiError - on a non-2xx response: 404 `SCENARIO_NOT_FOUND`, 422 `RULE_VIOLATED` for a
  *   horizon that is not whole steps or does not start before it ends, or an account ref that is
  *   unknown or in another currency.
- * @throws ApiBodyError - when the response carries no JSON body, no points, or a step or currency
- *   the contract does not name.
+ * @throws ApiBodyError - when the response carries no JSON body, no points, a step or currency
+ *   the contract does not name, or an amount that is not a decimal string.
  */
 export async function projectScenario(params: ProjectionParams): Promise<Projection> {
     const query = new URLSearchParams();
@@ -514,7 +523,8 @@ export async function projectScenario(params: ProjectionParams): Promise<Project
  *   `UNKNOWN_SCENARIO` for an id naming no scenario, and 422 `RULE_VIOLATED` for a baseline not
  *   among them, scenarios in different currencies, or a horizon or account ref it refuses.
  * @throws ApiBodyError - when the response carries no JSON body, a baseline that is none of its
- *   scenarios, or a step or currency the contract does not name.
+ *   scenarios, a step or currency the contract does not name, or an amount that is not a decimal
+ *   string.
  */
 export async function compareScenarios(params: ComparisonParams): Promise<Comparison> {
     const query = new URLSearchParams();
