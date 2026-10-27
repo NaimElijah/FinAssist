@@ -55,6 +55,20 @@ function literalText(node: ts.Node | undefined): string | undefined {
 }
 
 /**
+ * Whether a node is `import()` called with a literal specifier. Vitest's type-safe form,
+ * `vi.mock(import('./x'), ...)`, passes one as the module: the visit records its specifier when
+ * it reaches the inner call, so the outer argument is not computed.
+ */
+function isLiteralDynamicImport(node: ts.Node | undefined): boolean {
+    return (
+        node !== undefined &&
+        ts.isCallExpression(node) &&
+        node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+        literalText(node.arguments[0]) !== undefined
+    );
+}
+
+/**
  * Each file's references, parsed once: every rule below rescans the tree, and the sources do not
  * change while the file runs.
  */
@@ -110,7 +124,7 @@ function moduleReferences(file: string): ModuleReferences {
         const specifier = literalText(named);
         if (specifier !== undefined) {
             specifiers.push(specifier);
-        } else if (call !== undefined) {
+        } else if (call !== undefined && !isLiteralDynamicImport(named)) {
             computed.push(`${call}(${named?.getText(source) ?? ''})`);
         }
         ts.forEachChild(node, visit);
