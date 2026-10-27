@@ -129,7 +129,7 @@ class GatewayLoginFlowIT {
 
     @BeforeAll
     static void startFakes() throws Exception {
-        idp = new FakeOpenIdProvider();
+        idp = new FakeOpenIdProvider(CLIENT_SECRET);
         ledger = new FakeService();
         assistant = new FakeService();
     }
@@ -309,6 +309,9 @@ class GatewayLoginFlowIT {
      */
     private void signIn(HttpClient client) throws Exception {
         HttpResponse<Void> callback = completeCallback(client);
+        assertThat(idp.lastTokenRequestAuthenticatedClient())
+                .as("the token request authenticated as the gateway's client, by client_secret_basic")
+                .isTrue();
         assertThat(idp.lastTokenRequestPassedPkce())
                 .as("the token request's code_verifier hashes to the authorization request's S256 challenge")
                 .isTrue();

@@ -67,7 +67,7 @@ class GatewayRelayTimeoutIT {
 
     @BeforeAll
     static void startFakes() throws Exception {
-        idp = new FakeOpenIdProvider();
+        idp = new FakeOpenIdProvider("a-test-client-secret");
         ledger = new FakeService();
     }
 
