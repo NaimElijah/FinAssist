@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, NoReturn
 
 import httpx
@@ -612,8 +614,58 @@ def Given_tracing_is_disabled_When_configured_Then_no_provider_is_installed() ->
 # --- tracing enabled: the OTLP provider is installed, and only once ---------------------------
 
 _UNUSED_COLLECTOR = "http://127.0.0.1:4318"
-"""Named, never reached: no span is started while the provider is installed, so its batch
-processor's queue is empty at shutdown and it sends nothing - no collector, no network."""
+"""Named, never reached: no test using it starts a span while the provider is installed, so its
+batch processor's queue is empty at shutdown and it sends nothing - no collector, no network."""
+
+_COLLECTOR_POLL_SECONDS = 0.01
+"""How often the test collector checks for ``shutdown``; the 0.5 s default only slows teardown."""
+
+_COLLECTOR_JOIN_SECONDS = 5.0
+"""The longest teardown waits for the test collector's thread, so a stuck server fails the run
+instead of hanging it."""
+
+_FLUSH_TIMEOUT_MILLIS = 5_000
+"""The longest ``force_flush`` waits for the exporter to hear back from the test collector."""
+
+
+@pytest.fixture
+def otlp_collector() -> Iterator[tuple[str, list[str]]]:
+    """A loopback stand-in for an OTLP/HTTP collector, recording the path of every POST it gets.
+
+    Yields its base URL and the recorded paths. A path is recorded before the answer is sent, and
+    the exporter waits for that answer, so once ``force_flush`` returns the list is complete.
+
+    The path is read from the raw request line, not ``self.path``: ``http.server`` collapses a
+    leading ``//`` to ``/`` there, which would hide the doubled slash a test looks for.
+    """
+    posted: list[str] = []
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            _method, target, _version = self.requestline.split()
+            posted.append(target)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-protobuf")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, _format: str, *_args: Any) -> None:
+            pass  # silences http.server's default stderr access log during the test run
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": _COLLECTOR_POLL_SECONDS},
+        daemon=True,
+    )
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}", posted
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=_COLLECTOR_JOIN_SECONDS)
 
 
 @pytest.fixture
@@ -643,12 +695,37 @@ def _export_enabled() -> Settings:
 
 
 @pytest.mark.usefixtures("fresh_tracer_provider_global")
-def Given_export_enabled_When_tracing_is_configured_Then_an_OTLP_provider_is_installed() -> None:
+def Given_export_enabled_When_tracing_is_configured_Then_a_named_provider_is_installed() -> None:
     provider = configure_tracing(_export_enabled())
 
     assert isinstance(provider, TracerProvider)
     assert trace.get_tracer_provider() is provider
     assert provider.resource.attributes["service.name"] == "finassist-assistant-under-test"
+
+
+@pytest.mark.usefixtures("fresh_tracer_provider_global")
+def Given_export_enabled_When_a_span_ends_Then_it_is_posted_to_the_collectors_traces_path(
+    otlp_collector: tuple[str, list[str]],
+) -> None:
+    """The installed provider exports: one ended span reaches ``/v1/traces`` under the configured
+    base URL. The base carries a trailing slash, as an operator's often does, and must still not
+    produce ``//v1/traces``."""
+    base_url, posted = otlp_collector
+    configure_tracing(
+        Settings(
+            ASSISTANT_SERVICE_NAME="finassist-assistant-under-test",
+            OTEL_EXPORTER_OTLP_ENDPOINT=f"{base_url}/",
+            OTEL_EXPORT_ENABLED=True,
+        )
+    )
+
+    with trace.get_tracer(__name__).start_as_current_span("exported"):
+        pass
+    installed = trace.get_tracer_provider()
+    assert isinstance(installed, TracerProvider)
+    assert installed.force_flush(timeout_millis=_FLUSH_TIMEOUT_MILLIS), "the export did not finish"
+
+    assert posted == ["/v1/traces"], f"expected one POST to /v1/traces, the collector got {posted}"
 
 
 @pytest.mark.usefixtures("fresh_tracer_provider_global")
