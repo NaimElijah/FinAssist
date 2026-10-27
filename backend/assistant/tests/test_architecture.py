@@ -2,7 +2,8 @@
 
 Nine rules:
 
-1. Dependencies point inward - no inward layer imports a framework.
+1. Dependencies point inward - no inward layer imports a framework or the standard library's
+   I/O, or opens a file through the builtin ``open``.
 2. No inward layer imports the adapter layer, where the anti-corruption layers live.
 3. No context imports another context. Only ``shared`` is common ground.
 4. No context imports the composition root, where the frameworks are wired.
@@ -95,15 +96,46 @@ FORBIDDEN_FRAMEWORKS = _declared_runtime_distributions() | frozenset(
     {"opentelemetry", "pydantic_core", "starlette", "sqlalchemy", "jwt", "cryptography"}
 )
 
-# Standard-library modules no inward layer may import: the network, processes, a database and
-# an event loop are I/O however they arrive, and `http` is a transport type besides. The
-# derivation above reads only pyproject.toml, so the standard library is invisible to it - an
+# Standard-library modules no inward layer may import, because each is I/O however it arrives:
+#
+# - the network: `socket`, `ssl`, `select`, `selectors`, and `http` - a transport type besides;
+# - network protocols: `urllib`, `smtplib`, `ftplib`, `imaplib`, `poplib`, `xmlrpc`;
+# - the filesystem: `os`, `pathlib`, `io`, `shutil`, `tempfile`;
+# - storage: `sqlite3`, `dbm`, `shelve`;
+# - processes and event loops: `subprocess`, `multiprocessing`, `asyncio`.
+#
+# The derivation above reads only pyproject.toml, so the standard library is invisible to it - an
 # inward module could open a socket and the framework rule passed. Nothing inward imports any of
 # these today; the composition root and the inbound adapters use `http.HTTPStatus`, where it
-# belongs.
+# belongs. The builtin `open` needs no import at all, so the same rule matches its call instead.
 FORBIDDEN_STANDARD_IO = frozenset(
-    {"socket", "ssl", "http", "urllib", "sqlite3", "subprocess", "asyncio"}
+    {
+        "socket",
+        "ssl",
+        "select",
+        "selectors",
+        "http",
+        "urllib",
+        "smtplib",
+        "ftplib",
+        "imaplib",
+        "poplib",
+        "xmlrpc",
+        "os",
+        "pathlib",
+        "io",
+        "shutil",
+        "tempfile",
+        "sqlite3",
+        "dbm",
+        "shelve",
+        "subprocess",
+        "multiprocessing",
+        "asyncio",
+    }
 )
+
+OPEN_BUILTIN = "open"
 
 
 def _is_forbidden_inward(module: str) -> bool:
@@ -257,6 +289,22 @@ def _clock_reads_in(source: str, filename: str = "<test>") -> list[str]:
             ):
                 found.append(f"getattr(..., {node.args[1].value!r}) at line {node.lineno}")
     return found
+
+
+def _file_opens_in(source: str, filename: str = "<test>") -> list[str]:
+    """Every call to the builtin ``open``.
+
+    Matched as a call on the bare name only, the way a bare clock read is: a method that happens
+    to be called ``open`` - a position opened, a gate opened - is an attribute, and no I/O.
+    """
+    tree = ast.parse(source, filename=filename)
+    return [
+        f"{OPEN_BUILTIN}() at line {node.lineno}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == OPEN_BUILTIN
+    ]
 
 
 def _context_of(path: Path) -> str | None:
@@ -458,6 +506,16 @@ def Given_an_inward_module_When_parsed_Then_it_imports_no_framework(path: Path) 
     assert not leaked, (
         f"{path.relative_to(SRC)} imports {leaked}. Frameworks and I/O live in adapters; "
         "the inward layers stay testable by calling them."
+    )
+
+
+@pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
+def Given_an_inward_module_When_parsed_Then_it_opens_no_file(path: Path) -> None:
+    """The builtin ``open`` is file I/O that needs no import, so the rule above cannot see it."""
+    found = _file_opens_in(path.read_text(encoding="utf-8"), str(path))
+    assert not found, (
+        f"{path.relative_to(SRC)} opens a file: {found}. Reading or writing a file is I/O, and "
+        "I/O lives in adapters behind a port the inward layer declares."
     )
 
 
@@ -791,7 +849,37 @@ def Given_a_relative_import_of_the_application_layer_When_scanned_Then_it_is_nam
     assert any(_names_application_layer(module) for module in imported), imported
 
 
-@pytest.mark.parametrize("module", sorted(FORBIDDEN_STANDARD_IO))
+# Spelled out rather than read from FORBIDDEN_STANDARD_IO, so that deleting an entry from the set
+# fails a case here instead of quietly removing it. Two submodules stand in for every dotted form.
+@pytest.mark.parametrize(
+    "module",
+    [
+        "socket",
+        "ssl",
+        "select",
+        "selectors",
+        "http",
+        "urllib",
+        "smtplib",
+        "ftplib",
+        "imaplib",
+        "poplib",
+        "xmlrpc",
+        "xmlrpc.client",
+        "os",
+        "os.path",
+        "pathlib",
+        "io",
+        "shutil",
+        "tempfile",
+        "sqlite3",
+        "dbm",
+        "shelve",
+        "subprocess",
+        "multiprocessing",
+        "asyncio",
+    ],
+)
 def Given_a_standard_library_io_import_When_checked_Then_it_is_forbidden_inward(
     module: str,
 ) -> None:
@@ -799,7 +887,25 @@ def Given_a_standard_library_io_import_When_checked_Then_it_is_forbidden_inward(
         f"from {module} import member", PACKAGE
     )
 
-    assert all(_is_forbidden_inward(name) for name in imported), imported
+    assert imported and all(_is_forbidden_inward(name) for name in imported), imported
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'open("holdings.csv")',
+        'with open(path, "w") as handle:\n    handle.write(text)',
+        "def load(path):\n    return open(path).read()",
+    ],
+)
+def Given_source_calling_the_builtin_open_When_scanned_Then_it_is_found(source: str) -> None:
+    assert _file_opens_in(source), source
+
+
+def Given_a_method_named_open_When_scanned_Then_it_is_not_a_violation() -> None:
+    # Only the builtin reaches the filesystem; a domain method of the same name does not.
+    assert _file_opens_in("position.open(on=trade_date)") == []
+    assert _file_opens_in("def open(self, on):\n    return on") == []
 
 
 def Given_an_ordinary_standard_library_import_When_checked_Then_it_is_allowed_inward() -> None:
