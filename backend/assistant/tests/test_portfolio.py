@@ -37,7 +37,9 @@ def Given_a_blank_symbol_When_built_Then_it_is_refused() -> None:
         Symbol("   ")
 
 
-@pytest.mark.parametrize("quantity", ["0", "-1", "-0.0001"], ids=["zero", "negative", "fraction"])
+@pytest.mark.parametrize(
+    "quantity", ["0", "-1", "-0.0001"], ids=["zero", "negative", "negative-fraction"]
+)
 def Given_a_lot_of_zero_or_fewer_units_When_built_Then_it_is_refused(quantity: str) -> None:
     with pytest.raises(ValueError, match="positive quantity"):
         Lot(VWCE, Decimal(quantity), usd("100.00"), date(2026, 1, 1))
