@@ -36,7 +36,7 @@ describe('fakeFetch failing a mistaken test', () => {
         }).catch(() => undefined);
     });
 
-    it('Given_an_unplanned_request_When_the_test_finishes_Then_the_failure_names_it', () => {
+    it('Given_recorded_failures_When_asserted_Then_the_error_lists_each', () => {
         const failures = [
             'GET https://ledger.test/api/v1/accounts: unexpected request',
             'POST https://ledger.test/api/v1/transactions sent a body that is not JSON',

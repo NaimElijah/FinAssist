@@ -26,7 +26,10 @@ export interface RecordedRequest {
     readonly body: unknown;
 }
 
-/** Decides the response to one request. Throw, through `unexpectedRequest`, for one not planned. */
+/**
+ * Decides the response to one request. Throw, through `unexpectedRequest`, for one not planned;
+ * return `networkFailure()` for a planned network error, which is not counted as a mistake.
+ */
 export type FetchAnswer = (request: RecordedRequest) => Response | Promise<Response>;
 
 function urlOf(input: RequestInfo | URL): string {
@@ -61,9 +64,10 @@ export function assertNoUnplannedRequests(failures: readonly string[]): void {
  * the current test.
  *
  * When the test finishes, the real `fetch` is restored, so a caller needs no
- * `vi.unstubAllGlobals()` of its own. The test then fails if `answer` threw for any request, or
- * any request carried a body that is not a JSON string. The request still fails inside the app
- * as it would have, so the error the app shows is unchanged; only the test learns of it too.
+ * `vi.unstubAllGlobals()` of its own. The test then fails if `answer` threw for any request -
+ * except a planned `networkFailure()` - or any request carried a body that is not a JSON string.
+ * The request still fails inside the app as it would have, so the error the app shows is
+ * unchanged; only the test learns of it too.
  *
  * Call it from the body of a test: it registers an `onTestFinished` hook.
  *
