@@ -114,7 +114,11 @@ class KeycloakRealmIT {
                         "POSTGRES_DB", "keycloak",
                         "POSTGRES_USER", "keycloak",
                         "POSTGRES_PASSWORD", "it-db-password"))
-                .waitingFor(Wait.forLogMessage(".*database system is ready to accept connections.*\\n", 1));
+                // Twice: the image's entrypoint first starts a temporary server to run its init
+                // scripts, which logs this line, then stops it and starts the real one. Waiting for
+                // the first lets Keycloak connect into that restart. Testcontainers' own
+                // PostgreSQLContainer waits for two for the same reason.
+                .waitingFor(Wait.forLogMessage(".*database system is ready to accept connections.*\\n", 2));
         db.start();
 
         Path opsKeycloakDir = Path.of(opsDir(), "keycloak").toAbsolutePath().normalize();
