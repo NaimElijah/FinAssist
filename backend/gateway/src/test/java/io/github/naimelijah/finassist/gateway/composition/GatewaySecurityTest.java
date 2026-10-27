@@ -9,6 +9,7 @@ import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -17,9 +18,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +32,7 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizedClientRepository;
@@ -35,6 +40,7 @@ import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepo
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
@@ -85,6 +91,7 @@ class GatewaySecurityTest {
     private static final String CAPTURE_CONTROL_LINE = "gateway-security-test-capture-control";
 
     private static final String LEDGER_ACCOUNTS = "/ledger/api/v1/accounts";
+    private static final String ASSISTANT_POSITION = "/assistant/api/v1/portfolio/holdings/ACME/position";
 
     private static final String XSRF_COOKIE = "FINASSIST-XSRF-TOKEN";
     private static final String XSRF_HEADER = "X-FINASSIST-XSRF-TOKEN";
@@ -360,15 +367,53 @@ class GatewaySecurityTest {
      * and {@code application.yml} states as fact that the chain refuses it anyway. Nothing but
      * this assertion held that claim: {@code GatewayContractIT} reads the document in process,
      * never over HTTP.
+     *
+     * <p>The relay prefixes are permitted for {@code GET} and {@code POST} alone, so every other
+     * method on them is an unrouted request too, {@code HEAD} and {@code OPTIONS} included — which
+     * {@code GatewaySecurityConfiguration} states and only this holds. A valid CSRF token is sent
+     * with each, so the refusal is the authorization rule's {@code FORBIDDEN} rather than the
+     * CSRF filter's. {@code HEAD}'s answer carries no body to read a code from, so its status is
+     * the assertion. An unpermitted {@code /bff/} path and Swagger UI's page complete the set.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"/admin", "/v3/api-docs"})
-    void Given_a_signed_in_session_When_an_unrouted_path_is_requested_Then_it_is_denied_403(String path)
-            throws Exception {
-        mvc.perform(named(get(path)).with(oidcLogin().idToken(ownerToken(List.of("owner")))))
-                .andExpect(status().isForbidden())
-                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    @MethodSource("unroutedRequests")
+    void Given_a_signed_in_session_When_an_unrouted_path_is_requested_Then_it_is_denied_403(
+            HttpMethod method, String path) throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        MvcResult signedIn = mvc.perform(
+                        named(get(ME)).session(session).with(oidcLogin().idToken(ownerToken(List.of("owner")))))
+                .andExpect(status().isOk())
+                .andReturn();
+        Cookie csrf = signedIn.getResponse().getCookie(XSRF_COOKIE);
+        assertThat(csrf).isNotNull();
+
+        ResultActions result = mvc.perform(named(request(method, path))
+                        .session(session)
+                        .cookie(csrf)
+                        .header(XSRF_HEADER, csrf.getValue()))
+                .andExpect(status().isForbidden());
+        if (!HttpMethod.HEAD.equals(method)) {
+            result.andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+    }
+
+    private static Stream<Arguments> unroutedRequests() {
+        Stream<Arguments> unroutedPaths = Stream.of(
+                Arguments.of(HttpMethod.GET, "/admin"),
+                Arguments.of(HttpMethod.GET, "/v3/api-docs"),
+                Arguments.of(HttpMethod.GET, "/swagger-ui/index.html"),
+                Arguments.of(HttpMethod.GET, "/bff/not-a-route"),
+                Arguments.of(HttpMethod.POST, "/bff/not-a-route"));
+        Stream<Arguments> unroutedMethods = Stream.of(LEDGER_ACCOUNTS, ASSISTANT_POSITION)
+                .flatMap(path -> Stream.of(
+                                HttpMethod.DELETE,
+                                HttpMethod.PUT,
+                                HttpMethod.PATCH,
+                                HttpMethod.HEAD,
+                                HttpMethod.OPTIONS)
+                        .map(method -> Arguments.of(method, path)));
+        return Stream.concat(unroutedPaths, unroutedMethods);
     }
 
     /**
