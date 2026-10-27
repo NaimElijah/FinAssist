@@ -16,29 +16,12 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
 const FEATURES_DIR = join(SRC, 'features');
 const APP_DIR = join(SRC, 'app');
-
-/**
- * Matches the specifier of a static or dynamic import, a re-export, a `require`, or a
- * `vi.mock`. The last two carry no `from`/`import` token and would otherwise slip through.
- */
-const IMPORT_SPECIFIER = /(?:from|import|require|vi\.mock)\s*\(?\s*['"]([^'"]+)['"]/g;
-
-/**
- * Blanks out comments so a specifier mentioned in prose is not read as a dependency.
- *
- * Replacing with spaces rather than deleting keeps offsets intact, and the regex above only
- * ever reads the captured specifier, never a position.
- */
-function withoutComments(text: string): string {
-    return text
-        .replace(/\/\*[\s\S]*?\*\//g, (match) => ' '.repeat(match.length))
-        .replace(/\/\/.*/g, (match) => ' '.repeat(match.length));
-}
 
 function sourceFilesUnder(dir: string): string[] {
     return readdirSync(dir).flatMap((entry) => {
@@ -48,9 +31,99 @@ function sourceFilesUnder(dir: string): string[] {
     });
 }
 
-function importSpecifiers(file: string): string[] {
-    const text = withoutComments(readFileSync(file, 'utf8'));
-    return [...text.matchAll(IMPORT_SPECIFIER)].map((match) => match[1] ?? '');
+/**
+ * Calls whose first argument names a module. `vi.mock` and its siblings carry no `import` token,
+ * yet couple a test to the module they name as firmly as an import does.
+ */
+const MODULE_NAMING_CALLS = new Set([
+    'require',
+    'vi.mock',
+    'vi.doMock',
+    'vi.importActual',
+    'vi.importMock',
+]);
+
+/** The modules a source file names: each literal specifier, and each one computed at run time. */
+interface ModuleReferences {
+    readonly specifiers: readonly string[];
+    readonly computed: readonly string[];
+}
+
+/** The text of a string literal or a template literal without substitutions, else undefined. */
+function literalText(node: ts.Node | undefined): string | undefined {
+    return node !== undefined && ts.isStringLiteralLike(node) ? node.text : undefined;
+}
+
+/**
+ * Each file's references, parsed once: every rule below rescans the tree, and the sources do not
+ * change while the file runs.
+ */
+const parsedReferences = new Map<string, ModuleReferences>();
+
+/**
+ * Every module a source file names, read from TypeScript's own parse tree: static imports and
+ * `import type`, re-exports (`export ... from`), `import x = require(...)`, `typeof import(...)`,
+ * a dynamic `import()`, and a call in `MODULE_NAMING_CALLS`.
+ *
+ * A parser rather than a pattern, so a specifier written as a template literal is still found,
+ * and one inside a comment or a string - including after a `/*` that a string happens to
+ * contain - is not. A call whose specifier is computed, which no rule here can resolve, is
+ * listed under `computed` instead.
+ */
+function moduleReferences(file: string): ModuleReferences {
+    const cached = parsedReferences.get(file);
+    if (cached !== undefined) return cached;
+
+    const source = ts.createSourceFile(
+        file,
+        readFileSync(file, 'utf8'),
+        ts.ScriptTarget.Latest,
+        false,
+        file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    );
+    const specifiers: string[] = [];
+    const computed: string[] = [];
+
+    const visit = (node: ts.Node): void => {
+        let named: ts.Node | undefined;
+        let call: string | undefined;
+        if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+            named = node.moduleSpecifier;
+        } else if (
+            ts.isImportEqualsDeclaration(node) &&
+            ts.isExternalModuleReference(node.moduleReference)
+        ) {
+            named = node.moduleReference.expression;
+        } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+            named = node.argument.literal;
+        } else if (ts.isCallExpression(node)) {
+            const callee =
+                node.expression.kind === ts.SyntaxKind.ImportKeyword
+                    ? 'import'
+                    : node.expression.getText(source);
+            if (callee === 'import' || MODULE_NAMING_CALLS.has(callee)) {
+                call = callee;
+                named = node.arguments[0];
+            }
+        }
+
+        const specifier = literalText(named);
+        if (specifier !== undefined) {
+            specifiers.push(specifier);
+        } else if (call !== undefined) {
+            computed.push(`${call}(${named?.getText(source) ?? ''})`);
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(source);
+
+    const references = { specifiers, computed };
+    parsedReferences.set(file, references);
+    return references;
+}
+
+function importSpecifiers(file: string): readonly string[] {
+    return moduleReferences(file).specifiers;
 }
 
 /** The feature a path belongs to, or undefined when it is not inside a feature. */
@@ -77,6 +150,16 @@ const features = readdirSync(FEATURES_DIR).filter((entry) =>
 );
 
 describe('feature boundaries', () => {
+    it('Given_src_When_its_sources_are_read_Then_no_module_is_named_by_a_computed_specifier', () => {
+        // Every rule in this file resolves a specifier to a path. One built at run time, such as
+        // import(`@/features/${name}`), names a module none of them can see, so none is allowed.
+        const offences = sourceFilesUnder(SRC).flatMap((file) =>
+            moduleReferences(file).computed.map((call) => `${relative(SRC, file)}: ${call}`),
+        );
+
+        expect(offences, 'name the module with a literal specifier').toEqual([]);
+    });
+
     it('Given_the_features_directory_When_listed_Then_it_is_not_empty', () => {
         // Guards the rules below from passing vacuously, the way an empty package would.
         expect(features.length).toBeGreaterThan(0);

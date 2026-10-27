@@ -57,7 +57,8 @@ From `frontend/web`:
 - **A feature's layers point inward**: `types`, then `api`, `hooks`, `components`, each importing
   only those before it; the feature's root (`index.ts`, `routes.tsx`) is imported only by tests;
   and only its `api/` imports a generated contract type. `tests/architecture.test.ts` fails the
-  build otherwise.
+  build otherwise, reading every import form with the TypeScript parser and refusing a computed
+  specifier it cannot resolve.
 
 ## Review conventions
 
