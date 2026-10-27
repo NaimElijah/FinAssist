@@ -18,6 +18,8 @@ import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.Yaml;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.BooleanNode;
+import tools.jackson.databind.node.IntNode;
 
 /**
  * Reads {@code ops/keycloak/finassist-realm.json} as data, without starting Keycloak, and pins
@@ -126,6 +128,15 @@ class KeycloakRealmTest {
         throw new AssertionError("no matching user in the realm file");
     }
 
+    /**
+     * The member, read as exactly the given node. {@code path(key).asBoolean()} answers {@code
+     * false} for a key that is missing, so a deleted {@code registrationAllowed} would pass an
+     * {@code isFalse()} while Keycloak applied its own default; a node comparison fails instead.
+     */
+    private static void assertMember(JsonNode holder, String member, JsonNode expected) {
+        assertThat(holder.path(member)).as("%s in the realm file", member).isEqualTo(expected);
+    }
+
     private static List<String> texts(JsonNode array) {
         return array.valueStream().map(JsonNode::asString).collect(Collectors.toList());
     }
@@ -134,19 +145,26 @@ class KeycloakRealmTest {
     void Given_the_realm_file_When_read_Then_registration_and_password_reset_and_remember_me_are_off() {
         JsonNode realm = realm();
 
-        assertThat(realm.path("registrationAllowed").asBoolean()).isFalse();
-        assertThat(realm.path("resetPasswordAllowed").asBoolean()).isFalse();
-        assertThat(realm.path("rememberMe").asBoolean()).isFalse();
+        assertMember(realm, "registrationAllowed", BooleanNode.FALSE);
+        assertMember(realm, "resetPasswordAllowed", BooleanNode.FALSE);
+        assertMember(realm, "rememberMe", BooleanNode.FALSE);
     }
 
     @Test
     void Given_the_realm_file_When_read_Then_brute_force_protection_is_on_with_the_agreed_thresholds() {
         JsonNode realm = realm();
 
-        assertThat(realm.path("bruteForceProtected").asBoolean()).isTrue();
-        assertThat(realm.path("failureFactor").asInt()).isEqualTo(5);
-        assertThat(realm.path("waitIncrementSeconds").asInt()).isEqualTo(60);
-        assertThat(realm.path("maxFailureWaitSeconds").asInt()).isEqualTo(900);
+        assertMember(realm, "bruteForceProtected", BooleanNode.TRUE);
+        // Off, because the realm has one owner: a permanent lockout after five wrong guesses would
+        // lock that owner out until someone with the admin password intervened.
+        assertMember(realm, "permanentLockout", BooleanNode.FALSE);
+        assertMember(realm, "maxTemporaryLockouts", IntNode.valueOf(0));
+        assertMember(realm, "quickLoginCheckMilliSeconds", IntNode.valueOf(1000));
+        assertMember(realm, "minimumQuickLoginWaitSeconds", IntNode.valueOf(60));
+        assertMember(realm, "maxDeltaTimeSeconds", IntNode.valueOf(43200));
+        assertMember(realm, "failureFactor", IntNode.valueOf(5));
+        assertMember(realm, "waitIncrementSeconds", IntNode.valueOf(60));
+        assertMember(realm, "maxFailureWaitSeconds", IntNode.valueOf(900));
     }
 
     @Test
@@ -164,10 +182,10 @@ class KeycloakRealmTest {
     void Given_the_realm_file_When_read_Then_the_token_lifetimes_and_rotation_match_the_agreed_values() {
         JsonNode realm = realm();
 
-        assertThat(realm.path("accessTokenLifespan").asInt()).isEqualTo(300);
-        assertThat(realm.path("ssoSessionIdleTimeout").asInt()).isEqualTo(1800);
-        assertThat(realm.path("ssoSessionMaxLifespan").asInt()).isEqualTo(36000);
-        assertThat(realm.path("revokeRefreshToken").asBoolean()).isFalse();
+        assertMember(realm, "accessTokenLifespan", IntNode.valueOf(300));
+        assertMember(realm, "ssoSessionIdleTimeout", IntNode.valueOf(1800));
+        assertMember(realm, "ssoSessionMaxLifespan", IntNode.valueOf(36000));
+        assertMember(realm, "revokeRefreshToken", BooleanNode.FALSE);
     }
 
     @Test
@@ -185,11 +203,11 @@ class KeycloakRealmTest {
     void Given_the_gateway_client_When_read_Then_it_uses_only_the_standard_flow_with_pkce_s256() {
         JsonNode gateway = client(realm(), "finassist-gateway");
 
-        assertThat(gateway.path("publicClient").asBoolean()).isFalse();
-        assertThat(gateway.path("standardFlowEnabled").asBoolean()).isTrue();
-        assertThat(gateway.path("implicitFlowEnabled").asBoolean()).isFalse();
-        assertThat(gateway.path("directAccessGrantsEnabled").asBoolean()).isFalse();
-        assertThat(gateway.path("serviceAccountsEnabled").asBoolean()).isFalse();
+        assertMember(gateway, "publicClient", BooleanNode.FALSE);
+        assertMember(gateway, "standardFlowEnabled", BooleanNode.TRUE);
+        assertMember(gateway, "implicitFlowEnabled", BooleanNode.FALSE);
+        assertMember(gateway, "directAccessGrantsEnabled", BooleanNode.FALSE);
+        assertMember(gateway, "serviceAccountsEnabled", BooleanNode.FALSE);
         assertThat(gateway.path("attributes").path("pkce.code.challenge.method").asString())
                 .isEqualTo("S256");
     }
@@ -209,11 +227,11 @@ class KeycloakRealmTest {
     void Given_the_assistant_client_When_read_Then_it_is_a_confidential_service_account_only_client() {
         JsonNode assistant = client(realm(), "finassist-assistant");
 
-        assertThat(assistant.path("publicClient").asBoolean()).isFalse();
-        assertThat(assistant.path("serviceAccountsEnabled").asBoolean()).isTrue();
-        assertThat(assistant.path("standardFlowEnabled").asBoolean()).isFalse();
-        assertThat(assistant.path("implicitFlowEnabled").asBoolean()).isFalse();
-        assertThat(assistant.path("directAccessGrantsEnabled").asBoolean()).isFalse();
+        assertMember(assistant, "publicClient", BooleanNode.FALSE);
+        assertMember(assistant, "serviceAccountsEnabled", BooleanNode.TRUE);
+        assertMember(assistant, "standardFlowEnabled", BooleanNode.FALSE);
+        assertMember(assistant, "implicitFlowEnabled", BooleanNode.FALSE);
+        assertMember(assistant, "directAccessGrantsEnabled", BooleanNode.FALSE);
     }
 
     @Test
@@ -362,7 +380,7 @@ class KeycloakRealmTest {
         assertThat(texts(owner.path("requiredActions"))).containsExactlyInAnyOrder("UPDATE_PASSWORD", "CONFIGURE_TOTP");
         JsonNode credential = owner.path("credentials").get(0);
         assertThat(credential.path("type").asString()).isEqualTo("password");
-        assertThat(credential.path("temporary").asBoolean()).isTrue();
+        assertMember(credential, "temporary", BooleanNode.TRUE);
         assertThat(texts(owner.path("realmRoles"))).containsExactly("owner");
     }
 
