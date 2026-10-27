@@ -351,6 +351,36 @@ class GatewayLoginFlowIT {
         }
     }
 
+    /**
+     * "The browser holds two cookies and no token", after a real sign-in rather than MockMvc's
+     * {@code oidcLogin()}, which skips the callback's login filter and success handler and so
+     * cannot see a cookie either of them adds. The jar is read whole, because the claim is "these
+     * and nothing else", and every value in it is searched for each token the provider issued.
+     */
+    @Test
+    void Given_a_completed_sign_in_When_the_browsers_cookies_are_read_Then_it_holds_only_the_session_and_csrf_cookies()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+            List<String> tokens = List.of(idp.lastAccessToken(), idp.lastRefreshToken(), idp.lastIdToken());
+
+            List<HttpCookie> cookies = ((CookieManager) client.cookieHandler().orElseThrow())
+                    .getCookieStore()
+                    .getCookies();
+
+            assertThat(cookies)
+                    .extracting(HttpCookie::getName)
+                    .containsExactlyInAnyOrder(SESSION_COOKIE, "FINASSIST-XSRF-TOKEN");
+            for (HttpCookie cookie : cookies) {
+                for (String token : tokens) {
+                    assertThat(cookie.getValue())
+                            .as("the %s cookie", cookie.getName())
+                            .doesNotContain(token);
+                }
+            }
+        }
+    }
+
     @Test
     void
             Given_a_signed_in_session_When_it_calls_the_ledger_route_Then_the_bearer_token_is_relayed_and_cookies_and_the_xsrf_header_and_prefix_are_stripped()
