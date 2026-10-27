@@ -77,16 +77,23 @@ describe('createQueryClient', () => {
         expect(createQueryClient().getDefaultOptions().mutations?.retry).toBe(0);
     });
 
-    it('Given_a_mutation_failing_with_a_503_When_run_through_the_app_query_client_Then_it_is_attempted_exactly_once', async () => {
-        // ADR-028: a retried POST could double-create, and the journal is append-only, so even a
-        // failure a query would retry is never re-sent for a write.
-        const failure = apiError(503);
-        const mutationFn = vi.fn<() => Promise<never>>().mockRejectedValue(failure);
-        const observer = new MutationObserver(createQueryClient(), { mutationFn });
+    // Every failure a query would retry: one a query never retries, such as a 503, could not
+    // tell a write that is never retried from one retried exactly as a query is.
+    for (const { name, error } of RETRIED_ONCE) {
+        it(`Given_a_mutation_failing_with_${name}_When_run_through_the_app_query_client_Then_it_is_attempted_exactly_once`, async () => {
+            // ADR-028: a retried POST could double-create, and the journal is append-only, so
+            // even a failure a query would retry is never re-sent for a write. retryDelay is
+            // zeroed only so a regression fails at once rather than after the default backoff.
+            const mutationFn = vi.fn<() => Promise<never>>().mockRejectedValue(error);
+            const observer = new MutationObserver(createQueryClient(), {
+                mutationFn,
+                retryDelay: 0,
+            });
 
-        await expect(observer.mutate()).rejects.toBe(failure);
-        expect(mutationFn).toHaveBeenCalledTimes(1);
-    });
+            await expect(observer.mutate()).rejects.toBe(error);
+            expect(mutationFn).toHaveBeenCalledTimes(1);
+        });
+    }
 
     it('Given_two_calls_When_a_client_is_created_each_time_Then_they_share_no_cache', () => {
         // A fresh client per call is what lets each test render the app with an empty cache.
