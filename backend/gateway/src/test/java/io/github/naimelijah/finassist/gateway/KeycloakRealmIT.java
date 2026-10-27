@@ -22,6 +22,9 @@ import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.BooleanNode;
+import tools.jackson.databind.node.IntNode;
+import tools.jackson.databind.node.StringNode;
 
 /**
  * Builds {@code ops/keycloak/Dockerfile} and runs the real Keycloak image against the real
@@ -47,6 +50,13 @@ import tools.jackson.databind.json.JsonMapper;
  *       client's own tokens need. The file says what was asked for; this says what was built.
  *   <li>Keycloak honours the owner's pinned {@code id}, which is what makes the {@code sub} in
  *       every journal row survive a re-import (ADR-031, ADR-033).
+ *   <li>the realm's sign-in protection as Keycloak holds it after the import: no self-registration,
+ *       no password reset, no remember-me, the password policy and the brute-force thresholds; the
+ *       owner's forced password change and TOTP enrolment; and the gateway client's two audiences,
+ *       both as its mappers and as the access token Keycloak would issue the owner through it. A
+ *       key Keycloak ignored or renamed on import would leave {@link KeycloakRealmTest} green and
+ *       the realm at Keycloak's own default, which for {@code registrationAllowed} would be off but
+ *       for brute-force protection would be off too.
  * </ul>
  *
  * <p>Every realm placeholder is supplied here as a container environment variable, because the
@@ -63,7 +73,8 @@ import tools.jackson.databind.json.JsonMapper;
  * {@code basic}'s presence on the gateway's own tokens is checked only statically, in
  * {@link KeycloakRealmTest}'s {@code defaultClientScopes} assertion, never against a real image
  * the way the assistant's is. Its role scope is checked here through Keycloak's own admin API
- * instead of through an issued token, which is the closest this test can get. That a real browser
+ * instead of through an issued token, and so are its audiences and roles, in the example access
+ * token that API builds for the owner, which is the closest this test can get. That a real browser
  * sign-in against the gateway produces a usable {@code sub} is checked by hand, not by this test
  * or any other: the owner's first sign-in enrols TOTP (the README's "First sign-in").
  */
@@ -360,6 +371,119 @@ class KeycloakRealmIT {
 
         assertThat(kid).isNotBlank();
         assertThat(signingKeyIds).contains(kid);
+    }
+
+    /** The realm as Keycloak holds it after the import, read through the admin API. */
+    private static JsonNode importedRealm() throws Exception {
+        return adminGet("/admin/realms/finassist");
+    }
+
+    /**
+     * The member, read as exactly the given node: a boolean must be a JSON boolean and a number a
+     * JSON number, so a member Keycloak dropped on import, which reads as missing, cannot pass for
+     * {@code false} or {@code 0}.
+     */
+    private static void assertMember(JsonNode holder, String member, JsonNode expected) {
+        assertThat(holder.path(member)).as("%s as Keycloak holds it", member).isEqualTo(expected);
+    }
+
+    /**
+     * Nobody but the owner, and the people the owner adds by hand, may ever hold an account here
+     * (ADR-031). Each switch is read as Keycloak stored it, because a misspelt or renamed key in
+     * the file is not an import error: Keycloak drops it and keeps its own default.
+     */
+    @Test
+    void
+            Given_the_realm_as_imported_When_its_sign_in_switches_are_read_Then_registration_reset_and_remember_me_are_off()
+                    throws Exception {
+        JsonNode realm = importedRealm();
+
+        assertMember(realm, "registrationAllowed", BooleanNode.FALSE);
+        assertMember(realm, "resetPasswordAllowed", BooleanNode.FALSE);
+        assertMember(realm, "rememberMe", BooleanNode.FALSE);
+    }
+
+    /**
+     * Brute-force protection as the running server applies it. {@code permanentLockout} is pinned
+     * off with the rest because the realm has a single owner: a permanent lockout after five wrong
+     * guesses would lock that owner out until someone with the admin password intervened.
+     */
+    @Test
+    void Given_the_realm_as_imported_When_its_brute_force_settings_are_read_Then_they_hold_the_agreed_thresholds()
+            throws Exception {
+        JsonNode realm = importedRealm();
+
+        assertMember(realm, "bruteForceProtected", BooleanNode.TRUE);
+        assertMember(realm, "permanentLockout", BooleanNode.FALSE);
+        assertMember(realm, "maxTemporaryLockouts", IntNode.valueOf(0));
+        assertMember(realm, "failureFactor", IntNode.valueOf(5));
+        assertMember(realm, "waitIncrementSeconds", IntNode.valueOf(60));
+        assertMember(realm, "quickLoginCheckMilliSeconds", IntNode.valueOf(1000));
+        assertMember(realm, "minimumQuickLoginWaitSeconds", IntNode.valueOf(60));
+        assertMember(realm, "maxFailureWaitSeconds", IntNode.valueOf(900));
+        assertMember(realm, "maxDeltaTimeSeconds", IntNode.valueOf(43200));
+    }
+
+    @Test
+    void Given_the_realm_as_imported_When_its_password_policy_is_read_Then_it_is_the_agreed_rule() throws Exception {
+        assertMember(
+                importedRealm(),
+                "passwordPolicy",
+                StringNode.valueOf("length(12) and notUsername and notEmail and passwordHistory(3)"));
+    }
+
+    /**
+     * The owner's first sign-in replaces the initial password, which {@code .env} holds in plain
+     * text, and enrols TOTP. Keycloak runs exactly the required actions the user carries, so this
+     * set, as stored, is what that first sign-in will demand.
+     */
+    @Test
+    void Given_the_owner_as_imported_When_its_required_actions_are_read_Then_a_password_change_and_totp_are_forced()
+            throws Exception {
+        JsonNode owner = adminGet("/admin/realms/finassist/users?exact=true&username=" + OWNER_USERNAME)
+                .get(0);
+
+        assertThat(owner.path("requiredActions").valueStream().map(JsonNode::asString))
+                .containsExactlyInAnyOrder("UPDATE_PASSWORD", "CONFIGURE_TOTP");
+    }
+
+    /**
+     * The audiences the gateway's tokens carry, as mappers Keycloak holds. The set is closed: one
+     * more audience would make a browser user's token acceptable to one more service.
+     */
+    @Test
+    void
+            Given_the_gateway_client_as_imported_When_its_audience_mappers_are_read_Then_they_name_the_ledger_and_assistant()
+                    throws Exception {
+        String clientUuid = importedClient("finassist-gateway").path("id").asString();
+
+        List<String> audiences = adminGet("/admin/realms/finassist/clients/" + clientUuid + "/protocol-mappers/models")
+                .valueStream()
+                .filter(mapper -> "oidc-audience-mapper"
+                        .equals(mapper.path("protocolMapper").asString(null)))
+                .map(mapper ->
+                        mapper.path("config").path("included.custom.audience").asString())
+                .toList();
+
+        assertThat(audiences).containsExactlyInAnyOrder("finassist-ledger", "finassist-assistant");
+    }
+
+    /**
+     * The nearest this test gets to a real browser token for the gateway (see the class
+     * javadoc): Keycloak's own example access token for the owner through the gateway client,
+     * which its admin API builds by running the same mappers and scope a sign-in would. It carries
+     * both audiences, and only the owner's own role.
+     */
+    @Test
+    void Given_the_owner_and_the_gateway_client_When_keycloak_builds_an_example_token_Then_it_names_both_audiences()
+            throws Exception {
+        String clientUuid = importedClient("finassist-gateway").path("id").asString();
+
+        JsonNode token = adminGet("/admin/realms/finassist/clients/" + clientUuid
+                + "/evaluate-scopes/generate-example-access-token?scope=openid&userId=" + OWNER_USER_ID);
+
+        assertThat(audience(token)).containsExactlyInAnyOrder("finassist-ledger", "finassist-assistant");
+        assertThat(roles(token)).containsExactly("owner");
     }
 
     /** The claim is a bare JSON array of role names, not Keycloak's nested {@code realm_access} shape (ADR-032). */
