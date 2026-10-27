@@ -27,7 +27,7 @@ import org.springframework.test.context.DynamicPropertySource;
  * {@code keycloak-db} — is the one an unbounded client cannot survive: the TCP handshake
  * completes, so no connect timeout fires, and the client waits for a first byte for ever, holding
  * a Tomcat thread while the browser spins with no error. A refused connection, which
- * {@code GatewayLoginFlowIT.LedgerDown} already covers for a relay, fails immediately and proves
+ * {@code GatewayLoginFlowIT.UpstreamsDown} already covers for a relay, fails immediately and proves
  * nothing about a timeout.
  *
  * <p>Three calls leave this gateway for Keycloak, and each is exercised below:
@@ -39,7 +39,8 @@ import org.springframework.test.context.DynamicPropertySource;
  * </ul>
  *
  * <p>None of them is the relay's own {@code RestClient}, which Spring Cloud Gateway builds from
- * Boot's auto-configured builder and which has therefore always been bounded. Spring Security's
+ * Boot's auto-configured builder and which has therefore always been bounded; {@code
+ * GatewayRelayTimeoutIT} stalls that one. Spring Security's
  * token clients and {@code OidcIdTokenDecoderFactory} each build their own HTTP client from a
  * static factory instead, so each has to be given Boot's budget deliberately —
  * {@code KeycloakRegistration} is where that is done.

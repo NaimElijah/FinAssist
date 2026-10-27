@@ -925,14 +925,15 @@ class GatewayLoginFlowIT {
     }
 
     /**
-     * A dedicated context so that only this test's ledger URI is unreachable, leaving the outer
-     * class's live {@code ledger} and {@code assistant} fakes untouched for every other test.
+     * A dedicated context whose ledger and assistant URIs both point at ports nothing listens on,
+     * leaving the outer class's live {@code ledger} and {@code assistant} fakes untouched for every
+     * other test.
      */
     @Nested
     @SpringBootTest(
             webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
             properties = "finassist.oidc.client-secret=" + CLIENT_SECRET)
-    class LedgerDown {
+    class UpstreamsDown {
 
         /** The address {@code server.address} defaults to in {@code application.yml}. */
         private static final String LOOPBACK = "127.0.0.1";
@@ -941,10 +942,10 @@ class GatewayLoginFlowIT {
         private int downPort;
 
         /**
-         * The dead ledger's port, held by a socket that is bound but never listens. Bound to the
-         * address the gateway binds, it keeps that address and the wildcard on this port from any
-         * other socket, so nothing can listen where the relay connects. Never listening, a
-         * connection to it is refused rather than left to time out: at once on Linux, and after
+         * The dead upstreams' ports, each held by a socket that is bound but never listens. Bound
+         * to the address the gateway binds, each keeps that address and the wildcard on its port
+         * from any other socket, so nothing can listen where the relay connects. Never listening, a
+         * connection to one is refused rather than left to time out: at once on Linux, and after
          * about two seconds of SYN retries on Windows, well inside the relay's five-second connect
          * timeout.
          *
@@ -955,11 +956,26 @@ class GatewayLoginFlowIT {
          */
         private static Socket deadLedgerSocket;
 
+        private static Socket deadAssistantSocket;
+
         @DynamicPropertySource
-        static void deadLedger(DynamicPropertyRegistry registry) throws IOException {
+        static void deadUpstreams(DynamicPropertyRegistry registry) throws IOException {
             // Spring calls this on every load of this context, so a reload must not leak the
-            // socket the previous load held.
-            releaseDeadLedger();
+            // sockets the previous load held.
+            releaseDeadUpstreams();
+            deadLedgerSocket = heldButNeverListening();
+            deadAssistantSocket = heldButNeverListening();
+            int deadLedgerPort = deadLedgerSocket.getLocalPort();
+            int deadAssistantPort = deadAssistantSocket.getLocalPort();
+            registry.add("finassist.oidc.public-url", idp::baseUrl);
+            registry.add("finassist.oidc.internal-url", idp::baseUrl);
+            // The held address itself, not localhost, which may resolve to an address the held
+            // socket does not cover.
+            registry.add("finassist.relay.ledger-uri", () -> "http://" + LOOPBACK + ":" + deadLedgerPort);
+            registry.add("finassist.relay.assistant-uri", () -> "http://" + LOOPBACK + ":" + deadAssistantPort);
+        }
+
+        private static Socket heldButNeverListening() throws IOException {
             Socket held = new Socket();
             // The default, made explicit because the guarantee rests on it. On Linux two sockets
             // share a port only when both set SO_REUSEADDR, and Tomcat's does; Windows' JDK binds
@@ -968,20 +984,15 @@ class GatewayLoginFlowIT {
             // The address the gateway binds (server.address), so the two contend for one port
             // rather than coexisting on different addresses.
             held.bind(new InetSocketAddress(InetAddress.getByName(LOOPBACK), 0));
-            deadLedgerSocket = held;
-            int deadPort = held.getLocalPort();
-            registry.add("finassist.oidc.public-url", idp::baseUrl);
-            registry.add("finassist.oidc.internal-url", idp::baseUrl);
-            // The held address itself, not localhost, which may resolve to an address the held
-            // socket does not cover.
-            registry.add("finassist.relay.ledger-uri", () -> "http://" + LOOPBACK + ":" + deadPort);
-            registry.add("finassist.relay.assistant-uri", assistant::baseUrl);
+            return held;
         }
 
         @AfterAll
-        static void releaseDeadLedger() throws IOException {
-            if (deadLedgerSocket != null) {
-                deadLedgerSocket.close();
+        static void releaseDeadUpstreams() throws IOException {
+            for (Socket held : new Socket[] {deadLedgerSocket, deadAssistantSocket}) {
+                if (held != null) {
+                    held.close();
+                }
             }
         }
 
@@ -990,20 +1001,33 @@ class GatewayLoginFlowIT {
         }
 
         /**
-         * What makes the relay test deterministic: no server this test process starts, the
-         * gateway's own Tomcat included, can bind the address and port the relay connects to.
+         * What makes the relay tests deterministic: no server this test process starts, the
+         * gateway's own Tomcat included, can bind the address and port a relay connects to.
          */
         @Test
-        void Given_the_dead_ledgers_port_When_a_server_tries_to_bind_it_Then_the_bind_is_refused() {
-            int deadPort = deadLedgerSocket.getLocalPort();
-            InetAddress address = deadLedgerSocket.getLocalAddress();
+        void Given_the_dead_upstreams_ports_When_a_server_tries_to_bind_them_Then_the_bind_is_refused() {
+            for (Socket held : List.of(deadLedgerSocket, deadAssistantSocket)) {
+                int deadPort = held.getLocalPort();
+                InetAddress address = held.getLocalAddress();
 
-            assertThatThrownBy(() -> new ServerSocket(deadPort, 1, address).close())
-                    .isInstanceOf(BindException.class);
+                assertThatThrownBy(() -> new ServerSocket(deadPort, 1, address).close())
+                        .isInstanceOf(BindException.class);
+            }
         }
 
         @Test
         void Given_the_ledger_is_unreachable_When_relayed_Then_it_answers_502_upstream_unavailable() throws Exception {
+            assertRelayAnswers502(url("/ledger/api/v1/accounts"));
+        }
+
+        @Test
+        void Given_the_assistant_is_unreachable_When_relayed_Then_it_answers_502_upstream_unavailable()
+                throws Exception {
+            assertRelayAnswers502(url("/assistant/api/v1/portfolio/holdings/ACME/position"));
+        }
+
+        /** Signs in against this context's gateway, then asserts the relay's problem for {@code target}. */
+        private void assertRelayAnswers502(String target) throws Exception {
             try (HttpClient client = newClient()) {
                 HttpResponse<Void> entry = getFollowingNothing(client, url("/bff/oauth2/authorization/keycloak"));
                 URI authorizeUri =
@@ -1021,7 +1045,7 @@ class GatewayLoginFlowIT {
                 assertThat(callback.headers().firstValue("Location")).contains(WEB_ORIGIN + "/");
 
                 HttpResponse<String> response = client.send(
-                        HttpRequest.newBuilder(URI.create(url("/ledger/api/v1/accounts")))
+                        HttpRequest.newBuilder(URI.create(target))
                                 .timeout(TIMEOUT)
                                 .GET()
                                 .build(),
@@ -1030,7 +1054,8 @@ class GatewayLoginFlowIT {
                 assertThat(response.statusCode())
                         .as("the relay's answer, whose body was %s", response.body())
                         .isEqualTo(502);
-                assertThat(response.body()).contains("UPSTREAM_UNAVAILABLE");
+                assertThat(response.headers().firstValue("content-type")).contains("application/problem+json");
+                assertThat(response.body()).contains("\"status\":502").contains("\"code\":\"UPSTREAM_UNAVAILABLE\"");
             }
         }
     }

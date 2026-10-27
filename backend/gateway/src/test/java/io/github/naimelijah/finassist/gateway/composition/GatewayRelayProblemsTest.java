@@ -178,6 +178,9 @@ class GatewayRelayProblemsTest {
         problems.relayFailed(new ErrorResponseException(HttpStatus.CONFLICT), response);
 
         assertThat(response.getStatus()).isEqualTo(500);
+        assertThat(response.getContentType()).isEqualTo(PROBLEM_JSON);
+        assertThat(JSON.readTree(response.getContentAsByteArray()).path("code").asString())
+                .isEqualTo("INTERNAL_ERROR");
         assertThat(captured.list.getFirst().getLevel()).isEqualTo(Level.ERROR);
     }
 }

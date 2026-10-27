@@ -223,7 +223,8 @@
         everything named *IT. It earns its keep here: KeycloakRealmIT builds ops/keycloak and runs
         the real image against a real PostgreSQL in Testcontainers, so `verify` needs Docker while
         `test` does not. The context-booting ITs beside it - GatewayApplicationIT,
-        GatewayLoginFlowIT, GatewayKeycloakTimeoutIT and GatewayContractIT - need none.
+        GatewayLoginFlowIT, GatewayKeycloakTimeoutIT, GatewayRelayTimeoutIT and GatewayContractIT -
+        need none.
 
         `verify` is bound as well as `integration-test` on purpose - without it failsafe records
         failures and never reports them, and the build goes green over a red suite.
