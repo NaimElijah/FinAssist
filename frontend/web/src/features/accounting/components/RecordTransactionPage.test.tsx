@@ -264,15 +264,16 @@ describe('RecordTransactionPage entry rows', () => {
 describe('RecordTransactionPage submission', () => {
     it('Given_a_filled_form_When_submitted_Then_it_posts_the_mapped_entries_with_each_accounts_own_currency', async () => {
         // An ILS and a USD entry, so each entry's currency must come from its own account. The
-        // ledger refuses such a set - it does not balance in one currency - so the fake does too,
-        // rather than accept a transaction the real service never would.
+        // ledger refuses such a set with CURRENCY_MISMATCH - summing the entries combines two
+        // currencies, which no rate exists to do (ADR-012) - so the fake does too, rather than
+        // accept a transaction the real service never would.
         const requests = fakeFetch(
             ledger((request) => {
                 if (request.url === RECORD_URL && request.method === 'POST') {
                     return problemResponse({
                         status: 422,
-                        code: 'RULE_VIOLATED',
-                        detail: 'The entries do not balance.',
+                        code: 'CURRENCY_MISMATCH',
+                        detail: 'Cannot combine ILS with USD; FinAssist performs no conversion',
                     });
                 }
                 return unexpectedRequest(request);
