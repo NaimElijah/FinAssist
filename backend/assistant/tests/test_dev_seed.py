@@ -137,13 +137,21 @@ def Given_the_seed_is_on_When_an_unseeded_symbol_is_read_Then_it_is_holding_not_
     assert response.json()["code"] == "HOLDING_NOT_FOUND"
 
 
+def _is_json_record(line: str) -> bool:
+    try:
+        return isinstance(json.loads(line), dict)
+    except json.JSONDecodeError:
+        return False
+
+
 def Given_the_seed_is_on_When_the_app_starts_Then_it_is_logged_with_symbols_and_no_amount(
     capsys: pytest.CaptureFixture[str], token_verifier: TokenVerifier
 ) -> None:
     """Every amount the seed holds - each lot's unit cost and each symbol's price - is read from
     the seeded assembly itself, so a change to the seed data cannot leave this checking for an
     amount that no longer exists. The timestamp is left out of the search: its fractional
-    seconds could contain an amount such as ``25.50`` by chance."""
+    seconds could contain an amount such as ``25.50`` by chance. Every line must be a JSON
+    record first, so an amount written outside the logging boundary has nowhere to hide."""
     seeded = seeded_assembly(_MovableClock(START))
     amounts = {
         str(lot.unit_cost.amount)
@@ -154,9 +162,10 @@ def Given_the_seed_is_on_When_the_app_starts_Then_it_is_logged_with_symbols_and_
 
     capsys.readouterr()
     create_app(_settings(dev_seed=True), token_verifier=token_verifier)
-    records = [
-        json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")
-    ]
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    stray = [line for line in lines if not _is_json_record(line)]
+    assert not stray, f"stdout carries lines the logging boundary did not write: {stray}"
+    records = [json.loads(line) for line in lines]
 
     [seed_line] = [record for record in records if record["event"] == "development seed loaded"]
     assert seed_line["symbols"] == list(SEED_SYMBOLS)

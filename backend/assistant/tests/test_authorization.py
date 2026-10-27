@@ -388,8 +388,7 @@ def Given_a_principal_whose_role_grants_the_permission_When_required_Then_nothin
 ):
     require = RequirePermission(READ_PORTFOLIO)
 
-    # A FastAPI dependency admits by returning; the only other outcome is the 403 it raises.
-    assert require(_with(Principal(subject="owner-user", roles=frozenset({"owner"})))) is None  # type: ignore[func-returns-value]
+    require(_with(Principal(subject="owner-user", roles=frozenset({"owner"}))))
 
 
 def Given_a_principal_whose_role_lacks_the_permission_When_required_Then_403_is_raised() -> None:
