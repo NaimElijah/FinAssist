@@ -100,8 +100,8 @@ const RECORDED_TRANSACTION = {
 };
 
 /**
- * The local date the form's Date field defaults to, written out rather than computed by the code under
- * test, so a call site reading the date some other way cannot agree with itself.
+ * The local date the form's Date field defaults to, written out rather than computed by the code
+ * under test, so a call site reading the date some other way cannot agree with itself.
  */
 const TODAY = '2026-09-15';
 

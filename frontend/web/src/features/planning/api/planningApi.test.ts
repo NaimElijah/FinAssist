@@ -1160,8 +1160,11 @@ const DECIMAL_MEMBERS: readonly DecimalMember[] = [
 ];
 
 describe('a decimal the contract does not allow', () => {
-    // Accounting already refuses one (accountingApi.test.ts); a malformed amount or rate would
-    // otherwise reach MoneyText or the chart's scale and fail at render, not as one failed read.
+    // Accounting already refuses one (accountingApi.test.ts). Refused at the read, because past it
+    // a JSON number fails nowhere: JSON.parse has already made it a binary float, rounding any
+    // figure it cannot hold exactly, MoneyText's pattern passes it once coerced to text, and a
+    // growth rate renders as it came - so an inexact figure would be shown silently, as if exact.
+    // A malformed string is no better: a rate shows it raw, and the chart's scale makes it NaN.
     it('Given_every_fixture_with_valid_decimals_When_read_Then_each_read_succeeds', async () => {
         // The control for the tests below: each fixture is a valid response but for the one
         // member a test replaces, so a rejection there is that member's doing.

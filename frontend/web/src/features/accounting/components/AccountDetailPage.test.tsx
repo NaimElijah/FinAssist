@@ -101,8 +101,8 @@ function rowOf(description: string): HTMLElement {
 }
 
 /**
- * The local date a lifecycle panel's Date field defaults to, written out rather than computed by the code under
- * test, so a call site reading the date some other way cannot agree with itself.
+ * The local date a lifecycle panel's Date field defaults to, written out rather than computed by
+ * the code under test, so a call site reading the date some other way cannot agree with itself.
  */
 const TODAY = '2026-09-15';
 
@@ -418,10 +418,6 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
     } as const;
 
     /**
-     * A ledger holding Checking, a fixed balance, and whichever transactions `getTransactions`
-     * returns at the time of each read; `extra` answers everything else, such as a lifecycle POST.
-     */
-    /**
      * Asserts a lifecycle action invalidated exactly the balance and transactions of the two
      * accounts its transaction names - Checking and Groceries - once each, and nothing wider:
      * a mutation invalidates only the keys that can have changed (frontend/web/CLAUDE.md).
@@ -441,6 +437,10 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         );
     }
 
+    /**
+     * A ledger holding Checking, a fixed balance, and whichever transactions `getTransactions`
+     * returns at the time of each read; `extra` answers everything else, such as a lifecycle POST.
+     */
     function lifecycleLedger(
         getTransactions: () => readonly unknown[],
         extra: FetchAnswer,
@@ -698,8 +698,8 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         },
     ] satisfies readonly FieldEdit[]) {
         it(`Given_a_refused_void_shown_in_its_panel_When_its_${field}_is_edited_Then_the_refusal_clears`, async () => {
-            // The refusal answered the void as it was sent; once the owner changes it, the message no
-            // longer describes anything in the panel.
+            // The refusal answered the void as it was sent; once the owner changes it, the message
+            // no longer describes anything in the panel.
             fakeFetch(
                 lifecycleLedger(
                     () => [PENDING_TX],

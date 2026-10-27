@@ -117,8 +117,8 @@ const COMPARISON_KEY = planKeys.comparison({
 });
 
 /**
- * The local date a lifecycle panel's Date field defaults to, written out rather than computed by the code under
- * test, so a call site reading the date some other way cannot agree with itself.
+ * The local date a lifecycle panel's Date field defaults to, written out rather than computed by
+ * the code under test, so a call site reading the date some other way cannot agree with itself.
  */
 const TODAY = '2026-09-15';
 
@@ -501,8 +501,8 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         },
     ] satisfies readonly FieldEdit[]) {
         it(`Given_a_refused_cancel_shown_in_its_panel_When_its_${field}_is_edited_Then_the_refusal_clears`, async () => {
-            // The refusal answered the cancel as it was sent; once the owner changes it, the message no
-            // longer describes anything in the panel.
+            // The refusal answered the cancel as it was sent; once the owner changes it, the
+            // message no longer describes anything in the panel.
             fakeFetch(
                 ledger([RENT], (request) => {
                     if (

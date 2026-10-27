@@ -519,8 +519,9 @@ const DECIMAL_MEMBERS: readonly {
 ];
 
 describe('a decimal the contract does not allow', () => {
-    // Accounting already refuses one (accountingApi.test.ts); a malformed amount would otherwise
-    // reach MoneyText and throw at render, replacing the whole area instead of failing one read.
+    // Accounting already refuses one (accountingApi.test.ts). A JSON number would otherwise reach
+    // MoneyText already rounded by JSON.parse and be shown silently as if exact; a malformed string
+    // would throw at render, replacing the whole area instead of failing one read.
     it('Given_every_fixture_with_valid_amounts_When_read_Then_each_read_succeeds', async () => {
         // The control for the tests below: each fixture is a valid response but for the one
         // member a test replaces, so a rejection there is that member's doing.
