@@ -5,6 +5,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { pinClockJustAfterLocalMidnight } from './localClock';
 
+/** The local offset, in minutes, on the date every test here pins: UTC+14 reads -840. */
+function offsetOnThePinnedDate(): number {
+    return new Date(2026, 8, 15, 0, 30).getTimezoneOffset();
+}
+
+/**
+ * The machine's own offset, read before any test here pins the clock. A restore that leaked the
+ * pinned zone into a later test would otherwise move that test's own baseline along with it.
+ */
+const OFFSET_BEFORE_ANY_PIN = offsetOnThePinnedDate();
+
 describe('pinClockJustAfterLocalMidnight', () => {
     let restore: () => void = () => undefined;
 
@@ -30,10 +41,15 @@ describe('pinClockJustAfterLocalMidnight', () => {
     });
 
     it('Given_a_pinned_clock_When_restored_Then_the_original_zone_and_real_timers_are_back', () => {
+        // Checks the zone Node computes dates in, not only the variable: on Windows, deleting
+        // process.env.TZ after setting it leaves Node in the zone last set.
         const originalZone = process.env.TZ;
         pinClockJustAfterLocalMidnight('2026-09-15')();
 
         expect(process.env.TZ).toBe(originalZone);
+        expect(offsetOnThePinnedDate(), 'the local offset after restoring').toBe(
+            OFFSET_BEFORE_ANY_PIN,
+        );
         expect(vi.isFakeTimers()).toBe(false);
     });
 });

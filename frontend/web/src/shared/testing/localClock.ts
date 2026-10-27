@@ -22,6 +22,7 @@ const FAR_AHEAD_ZONE = 'Pacific/Kiritimati';
  */
 export function pinClockJustAfterLocalMidnight(isoDate: string): () => void {
     const originalZone = process.env.TZ;
+    const resolvedZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     process.env.TZ = FAR_AHEAD_ZONE;
     const [year = NaN, month = NaN, day = NaN] = isoDate.split('-').map(Number);
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -29,10 +30,9 @@ export function pinClockJustAfterLocalMidnight(isoDate: string): () => void {
 
     return () => {
         vi.useRealTimers();
-        if (originalZone === undefined) {
-            delete process.env.TZ;
-        } else {
-            process.env.TZ = originalZone;
-        }
+        // Deleting TZ alone does not restore the zone on Windows: Node keeps the one last set.
+        // Setting the zone resolved before pinning first puts it back on every platform.
+        process.env.TZ = originalZone ?? resolvedZone;
+        if (originalZone === undefined) delete process.env.TZ;
     };
 }
