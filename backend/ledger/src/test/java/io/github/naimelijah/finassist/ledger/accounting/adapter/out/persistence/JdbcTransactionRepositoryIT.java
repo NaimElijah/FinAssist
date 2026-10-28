@@ -193,7 +193,9 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                             .param("on", MARCH_1)
                             .param("recordedBy", RECORDER.subject())
                             .update();
-                    jdbc().sql("INSERT INTO accounting.journal_entry VALUES (:id, 0, :account, 10.00, 'ILS')")
+                    jdbc().sql(
+                                    "INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency)"
+                                            + " VALUES (:id, 0, :account, 10.00, 'ILS')")
                             .param("id", id.value())
                             .param("account", groceries.id().value())
                             .update();
@@ -203,10 +205,12 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
 
     /**
      * The trigger's other three refusals, each reached the same way: a header and two entries written
-     * directly, the entries in one statement so the deferred check sees both. Each case trips exactly
-     * one branch — the mixed pair sums to zero and the unbalanced pair shares a currency — so a branch
-     * dropped from {@code refuse_unbalanced_transaction} fails its own case rather than being masked
-     * by a neighbour.
+     * directly, the entries in one statement so the deferred check sees both. Each case is held to the
+     * message its branch raises, not only to a refusal: the mixed pair sums to zero and the unbalanced
+     * pair shares one currency, but the mixed pair also posts a USD entry to an ILS account, so it meets
+     * the account-currency condition as well, and only the message tells the two branches apart. A
+     * branch dropped from {@code refuse_unbalanced_transaction} therefore fails its own case rather
+     * than being masked by a neighbour.
      */
     @ParameterizedTest(name = "{5}")
     @CsvSource({
@@ -232,7 +236,7 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                 .update();
 
         assertThatThrownBy(() -> jdbc().sql("""
-                        INSERT INTO accounting.journal_entry VALUES
+                        INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency) VALUES
                             (:id, 0, :groceries, CAST(:groceriesAmount AS numeric), :groceriesCurrency),
                             (:id, 1, :cash, CAST(:cashAmount AS numeric), :cashCurrency)
                         """)
@@ -288,7 +292,7 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                 .update();
         // One statement, so the deferred balance check sees both entries at commit.
         jdbc().sql("""
-                        INSERT INTO accounting.journal_entry VALUES
+                        INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency) VALUES
                             (:id, 0, :groceries, 10.005, 'ILS'),
                             (:id, 1, :cash, -10.005, 'ILS')
                         """)
