@@ -822,13 +822,17 @@ the classes and tests that enforce them in
 |---|---|
 | Layers point inward, in every ledger context | `LedgerArchitectureTest.layers_point_inward` |
 | **No ledger context depends on another** (`shared` exempt) | `LedgerArchitectureTest.contexts_do_not_depend_on_each_other` |
-| The ledger domain imports no framework (now also Jackson 3's `tools.jackson`, `io.swagger` and `org.springdoc`, widened with the HTTP adapters) | `LedgerArchitectureTest.domain_depends_on_no_framework` |
-| No floating-point field in a ledger domain | `LedgerArchitectureTest.money_is_never_floating_point` |
+| The ledger domain imports no framework (now also Jackson 3's `tools.jackson`, `io.swagger` and `org.springdoc`, widened with the HTTP adapters), and none of the JDK's own I/O seams, `java.sql` and `java.net` | `LedgerArchitectureTest.domain_depends_on_no_framework` |
+| **No floating-point field in a ledger domain or `shared`**, nor an array of one at any depth | `LedgerArchitectureTest.money_is_never_floating_point` |
+| **No ledger domain or `shared` class depends on `Double` or `Float`**, so a `List<Double>` field, a boxed local or a boxed argument fails too | `LedgerArchitectureTest.money_never_depends_on_a_boxed_floating_point_type` |
+| **No method or constructor in a ledger domain or `shared` takes or returns a floating-point type**, primitive, boxed or an array | `LedgerArchitectureTest.money_is_never_passed_or_returned_as_floating_point` |
+| **The clock is read only in the ledger's composition root**: no `java.time` `now`, `Clock.system*`, `System.currentTimeMillis` or `System.nanoTime` anywhere else, called or passed as a method reference | `LedgerArchitectureTest.clock_is_read_only_in_the_composition_root` |
+| **No ledger domain field is named after a derived quantity** — a balance, a spend, a remainder or a projection — except `AccountType.normalBalance` and the derived `Comparison`; no column is either | `LedgerArchitectureTest.derived_quantities_are_never_stored`; `SchemaBoundariesIT.Given_the_migrated_schema_When_its_columns_are_read_Then_none_stores_a_derived_quantity` |
 | No cycles between aggregates in a context | `LedgerArchitectureTest.aggregates_are_free_of_cycles` |
 | **No foreign key crosses a schema**, so context isolation holds in the database too | `SchemaBoundariesIT` |
 | **The journal is append-only**: no `UPDATE` or `DELETE` on a transaction, its entries or its states | `V1_1__accounting_schema.sql` triggers; `JournalIsAppendOnlyIT` |
 | **Nothing outside the ledger's composition root depends on it** | `LedgerArchitectureTest.no_context_depends_on_the_composition_root` |
-| **The ledger's application layer imports no framework** (same widened package list as the domain rule) | `LedgerArchitectureTest.the_application_layer_depends_on_no_framework` |
+| **The ledger's application layer imports no framework** (same widened package list as the domain rule, `java.sql` and `java.net` included) | `LedgerArchitectureTest.the_application_layer_depends_on_no_framework` |
 | **A controller reaches the application only through its in-ports** — never a repository, an outbound adapter, or a concrete `application.service` class | `LedgerArchitectureTest.inbound_adapters_reach_only_in_ports` |
 | **An outbound adapter never reaches an inbound one**, so the store never names a transport type | `LedgerArchitectureTest.outbound_adapters_do_not_reach_inbound` |
 | **A web DTO's simple name is unique across every context** — `MoneyDto` alone is exempt, since each context declares an identical copy on purpose | `LedgerArchitectureTest.web_dto_names_are_unique_across_contexts`; `MoneyDtoShapesTest` keeps the three copies identical |

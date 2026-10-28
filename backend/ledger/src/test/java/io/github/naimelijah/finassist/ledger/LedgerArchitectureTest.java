@@ -21,6 +21,8 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountType;
+import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Comparison;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -213,6 +215,34 @@ class LedgerArchitectureTest {
             }
         };
     }
+
+    /** The names "Derived, never stored" forbids a domain field to carry, in any case. */
+    private static final String DERIVED_QUANTITY_NAME = "(?i).*(balance|spent|remaining|projection).*";
+
+    /**
+     * Derived, never stored (root {@code CLAUDE.md}, "The domain"): a balance is summed from entries,
+     * a budget's spend passed in and its remainder computed, a projection computed from its scenario.
+     * A domain field named after one of those quantities is the bug that rule exists to prevent — a
+     * value that can drift from the facts it was derived from.
+     *
+     * <p>Scoped by name, with two exemptions that hold no stored quantity: {@code
+     * AccountType.normalBalance} is the side a balance sits on, a constant of the type rather than an
+     * amount; {@code Comparison} is itself a derived value, computed per request from the projections
+     * it holds and never persisted. Its storage-side half is {@code
+     * SchemaBoundariesIT}'s refusal of a column with such a name.
+     */
+    @ArchTest
+    static final ArchRule derived_quantities_are_never_stored = noFields()
+            .that()
+            .areDeclaredInClassesThat()
+            .resideInAPackage(ROOT + "..domain..")
+            .and()
+            .doNotHaveFullName(AccountType.class.getName() + ".normalBalance")
+            .and()
+            .areNotDeclaredIn(Comparison.class)
+            .should()
+            .haveNameMatching(DERIVED_QUANTITY_NAME)
+            .because("a balance, a spend, a remainder or a projection is derived on every read, never stored");
 
     /**
      * A cycle between aggregates inside one context means an aggregate boundary is wrong.

@@ -45,6 +45,30 @@ class SchemaBoundariesIT extends PostgresFixture {
                 .isEmpty();
     }
 
+    /**
+     * Derived, never stored (root {@code CLAUDE.md}, "The domain"), at the storage layer: a balance is
+     * summed from journal entries, a budget's spend and remainder computed from the journal, a
+     * projection computed from its scenario. A column holding one would be a second copy free to
+     * drift from the facts. {@code LedgerArchitectureTest.derived_quantities_are_never_stored} is the
+     * same rule over the domain's fields, by the same names.
+     */
+    @Test
+    void Given_the_migrated_schema_When_its_columns_are_read_Then_none_stores_a_derived_quantity() {
+        List<String> stored = jdbc().sql("""
+                        SELECT table_schema || '.' || table_name || '.' || column_name
+                          FROM information_schema.columns
+                         WHERE table_schema IN (:schemas)
+                           AND column_name ~* '(balance|spent|remaining|projection)'
+                        """)
+                .param("schemas", CONTEXT_SCHEMAS)
+                .query(String.class)
+                .list();
+
+        assertThat(stored)
+                .as("a balance, spend, remainder or projection is derived on every read, never stored")
+                .isEmpty();
+    }
+
     /** Every context owns a schema, so a missing one means a migration did not run. */
     @Test
     void Given_the_migrated_database_When_its_schemas_are_read_Then_every_context_owns_one() {
