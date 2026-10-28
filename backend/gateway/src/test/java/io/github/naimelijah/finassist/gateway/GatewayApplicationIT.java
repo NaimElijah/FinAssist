@@ -85,6 +85,9 @@ class GatewayApplicationIT {
 
     private static final Duration SHIPPED_READ_TIMEOUT = Duration.ofSeconds(10);
 
+    /** ADR-030's idle timeout, {@code server.servlet.session.timeout}, spelled here for the same reason. */
+    private static final Duration SHIPPED_SESSION_TIMEOUT = Duration.ofMinutes(30);
+
     @LocalServerPort
     private int port;
 
@@ -225,10 +228,7 @@ class GatewayApplicationIT {
      */
     @Test
     void Given_the_running_gateway_When_its_filter_chain_is_read_Then_the_host_allow_list_runs_before_security() {
-        TomcatWebServer server = (TomcatWebServer) context.getWebServer();
-        List<Context> webApps = Arrays.stream(server.getTomcat().getHost().findChildren())
-                .map(Context.class::cast)
-                .toList();
+        List<Context> webApps = webApps();
         List<String> chain = webApps.stream()
                 .flatMap(web -> Arrays.stream(web.findFilterMaps())
                         .map(map -> web.findFilterDef(map.getFilterName()).getFilterClass()))
@@ -246,6 +246,28 @@ class GatewayApplicationIT {
         assertThat(names.subList(1, names.size()))
                 .withFailMessage("springSecurityFilterChain must run, and must run after the Host allow-list")
                 .contains(SECURITY_FILTER_NAME);
+    }
+
+    /** The web applications the running Tomcat holds, as the container itself sees them. */
+    private List<Context> webApps() {
+        TomcatWebServer server = (TomcatWebServer) context.getWebServer();
+        return Arrays.stream(server.getTomcat().getHost().findChildren())
+                .map(Context.class::cast)
+                .toList();
+    }
+
+    /**
+     * ADR-030's idle timeout as the running server applies it: half an hour without a request ends
+     * the session, and with it the owner's tokens, which live nowhere else. Read from Tomcat's own
+     * context, in the whole minutes Boot converts {@code server.servlet.session.timeout} into,
+     * because that is the value sessions are actually created with, not the property it came from.
+     */
+    @Test
+    void Given_the_shipped_configuration_When_the_servers_session_timeout_is_read_Then_it_is_thirty_minutes() {
+        assertThat(webApps())
+                .extracting(Context::getSessionTimeout)
+                .as("each web application's session timeout, in minutes")
+                .containsExactly((int) SHIPPED_SESSION_TIMEOUT.toMinutes());
     }
 
     /**
