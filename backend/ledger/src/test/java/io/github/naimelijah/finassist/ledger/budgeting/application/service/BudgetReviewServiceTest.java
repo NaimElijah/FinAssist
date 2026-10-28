@@ -206,7 +206,7 @@ class BudgetReviewServiceTest {
      *
      * <p>Re-stubbed on every call rather than handed the live list, so each test states the exact
      * sequence the review will fold over. The order is the contract - a review takes the first
-     * matching rule - and {@code JdbcCategorisationRuleRepositoryIT} is what proves the real store
+     * matching rule - and {@code JdbcBudgetingRepositoriesIT} is what proves the real store
      * returns them this way.
      */
     private void holds(CategorisationRule rule) {

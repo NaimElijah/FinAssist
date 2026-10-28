@@ -100,7 +100,7 @@ class BudgetServiceTest {
      * A review takes the first matching rule, so the order rules come back in decides the answer.
      * What the service owes is to hand them over in the order it was given them; that the store then
      * returns them in that order is the {@code ORDER BY ordinal} asserted in
-     * {@code JdbcCategorisationRuleRepositoryIT}.
+     * {@code JdbcBudgetingRepositoriesIT}.
      */
     @Test
     void Given_rules_added_in_order_When_they_are_stored_Then_the_order_is_preserved() {
