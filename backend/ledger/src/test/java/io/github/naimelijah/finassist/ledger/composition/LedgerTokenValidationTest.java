@@ -34,6 +34,12 @@ class LedgerTokenValidationTest {
     /** One second inside it. */
     private static final Duration WITHIN_SKEW = Duration.ofSeconds(29);
 
+    /**
+     * Exactly the skew, which is accepted: 29 s and 31 s alone would let a strict comparison become
+     * an inclusive one, refusing a token the assistant accepts at the same edge.
+     */
+    private static final Duration AT_SKEW = Duration.ofSeconds(30);
+
     /** How long after {@link #NOW} the {@code jwt()} helper's token expires. */
     private static final Duration LIFETIME = Duration.ofHours(1);
 
@@ -64,6 +70,13 @@ class LedgerTokenValidationTest {
     }
 
     @Test
+    void Given_a_token_expired_exactly_at_the_skew_When_validated_Then_it_is_accepted() {
+        Jwt jwt = jwt(builder -> builder.issuedAt(WELL_BEFORE_EXPIRY).expiresAt(NOW.minus(AT_SKEW)));
+
+        assertThat(validator.validate(jwt).hasErrors()).isFalse();
+    }
+
+    @Test
     void Given_a_token_not_yet_valid_beyond_the_skew_When_validated_Then_it_is_refused() {
         Jwt jwt = jwt(builder -> builder.notBefore(NOW.plus(BEYOND_SKEW)));
 
@@ -78,6 +91,13 @@ class LedgerTokenValidationTest {
     }
 
     @Test
+    void Given_a_token_not_yet_valid_exactly_at_the_skew_When_validated_Then_it_is_accepted() {
+        Jwt jwt = jwt(builder -> builder.notBefore(NOW.plus(AT_SKEW)));
+
+        assertThat(validator.validate(jwt).hasErrors()).isFalse();
+    }
+
+    @Test
     void Given_a_token_issued_beyond_the_skew_in_the_future_When_validated_Then_it_is_refused() {
         Jwt jwt = jwt(builder -> builder.issuedAt(NOW.plus(BEYOND_SKEW)));
 
@@ -87,6 +107,13 @@ class LedgerTokenValidationTest {
     @Test
     void Given_a_token_issued_within_the_skew_in_the_future_When_validated_Then_it_is_accepted() {
         Jwt jwt = jwt(builder -> builder.issuedAt(NOW.plus(WITHIN_SKEW)));
+
+        assertThat(validator.validate(jwt).hasErrors()).isFalse();
+    }
+
+    @Test
+    void Given_a_token_issued_exactly_at_the_skew_in_the_future_When_validated_Then_it_is_accepted() {
+        Jwt jwt = jwt(builder -> builder.issuedAt(NOW.plus(AT_SKEW)));
 
         assertThat(validator.validate(jwt).hasErrors()).isFalse();
     }
