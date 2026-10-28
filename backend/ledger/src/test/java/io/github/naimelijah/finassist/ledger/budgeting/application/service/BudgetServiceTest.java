@@ -69,6 +69,8 @@ class BudgetServiceTest {
         assertThatThrownBy(() -> service.define(new DefineBudgetCommand(
                         MARCH, Currency.ILS, List.of(new CategoryLimit(GROCERIES, Money.of("1200.00", Currency.USD))))))
                 .isInstanceOf(IllegalArgumentException.class);
+
+        verify(budgets, never()).save(any());
     }
 
     @Test
