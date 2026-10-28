@@ -2,6 +2,9 @@ package io.github.naimelijah.finassist.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.core.importer.ImportOption;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.RecordComponent;
 import java.util.Arrays;
@@ -10,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -31,11 +35,26 @@ class MoneyDtoShapesTest {
     private static final Class<?> ACCOUNTING =
             io.github.naimelijah.finassist.ledger.accounting.adapter.in.web.MoneyDto.class;
 
-    /** Every other copy, each compared with accounting's. */
+    /**
+     * Every other copy, found in the compiled production classes rather than listed by hand, so a copy a
+     * new context adds is compared from the moment it exists — the same static scan {@code
+     * WebSliceSecurityImportTest} uses.
+     */
     static Stream<Class<?>> copies() {
-        return Stream.of(
-                io.github.naimelijah.finassist.ledger.budgeting.adapter.in.web.MoneyDto.class,
-                io.github.naimelijah.finassist.ledger.planning.adapter.in.web.MoneyDto.class);
+        return new ClassFileImporter()
+                        .withImportOption(new ImportOption.DoNotIncludeTests())
+                        .importPackages(LedgerArchitectureTest.ROOT)
+                        .stream()
+                        .filter(candidate -> candidate.getSimpleName().equals(ACCOUNTING.getSimpleName()))
+                        .filter(candidate -> !candidate.isEquivalentTo(ACCOUNTING))
+                        .<Class<?>>map(JavaClass::reflect)
+                        .sorted(Comparator.comparing(Class::getName));
+    }
+
+    /** A scan finding nothing would leave every case below passing over no copy at all. */
+    @Test
+    void Given_the_production_classes_When_scanned_for_MoneyDto_copies_Then_one_is_found_beyond_accountings() {
+        assertThat(copies()).isNotEmpty();
     }
 
     @ParameterizedTest
