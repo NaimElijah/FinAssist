@@ -13,6 +13,8 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import java.net.URI;
+import java.util.List;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -110,7 +112,25 @@ class LedgerProblemHandlerTest {
                 .getContentAsString();
 
         assertThat(body).doesNotContain(MARKER);
-        assertThat(output.getOut()).contains("ERROR").contains(MARKER);
+        // Standalone MockMvc starts no Boot context, so the format depends on what else this JVM ran:
+        // Boot's ECS JSON once any test has initialised logging, Logback's plain text otherwise. In
+        // JSON the event, its level and its stack trace share the marker's line; in plain text the
+        // event's line, with the level, introduces the exception on the next. Either way the level is
+        // read off the event carrying the marker, never anywhere in the output.
+        List<String> lines = output.getOut().lines().toList();
+        int exception = IntStream.range(0, lines.size())
+                .filter(index -> lines.get(index).contains(MARKER))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no log line carries the exception's message"));
+        String carrier = lines.get(exception);
+        boolean structured = carrier.startsWith("{");
+        assertThat(structured || exception > 0)
+                .as("a log event precedes the exception")
+                .isTrue();
+        String event = structured ? carrier : lines.get(exception - 1);
+        assertThat(event)
+                .contains("Answered 500 with a generic detail")
+                .containsPattern(structured ? "\"level\":\"ERROR\"" : " ERROR ");
     }
 
     @Test
