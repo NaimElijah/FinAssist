@@ -5,10 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
-import java.lang.reflect.Method;
 import java.time.LocalDate;
-import java.util.Arrays;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /** The plan lifecycle, and the invariants that keep an intention from being nonsense. */
 class PlannedFlowTest {
@@ -144,17 +144,58 @@ class PlannedFlowTest {
     }
 
     /**
-     * The compiler already refuses {@code realised.commit(...)}, because {@code Realised} declares no
-     * such method — but a compile-time guarantee leaves no trace in the suite, so nothing would stop
-     * someone restoring one. This asserts the absence itself.
+     * Every command from every state, on the aggregate itself — the mirror of {@code TransactionTest}'s
+     * matrix, as ADR-015 asks of two lifecycles of nearly one shape. The four legal transitions reach
+     * the state they name; the other eight are refused with {@link IllegalPlanTransitionException}
+     * naming the command and the state. {@code Realised} refusing all three is its freeze, held where
+     * {@link PlannedFlow} enforces it rather than by the absence of a method on the state type.
      */
-    @Test
-    void Given_the_realised_state_When_inspected_Then_it_declares_no_transition_at_all() {
-        assertThat(Arrays.stream(PlanState.Realised.class.getDeclaredMethods())
-                        .filter(method -> PlanState.class.isAssignableFrom(method.getReturnType()))
-                        .map(Method::getName))
-                .as("Realised is frozen by the absence of a transition; see ADR-015")
-                .isEmpty();
+    @ParameterizedTest(name = "{0} -> {1}: {2}")
+    @CsvSource({
+        "Planned,   commit,  Committed",
+        "Planned,   realise, refused",
+        "Planned,   cancel,  Cancelled",
+        "Committed, commit,  refused",
+        "Committed, realise, Realised",
+        "Committed, cancel,  Cancelled",
+        "Realised,  commit,  refused",
+        "Realised,  realise, refused",
+        "Realised,  cancel,  refused",
+        "Cancelled, commit,  refused",
+        "Cancelled, realise, refused",
+        "Cancelled, cancel,  refused"
+    })
+    void Given_a_plan_in_a_state_When_a_command_is_applied_Then_only_the_legal_transitions_succeed(
+            String from, String command, String outcome) {
+        PlannedFlow flow = inState(from);
+
+        if (outcome.equals("refused")) {
+            assertThatThrownBy(() -> apply(command, flow))
+                    .isInstanceOf(IllegalPlanTransitionException.class)
+                    .hasMessage("Cannot " + command + " a plan that is " + from);
+        } else {
+            assertThat(apply(command, flow).state().name()).isEqualTo(outcome);
+        }
+    }
+
+    /** Every earlier transition in January, so a March command can never be refused for its date. */
+    private static PlannedFlow inState(String state) {
+        return switch (state) {
+            case "Planned" -> aPurchase();
+            case "Committed" -> aPurchase().commit(JANUARY);
+            case "Realised" -> aPurchase().commit(JANUARY).realise(JANUARY);
+            case "Cancelled" -> aPurchase().cancel(JANUARY, "no longer needed");
+            default -> throw new IllegalArgumentException("no such state in this matrix: " + state);
+        };
+    }
+
+    private static PlannedFlow apply(String command, PlannedFlow flow) {
+        return switch (command) {
+            case "commit" -> flow.commit(MARCH);
+            case "realise" -> flow.realise(MARCH);
+            case "cancel" -> flow.cancel(MARCH, "changed my mind");
+            default -> throw new IllegalArgumentException("no such command in this matrix: " + command);
+        };
     }
 
     @Test

@@ -188,7 +188,7 @@ class HostAllowListFilterTest {
      * at start-up instead, with the entry named, as the assistant refuses one (ADR-030).
      */
     @ParameterizedTest
-    @ValueSource(strings = {"localhost:8080", "::1", "[::1]", "[::1]:8080", "local]host"})
+    @ValueSource(strings = {"localhost:8080", "::1", "[::1]", "[::1]:8080", "local]host", "local[host"})
     void Given_an_allow_list_entry_with_a_colon_or_a_bracket_When_the_filter_is_built_Then_it_is_rejected(
             String entry) {
         assertThatThrownBy(() -> new HostAllowListFilter(List.of("localhost", entry)))

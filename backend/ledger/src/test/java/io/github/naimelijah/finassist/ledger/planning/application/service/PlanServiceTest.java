@@ -2,7 +2,10 @@ package io.github.naimelijah.finassist.ledger.planning.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -58,6 +61,9 @@ class PlanServiceTest {
                         new Recurrence.Once())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("the direction carries the sign");
+
+        verify(flows, never()).save(any());
+        assertThat(events.published()).isEmpty();
     }
 
     @Test
@@ -86,9 +92,13 @@ class PlanServiceTest {
     @Test
     void Given_a_planned_flow_When_realised_without_committing_Then_it_is_refused() {
         PlannedFlow planned = stored(service.plan(newCar()));
+        List<PlanningEvent> beforeTheRefusal = afterArranging();
 
         assertThatThrownBy(() -> service.realise(planned.id(), MARCH_1))
                 .isInstanceOf(IllegalPlanTransitionException.class);
+
+        verify(flows, never()).save(any());
+        assertThat(events.published()).isEqualTo(beforeTheRefusal);
     }
 
     @Test
@@ -106,10 +116,14 @@ class PlanServiceTest {
     @Test
     void Given_a_blank_cancellation_reason_When_cancelled_Then_it_is_refused() {
         PlannedFlow planned = stored(service.plan(newCar()));
+        List<PlanningEvent> beforeTheRefusal = afterArranging();
 
         assertThatThrownBy(() -> service.cancel(planned.id(), FEB_10, "   "))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("requires a reason");
+
+        verify(flows, never()).save(any());
+        assertThat(events.published()).isEqualTo(beforeTheRefusal);
     }
 
     @Test
@@ -166,6 +180,16 @@ class PlanServiceTest {
     private PlannedFlow stored(PlannedFlow flow) {
         when(flows.findById(flow.id())).thenReturn(java.util.Optional.of(flow));
         return flow;
+    }
+
+    /**
+     * Forgets the arrangement's own writes, so a refusal's assertions see only what the refused command
+     * did: the save the arranging {@code plan} made is cleared, and the events it published are
+     * returned for the refusal to leave unchanged.
+     */
+    private List<PlanningEvent> afterArranging() {
+        clearInvocations(flows);
+        return events.published();
     }
 
     private static PlanFlowCommand newCar() {

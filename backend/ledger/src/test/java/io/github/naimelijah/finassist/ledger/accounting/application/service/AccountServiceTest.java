@@ -3,10 +3,10 @@ package io.github.naimelijah.finassist.ledger.accounting.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.github.naimelijah.finassist.ledger.accounting.adapter.out.event.InMemoryAccountingEvents;
@@ -116,13 +116,33 @@ class AccountServiceTest {
         assertThat(events.published()).isEmpty();
     }
 
+    /**
+     * The race the service's own check cannot win: two callers both find the name free, and the store's
+     * unique index refuses the second {@code save}. The loser must see the same exception the check
+     * raises, and must announce nothing, or the event log would record an account the books never
+     * held. {@code JdbcAccountRepositoryIT} proves the index itself refuses the row.
+     */
+    @Test
+    void
+            Given_a_name_claimed_between_the_check_and_the_write_When_the_store_refuses_it_Then_the_refusal_propagates_and_nothing_is_published() {
+        when(accounts.findByName("Cash")).thenReturn(Optional.empty());
+        doThrow(new DuplicateAccountNameException("Cash")).when(accounts).save(any());
+
+        assertThatThrownBy(() -> service.open(new OpenAccountCommand("Cash", AccountType.ASSET, Currency.ILS)))
+                .isInstanceOf(DuplicateAccountNameException.class);
+
+        assertThat(events.published()).isEmpty();
+    }
+
+    /**
+     * The in-port command refuses a blank name before any service sees it, so nothing here can reach
+     * the repository; what is pinned is the command's own boundary check.
+     */
     @Test
     void Given_a_blank_name_When_the_command_is_built_Then_it_is_refused_at_the_boundary() {
         assertThatThrownBy(() -> new OpenAccountCommand("   ", AccountType.ASSET, Currency.ILS))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must not be blank");
-
-        verifyNoInteractions(accounts);
     }
 
     /**

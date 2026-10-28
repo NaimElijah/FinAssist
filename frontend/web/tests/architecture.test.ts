@@ -6,7 +6,8 @@
  *
  * A feature mirrors a bounded context and must not import another feature. Composition happens
  * in `src/app`, which is the only place allowed to know about every feature at once. Without
- * this rule, `src/features` is a naming convention rather than a boundary.
+ * this rule, `src/features` is a naming convention rather than a boundary. Inside a feature,
+ * dependencies point inward through its layers, and only its `api/` sees a generated contract.
  *
  * The backend counterparts are `LedgerArchitectureTest` (ArchUnit) and the assistant's
  * `tests/test_architecture.py`. See docs/ADRs/ADR-010-bounded-context-map.md.
@@ -15,29 +16,12 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
 const FEATURES_DIR = join(SRC, 'features');
 const APP_DIR = join(SRC, 'app');
-
-/**
- * Matches the specifier of a static or dynamic import, a re-export, a `require`, or a
- * `vi.mock`. The last two carry no `from`/`import` token and would otherwise slip through.
- */
-const IMPORT_SPECIFIER = /(?:from|import|require|vi\.mock)\s*\(?\s*['"]([^'"]+)['"]/g;
-
-/**
- * Blanks out comments so a specifier mentioned in prose is not read as a dependency.
- *
- * Replacing with spaces rather than deleting keeps offsets intact, and the regex above only
- * ever reads the captured specifier, never a position.
- */
-function withoutComments(text: string): string {
-    return text
-        .replace(/\/\*[\s\S]*?\*\//g, (match) => ' '.repeat(match.length))
-        .replace(/\/\/.*/g, (match) => ' '.repeat(match.length));
-}
 
 function sourceFilesUnder(dir: string): string[] {
     return readdirSync(dir).flatMap((entry) => {
@@ -47,9 +31,113 @@ function sourceFilesUnder(dir: string): string[] {
     });
 }
 
-function importSpecifiers(file: string): string[] {
-    const text = withoutComments(readFileSync(file, 'utf8'));
-    return [...text.matchAll(IMPORT_SPECIFIER)].map((match) => match[1] ?? '');
+/**
+ * Calls whose first argument names a module. `vi.mock` and its siblings carry no `import` token,
+ * yet couple a test to the module they name as firmly as an import does.
+ */
+const MODULE_NAMING_CALLS = new Set([
+    'require',
+    'vi.mock',
+    'vi.doMock',
+    'vi.importActual',
+    'vi.importMock',
+]);
+
+/** The modules a source file names: each literal specifier, and each one computed at run time. */
+interface ModuleReferences {
+    readonly specifiers: readonly string[];
+    readonly computed: readonly string[];
+}
+
+/** The text of a string literal or a template literal without substitutions, else undefined. */
+function literalText(node: ts.Node | undefined): string | undefined {
+    return node !== undefined && ts.isStringLiteralLike(node) ? node.text : undefined;
+}
+
+/**
+ * Whether a node is `import()` called with a literal specifier. Vitest's type-safe form,
+ * `vi.mock(import('./x'), ...)`, passes one as the module: the visit records its specifier when
+ * it reaches the inner call, so the outer argument is not computed.
+ */
+function isLiteralDynamicImport(node: ts.Node | undefined): boolean {
+    return (
+        node !== undefined &&
+        ts.isCallExpression(node) &&
+        node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+        literalText(node.arguments[0]) !== undefined
+    );
+}
+
+/**
+ * Each file's references, parsed once: every rule below rescans the tree, and the sources do not
+ * change while the file runs.
+ */
+const parsedReferences = new Map<string, ModuleReferences>();
+
+/**
+ * Every module a source file names, read from TypeScript's own parse tree: static imports and
+ * `import type`, re-exports (`export ... from`), `import x = require(...)`, `typeof import(...)`,
+ * a dynamic `import()`, and a call in `MODULE_NAMING_CALLS`.
+ *
+ * A parser rather than a pattern, so a specifier written as a template literal is still found,
+ * and one inside a comment or a string - including after a `/*` that a string happens to
+ * contain - is not. A call whose specifier is computed, which no rule here can resolve, is
+ * listed under `computed` instead.
+ */
+function moduleReferences(file: string): ModuleReferences {
+    const cached = parsedReferences.get(file);
+    if (cached !== undefined) return cached;
+
+    const source = ts.createSourceFile(
+        file,
+        readFileSync(file, 'utf8'),
+        ts.ScriptTarget.Latest,
+        false,
+        file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    );
+    const specifiers: string[] = [];
+    const computed: string[] = [];
+
+    const visit = (node: ts.Node): void => {
+        let named: ts.Node | undefined;
+        let call: string | undefined;
+        if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+            named = node.moduleSpecifier;
+        } else if (
+            ts.isImportEqualsDeclaration(node) &&
+            ts.isExternalModuleReference(node.moduleReference)
+        ) {
+            named = node.moduleReference.expression;
+        } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+            named = node.argument.literal;
+        } else if (ts.isCallExpression(node)) {
+            const callee =
+                node.expression.kind === ts.SyntaxKind.ImportKeyword
+                    ? 'import'
+                    : node.expression.getText(source);
+            if (callee === 'import' || MODULE_NAMING_CALLS.has(callee)) {
+                call = callee;
+                named = node.arguments[0];
+            }
+        }
+
+        const specifier = literalText(named);
+        if (specifier !== undefined) {
+            specifiers.push(specifier);
+        } else if (call !== undefined && !isLiteralDynamicImport(named)) {
+            computed.push(`${call}(${named?.getText(source) ?? ''})`);
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(source);
+
+    const references = { specifiers, computed };
+    parsedReferences.set(file, references);
+    return references;
+}
+
+function importSpecifiers(file: string): readonly string[] {
+    return moduleReferences(file).specifiers;
 }
 
 /** The feature a path belongs to, or undefined when it is not inside a feature. */
@@ -76,6 +164,16 @@ const features = readdirSync(FEATURES_DIR).filter((entry) =>
 );
 
 describe('feature boundaries', () => {
+    it('Given_src_When_its_sources_are_read_Then_no_module_is_named_by_a_computed_specifier', () => {
+        // Every rule in this file resolves a specifier to a path. One built at run time, such as
+        // import(`@/features/${name}`), names a module none of them can see, so none is allowed.
+        const offences = sourceFilesUnder(SRC).flatMap((file) =>
+            moduleReferences(file).computed.map((call) => `${relative(SRC, file)}: ${call}`),
+        );
+
+        expect(offences, 'name the module with a literal specifier').toEqual([]);
+    });
+
     it('Given_the_features_directory_When_listed_Then_it_is_not_empty', () => {
         // Guards the rules below from passing vacuously, the way an empty package would.
         expect(features.length).toBeGreaterThan(0);
@@ -223,6 +321,134 @@ describe('composition direction', () => {
         expect(
             offences,
             'src/shared depends on the app that composes it. Pass what it needs in instead.',
+        ).toEqual([]);
+    });
+});
+
+/**
+ * A feature's layers, innermost first. A module may import its own layer or one listed before
+ * it, never one after: `types` holds the feature's own model and depends on nothing in the
+ * feature, `api` maps the wire onto those types, `hooks` wraps `api` in queries and mutations,
+ * and `components` renders them. The feature's root files (`index.ts`, `routes.tsx`) sit above
+ * every layer, since they compose them.
+ */
+const LAYERS = ['types', 'api', 'hooks', 'components'] as const;
+type Layer = (typeof LAYERS)[number];
+
+function isLayer(name: string): name is Layer {
+    return (LAYERS as readonly string[]).includes(name);
+}
+
+/**
+ * Where a path inside `src/features` sits: its feature, and its layer or `'root'` for a file
+ * directly in the feature's directory. Undefined outside `src/features`.
+ *
+ * A specifier naming a layer's directory itself, such as `../types`, resolves to that layer; one
+ * naming the feature's directory, such as `..` or `@/features/<feature>`, resolves to its root.
+ */
+function featurePlace(path: string): { feature: string; layer: Layer | 'root' } | undefined {
+    if (!isWithin(FEATURES_DIR, path)) return undefined;
+    const [feature = '', second = '', ...rest] = relative(FEATURES_DIR, path).split(sep);
+    if (feature === '') return undefined;
+    if (second === '') return { feature, layer: 'root' };
+    if (isLayer(second)) return { feature, layer: second };
+    return rest.length === 0 ? { feature, layer: 'root' } : undefined;
+}
+
+/**
+ * Every import from one layer of `feature` to another of the same feature, counted, and those
+ * that reach outward listed as offences: to a later layer, or, from production code, to the
+ * feature's root. A test may import the root, since it drives its screen through the routes the
+ * feature's index exports, the way the app does.
+ */
+function crossLayerImportsOf(feature: string): { count: number; offences: string[] } {
+    const offences: string[] = [];
+    let count = 0;
+
+    for (const file of sourceFilesUnder(join(FEATURES_DIR, feature))) {
+        const from = featurePlace(file);
+        if (from === undefined || from.layer === 'root') continue;
+        for (const specifier of importSpecifiers(file)) {
+            const resolved = resolveInSrc(specifier, file);
+            const to = resolved === undefined ? undefined : featurePlace(resolved);
+            if (to?.feature !== feature || to.layer === from.layer) continue;
+            count += 1;
+            const reachesRoot = to.layer === 'root' && !isTestFile(file);
+            const reachesOutward =
+                to.layer !== 'root' && LAYERS.indexOf(to.layer) > LAYERS.indexOf(from.layer);
+            if (reachesRoot || reachesOutward) {
+                offences.push(`${relative(SRC, file)} -> ${specifier}`);
+            }
+        }
+    }
+    return { count, offences };
+}
+
+const GENERATED_CONTRACTS_DIR = join(SRC, 'shared', 'api', 'contracts');
+
+describe('layers inside a feature', () => {
+    it('Given_each_feature_When_its_directories_are_listed_Then_each_is_a_known_layer', () => {
+        // The layer rule below ranks only the directories it knows. A new directory would sit
+        // outside it, unranked and unchecked, so it must be placed in LAYERS first.
+        const unknown = features.flatMap((feature) =>
+            readdirSync(join(FEATURES_DIR, feature))
+                .filter((entry) => statSync(join(FEATURES_DIR, feature, entry)).isDirectory())
+                .filter((entry) => !isLayer(entry))
+                .map((entry) => `${feature}/${entry}`),
+        );
+
+        expect(unknown, `rank each directory in LAYERS (${LAYERS.join(', ')})`).toEqual([]);
+    });
+
+    for (const feature of features) {
+        it(`Given_feature_${feature}_When_its_layers_are_read_Then_each_imports_only_the_layers_below_it`, () => {
+            expect(
+                crossLayerImportsOf(feature).offences,
+                `a layer of '${feature}' imports one above it (order: ${LAYERS.join(' < ')}).`,
+            ).toEqual([]);
+        });
+    }
+
+    it('Given_the_features_When_their_layers_are_read_Then_some_layer_imports_another', () => {
+        // Guards the rule above from passing vacuously. Every feature's components use its hooks
+        // and types, so a scan that counts no import between two layers has stopped resolving
+        // specifiers, not found none.
+        const count = features.reduce(
+            (sum, feature) => sum + crossLayerImportsOf(feature).count,
+            0,
+        );
+
+        expect(count, 'no import between two layers of a feature').toBeGreaterThan(0);
+    });
+
+    it('Given_the_features_When_their_sources_are_read_Then_only_a_features_api_imports_a_generated_contract_type', () => {
+        // A feature's api/ is its anti-corruption layer (ADR-029): it maps each generated wire
+        // type onto the feature's own, so a contract change stops there instead of rippling into
+        // every screen that would otherwise name the wire shape.
+        const offences: string[] = [];
+        let apiImports = 0;
+
+        for (const file of sourceFilesUnder(FEATURES_DIR)) {
+            for (const specifier of importSpecifiers(file)) {
+                const resolved = resolveInSrc(specifier, file);
+                if (resolved === undefined || !isWithin(GENERATED_CONTRACTS_DIR, resolved))
+                    continue;
+                if (featurePlace(file)?.layer === 'api') {
+                    apiImports += 1;
+                } else {
+                    offences.push(`${relative(SRC, file)} -> ${specifier}`);
+                }
+            }
+        }
+
+        // Guards the rule from passing vacuously: every feature with a backend types its responses
+        // with the generated contract, so a scan that finds no api/ importing one has gone blind.
+        expect(apiImports, "no feature's api/ imports a generated contract type").toBeGreaterThan(
+            0,
+        );
+        expect(
+            offences,
+            "a generated contract type is used outside a feature's api/. Map it there instead.",
         ).toEqual([]);
     });
 });

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, NoReturn
 
 import httpx
@@ -18,7 +20,9 @@ import structlog
 import uvicorn
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
+from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.util._once import Once
 from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.testclient import WebSocketDenialResponse
@@ -193,6 +197,7 @@ def Given_an_active_span_When_the_correlation_id_is_chosen_Then_the_span_wins() 
 def Given_a_request_When_it_is_logged_Then_the_header_and_the_log_line_agree(
     settings: Settings, token_verifier: TokenVerifier, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The id a caller is handed in the response header is the one its request line carries."""
     app = create_app(settings, token_verifier=token_verifier)
     with TestClient(app) as running:
         capsys.readouterr()
@@ -200,8 +205,8 @@ def Given_a_request_When_it_is_logged_Then_the_header_and_the_log_line_agree(
             "/health", headers={"traceparent": f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"}
         )
 
-    structlog.get_logger("t").info("probe")
-    assert response.headers[CORRELATION_ID_HEADER] == VALID_TRACE_ID
+    [line] = _request_lines(capsys.readouterr().out)
+    assert response.headers[CORRELATION_ID_HEADER] == line["correlation_id"] == VALID_TRACE_ID
 
 
 # --- the request line ----------------------------------------------------------------------
@@ -508,13 +513,28 @@ def Given_a_secret_nested_in_a_payload_When_redacted_Then_it_is_still_removed() 
     assert redacted["request"]["path"] == "/v1/messages"
 
 
+_CYCLE_DESCENT_BOUND = 100
+"""Far deeper than any payload a log line should carry; reaching it means the descent never
+stopped."""
+
+
 def Given_a_cyclic_payload_When_redacted_Then_it_terminates() -> None:
     """Unbounded descent turns a log call into a RecursionError, which is worse than the line
     it failed to write. The web client's redactor is bounded for the same reason."""
     cyclic: dict[str, Any] = {"name": "loop"}
     cyclic["self"] = cyclic
 
-    assert redact_secrets(None, "info", {"payload": cyclic}) is not None
+    redacted = redact_secrets(None, "info", {"payload": cyclic})
+
+    # The descent stops at a bounded depth and puts the redaction marker where it stopped, so the
+    # value returned holds no cycle; what it passed through on the way keeps its ordinary members.
+    level: Any = redacted["payload"]
+    for _ in range(_CYCLE_DESCENT_BOUND):
+        if not isinstance(level, dict):
+            break
+        level = level["self"]
+    assert level == REDACTED
+    assert redacted["payload"]["name"] == "loop"
 
 
 def Given_a_short_value_When_registered_Then_it_is_ignored() -> None:
@@ -589,3 +609,132 @@ def Given_both_an_endpoint_and_permission_When_settings_are_read_Then_tracing_is
 
 def Given_tracing_is_disabled_When_configured_Then_no_provider_is_installed() -> None:
     assert configure_tracing(Settings(OTEL_EXPORT_ENABLED=False)) is None
+
+
+# --- tracing enabled: the OTLP provider is installed, and only once ---------------------------
+
+_UNUSED_COLLECTOR = "http://127.0.0.1:4318"
+"""Named, never reached: no test using it starts a span while the provider is installed, so its
+batch processor's queue is empty at shutdown and it sends nothing - no collector, no network."""
+
+_COLLECTOR_POLL_SECONDS = 0.01
+"""How often the test collector checks for ``shutdown``; the 0.5 s default only slows teardown."""
+
+_COLLECTOR_JOIN_SECONDS = 5.0
+"""The longest teardown waits for the test collector's thread, so a stuck server fails the run
+instead of hanging it."""
+
+_FLUSH_TIMEOUT_MILLIS = 5_000
+"""The longest ``force_flush`` waits for the exporter to hear back from the test collector."""
+
+
+@pytest.fixture
+def otlp_collector() -> Iterator[tuple[str, list[str]]]:
+    """A loopback stand-in for an OTLP/HTTP collector, recording the path of every POST it gets.
+
+    Yields its base URL and the recorded paths. A path is recorded before the answer is sent, and
+    the exporter waits for that answer, so once ``force_flush`` returns the list is complete.
+
+    The path is read from the raw request line, not ``self.path``: ``http.server`` collapses a
+    leading ``//`` to ``/`` there, which would hide the doubled slash a test looks for.
+    """
+    posted: list[str] = []
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            _method, target, _version = self.requestline.split()
+            posted.append(target)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-protobuf")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, _format: str, *_args: Any) -> None:
+            pass  # silences http.server's default stderr access log during the test run
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": _COLLECTOR_POLL_SECONDS},
+        daemon=True,
+    )
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}", posted
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=_COLLECTOR_JOIN_SECONDS)
+
+
+@pytest.fixture
+def fresh_tracer_provider_global(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Gives one test a process whose global tracer provider has never been set, then restores it.
+
+    OpenTelemetry lets ``set_tracer_provider`` succeed once per process and offers no public
+    reset, so this swaps its two module globals for fresh ones and lets ``monkeypatch`` put the
+    originals back. Private names of a library this project does not own, which is the price of
+    testing an install-once global at all; OpenTelemetry's own test utilities reset the same two.
+    Whatever provider the test installed is shut down first, so no batch thread outlives it.
+    """
+    monkeypatch.setattr(trace, "_TRACER_PROVIDER", None)
+    monkeypatch.setattr(trace, "_TRACER_PROVIDER_SET_ONCE", Once())
+    yield
+    installed = trace.get_tracer_provider()
+    if isinstance(installed, TracerProvider):
+        installed.shutdown()
+
+
+def _export_enabled() -> Settings:
+    return Settings(
+        ASSISTANT_SERVICE_NAME="finassist-assistant-under-test",
+        OTEL_EXPORTER_OTLP_ENDPOINT=_UNUSED_COLLECTOR,
+        OTEL_EXPORT_ENABLED=True,
+    )
+
+
+@pytest.mark.usefixtures("fresh_tracer_provider_global")
+def Given_export_enabled_When_tracing_is_configured_Then_a_named_provider_is_installed() -> None:
+    provider = configure_tracing(_export_enabled())
+
+    assert isinstance(provider, TracerProvider)
+    assert trace.get_tracer_provider() is provider
+    assert provider.resource.attributes["service.name"] == "finassist-assistant-under-test"
+
+
+@pytest.mark.usefixtures("fresh_tracer_provider_global")
+def Given_export_enabled_When_a_span_ends_Then_it_is_posted_to_the_collectors_traces_path(
+    otlp_collector: tuple[str, list[str]],
+) -> None:
+    """The installed provider exports: one ended span reaches ``/v1/traces`` under the configured
+    base URL. The base carries a trailing slash, as an operator's often does, and must still not
+    produce ``//v1/traces``."""
+    base_url, posted = otlp_collector
+    configure_tracing(
+        Settings(
+            ASSISTANT_SERVICE_NAME="finassist-assistant-under-test",
+            OTEL_EXPORTER_OTLP_ENDPOINT=f"{base_url}/",
+            OTEL_EXPORT_ENABLED=True,
+        )
+    )
+
+    with trace.get_tracer(__name__).start_as_current_span("exported"):
+        pass
+    installed = trace.get_tracer_provider()
+    assert isinstance(installed, TracerProvider)
+    assert installed.force_flush(timeout_millis=_FLUSH_TIMEOUT_MILLIS), "the export did not finish"
+
+    assert posted == ["/v1/traces"], f"expected one POST to /v1/traces, the collector got {posted}"
+
+
+@pytest.mark.usefixtures("fresh_tracer_provider_global")
+def Given_a_provider_already_installed_When_tracing_is_configured_Then_it_is_refused() -> None:
+    """OpenTelemetry would only log a warning and keep the first provider, so the caller would
+    be handed a pipeline that is not running; ``configure_tracing`` refuses instead."""
+    first = TracerProvider()
+    trace.set_tracer_provider(first)
+
+    with pytest.raises(RuntimeError, match="already installed"):
+        configure_tracing(_export_enabled())
+    assert trace.get_tracer_provider() is first

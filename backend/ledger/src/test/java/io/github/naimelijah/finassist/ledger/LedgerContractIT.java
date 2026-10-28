@@ -10,7 +10,11 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -172,6 +176,109 @@ class LedgerContractIT extends PostgresFixture {
 
         assertThat(operationIds).isNotEmpty();
         assertThat(operationIds).noneMatch(id -> id.matches(".*_\\d+$"));
+    }
+
+    /**
+     * Root {@code CLAUDE.md}, "The wire": every decimal is a string, never a JSON number (ADR-028). The
+     * snapshot comparison above would accept a regenerated snapshot holding a {@code number}, so the rule
+     * is asserted over the generated document itself: no schema anywhere in it is typed {@code number},
+     * in either the 3.0 form or 3.1's type array.
+     */
+    @Test
+    void Given_the_generated_document_When_every_schema_is_read_Then_none_is_a_json_number() throws Exception {
+        JsonNode document = JSON.readTree(served(API_DOCS_PATH));
+
+        assertThat(numberTypedSchemas(document, "$"))
+                .as("schemas typed number; a decimal travels as a string (ADR-028)")
+                .isEmpty();
+    }
+
+    /**
+     * Root {@code CLAUDE.md}, "The wire": no money amount travels in a URL, where it would be logged,
+     * cached and kept in history. No path or query parameter of any operation may be a {@code MoneyDto},
+     * carry the decimal-text pattern a request's decimals are published with, or be named after a
+     * monetary quantity. The name is checked as well as the schema because the pattern is not on every
+     * decimal — {@code ScenarioResponse.growthRatePerStep} is a bare string — and a {@code @RequestParam
+     * String amount} would carry neither a {@code $ref} nor a pattern.
+     */
+    @Test
+    void Given_the_generated_document_When_url_parameters_are_read_Then_none_carries_money_or_a_decimal()
+            throws Exception {
+        JsonNode document = JSON.readTree(served(API_DOCS_PATH));
+        List<String> parameters = document.path("paths")
+                .propertyStream()
+                .flatMap(path -> Stream.concat(
+                                path.getValue().path("parameters").valueStream(),
+                                path.getValue()
+                                        .valueStream()
+                                        .flatMap(operation ->
+                                                operation.path("parameters").valueStream()))
+                        .filter(parameter -> URL_PARAMETER_LOCATIONS.contains(
+                                parameter.path("in").asString()))
+                        .filter(parameter -> carriesMoneyOrADecimal(parameter.path("schema"))
+                                || MONETARY_NAME
+                                        .matcher(parameter.path("name").asString())
+                                        .find())
+                        .map(parameter ->
+                                path.getKey() + " " + parameter.path("name").asString()))
+                .toList();
+
+        assertThat(document.path("paths").isEmpty())
+                .as("a document with no paths proves nothing")
+                .isFalse();
+        assertThat(parameters)
+                .as("URL parameters carrying money or a decimal; price by POST with a JSON body")
+                .isEmpty();
+    }
+
+    private static final Set<String> URL_PARAMETER_LOCATIONS = Set.of("path", "query");
+
+    /** The pattern {@code MoneyDto.amount} and every decimal a request accepts is published with. */
+    private static final String DECIMAL_TEXT_PATTERN = "^-?\\d+(\\.\\d+)?$";
+
+    private static final String MONEY_SCHEMA_REF = "#/components/schemas/MoneyDto";
+
+    /** A URL parameter name that announces a monetary quantity, anywhere in the name and in any case. */
+    private static final Pattern MONETARY_NAME =
+            Pattern.compile("amount|price|money|value|quantity|rate|balance", Pattern.CASE_INSENSITIVE);
+
+    private static boolean carriesMoneyOrADecimal(JsonNode schema) {
+        if (schema.isObject()) {
+            if (MONEY_SCHEMA_REF.equals(textOf(schema.path("$ref")))
+                    || DECIMAL_TEXT_PATTERN.equals(textOf(schema.path("pattern")))) {
+                return true;
+            }
+            return schema.valueStream().anyMatch(LedgerContractIT::carriesMoneyOrADecimal);
+        }
+        return schema.isArray() && schema.valueStream().anyMatch(LedgerContractIT::carriesMoneyOrADecimal);
+    }
+
+    /**
+     * A keyword's value when it is a string, and {@code null} otherwise: a schema may declare a
+     * property named {@code type} or {@code pattern}, whose value is then an object, not the keyword.
+     */
+    private static String textOf(JsonNode node) {
+        return node.isString() ? node.asString() : null;
+    }
+
+    /** The JSON path of every node whose {@code type} is, or includes, {@code number}. */
+    private static List<String> numberTypedSchemas(JsonNode node, String where) {
+        List<String> found = new ArrayList<>();
+        if (node.isObject()) {
+            JsonNode type = node.path("type");
+            if ("number".equals(textOf(type))
+                    || (type.isArray() && type.valueStream().anyMatch(each -> "number".equals(textOf(each))))) {
+                found.add(where);
+            }
+            node.propertyStream()
+                    .forEach(member ->
+                            found.addAll(numberTypedSchemas(member.getValue(), where + "." + member.getKey())));
+        } else if (node.isArray()) {
+            for (int index = 0; index < node.size(); index++) {
+                found.addAll(numberTypedSchemas(node.get(index), where + "[" + index + "]"));
+            }
+        }
+        return found;
     }
 
     private static List<String> requiredMembers(JsonNode schemas, String schema) {

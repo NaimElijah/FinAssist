@@ -88,6 +88,20 @@ configures."""
 _WITHIN_LEEWAY = timedelta(seconds=29)
 """One second inside it."""
 
+_AT_LEEWAY = timedelta(seconds=30)
+"""Exactly the leeway: still inside it, as on the ledger, whose ``JwtTimestampValidator`` refuses
+only an ``exp`` or ``nbf`` strictly past the skew and whose ``issuedAtValidator`` only an ``iat``
+strictly after it."""
+
+
+_SERVER_POLL_SECONDS = 0.01
+"""How often a test JWKS server checks for ``shutdown``. ``serve_forever``'s default, 0.5 s, made
+every teardown wait half a second for nothing - most of this file's run time."""
+
+_SOCKET_TIMEOUT_SECONDS = 5.0
+"""The longest a hand-written test server waits on its client, so a change that stops the fetch
+fails the test rather than hanging the build."""
+
 
 def _encode(
     private_key: rsa.RSAPrivateKey,
@@ -252,6 +266,29 @@ def Given_a_token_expired_within_the_leeway_When_verified_Then_it_is_accepted(
     private_key, _ = rsa_key_pair
     now = fixed_clock()
     token = _encode(private_key, _valid_claims(now, exp=int((now - _WITHIN_LEEWAY).timestamp())))
+
+    principal = _verifier(static_key_source, fixed_clock)(token)
+
+    assert principal.subject == SUBJECT
+
+
+@pytest.mark.parametrize(
+    ("claim", "offset"),
+    [("exp", -_AT_LEEWAY), ("iat", _AT_LEEWAY), ("nbf", _AT_LEEWAY)],
+    ids=["exp-in-the-past", "iat-in-the-future", "nbf-in-the-future"],
+)
+def Given_a_lifetime_claim_exactly_at_the_leeway_When_verified_Then_it_is_accepted(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    static_key_source: KeySource,
+    fixed_clock: Clock,
+    claim: str,
+    offset: timedelta,
+) -> None:
+    """The edge itself belongs to the leeway: 29 s and 31 s alone would let a strict comparison
+    become an inclusive one, refusing a token the ledger accepts, with every test green."""
+    private_key, _ = rsa_key_pair
+    now = fixed_clock()
+    token = _encode(private_key, _valid_claims(now, **{claim: int((now + offset).timestamp())}))
 
     principal = _verifier(static_key_source, fixed_clock)(token)
 
@@ -641,8 +678,11 @@ def Given_a_token_signed_by_a_key_the_verifier_does_not_hold_When_verified_Then_
     fixed_clock: Clock,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Mirrors the ledger's ``TestTokens.foreignKey()``: a well-formed, correctly-signed RS256
-    token, but signed by a key ``static_key_source`` never returns. ``static_key_source``
+    """A well-formed, correctly-signed RS256 token, signed by a key ``static_key_source`` never
+    returns, so this stand-in refuses it ``rejected``. The ledger's ``TestTokens.foreignKey()``
+    names a ``kid`` its key set lacks and is refused ``unknown_key``; its mirror here is
+    ``Given_the_real_PyJWKClient_and_a_kid_the_served_set_lacks_When_verified_Then_it_is_refused``.
+    ``static_key_source``
     (``conftest.py``) always resolves to the same fixed key regardless of the token it is asked
     about, so a token signed by any other private key fails signature verification against it -
     exactly as a real JWKS lookup would find no matching key among the ones it actually
@@ -775,7 +815,11 @@ def jwks_server(rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]) -> Ite
             pass  # silences http.server's default stderr access log during the test run
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": _SERVER_POLL_SECONDS},
+        daemon=True,
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}/certs"
@@ -793,6 +837,47 @@ def Given_the_real_PyJWKClient_serving_a_matching_key_When_verified_Then_the_pri
     principal = _verifier(jwks_key_source(jwks_server), fixed_clock)(token)
 
     assert principal == Principal(subject=SUBJECT)
+
+
+_ROTATED_AWAY_KEY_ID = "rotated-away"
+"""A ``kid`` the served key set does not hold: a key the realm has since rotated out."""
+
+
+def Given_the_real_PyJWKClient_and_a_kid_the_served_set_lacks_When_verified_Then_it_is_refused(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey], jwks_server: str, fixed_clock: Clock
+) -> None:
+    """ADR-037: a set holding keys, none of which the token names, is a refusal, not an outage.
+
+    The key set is reachable, parses, and holds a key - only not this one. The stand-in in
+    ``Given_an_unknown_key_id_When_verified_Then_it_is_refused`` raises the error by hand; this
+    proves the real client's own lookup failure still reaches the verifier as a refusal, so a
+    change widening the outage mapping around the lookup turns this red rather than turning a
+    rotated-away key into a 503.
+    """
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock()), key_id=_ROTATED_AWAY_KEY_ID)
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(jwks_key_source(jwks_server), fixed_clock)(token)
+
+    assert refused.value.reason == REASON_UNKNOWN_KEY
+
+
+def Given_the_real_PyJWKClient_and_a_foreign_key_under_the_served_kid_When_verified_Then_refused(
+    jwks_server: str, fixed_clock: Clock
+) -> None:
+    """The served set holds the named ``kid``, but its key did not sign this token: a refusal.
+
+    Mirrors the stand-in case for a key the verifier does not hold, through the real lookup
+    rather than a key source that ignores the ``kid``.
+    """
+    foreign_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    token = _encode(foreign_key, _valid_claims(fixed_clock()), key_id=KEY_ID)
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(jwks_key_source(jwks_server), fixed_clock)(token)
+
+    assert refused.value.reason == REASON_REJECTED
 
 
 def Given_a_real_PyJWKClient_with_a_dead_port_When_verified_Then_it_is_unavailable(
@@ -831,7 +916,11 @@ def jwks_server_that_hangs_up() -> Iterator[str]:
             pass  # silences http.server's default stderr access log during the test run
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": _SERVER_POLL_SECONDS},
+        daemon=True,
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}/certs"
@@ -865,10 +954,12 @@ def jwks_server_that_resets_mid_body() -> Iterator[str]:
     give. Written over a raw socket, because ``http.server`` cannot stop halfway through a body.
     """
     listener = socket.create_server(("127.0.0.1", 0))
+    listener.settimeout(_SOCKET_TIMEOUT_SECONDS)
 
     def answer_then_reset() -> None:
         connection, _ = listener.accept()
         with connection:
+            connection.settimeout(_SOCKET_TIMEOUT_SECONDS)
             connection.recv(65_536)
             connection.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n{"keys": [')
             connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
@@ -878,8 +969,9 @@ def jwks_server_that_resets_mid_body() -> Iterator[str]:
     try:
         yield f"http://127.0.0.1:{listener.getsockname()[1]}/certs"
     finally:
-        thread.join()
+        thread.join(timeout=_SOCKET_TIMEOUT_SECONDS)
         listener.close()
+    assert not thread.is_alive(), "the reset-mid-body server never finished answering"
 
 
 def Given_a_JWKS_endpoint_that_resets_mid_body_When_verified_Then_it_is_unavailable(
@@ -920,7 +1012,11 @@ def _serving(body: bytes, content_type: str) -> Iterator[str]:
             pass  # silences http.server's default stderr access log during the test run
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": _SERVER_POLL_SECONDS},
+        daemon=True,
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}/certs"
@@ -1228,6 +1324,35 @@ def Given_no_token_verifier_When_create_app_builds_its_own_Then_it_refuses_a_for
     assert response.json()["code"] == "UNAUTHENTICATED"
 
 
+def Given_no_token_verifier_and_a_kid_the_served_set_lacks_When_a_route_is_requested_Then_it_is_401(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    jwks_server: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """ADR-037 at the HTTP boundary, through the verifier ``create_app`` builds itself: a key set
+    that holds keys none of which verifies the token is a refusal - 401 and one WARN line - and
+    never the outage's 503 and ERROR line."""
+    private_key, _ = rsa_key_pair
+    app = create_app(_live_settings(jwks_server))
+    token = _encode(private_key, _live_claims(), key_id=_ROTATED_AWAY_KEY_ID)
+    capsys.readouterr()
+
+    with TestClient(app, headers={"Authorization": f"Bearer {token}"}) as client:
+        response = client.get(_POSITION_URL)
+
+    records = [
+        json.loads(line)
+        for line in capsys.readouterr().out.strip().splitlines()
+        if line.startswith("{")
+    ]
+    refusals = [record for record in records if record.get("level") == "warning"]
+    outages = [record for record in records if record.get("level") == "error"]
+    assert response.status_code == 401
+    assert response.json()["code"] == "UNAUTHENTICATED"
+    assert [refusal["reason"] for refusal in refusals] == [REASON_UNKNOWN_KEY]
+    assert outages == []
+
+
 def Given_no_token_verifier_and_a_JWKS_answering_non_JSON_When_a_route_is_requested_Then_it_is_503(
     rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
     jwks_server_answering_garbage: _UnreadableJwks,
@@ -1297,16 +1422,17 @@ def Given_no_override_When_settings_are_built_Then_the_oidc_defaults_target_loca
     "key",
     ["cookie", "Cookie", "FINASSIST-XSRF-TOKEN", "xsrf", "csrf", "session", "bearer", "jwt"],
 )
-def Given_the_new_auth_redaction_fragments_When_a_field_matches_Then_its_value_is_redacted(
+def Given_an_authentication_credential_fragment_When_a_field_matches_Then_its_value_is_redacted(
     key: str,
 ) -> None:
     assert redact_secrets(None, "info", {key: "should-not-survive"}) == {key: REDACTED}
 
 
-def Given_the_new_fragments_When_redacted_Then_input_tokens_still_survives() -> None:
-    """None of the six new fragments is a substring of ``input_tokens``, so the assistance
-    context's usage measurement stays visible, exactly as the bare ``token`` fragment's
-    deliberate absence already protects it from the existing ones."""
+def Given_the_credential_fragments_When_token_counts_are_redacted_Then_they_survive() -> None:
+    """None of the six authentication fragments - ``cookie``, ``xsrf``, ``csrf``, ``session``,
+    ``bearer`` and ``jwt`` - is a substring of ``input_tokens``, so the assistance context's usage
+    measurement stays visible, exactly as the bare ``token`` fragment's deliberate absence already
+    protects it from the other fragments."""
     assert redact_secrets(None, "info", {"input_tokens": 1200, "output_tokens": 340}) == {
         "input_tokens": 1200,
         "output_tokens": 340,

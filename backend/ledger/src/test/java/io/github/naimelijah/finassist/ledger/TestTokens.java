@@ -43,10 +43,21 @@ public final class TestTokens {
     /** Matches the ledger's fixed audience (ADR-030; not a setting). */
     static final String AUDIENCE = "finassist-ledger";
 
-    private static final String WRONG_ISSUER = "http://attacker.example/realms/finassist";
+    /** Package-visible so a test can assert it never reaches the log. */
+    static final String WRONG_ISSUER = "http://attacker.example/realms/finassist";
+
     private static final String WRONG_AUDIENCE = "finassist-assistant-impersonation";
 
-    private static final Instant NOW = Instant.now();
+    /**
+     * The instant every token is issued relative to, and the instant {@link PostgresFixture} fixes
+     * the ledger's {@code Clock} bean at, so a token's validity never depends on when a test runs: a
+     * fork reaching an {@code *IT} more than ten minutes after this class loaded would otherwise find
+     * the "future" tokens valid, and one an hour later would refuse every owner request. Deliberately
+     * far from the wall clock, so a validator that read it instead of the fixed clock would refuse every
+     * token issued here, and every test admitting one would fail.
+     */
+    static final Instant NOW = Instant.parse("2026-01-01T00:00:00Z");
+
     private static final Duration LIFETIME = Duration.ofHours(1);
 
     /** Well beyond {@code JwtTimestampValidator}'s 30 s skew in either direction. */

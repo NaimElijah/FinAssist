@@ -1,16 +1,19 @@
 package io.github.naimelijah.finassist.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -35,10 +38,13 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Every endpoint, every role, every way a bearer token can be wrong — proved against a real {@code
@@ -64,6 +70,33 @@ class LedgerAuthorizationIT extends PostgresFixture {
 
     private static final String RANDOM_ID = UUID.randomUUID().toString();
     private static final String JSON_BODY = "{}";
+
+    private static final String UNAUTHENTICATED = "UNAUTHENTICATED";
+    private static final String FORBIDDEN = "FORBIDDEN";
+
+    /** The message {@code ProblemAuthenticationEntryPoint} logs every refused request under. */
+    private static final String REFUSAL_MESSAGE = "Refused a request with no valid bearer token";
+
+    private static final JsonMapper LOG_JSON = JsonMapper.shared();
+
+    /**
+     * Every field a refusal line may carry, as dotted paths to its leaves: the fixed ECS fields
+     * Logback's structured format writes for any line, the trace context, and {@code reason}. A field
+     * outside it is something the entry point chose to add, and the place a token would arrive.
+     */
+    private static final Set<String> REFUSAL_LINE_FIELDS = Set.of(
+            "@timestamp",
+            "log.level",
+            "log.logger",
+            "process.pid",
+            "process.thread.name",
+            "service.name",
+            "service.node",
+            "ecs.version",
+            "message",
+            "traceId",
+            "spanId",
+            "reason");
 
     /**
      * The method a mapping that names none is inventoried under. A {@code @RequestMapping} with no
@@ -182,7 +215,8 @@ class LedgerAuthorizationIT extends PostgresFixture {
             throws Exception {
         mvc.perform(endpoint.request(null, JSON_BODY))
                 .andExpect(status().isUnauthorized())
-                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"));
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
+                .andExpect(problem(UNAUTHENTICATED));
     }
 
     @ParameterizedTest
@@ -193,7 +227,8 @@ class LedgerAuthorizationIT extends PostgresFixture {
             MvcResult result = mvc.perform(endpoint.request(token, JSON_BODY)).andReturn();
             assertThat(result.getResponse().getStatus())
                     .as("%s %s with a %s token", endpoint.method(), endpoint.path(), role)
-                    .isNotIn(401, 403);
+                    .isNotIn(401, 403)
+                    .isLessThan(500);
         }
     }
 
@@ -202,7 +237,9 @@ class LedgerAuthorizationIT extends PostgresFixture {
     void Given_a_viewer_or_assistant_token_When_a_write_is_requested_Then_it_is_403(String role) throws Exception {
         String token = "viewer".equals(role) ? TestTokens.viewer() : TestTokens.assistant();
         for (Endpoint endpoint : WRITES) {
-            mvc.perform(endpoint.request(token, JSON_BODY)).andExpect(status().isForbidden());
+            mvc.perform(endpoint.request(token, JSON_BODY))
+                    .andExpect(status().isForbidden())
+                    .andExpect(problem(FORBIDDEN));
         }
     }
 
@@ -213,7 +250,8 @@ class LedgerAuthorizationIT extends PostgresFixture {
             MvcResult result = mvc.perform(endpoint.request(token, JSON_BODY)).andReturn();
             assertThat(result.getResponse().getStatus())
                     .as("%s %s with the owner token", endpoint.method(), endpoint.path())
-                    .isNotIn(401, 403);
+                    .isNotIn(401, 403)
+                    .isLessThan(500);
         }
     }
 
@@ -221,7 +259,9 @@ class LedgerAuthorizationIT extends PostgresFixture {
     void Given_a_token_granting_no_permission_When_any_endpoint_is_requested_Then_it_is_403() throws Exception {
         String token = TestTokens.noRoles();
         for (Endpoint endpoint : bothLists()) {
-            mvc.perform(endpoint.request(token, JSON_BODY)).andExpect(status().isForbidden());
+            mvc.perform(endpoint.request(token, JSON_BODY))
+                    .andExpect(status().isForbidden())
+                    .andExpect(problem(FORBIDDEN));
         }
     }
 
@@ -230,32 +270,72 @@ class LedgerAuthorizationIT extends PostgresFixture {
     void Given_a_bad_token_When_an_endpoint_is_requested_Then_it_is_401_invalid_token(String token) throws Exception {
         mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isUnauthorized())
-                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\""));
-    }
-
-    @Test
-    void Given_a_rejected_token_When_refused_Then_the_log_names_the_reason_and_never_the_token(CapturedOutput output)
-            throws Exception {
-        String expired = TestTokens.expired();
-
-        mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + expired));
-
-        assertThat(output.getOut()).contains("lifetime");
-        assertThat(output.getOut()).doesNotContain(expired);
-    }
-
-    @Test
-    void Given_no_token_When_refused_Then_the_log_names_the_reason_missing(CapturedOutput output) throws Exception {
-        mvc.perform(withHost(get("/api/v1/accounts")));
-
-        assertThat(output.getOut()).contains("missing");
+                .andExpect(content().string(not(containsString(token))))
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\""))
+                .andExpect(problem(UNAUTHENTICATED));
     }
 
     /**
-     * M1: the single-token check above proves the property for {@code expired} only. Every shape
-     * {@link #badTokens()} carries — including a tampered signature, both {@code iat} failures and
-     * a token with no {@code exp} — must refuse to leak its own token into the log, not merely the
-     * one case above.
+     * Each shape {@link #categorisedBadTokens()} lists is refused in exactly one log line, at WARN, whose
+     * {@code reason} is the category ADR-030 names for it. For those shapes it is also the category the
+     * assistant's {@code test_auth.py} expects, because a rule written against one service must read the
+     * other (root {@code CLAUDE.md}, "Security and operations"). Not every bad token is listed: an HS256
+     * token and a malformed {@code Bearer} header are categorised differently by the two services, which
+     * is #352, and neither is pinned here until it is settled. {@code unknown_key} and {@code malformed}
+     * are read from Nimbus's English messages by {@code ProblemAuthenticationEntryPoint.reasonFor}, so a
+     * library upgrade rewording one would fail here rather than quietly logging {@code rejected}.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("categorisedBadTokens")
+    void Given_a_bad_token_When_refused_Then_one_warn_line_names_its_reason_category(
+            String shape, String token, String reason, CapturedOutput output) throws Exception {
+        mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        assertTheOneRefusalLine(output, reason);
+    }
+
+    @Test
+    void Given_no_token_When_refused_Then_one_warn_line_names_the_reason_missing(CapturedOutput output)
+            throws Exception {
+        mvc.perform(withHost(get("/api/v1/accounts")));
+
+        assertTheOneRefusalLine(output, "missing");
+    }
+
+    private static void assertTheOneRefusalLine(CapturedOutput output, String reason) {
+        List<JsonNode> refusals = output.getOut()
+                .lines()
+                .filter(line -> line.contains(REFUSAL_MESSAGE))
+                .map(LOG_JSON::readTree)
+                .toList();
+        assertThat(refusals).as("refusal lines logged for one request").hasSize(1);
+        JsonNode refusal = refusals.getFirst();
+        assertThat(refusal.path("log").path("level").asString())
+                .as("level of %s", refusal)
+                .isEqualTo("WARN");
+        assertThat(refusal.path("reason").asString())
+                .as("reason of %s", refusal)
+                .isEqualTo(reason);
+        assertThat(refusal.path("message").asString())
+                .as("message of %s", refusal)
+                .isEqualTo(REFUSAL_MESSAGE + ": " + reason);
+        assertThat(leafFields(refusal, "")).as("fields of %s", refusal).isSubsetOf(REFUSAL_LINE_FIELDS);
+    }
+
+    /** The dotted path to every leaf of a log line; an empty object, such as ECS's {@code service.node}, is a leaf. */
+    private static List<String> leafFields(JsonNode node, String prefix) {
+        if (!node.isObject() || node.isEmpty()) {
+            return List.of(prefix);
+        }
+        return node.propertyStream()
+                .flatMap(member -> leafFields(member.getValue(), prefix + member.getKey() + ".").stream())
+                .map(path -> path.endsWith(".") ? path.substring(0, path.length() - 1) : path)
+                .toList();
+    }
+
+    /**
+     * Every shape in {@link #badTokens()} — a tampered signature, both {@code iat} failures and a token
+     * with no {@code exp} among them — is refused without any part of itself reaching stdout or stderr.
      */
     @ParameterizedTest
     @MethodSource("badTokens")
@@ -263,17 +343,52 @@ class LedgerAuthorizationIT extends PostgresFixture {
             throws Exception {
         mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
 
-        assertThat(output.getOut()).doesNotContain(token);
+        assertThat(output.getAll())
+                .as("stdout and stderr while refusing a bad token")
+                .doesNotContain(ownPartsOf(token).toArray(String[]::new))
+                .doesNotContain(TestTokens.WRONG_ISSUER);
     }
 
-    @Test
-    void Given_the_owner_token_When_head_or_options_is_sent_Then_both_are_denied() throws Exception {
-        String token = TestTokens.owner();
+    /**
+     * What a log must never carry of a token: the whole of it, its payload and signature segments each
+     * on their own, and the subject it names. The header segment is left out, since every token signed
+     * by one key shares it.
+     */
+    private static List<String> ownPartsOf(String token) {
+        String[] segments = token.split("\\.", -1);
+        List<String> parts = new ArrayList<>(List.of(token));
+        Arrays.stream(segments).skip(1).filter(segment -> !segment.isEmpty()).forEach(parts::add);
+        JsonNode subject =
+                LOG_JSON.readTree(Base64.getUrlDecoder().decode(segments[1])).path("sub");
+        if (subject.isString()) {
+            parts.add(subject.asString());
+        }
+        return parts;
+    }
 
-        mvc.perform(withHost(head("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isForbidden());
-        mvc.perform(withHost(options("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isForbidden());
+    /**
+     * Only {@code GET} and {@code POST} are classified; every other verb falls to {@code denyAll}, even
+     * for the owner, and is refused by {@code ProblemAccessDeniedHandler} — which has no test of its own:
+     * this, and every other {@code FORBIDDEN} asserted in this class, is it.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"HEAD", "OPTIONS", "PUT", "PATCH", "DELETE"})
+    void Given_the_owner_token_When_an_unclassified_method_is_sent_Then_it_is_denied(String method) throws Exception {
+        mvc.perform(withHost(request(HttpMethod.valueOf(method), "/api/v1/accounts"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON_BODY))
+                .andExpect(status().isForbidden())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"insufficient_scope\""))
+                .andExpect(problem(FORBIDDEN));
+    }
+
+    /** The RFC 9457 shape every refusal the chain writes carries, and the {@code code} naming which one. */
+    private static ResultMatcher problem(String code) {
+        return result -> {
+            content().contentType(MediaType.APPLICATION_PROBLEM_JSON).match(result);
+            jsonPath("$.code").value(code).match(result);
+        };
     }
 
     /**
@@ -289,7 +404,7 @@ class LedgerAuthorizationIT extends PostgresFixture {
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+                .andExpect(jsonPath("$.code").value(UNAUTHENTICATED));
     }
 
     /**
@@ -339,20 +454,32 @@ class LedgerAuthorizationIT extends PostgresFixture {
         return bothLists().stream().map(Arguments::of);
     }
 
+    /**
+     * Every bad token, categorised or not. HS256 is refused 401, and its refusal is logged though the
+     * token never is, but its category is not asserted: the ledger logs it {@code unknown_key}, from Nimbus's "Another algorithm expected,
+     * or no matching key(s) found", where the assistant refuses the same shape {@code malformed}. That
+     * asymmetry is #352, and is not pinned here either way until it is settled.
+     */
     private static Stream<Arguments> badTokens() {
+        return Stream.concat(
+                categorisedBadTokens().map(shape -> Arguments.of(shape.get()[1])),
+                Stream.of(Arguments.of(TestTokens.hmacConfused())));
+    }
+
+    /** Every shape of bad token, with the reason category it is logged under (ADR-030's vocabulary). */
+    private static Stream<Arguments> categorisedBadTokens() {
         return Stream.of(
-                        TestTokens.expired(),
-                        TestTokens.notYetValid(),
-                        TestTokens.futureIssuedAt(),
-                        TestTokens.noIssuedAt(),
-                        TestTokens.noExpiry(),
-                        TestTokens.wrongAudience(),
-                        TestTokens.wrongIssuer(),
-                        TestTokens.unsigned(),
-                        TestTokens.hmacConfused(),
-                        TestTokens.foreignKey(),
-                        TestTokens.tamperedSignature())
-                .map(Arguments::of);
+                Arguments.of("expired", TestTokens.expired(), "lifetime"),
+                Arguments.of("not yet valid", TestTokens.notYetValid(), "lifetime"),
+                Arguments.of("issued in the future", TestTokens.futureIssuedAt(), "lifetime"),
+                Arguments.of("no iat", TestTokens.noIssuedAt(), "lifetime"),
+                Arguments.of("no exp", TestTokens.noExpiry(), "lifetime"),
+                Arguments.of("wrong audience", TestTokens.wrongAudience(), "audience"),
+                Arguments.of("wrong issuer", TestTokens.wrongIssuer(), "issuer"),
+                Arguments.of("no sub", TestTokens.noSubject(), "subject"),
+                Arguments.of("alg none", TestTokens.unsigned(), "malformed"),
+                Arguments.of("unpublished key", TestTokens.foreignKey(), "unknown_key"),
+                Arguments.of("tampered payload", TestTokens.tamperedSignature(), "rejected"));
     }
 
     /**

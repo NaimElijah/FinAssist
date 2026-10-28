@@ -12,15 +12,21 @@ import { describe, expectTypeOf, it } from 'vitest';
 
 import type {
     AccountResponse,
+    DefineScenarioRequest,
     MoneyDto,
     Problem as LedgerProblem,
+    ScenarioResponse,
     TransactionResponse,
     TransactionStateResponse,
 } from './contracts/ledger/types.gen';
 import type {
+    DispositionModel,
+    DisposalRequestModel,
+    LotModel,
     MoneyModel,
     PositionModel,
     Problem as AssistantProblem,
+    ValuationModel,
 } from './contracts/assistant/types.gen';
 import type { LogoutResponse, SessionResponse } from './contracts/gateway/types.gen';
 
@@ -33,6 +39,17 @@ describe('generated contract types', () => {
     it('Given_a_money_amount_When_read_from_either_document_Then_it_is_a_string_not_a_number', () => {
         expectTypeOf<MoneyDto['amount']>().toBeString();
         expectTypeOf<MoneyModel['amount']>().toBeString();
+    });
+
+    it('Given_a_quantity_or_a_growth_rate_When_read_from_either_document_Then_it_is_a_string_not_a_number', () => {
+        // ADR-028: every decimal on the wire is a string, not only money - a holding's quantity
+        // and a scenario's growth rate per step alike, in a request as much as a response.
+        expectTypeOf<DisposalRequestModel['quantity']>().toEqualTypeOf<string>();
+        expectTypeOf<DispositionModel['quantity']>().toEqualTypeOf<string>();
+        expectTypeOf<LotModel['quantity']>().toEqualTypeOf<string>();
+        expectTypeOf<ValuationModel['quantity']>().toEqualTypeOf<string>();
+        expectTypeOf<DefineScenarioRequest['growthRatePerStep']>().toEqualTypeOf<string>();
+        expectTypeOf<ScenarioResponse['growthRatePerStep']>().toEqualTypeOf<string>();
     });
 
     it('Given_the_ledgers_always_present_response_members_When_generated_Then_they_are_not_optional', () => {

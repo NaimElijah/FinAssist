@@ -46,10 +46,19 @@ import org.springframework.boot.web.server.servlet.context.ServletWebServerAppli
  * <p>Uses the JDK's {@link HttpClient} rather than {@code TestRestTemplate}, which Spring Boot 4
  * moved out of {@code spring-boot-starter-test} into a separate artefact the ledger also declined
  * to add for the same reason.
+ *
+ * <p>Every property an assertion here reads a literal for is pinned below, because {@code
+ * application.yml} resolves each from a {@code GATEWAY_*} variable of the process environment, and a
+ * developer's shell exporting one would otherwise turn this red, or green, for a reason that is not
+ * the code's.
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "finassist.oidc.client-secret=a-test-client-secret")
+        properties = {
+            "finassist.oidc.client-secret=a-test-client-secret",
+            "finassist.http.allowed-hosts=localhost,127.0.0.1",
+            "finassist.http.cookie-secure=false"
+        })
 class GatewayApplicationIT {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
@@ -75,6 +84,9 @@ class GatewayApplicationIT {
     private static final Duration SHIPPED_CONNECT_TIMEOUT = Duration.ofSeconds(5);
 
     private static final Duration SHIPPED_READ_TIMEOUT = Duration.ofSeconds(10);
+
+    /** ADR-030's idle timeout, {@code server.servlet.session.timeout}, spelled here for the same reason. */
+    private static final Duration SHIPPED_SESSION_TIMEOUT = Duration.ofMinutes(30);
 
     @LocalServerPort
     private int port;
@@ -151,6 +163,19 @@ class GatewayApplicationIT {
     }
 
     /**
+     * The probe Compose's healthcheck reads, since every healthcheck probes readiness (#142).
+     * Health above can answer while this one is missing: the readiness group exists
+     * only while {@code management.endpoint.health.probes.enabled} is on.
+     */
+    @Test
+    void Given_the_gateway_When_it_boots_Then_readiness_reports_up() throws Exception {
+        HttpResponse<String> response = get("/actuator/health/readiness");
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).contains("\"status\":\"UP\"");
+    }
+
+    /**
      * The budget that bounds every call this gateway makes to Keycloak — the authorization-code
      * exchange, the {@code refresh_token} grant and the JWK-set fetch — and every relayed request
      * besides.
@@ -203,10 +228,7 @@ class GatewayApplicationIT {
      */
     @Test
     void Given_the_running_gateway_When_its_filter_chain_is_read_Then_the_host_allow_list_runs_before_security() {
-        TomcatWebServer server = (TomcatWebServer) context.getWebServer();
-        List<Context> webApps = Arrays.stream(server.getTomcat().getHost().findChildren())
-                .map(Context.class::cast)
-                .toList();
+        List<Context> webApps = webApps();
         List<String> chain = webApps.stream()
                 .flatMap(web -> Arrays.stream(web.findFilterMaps())
                         .map(map -> web.findFilterDef(map.getFilterName()).getFilterClass()))
@@ -224,6 +246,28 @@ class GatewayApplicationIT {
         assertThat(names.subList(1, names.size()))
                 .withFailMessage("springSecurityFilterChain must run, and must run after the Host allow-list")
                 .contains(SECURITY_FILTER_NAME);
+    }
+
+    /** The web applications the running Tomcat holds, as the container itself sees them. */
+    private List<Context> webApps() {
+        TomcatWebServer server = (TomcatWebServer) context.getWebServer();
+        return Arrays.stream(server.getTomcat().getHost().findChildren())
+                .map(Context.class::cast)
+                .toList();
+    }
+
+    /**
+     * ADR-030's idle timeout as the running server applies it: half an hour without a request ends
+     * the session, and with it the owner's tokens, which live nowhere else. Read from Tomcat's own
+     * context, in the whole minutes Boot converts {@code server.servlet.session.timeout} into,
+     * because that is the value sessions are actually created with, not the property it came from.
+     */
+    @Test
+    void Given_the_shipped_configuration_When_the_servers_session_timeout_is_read_Then_it_is_thirty_minutes() {
+        assertThat(webApps())
+                .extracting(Context::getSessionTimeout)
+                .as("each web application's session timeout, in minutes")
+                .containsExactly((int) SHIPPED_SESSION_TIMEOUT.toMinutes());
     }
 
     /**
@@ -307,7 +351,11 @@ class GatewayApplicationIT {
     @Nested
     @SpringBootTest(
             webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-            properties = {"finassist.oidc.client-secret=a-test-client-secret", "finassist.http.cookie-secure=true"})
+            properties = {
+                "finassist.oidc.client-secret=a-test-client-secret",
+                "finassist.http.allowed-hosts=localhost,127.0.0.1",
+                "finassist.http.cookie-secure=true"
+            })
     class BehindTls {
 
         @LocalServerPort

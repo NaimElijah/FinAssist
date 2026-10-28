@@ -9,6 +9,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.Banner;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
@@ -128,10 +129,19 @@ class KeycloakRegistrationTest {
      * an unresolvable placeholder and the context never finishes refreshing. The whole application
      * is started here, rather than the configuration class alone, because it is {@code
      * application.yml} that decides there is no default and that is what this pins.
+     *
+     * <p>The process environment is left out of the application's environment, so a developer
+     * whose shell exports {@code GATEWAY_CLIENT_SECRET}, as one running the gateway natively
+     * would, does not start a gateway here and turn this test red.
      */
     @Test
     void Given_no_client_secret_When_the_gateway_starts_Then_it_refuses_to_start() {
+        StandardEnvironment withoutProcessEnvironment = new StandardEnvironment();
+        withoutProcessEnvironment
+                .getPropertySources()
+                .remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
         SpringApplicationBuilder gateway = new SpringApplicationBuilder(GatewayApplication.class)
+                .environment(withoutProcessEnvironment)
                 .bannerMode(Banner.Mode.OFF)
                 .properties("server.port=0");
 

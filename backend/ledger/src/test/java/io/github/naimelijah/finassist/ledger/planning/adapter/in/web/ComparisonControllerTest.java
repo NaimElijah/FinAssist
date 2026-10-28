@@ -47,6 +47,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The comparison route as a client sees it: status, content type, body and {@code code} (ADR-028).
@@ -195,7 +196,15 @@ class ComparisonControllerTest {
                 .getContentAsString();
 
         assertThat(body).doesNotContain(lost.toString());
-        assertThat(output.getOut()).contains("ERROR").contains(lost.toString());
+        assertThat(output.getOut().lines().filter(line -> line.contains(lost.toString())))
+                .as("the log line carrying the failure")
+                .singleElement()
+                .satisfies(line -> assertThat(JsonMapper.shared()
+                                .readTree(line)
+                                .path("log")
+                                .path("level")
+                                .asString())
+                        .isEqualTo("ERROR"));
     }
 
     /**

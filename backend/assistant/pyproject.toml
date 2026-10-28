@@ -107,6 +107,8 @@ show_missing = true
 exclude_also = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
-    '\.\.\.',
+    # A Protocol stub's body: a line that is only an ellipsis. Unanchored, the pattern matched any
+    # `...`, such as `tuple[Lot, ...]` in a signature, and excluded that whole function with it.
+    '^\s*\.\.\.\s*$',
 ]
 

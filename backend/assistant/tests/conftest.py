@@ -1,7 +1,8 @@
 """Test configuration for the assistant suite.
 
-Exists for two reasons: to make Hypothesis deterministic, and to reset the logging boundary's
-process-wide state around every test.
+Exists for three reasons: to make Hypothesis deterministic, to reset the logging boundary's
+process-wide state around every test, and to run every test against an environment that names
+none of the assistant's own settings.
 
 ADR-016 says a projection is "stated assumptions in, one reproducible line out", and the
 ledger's own property tests generate from a fixed seed for the same reason. A property suite
@@ -13,6 +14,7 @@ The profile is registered here rather than in ``pyproject.toml`` because ``--str
 rejects ini keys pytest does not define, and ``hypothesis_profile`` is not one of them.
 """
 
+import os
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
@@ -43,6 +45,42 @@ settings.register_profile(
     verbosity=Verbosity.normal,
 )
 settings.load_profile("finassist")
+
+
+SETTINGS_ENVIRONMENT_PREFIXES: Final = ("ASSISTANT_", "OTEL_")
+"""Prefixes of every environment variable ``Settings`` or the OpenTelemetry SDK reads."""
+
+SETTINGS_ENVIRONMENT_NAMES: Final = frozenset({"ANTHROPIC_API_KEY"})
+"""The one setting whose name carries neither prefix."""
+
+
+def names_a_setting(name: str) -> bool:
+    """Whether the environment variable *name* is one ``Settings`` or the OpenTelemetry SDK reads.
+
+    Compared upper-cased, because pydantic-settings matches a name case-insensitively unless a
+    model says otherwise, and ``Settings`` does not: on Linux an exported
+    ``assistant_dev_seed=true`` is read as ``ASSISTANT_DEV_SEED``, so it must be cleared as one.
+    Windows upper-cases every ``os.environ`` key itself, which is why the case-sensitive version
+    passed there.
+    """
+    upper = name.upper()
+    return upper.startswith(SETTINGS_ENVIRONMENT_PREFIXES) or upper in SETTINGS_ENVIRONMENT_NAMES
+
+
+@pytest.fixture(autouse=True)
+def _clear_settings_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Removes every setting the shell running the suite happens to export.
+
+    ``Settings`` reads the process environment, so a developer with ``ASSISTANT_DEV_SEED=true``
+    or ``ASSISTANT_HOST=0.0.0.0`` exported - the values a native run of the assistant wants -
+    turned tests asserting a default red, and ones building an app with no seed served seeded
+    data. The names are enumerated from the environment rather than listed, so a setting added
+    later is cleared without anyone remembering it here. A test that wants a value sets it with
+    ``monkeypatch`` itself, after this has run.
+    """
+    for name in list(os.environ):
+        if names_a_setting(name):
+            monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture(autouse=True)

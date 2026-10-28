@@ -33,7 +33,9 @@ From `backend/assistant`:
 - **In a fresh worktree**, run `uv sync --locked --extra dev` before pytest (`--offline` uses the
   uv cache). The suite needs the `dev` extra (pytest, hypothesis), which `uv run`'s own sync
   leaves out, so `uv run pytest` alone fails — sometimes with an import error naming `jwt`, a
-  runtime dependency, when a pytest from outside the environment runs instead.
+  runtime dependency, when a pytest from outside the environment runs instead. Every test runs
+  with the `ASSISTANT_*` and `OTEL_*` variables and `ANTHROPIC_API_KEY` cleared, whatever their
+  case (`tests/conftest.py`), so an exported `.env` cannot change a result.
 - **Re-lock** — `make lock`: `uv lock`, required after any `pyproject.toml` dependency edit, or
   CI's `uv sync --locked` fails.
 - **Regenerate the contract after every endpoint change** — `uv run pytest tests/test_contract.py`
@@ -57,7 +59,9 @@ From `backend/assistant`:
   `tests/test_architecture.py`. `jwt` and `cryptography` are named there for the same reason:
   `PyJWT[crypto]` mangles to the literal `PyJWT`, which matches neither `jwt` (the real import
   root) nor `pyjwt`, and `cryptography` arrives only transitively through the `crypto` extra, so no
-  declared dependency name can ever produce it (ADR-030, ADR-032).
+  declared dependency name can ever produce it (ADR-030, ADR-032). Standard-library I/O is a set of
+  its own, `FORBIDDEN_STANDARD_IO`, since no declared dependency can name it, and a call to the
+  builtin `open` is refused by a rule of its own.
 - **The router is a factory taking use cases, and never reads `app.state`.** Its handlers are
   `def`, never `async def` — every port behind them is synchronous (ADR-021).
 - **Every route declares exactly one permission dependency, built through the `require` factory

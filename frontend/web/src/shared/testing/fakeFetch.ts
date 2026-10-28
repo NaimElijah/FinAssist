@@ -26,7 +26,10 @@ export interface RecordedRequest {
     readonly body: unknown;
 }
 
-/** Decides the response to one request. Throw, through `unexpectedRequest`, for one not planned. */
+/**
+ * Decides the response to one request. Throw, through `unexpectedRequest`, for one not planned;
+ * return `networkFailure()` for a planned network error, which is not counted as a mistake.
+ */
 export type FetchAnswer = (request: RecordedRequest) => Response | Promise<Response>;
 
 function urlOf(input: RequestInfo | URL): string {
@@ -42,13 +45,29 @@ function headersOf(init: RequestInit | undefined): Readonly<Record<string, strin
 }
 
 /**
+ * The check `fakeFetch` runs when a test finishes, exported so the double's own guarantee can be
+ * tested without a test of its own failing.
+ *
+ * @param failures - one line per request the fake could not serve as planned, naming it.
+ * @throws Error - when there is any, listing every one.
+ */
+export function assertNoUnplannedRequests(failures: readonly string[]): void {
+    if (failures.length > 0) {
+        throw new Error(
+            `fakeFetch received requests the test did not plan for:\n${failures.join('\n')}`,
+        );
+    }
+}
+
+/**
  * Replace the global `fetch` with one answering every request through `answer`, for the rest of
  * the current test.
  *
  * When the test finishes, the real `fetch` is restored, so a caller needs no
- * `vi.unstubAllGlobals()` of its own. The test then fails if `answer` threw for any request, or
- * any request carried a body that is not a JSON string. The request still fails inside the app
- * as it would have, so the error the app shows is unchanged; only the test learns of it too.
+ * `vi.unstubAllGlobals()` of its own. The test then fails if `answer` threw for any request -
+ * except a planned `networkFailure()` - or any request carried a body that is not a JSON string.
+ * The request still fails inside the app as it would have, so the error the app shows is
+ * unchanged; only the test learns of it too.
  *
  * Call it from the body of a test: it registers an `onTestFinished` hook.
  *
@@ -62,11 +81,7 @@ export function fakeFetch(answer: FetchAnswer): readonly RecordedRequest[] {
 
     onTestFinished(() => {
         vi.unstubAllGlobals();
-        if (failures.length > 0) {
-            throw new Error(
-                `fakeFetch received requests the test did not plan for:\n${failures.join('\n')}`,
-            );
-        }
+        assertNoUnplannedRequests(failures);
     });
 
     function parsedBody(body: BodyInit | null | undefined, label: string): unknown {
@@ -101,6 +116,9 @@ export function fakeFetch(answer: FetchAnswer): readonly RecordedRequest[] {
             try {
                 return await answer(request);
             } catch (error) {
+                if (error instanceof Error && plannedNetworkFailures.has(error)) {
+                    throw error;
+                }
                 failures.push(
                     `${label}: ${error instanceof Error ? error.message : 'a non-Error was thrown'}`,
                 );
@@ -143,6 +161,25 @@ export function problemResponse(
  */
 export function pendingResponse(): Promise<Response> {
     return new Promise<Response>(() => undefined);
+}
+
+/**
+ * The errors `networkFailure` raised, so `fakeFetch` can tell a failure the test planned from a
+ * mistake. Weak, so an error is forgotten once the test that raised it lets go of it.
+ */
+const plannedNetworkFailures = new WeakSet<Error>();
+
+/**
+ * A request that never reaches the server, as `fetch` reports a network failure: it rejects with
+ * a `TypeError`. Unlike a throw from an answer, `fakeFetch` does not count it as a mistake, so a
+ * test can show what the app does when the network fails.
+ *
+ * @returns a promise rejecting with `TypeError('Failed to fetch')`, the message browsers use.
+ */
+export function networkFailure(): Promise<Response> {
+    const failure = new TypeError('Failed to fetch');
+    plannedNetworkFailures.add(failure);
+    return Promise.reject(failure);
 }
 
 /**

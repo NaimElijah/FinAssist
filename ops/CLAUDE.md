@@ -93,8 +93,9 @@ From the repository root unless stated:
   owner or a lost admin password is restored with `kcadm.sh` or `kc.sh bootstrap-admin`, never by
   recreating `keycloak-db-data`.
 - **Every secret and credential in the realm is a `${VAR}` placeholder**, pinned by
-  `KeycloakRealmTest`; `KeycloakRealmIT` proves the whole file against a real Keycloak. Both live in
-  the gateway module.
+  `KeycloakRealmTest`. `KeycloakRealmIT` imports the file into a real Keycloak and reads back the
+  sign-in protection, the owner's id and required actions, and each client's scope and audience;
+  not every key. Both live in the gateway module.
 - **Neither client is allowed the realm's full scope.** `fullScopeAllowed: false` on both, plus a
   realm-level `scopeMappings` entry naming exactly the roles each client's tokens need — `owner`
   and `viewer` for the gateway, `assistant` for the assistant. Left at Keycloak's default, every

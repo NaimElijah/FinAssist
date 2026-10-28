@@ -2,7 +2,9 @@ package io.github.naimelijah.finassist.ledger.planning.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -57,6 +59,8 @@ class ScenarioServiceTest {
     void Given_a_flow_that_was_never_recorded_When_a_scenario_is_defined_Then_it_is_refused() {
         assertThatThrownBy(() -> define("Buy the car", Currency.ILS, List.of(PlanId.generate())))
                 .isInstanceOf(PlanNotFoundException.class);
+
+        assertNothingStoredOrPublished();
     }
 
     @Test
@@ -66,6 +70,8 @@ class ScenarioServiceTest {
         assertThatThrownBy(() -> define("Buy two cars", Currency.ILS, List.of(car.id(), car.id())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("twice");
+
+        assertNothingStoredOrPublished();
     }
 
     @Test
@@ -74,6 +80,8 @@ class ScenarioServiceTest {
 
         assertThatThrownBy(() -> define("Study abroad", Currency.ILS, List.of(dollars.id())))
                 .isInstanceOf(IllegalArgumentException.class);
+
+        assertNothingStoredOrPublished();
     }
 
     @Test
@@ -95,6 +103,12 @@ class ScenarioServiceTest {
         when(scenarios.all()).thenReturn(List.of(aggressive, baseline));
 
         assertThat(service.all()).containsExactly(aggressive, baseline);
+    }
+
+    /** A refused command must leave no trace, or the event log stops describing what was planned. */
+    private void assertNothingStoredOrPublished() {
+        verify(scenarios, never()).save(any());
+        assertThat(events.published()).isEmpty();
     }
 
     private Scenario define(String name, Currency currency, List<PlanId> ids) {

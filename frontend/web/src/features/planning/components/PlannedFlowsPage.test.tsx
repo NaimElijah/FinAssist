@@ -3,20 +3,22 @@
 // faked, so the feature's real api/ module and its mapping run under test.
 
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { userEvent } from '@testing-library/user-event';
+import { type UserEvent, userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
-import { todayIsoDate } from '@/shared/lib/today';
 import {
-    type FetchAnswer,
     fakeFetch,
+    type FetchAnswer,
     jsonResponse,
+    networkFailure,
     pendingResponse,
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
+import { pinClockJustAfterLocalMidnight } from '@/shared/testing/localClock';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { planKeys } from '../hooks/planQueries';
@@ -83,6 +85,12 @@ function lifecycleLedger(getFlows: () => readonly unknown[], extra: FetchAnswer)
     };
 }
 
+/** Makes the plan-flow form's flow repeat three times, showing Cadence, Every and Times. */
+async function repeatThreeTimes(user: UserEvent): Promise<void> {
+    await user.selectOptions(screen.getByLabelText('Repeats'), 'TIMES');
+    await user.type(screen.getByLabelText('Times'), '3');
+}
+
 function renderFlows() {
     return renderRoutes(planningRoutes, '/planning/flows');
 }
@@ -108,23 +116,26 @@ const COMPARISON_KEY = planKeys.comparison({
     invested: [],
 });
 
-/** The pinned instant a lifecycle panel's Date field defaults from, and the ISO date it maps to. */
-const FAKE_NOW = new Date(2026, 8, 15, 12, 0);
-const TODAY = todayIsoDate(FAKE_NOW);
+/**
+ * The local date a lifecycle panel's Date field defaults to, written out rather than computed by
+ * the code under test, so a call site reading the date some other way cannot agree with itself.
+ */
+const TODAY = '2026-09-15';
 
 let restoreSink: () => void = () => undefined;
+let restoreClock: () => void = () => undefined;
 
 beforeEach(() => {
     // The client logs every failed request; several tests fail requests on purpose.
     restoreSink = setLogSink(() => undefined);
-    // Pins Date so a run crossing local midnight cannot flake the default-to-today assertions.
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(FAKE_NOW);
+    // Pins the clock just after local midnight in a zone where UTC is still on the day before,
+    // so a default read through toISOString() would name 2026-09-14 and fail.
+    restoreClock = pinClockJustAfterLocalMidnight(TODAY);
 });
 
 afterEach(() => {
     restoreSink();
-    vi.useRealTimers();
+    restoreClock();
 });
 
 describe('PlannedFlowsPage', () => {
@@ -215,6 +226,28 @@ describe('PlannedFlowsPage', () => {
         await waitFor(() => {
             expect(focusedElementHolds(screen.getByText('No planned flows yet'))).toBe(true);
         });
+    });
+
+    it('Given_the_network_fails_When_the_list_is_read_Then_an_error_state_offers_a_retry_that_refetches', async () => {
+        // A request that never reached the server is worth repeating, unlike a 4xx answer, so the
+        // failure offers "Try again" (isRetryable).
+        let failing = true;
+        const requests = fakeFetch((request) => {
+            if (request.url === SCENARIOS_URL && request.method === 'GET') return jsonResponse([]);
+            if (request.url !== FLOWS_URL) return unexpectedRequest(request);
+            return failing ? networkFailure() : jsonResponse([]);
+        });
+
+        renderFlows();
+
+        const alert = await screen.findByRole('alert');
+        failing = false;
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
+
+        expect(await screen.findByText('No planned flows yet')).toBeDefined();
+        expect(requests.filter((request) => request.url === FLOWS_URL)).toHaveLength(2);
     });
 });
 
@@ -455,33 +488,49 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         });
     });
 
-    it('Given_a_refused_cancel_shown_in_its_panel_When_its_reason_is_edited_Then_the_refusal_clears', async () => {
-        // The refusal answered the cancel as it was sent; once the owner changes it, the message no
-        // longer describes anything in the panel.
-        fakeFetch(
-            ledger([RENT], (request) => {
-                if (request.url === `${FLOWS_URL}/${RENT_ID}/cancel` && request.method === 'POST') {
-                    return problemResponse({
-                        status: 422,
-                        code: 'RULE_VIOLATED',
-                        detail: 'A flow cannot be cancelled before it starts.',
-                    });
-                }
-                return unexpectedRequest(request);
-            }),
-        );
-        renderFlows();
-        const user = userEvent.setup({ delay: null });
-        await screen.findByRole('table', { name: 'Planned flows' });
-        await user.click(within(rowOf('Rent')).getByRole('button', { name: 'Cancel' }));
-        await user.type(screen.getByLabelText('Reason'), 'No longer needed');
-        await user.click(screen.getByRole('button', { name: 'Cancel flow' }));
-        await screen.findByRole('alert');
+    // Every field of the panel, since each calls clearSettledOutcome on its own (frontend/web
+    // CLAUDE.md: editing any field of a settled form clears its answer).
+    for (const { field, edit } of [
+        {
+            field: 'reason',
+            edit: (user) => user.type(screen.getByLabelText('Reason'), ' at all'),
+        },
+        {
+            field: 'date',
+            edit: () => changeValue('On', '2026-09-10'),
+        },
+    ] satisfies readonly FieldEdit[]) {
+        it(`Given_a_refused_cancel_shown_in_its_panel_When_its_${field}_is_edited_Then_the_refusal_clears`, async () => {
+            // The refusal answered the cancel as it was sent; once the owner changes it, the
+            // message no longer describes anything in the panel.
+            fakeFetch(
+                ledger([RENT], (request) => {
+                    if (
+                        request.url === `${FLOWS_URL}/${RENT_ID}/cancel` &&
+                        request.method === 'POST'
+                    ) {
+                        return problemResponse({
+                            status: 422,
+                            code: 'RULE_VIOLATED',
+                            detail: 'A flow cannot be cancelled before it starts.',
+                        });
+                    }
+                    return unexpectedRequest(request);
+                }),
+            );
+            renderFlows();
+            const user = userEvent.setup({ delay: null });
+            await screen.findByRole('table', { name: 'Planned flows' });
+            await user.click(within(rowOf('Rent')).getByRole('button', { name: 'Cancel' }));
+            await user.type(screen.getByLabelText('Reason'), 'No longer needed');
+            await user.click(screen.getByRole('button', { name: 'Cancel flow' }));
+            await screen.findByRole('alert');
 
-        await user.type(screen.getByLabelText('Reason'), ' at all');
+            await edit(user);
 
-        expect(screen.queryByRole('alert')).toBeNull();
-    });
+            expect(screen.queryByRole('alert')).toBeNull();
+        });
+    }
 
     it('Given_a_panel_open_on_a_planned_row_When_cancelled_Then_focus_returns_to_the_button_that_opened_it', async () => {
         fakeFetch(ledger([RENT]));
@@ -536,6 +585,38 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         });
         expect(within(rowOf('Rent')).queryByRole('button', { name: 'Commit' })).toBeNull();
         expect(committedText).toBeDefined();
+    });
+
+    it('Given_a_lifecycle_panel_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
+        // Two submit events can arrive in one tick, before pending has rendered. The panel's own
+        // pending check reads render-time state, so only its in-flight ref stops the second, and
+        // a flow's lifecycle moves one way only (ADR-028: no double submit).
+        const requests = fakeFetch(
+            lifecycleLedger(
+                () => [RENT],
+                (request) =>
+                    request.url === `${FLOWS_URL}/${RENT_ID}/commit` && request.method === 'POST'
+                        ? pendingResponse()
+                        : unexpectedRequest(request),
+            ),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+        await user.click(within(rowOf('Rent')).getByRole('button', { name: 'Commit' }));
+        const form = screen.getByLabelText('On').closest('form');
+        if (form === null) {
+            throw new Error('the On field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+        fireEvent.submit(form);
+
+        // By the time pending has rendered, every request either submit started has reached fetch.
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: 'Commit' })).toHaveProperty('disabled', true);
+        });
+        expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
 });
 
@@ -961,16 +1042,16 @@ describe('PlannedFlowsPage plan-flow form', () => {
         );
     });
 
-    it('Given_a_422_refusal_shown_When_the_amount_is_edited_Then_the_refusal_clears', async () => {
-        // The refusal answered the amount that was sent; kept on screen, it would describe an
-        // amount the owner has since corrected.
+    it('Given_the_ledger_refuses_the_write_as_FORBIDDEN_When_a_flow_is_planned_Then_the_fixed_sentence_is_shown_instead_of_its_detail', async () => {
+        // The server enforces access whatever the client hides (ADR-032), and a refusal never
+        // tells the user which permission it was (ErrorState's fixed sentence).
         fakeFetch(
             ledger([], (request) => {
                 if (request.url === FLOWS_URL && request.method === 'POST') {
                     return problemResponse({
-                        status: 422,
-                        code: 'RULE_VIOLATED',
-                        detail: 'The amount must be positive.',
+                        status: 403,
+                        code: 'FORBIDDEN',
+                        detail: 'Role viewer lacks ledger:write.',
                     });
                 }
                 return unexpectedRequest(request);
@@ -980,14 +1061,90 @@ describe('PlannedFlowsPage plan-flow form', () => {
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
         await user.type(screen.getByLabelText('Description'), 'Rent');
-        await user.type(screen.getByLabelText('Amount'), '-250.00');
+        await user.type(screen.getByLabelText('Amount'), '250.00');
+
         await user.click(screen.getByRole('button', { name: 'Plan flow' }));
-        await screen.findByRole('alert');
 
-        await user.clear(screen.getByLabelText('Amount'));
-
-        expect(screen.queryByRole('alert')).toBeNull();
+        const alert = await screen.findByRole('alert');
+        expect(alert.textContent).toContain("You don't have permission to see this.");
+        expect(alert.textContent).not.toContain('ledger:write');
     });
+
+    // Every field of the form, since each calls clearSettledOutcome on its own (frontend/web
+    // CLAUDE.md: editing any field of a settled form clears its answer). `arrange` first shows the
+    // fields only a recurrence offers, so the refusal is on screen beside them.
+    for (const { field, arrange, edit } of [
+        { field: 'amount', edit: (user) => user.clear(screen.getByLabelText('Amount')) },
+        {
+            field: 'description',
+            edit: (user) => user.type(screen.getByLabelText('Description'), ' due'),
+        },
+        {
+            field: 'currency',
+            edit: (user) => user.selectOptions(screen.getByLabelText('Currency'), 'USD'),
+        },
+        {
+            field: 'direction',
+            edit: (user) => user.selectOptions(screen.getByLabelText('Direction'), 'INFLOW'),
+        },
+        { field: 'start_date', edit: () => changeValue('Starts on', '2026-10-01') },
+        {
+            field: 'recurrence',
+            edit: (user) => user.selectOptions(screen.getByLabelText('Repeats'), 'TIMES'),
+        },
+        {
+            field: 'cadence',
+            arrange: repeatThreeTimes,
+            edit: (user) => user.selectOptions(screen.getByLabelText('Cadence'), 'WEEKLY'),
+        },
+        {
+            field: 'interval',
+            arrange: repeatThreeTimes,
+            edit: (user) => user.type(screen.getByLabelText('Every'), '2'),
+        },
+        {
+            field: 'count',
+            arrange: repeatThreeTimes,
+            edit: (user) => user.type(screen.getByLabelText('Times'), '0'),
+        },
+        {
+            field: 'end_date',
+            arrange: async (user) => {
+                await user.selectOptions(screen.getByLabelText('Repeats'), 'UNTIL');
+                await changeValue('Until', '2027-09-01');
+            },
+            edit: () => changeValue('Until', '2027-10-01'),
+        },
+    ] satisfies readonly FieldEdit[]) {
+        it(`Given_a_422_refusal_shown_When_the_${field}_is_edited_Then_the_refusal_clears`, async () => {
+            // The refusal answered the flow that was sent; kept on screen, it would describe a flow
+            // the owner has since corrected.
+            fakeFetch(
+                ledger([], (request) => {
+                    if (request.url === FLOWS_URL && request.method === 'POST') {
+                        return problemResponse({
+                            status: 422,
+                            code: 'RULE_VIOLATED',
+                            detail: 'The amount must be positive.',
+                        });
+                    }
+                    return unexpectedRequest(request);
+                }),
+            );
+            renderFlows();
+            const user = userEvent.setup({ delay: null });
+            await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+            await user.type(screen.getByLabelText('Description'), 'Rent');
+            await user.type(screen.getByLabelText('Amount'), '-250.00');
+            await arrange?.(user);
+            await user.click(screen.getByRole('button', { name: 'Plan flow' }));
+            await screen.findByRole('alert');
+
+            await edit(user);
+
+            expect(screen.queryByRole('alert')).toBeNull();
+        });
+    }
 
     it('Given_a_flow_planned_successfully_When_the_list_shows_it_Then_the_form_is_reset_focus_is_on_its_description_and_only_flows_is_invalidated', async () => {
         const NEW_ID = 'f1f1f1f1-4d8c-4f3a-9a61-2f1c5e0d9b11';

@@ -2,12 +2,12 @@
 // Renders an account's page through the feature's own routes, so it needs a DOM. fetch is faked,
 // so the feature's real api/ module and its mapping run under test.
 
+import type { QueryClient } from '@tanstack/react-query';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
-import { todayIsoDate } from '@/shared/lib/today';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -16,7 +16,9 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
+import { pinClockJustAfterLocalMidnight } from '@/shared/testing/localClock';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { accountKeys } from '../hooks/accountQueries';
@@ -98,24 +100,26 @@ function rowOf(description: string): HTMLElement {
     return row;
 }
 
-/** The pinned instant a lifecycle panel's Date field defaults from, and the ISO date it maps to. */
-const FAKE_NOW = new Date(2026, 8, 15, 12, 0);
-const TODAY = todayIsoDate(FAKE_NOW);
+/**
+ * The local date a lifecycle panel's Date field defaults to, written out rather than computed by
+ * the code under test, so a call site reading the date some other way cannot agree with itself.
+ */
+const TODAY = '2026-09-15';
 
 let restoreSink: () => void = () => undefined;
+let restoreClock: () => void = () => undefined;
 
 beforeEach(() => {
     // The client logs every failed request; several tests fail requests on purpose.
     restoreSink = setLogSink(() => undefined);
-    // Pins Date so a run crossing local midnight cannot flake the default-to-today assertions.
-    // Only Date is faked - user-event's own delays still run on real timers.
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(FAKE_NOW);
+    // Pins the clock just after local midnight in a zone where UTC is still on the day before,
+    // so a default read through toISOString() would name 2026-09-14 and fail.
+    restoreClock = pinClockJustAfterLocalMidnight(TODAY);
 });
 
 afterEach(() => {
     restoreSink();
-    vi.useRealTimers();
+    restoreClock();
 });
 
 describe('AccountDetailPage', () => {
@@ -414,6 +418,26 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
     } as const;
 
     /**
+     * Asserts a lifecycle action invalidated exactly the balance and transactions of the two
+     * accounts its transaction names - Checking and Groceries - once each, and nothing wider:
+     * a mutation invalidates only the keys that can have changed (frontend/web/CLAUDE.md).
+     */
+    function expectOnlyItsAccountsInvalidated(
+        invalidateSpy: MockInstance<QueryClient['invalidateQueries']>,
+    ): void {
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toHaveLength(4);
+        expect(invalidatedKeys).toEqual(
+            expect.arrayContaining([
+                accountKeys.balance(CHECKING.id),
+                accountKeys.transactions(CHECKING.id),
+                accountKeys.balance(GROCERIES_ID),
+                accountKeys.transactions(GROCERIES_ID),
+            ]),
+        );
+    }
+
+    /**
      * A ledger holding Checking, a fixed balance, and whichever transactions `getTransactions`
      * returns at the time of each read; `extra` answers everything else, such as a lifecycle POST.
      */
@@ -519,13 +543,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
             { method: 'POST', url: `${RECORD_URL}/${PENDING_TX.id}/clear`, body: { on: today } },
         ]);
         // The balance is invalidated too, not only the transactions list the badge already proves.
-        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
-        expect(invalidatedKeys).toEqual(
-            expect.arrayContaining([
-                accountKeys.balance(CHECKING.id),
-                accountKeys.transactions(CHECKING.id),
-            ]),
-        );
+        expectOnlyItsAccountsInvalidated(invalidateSpy);
     });
 
     it('Given_a_cleared_transaction_When_reconciled_Then_it_posts_on_and_the_row_shows_the_Reconciled_badge', async () => {
@@ -561,13 +579,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         await user.click(screen.getByRole('button', { name: 'Reconcile' }));
 
         expect(await within(rowOf('Cleared purchase')).findByText('Reconciled')).toBeDefined();
-        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
-        expect(invalidatedKeys).toEqual(
-            expect.arrayContaining([
-                accountKeys.balance(CHECKING.id),
-                accountKeys.transactions(CHECKING.id),
-            ]),
-        );
+        expectOnlyItsAccountsInvalidated(invalidateSpy);
     });
 
     it('Given_a_pending_transaction_When_voided_without_a_reason_Then_the_required_field_refuses_submission_and_nothing_is_sent', async () => {
@@ -632,13 +644,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
                 body: { on: today, reason: 'Entered twice' },
             },
         ]);
-        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
-        expect(invalidatedKeys).toEqual(
-            expect.arrayContaining([
-                accountKeys.balance(CHECKING.id),
-                accountKeys.transactions(CHECKING.id),
-            ]),
-        );
+        expectOnlyItsAccountsInvalidated(invalidateSpy);
     });
 
     it('Given_a_409_response_When_an_action_is_submitted_Then_the_server_detail_is_shown_in_the_panel_and_it_stays_open', async () => {
@@ -679,39 +685,54 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         });
     });
 
-    it('Given_a_refused_void_shown_in_its_panel_When_its_reason_is_edited_Then_the_refusal_clears', async () => {
-        // The refusal answered the void as it was sent; once the owner changes it, the message no
-        // longer describes anything in the panel.
-        fakeFetch(
-            lifecycleLedger(
-                () => [PENDING_TX],
-                (request) => {
-                    if (
-                        request.url === `${RECORD_URL}/${PENDING_TX.id}/void` &&
-                        request.method === 'POST'
-                    ) {
-                        return problemResponse({
-                            status: 422,
-                            code: 'RULE_VIOLATED',
-                            detail: 'A transaction cannot be voided before it occurred.',
-                        });
-                    }
-                    return unexpectedRequest(request);
-                },
-            ),
-        );
-        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
-        const user = userEvent.setup({ delay: null });
-        await screen.findByRole('table', { name: 'Transactions' });
-        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Void' }));
-        await user.type(screen.getByLabelText('Reason'), 'Entered twice');
-        await user.click(screen.getByRole('button', { name: 'Void' }));
-        await screen.findByRole('alert');
+    // Every field of the panel, since each calls clearSettledOutcome on its own (frontend/web
+    // CLAUDE.md: editing any field of a settled form clears its answer).
+    for (const { field, edit } of [
+        {
+            field: 'reason',
+            edit: (user) => user.type(screen.getByLabelText('Reason'), ' by mistake'),
+        },
+        {
+            field: 'date',
+            edit: () => changeValue('On', '2026-09-10'),
+        },
+    ] satisfies readonly FieldEdit[]) {
+        it(`Given_a_refused_void_shown_in_its_panel_When_its_${field}_is_edited_Then_the_refusal_clears`, async () => {
+            // The refusal answered the void as it was sent; once the owner changes it, the message
+            // no longer describes anything in the panel.
+            fakeFetch(
+                lifecycleLedger(
+                    () => [PENDING_TX],
+                    (request) => {
+                        if (
+                            request.url === `${RECORD_URL}/${PENDING_TX.id}/void` &&
+                            request.method === 'POST'
+                        ) {
+                            return problemResponse({
+                                status: 422,
+                                code: 'RULE_VIOLATED',
+                                detail: 'A transaction cannot be voided before it occurred.',
+                            });
+                        }
+                        return unexpectedRequest(request);
+                    },
+                ),
+            );
+            renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+            const user = userEvent.setup({ delay: null });
+            await screen.findByRole('table', { name: 'Transactions' });
+            await user.click(
+                within(rowOf('Pending purchase')).getByRole('button', { name: 'Void' }),
+            );
+            await user.type(screen.getByLabelText('Reason'), 'Entered twice');
+            await user.click(screen.getByRole('button', { name: 'Void' }));
+            await screen.findByRole('alert');
 
-        await user.type(screen.getByLabelText('Reason'), ' by mistake');
+            await edit(user);
 
-        expect(screen.queryByRole('alert')).toBeNull();
-    });
+            expect(screen.queryByRole('alert')).toBeNull();
+        });
+    }
 
     it('Given_a_lifecycle_panel_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
         // Two submit events can arrive in one tick, before pending has rendered. The panel's own

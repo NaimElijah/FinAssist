@@ -382,3 +382,162 @@ describe('a response the contract does not describe', () => {
         await expect(reviewBudget('b1')).rejects.toBeInstanceOf(ApiBodyError);
     });
 });
+
+/**
+ * Values the wire never carries for a decimal (ADR-028): a JSON number, which would pass a pattern
+ * test once coerced to text, and a string that is not a decimal at all.
+ */
+const NOT_DECIMAL_STRINGS: readonly { readonly name: string; readonly value: unknown }[] = [
+    { name: 'a_JSON_number', value: 12.5 },
+    { name: 'not_a_decimal_string', value: '1,234.50' },
+];
+
+/** ILS money carrying `amount` as it arrived, unvalidated. */
+function money(amount: unknown): { amount: unknown; currency: string } {
+    return { amount, currency: 'ILS' };
+}
+
+/** A budget response whose limit and total amounts default to valid decimal strings. */
+function wireBudget({
+    limit = '1000.00',
+    total = '1000.00',
+}: { limit?: unknown; total?: unknown } = {}): unknown {
+    return {
+        id: 'b1',
+        period: { start: '2026-09-01', end: '2026-10-01' },
+        currency: 'ILS',
+        limits: [{ category: 'groceries', limit: money(limit) }],
+        total: money(total),
+    };
+}
+
+/** A review response whose every amount defaults to a valid decimal string. */
+function wireReview({
+    limit = '1000.00',
+    spent = '1200.00',
+    remaining = '-200.00',
+    unbudgeted = '50.00',
+    uncategorised = '15.00',
+}: {
+    limit?: unknown;
+    spent?: unknown;
+    remaining?: unknown;
+    unbudgeted?: unknown;
+    uncategorised?: unknown;
+} = {}): unknown {
+    return {
+        budget: 'b1',
+        period: { start: '2026-09-01', end: '2026-10-01' },
+        currency: 'ILS',
+        categories: [
+            {
+                category: 'groceries',
+                limit: money(limit),
+                spent: money(spent),
+                remaining: money(remaining),
+                overspent: true,
+            },
+        ],
+        unbudgeted: [{ category: 'gifts', spent: money(unbudgeted) }],
+        uncategorised: money(uncategorised),
+    };
+}
+
+const DEFINE_INPUT = {
+    period: { start: '2026-09-01', end: '2026-10-01' },
+    currency: 'ILS',
+    limits: [{ category: 'groceries', limit: { amount: '1000.00', currency: 'ILS' } }],
+} as const;
+
+/**
+ * Every decimal member each read returns: the response carrying `value` in that member alone, and
+ * the read that maps it.
+ */
+const DECIMAL_MEMBERS: readonly {
+    readonly subject: string;
+    readonly when: string;
+    readonly body: (value: unknown) => unknown;
+    readonly status?: number;
+    readonly read: () => Promise<unknown>;
+}[] = [
+    {
+        subject: 'a_listed_budgets_limit_amount',
+        when: 'listed',
+        body: (value) => [wireBudget({ limit: value })],
+        read: () => listBudgets(),
+    },
+    {
+        subject: 'a_listed_budgets_total_amount',
+        when: 'listed',
+        body: (value) => [wireBudget({ total: value })],
+        read: () => listBudgets(),
+    },
+    {
+        subject: 'a_defined_budgets_limit_amount',
+        when: 'defined',
+        body: (value) => wireBudget({ limit: value }),
+        status: 201,
+        read: () => defineBudget(DEFINE_INPUT),
+    },
+    {
+        subject: 'a_defined_budgets_total_amount',
+        when: 'defined',
+        body: (value) => wireBudget({ total: value }),
+        status: 201,
+        read: () => defineBudget(DEFINE_INPUT),
+    },
+    {
+        subject: 'a_reviewed_categorys_limit_amount',
+        when: 'reviewed',
+        body: (value) => wireReview({ limit: value }),
+        read: () => reviewBudget('b1'),
+    },
+    {
+        subject: 'a_reviewed_categorys_spent_amount',
+        when: 'reviewed',
+        body: (value) => wireReview({ spent: value }),
+        read: () => reviewBudget('b1'),
+    },
+    {
+        subject: 'a_reviewed_categorys_remaining_amount',
+        when: 'reviewed',
+        body: (value) => wireReview({ remaining: value }),
+        read: () => reviewBudget('b1'),
+    },
+    {
+        subject: 'a_reviews_unbudgeted_spent_amount',
+        when: 'reviewed',
+        body: (value) => wireReview({ unbudgeted: value }),
+        read: () => reviewBudget('b1'),
+    },
+    {
+        subject: 'a_reviews_uncategorised_amount',
+        when: 'reviewed',
+        body: (value) => wireReview({ uncategorised: value }),
+        read: () => reviewBudget('b1'),
+    },
+];
+
+describe('a decimal the contract does not allow', () => {
+    // Accounting already refuses one (accountingApi.test.ts). A JSON number would otherwise reach
+    // MoneyText already rounded by JSON.parse and be shown silently as if exact; a malformed string
+    // would throw at render, replacing the whole area instead of failing one read.
+    it('Given_every_fixture_with_valid_amounts_When_read_Then_each_read_succeeds', async () => {
+        // The control for the tests below: each fixture is a valid response but for the one
+        // member a test replaces, so a rejection there is that member's doing.
+        for (const { body, status, read } of DECIMAL_MEMBERS) {
+            stubFetch(jsonResponse(body('1.00'), status));
+            await expect(read()).resolves.toBeDefined();
+        }
+    });
+
+    for (const { subject, when, body, status, read } of DECIMAL_MEMBERS) {
+        for (const { name, value } of NOT_DECIMAL_STRINGS) {
+            it(`Given_${subject}_that_is_${name}_When_${when}_Then_it_rejects_with_an_ApiBodyError`, async () => {
+                stubFetch(jsonResponse(body(value), status));
+
+                await expect(read()).rejects.toBeInstanceOf(ApiBodyError);
+            });
+        }
+    }
+});
