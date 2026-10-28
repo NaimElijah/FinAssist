@@ -192,6 +192,29 @@ class AccountingHttpIT extends PostgresFixture {
         assertProblem(response, 422, "UNKNOWN_ACCOUNT");
     }
 
+    /**
+     * The last step of the lifecycle over HTTP. The second {@code /reconcile} is refused because the
+     * first was stored: a reconciled transaction is frozen (ADR-011), so a 409 is only possible if the
+     * ledger read back the state the first call wrote.
+     */
+    @Test
+    void Given_a_cleared_transaction_When_reconciled_Then_it_is_reconciled_and_stays_frozen() throws Exception {
+        String cash = open("Cash", "ASSET");
+        String groceries = open("Groceries", "EXPENSE");
+        String id = record("2026-03-03", "Groceries", groceries, "12.50", cash, "-12.50");
+        ok(post(TRANSACTIONS + "/" + id + "/clear", transitionRequest("2026-03-05")));
+
+        JsonNode reconciled = ok(post(TRANSACTIONS + "/" + id + "/reconcile", transitionRequest("2026-03-31")));
+
+        assertThat(reconciled.path("id").asString()).isEqualTo(id);
+        assertThat(reconciled.path("state").path("status").asString()).isEqualTo("RECONCILED");
+        assertThat(reconciled.path("state").path("on").asString()).isEqualTo("2026-03-31");
+        assertProblem(
+                post(TRANSACTIONS + "/" + id + "/reconcile", transitionRequest("2026-04-01")),
+                409,
+                "ILLEGAL_TRANSITION");
+    }
+
     @Test
     void Given_a_voided_transaction_When_reconciled_Then_it_is_a_409_illegal_transition_problem() throws Exception {
         String cash = open("Cash", "ASSET");
