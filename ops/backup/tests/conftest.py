@@ -40,6 +40,11 @@ def no_docker(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -
     `Exception` to name the failing check, and would report the refusal as a failed check
     instead of failing the test.
     """
+    # These tests run from outside pytest's rootdir (backend/assistant), where a conftest's
+    # autouse fixture reaches every collected test, not only its own directory's: run beside
+    # ops/secret_check/tests in one session, it refused that suite's `git`. It guards only here.
+    if not request.node.path.is_relative_to(Path(__file__).parent):
+        return
     real_run = subprocess.run
     opted_in = request.node.get_closest_marker(CHILD_PROCESS_MARKER) is not None
 
