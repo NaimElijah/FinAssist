@@ -39,6 +39,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Every endpoint, every role, every way a bearer token can be wrong — proved against a real {@code
@@ -64,6 +66,11 @@ class LedgerAuthorizationIT extends PostgresFixture {
 
     private static final String RANDOM_ID = UUID.randomUUID().toString();
     private static final String JSON_BODY = "{}";
+
+    /** The message {@code ProblemAuthenticationEntryPoint} logs every refused request under. */
+    private static final String REFUSAL_MESSAGE = "Refused a request with no valid bearer token";
+
+    private static final JsonMapper LOG_JSON = JsonMapper.shared();
 
     /**
      * The method a mapping that names none is inventoried under. A {@code @RequestMapping} with no
@@ -233,22 +240,45 @@ class LedgerAuthorizationIT extends PostgresFixture {
                 .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\""));
     }
 
-    @Test
-    void Given_a_rejected_token_When_refused_Then_the_log_names_the_reason_and_never_the_token(CapturedOutput output)
-            throws Exception {
-        String expired = TestTokens.expired();
+    /**
+     * Every bad token is refused in exactly one log line, at WARN, whose {@code reason} is the one
+     * category ADR-030 names for it — the same category the assistant's {@code test_auth.py} expects
+     * for the same shape, because a rule written against one service must read the other (root {@code
+     * CLAUDE.md}, "Security and operations"). {@code unknown_key} and {@code malformed} are read from
+     * Nimbus's English messages by {@code ProblemAuthenticationEntryPoint.reasonFor}, so a library
+     * upgrade rewording one would fail here rather than quietly logging {@code rejected}.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("categorisedBadTokens")
+    void Given_a_bad_token_When_refused_Then_one_warn_line_names_its_reason_category(
+            String shape, String token, String reason, CapturedOutput output) throws Exception {
+        mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
 
-        mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + expired));
-
-        assertThat(output.getOut()).contains("lifetime");
-        assertThat(output.getOut()).doesNotContain(expired);
+        assertTheOneRefusalLine(output, reason);
     }
 
     @Test
-    void Given_no_token_When_refused_Then_the_log_names_the_reason_missing(CapturedOutput output) throws Exception {
+    void Given_no_token_When_refused_Then_one_warn_line_names_the_reason_missing(CapturedOutput output)
+            throws Exception {
         mvc.perform(withHost(get("/api/v1/accounts")));
 
-        assertThat(output.getOut()).contains("missing");
+        assertTheOneRefusalLine(output, "missing");
+    }
+
+    private static void assertTheOneRefusalLine(CapturedOutput output, String reason) {
+        List<JsonNode> refusals = output.getOut()
+                .lines()
+                .filter(line -> line.contains(REFUSAL_MESSAGE))
+                .map(LOG_JSON::readTree)
+                .toList();
+        assertThat(refusals).as("refusal lines logged for one request").hasSize(1);
+        JsonNode refusal = refusals.getFirst();
+        assertThat(refusal.path("log").path("level").asString())
+                .as("level of %s", refusal)
+                .isEqualTo("WARN");
+        assertThat(refusal.path("reason").asString())
+                .as("reason of %s", refusal)
+                .isEqualTo(reason);
     }
 
     /**
@@ -339,20 +369,32 @@ class LedgerAuthorizationIT extends PostgresFixture {
         return bothLists().stream().map(Arguments::of);
     }
 
+    /**
+     * Every bad token, categorised or not. HS256 is refused 401 and never logged, but its category is
+     * not asserted: the ledger logs it {@code unknown_key}, from Nimbus's "Another algorithm expected,
+     * or no matching key(s) found", where the assistant refuses the same shape {@code malformed}. That
+     * asymmetry is #352, and is not pinned here either way until it is settled.
+     */
     private static Stream<Arguments> badTokens() {
+        return Stream.concat(
+                categorisedBadTokens().map(shape -> Arguments.of(shape.get()[1])),
+                Stream.of(Arguments.of(TestTokens.hmacConfused())));
+    }
+
+    /** Every shape of bad token, with the reason category it is logged under (ADR-030's vocabulary). */
+    private static Stream<Arguments> categorisedBadTokens() {
         return Stream.of(
-                        TestTokens.expired(),
-                        TestTokens.notYetValid(),
-                        TestTokens.futureIssuedAt(),
-                        TestTokens.noIssuedAt(),
-                        TestTokens.noExpiry(),
-                        TestTokens.wrongAudience(),
-                        TestTokens.wrongIssuer(),
-                        TestTokens.unsigned(),
-                        TestTokens.hmacConfused(),
-                        TestTokens.foreignKey(),
-                        TestTokens.tamperedSignature())
-                .map(Arguments::of);
+                Arguments.of("expired", TestTokens.expired(), "lifetime"),
+                Arguments.of("not yet valid", TestTokens.notYetValid(), "lifetime"),
+                Arguments.of("issued in the future", TestTokens.futureIssuedAt(), "lifetime"),
+                Arguments.of("no iat", TestTokens.noIssuedAt(), "lifetime"),
+                Arguments.of("no exp", TestTokens.noExpiry(), "lifetime"),
+                Arguments.of("wrong audience", TestTokens.wrongAudience(), "audience"),
+                Arguments.of("wrong issuer", TestTokens.wrongIssuer(), "issuer"),
+                Arguments.of("no sub", TestTokens.noSubject(), "subject"),
+                Arguments.of("alg none", TestTokens.unsigned(), "malformed"),
+                Arguments.of("unpublished key", TestTokens.foreignKey(), "unknown_key"),
+                Arguments.of("tampered payload", TestTokens.tamperedSignature(), "rejected"));
     }
 
     /**
