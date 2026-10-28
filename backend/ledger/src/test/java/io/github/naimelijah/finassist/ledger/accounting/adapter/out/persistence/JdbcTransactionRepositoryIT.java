@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -197,6 +199,53 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                             .update();
                 })
                 .hasMessageContaining("double entry needs at least two");
+    }
+
+    /**
+     * The trigger's other three refusals, each reached the same way: a header and two entries written
+     * directly, the entries in one statement so the deferred check sees both. Each case trips exactly
+     * one branch — the mixed pair sums to zero and the unbalanced pair shares a currency — so a branch
+     * dropped from {@code refuse_unbalanced_transaction} fails its own case rather than being masked
+     * by a neighbour.
+     */
+    @ParameterizedTest(name = "{5}")
+    @CsvSource({
+        "ILS, 10.00, ILS, -10.00, USD, mixes 2 currencies",
+        "ILS, 10.00, ILS, -9.00, ILS, does not balance: its entries sum to 1.00",
+        "USD, 10.00, USD, -10.00, USD, posts 2 entries in a currency their account does not hold"
+    })
+    void Given_entries_the_trigger_refuses_When_written_directly_Then_the_database_refuses_them(
+            String header,
+            String groceriesAmount,
+            String groceriesCurrency,
+            String cashAmount,
+            String cashCurrency,
+            String refusal) {
+        TransactionId id = TransactionId.generate();
+        jdbc().sql("INSERT INTO accounting.journal_transaction"
+                        + " (id, occurred_on, description, currency, recorded_by)"
+                        + " VALUES (:id, :on, 'Wrong', :currency, :recordedBy)")
+                .param("id", id.value())
+                .param("on", MARCH_1)
+                .param("currency", header)
+                .param("recordedBy", RECORDER.subject())
+                .update();
+
+        assertThatThrownBy(() -> jdbc().sql("""
+                        INSERT INTO accounting.journal_entry VALUES
+                            (:id, 0, :groceries, CAST(:groceriesAmount AS numeric), :groceriesCurrency),
+                            (:id, 1, :cash, CAST(:cashAmount AS numeric), :cashCurrency)
+                        """)
+                        .param("id", id.value())
+                        .param("groceries", groceries.id().value())
+                        .param("groceriesAmount", groceriesAmount)
+                        .param("groceriesCurrency", groceriesCurrency)
+                        .param("cash", cash.id().value())
+                        .param("cashAmount", cashAmount)
+                        .param("cashCurrency", cashCurrency)
+                        .update())
+                .hasMessageContaining("transaction " + id.value())
+                .hasMessageContaining(refusal);
     }
 
     /** Money round-trips through {@code numeric} at the scale its currency admits, and no other. */

@@ -17,9 +17,13 @@ import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -43,6 +47,9 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
     private static final LocalDate MARCH_5 = LocalDate.of(2026, 3, 5);
 
     private static final Actor RECORDER = new Actor("owner-user");
+
+    private static final String TRANSACTION_TABLE = "journal_transaction";
+    private static final String STATE_TABLE = "journal_transaction_state";
 
     @Autowired
     private AccountRepository accounts;
@@ -130,19 +137,64 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
      * {@code V1_2}'s {@code CHECK} is {@code NOT VALID}, which only excuses it from scanning history
      * already in the table — it still runs on every row written from now on. This is the other half
      * of ADR-033's obligation, proven the way this file proves the rest of ADR-020: against the
-     * database directly, not through the repository.
+     * database directly, not through the repository. Each table carries its own constraint, so each
+     * is tried with every shape the constraint exists to refuse: no recorder, a blank one, and one
+     * past {@code Actor.MAX_SUBJECT_LENGTH}.
      */
-    @Test
-    void Given_a_new_transaction_When_inserted_without_a_recorder_Then_the_database_refuses_it() {
-        TransactionId id = TransactionId.generate();
+    @ParameterizedTest(name = "{0}, {1}")
+    @MethodSource("refusedRecorders")
+    void Given_a_new_journal_row_When_inserted_with_an_unusable_recorder_Then_the_database_refuses_it(
+            String table, String shape, String recordedBy) {
+        assertThatThrownBy(() -> insertWithRecorder(table, recordedBy))
+                .hasMessageContaining(table + "_recorded_by_shape");
+    }
 
-        assertThatThrownBy(() -> jdbc().sql(
-                                "INSERT INTO accounting.journal_transaction (id, occurred_on, description, currency)"
-                                        + " VALUES (:id, :on, 'Groceries', 'ILS')")
-                        .param("id", id.value())
-                        .param("on", MARCH_1)
-                        .update())
-                .hasMessageContaining("journal_transaction_recorded_by_shape");
+    /** The boundary from the other side: the longest subject {@code Actor} admits is stored as given. */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {TRANSACTION_TABLE, STATE_TABLE})
+    void Given_a_new_journal_row_When_inserted_with_a_recorder_of_the_maximum_length_Then_it_is_stored(String table) {
+        String longest = "s".repeat(Actor.MAX_SUBJECT_LENGTH);
+
+        insertWithRecorder(table, longest);
+
+        assertThat(jdbc().sql("SELECT count(*) FROM accounting." + table + " WHERE recorded_by = :recordedBy")
+                        .param("recordedBy", longest)
+                        .query(Integer.class)
+                        .single())
+                .isEqualTo(1);
+    }
+
+    static Stream<Arguments> refusedRecorders() {
+        return Stream.of(TRANSACTION_TABLE, STATE_TABLE)
+                .flatMap(table -> Stream.of(
+                        Arguments.of(table, "none", null),
+                        Arguments.of(table, "blank", "   "),
+                        Arguments.of(table, "one character too long", "s".repeat(Actor.MAX_SUBJECT_LENGTH + 1))));
+    }
+
+    /**
+     * A {@code journal_transaction} row is written as a bare header, which the deferred balance check
+     * never sees because it fires on entries. A {@code journal_transaction_state} row needs a
+     * transaction to belong to, so one is recorded first and the row is its next state.
+     */
+    private void insertWithRecorder(String table, String recordedBy) {
+        if (table.equals(TRANSACTION_TABLE)) {
+            jdbc().sql("INSERT INTO accounting.journal_transaction (id, occurred_on, description, currency,"
+                            + " recorded_by) VALUES (:id, :on, 'Groceries', 'ILS', CAST(:recordedBy AS text))")
+                    .param("id", TransactionId.generate().value())
+                    .param("on", MARCH_1)
+                    .param("recordedBy", recordedBy)
+                    .update();
+        } else {
+            Transaction recorded = record("12.50");
+            jdbc().sql("INSERT INTO accounting.journal_transaction_state (transaction_id, sequence, state,"
+                            + " effective_on, reason, recorded_by)"
+                            + " VALUES (:id, 1, 'CLEARED', :on, NULL, CAST(:recordedBy AS text))")
+                    .param("id", recorded.id().value())
+                    .param("on", MARCH_3)
+                    .param("recordedBy", recordedBy)
+                    .update();
+        }
     }
 
     private int states(Transaction transaction) {
