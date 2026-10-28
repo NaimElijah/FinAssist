@@ -6,7 +6,6 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
-import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -16,9 +15,12 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +36,8 @@ import org.junit.jupiter.api.Test;
  * the one library that went missing then.
  *
  * <p>The gateway needs nothing running to start: it builds its Keycloak registration by hand and
- * runs no discovery (ADR-030), so a client secret and a free port are all it is given. Failsafe runs
+ * runs no discovery (ADR-030), so a client secret and port 0 are all it is given, in an environment
+ * stripped of every {@code GATEWAY_*} and {@code OTEL_*} variable this JVM inherited. Failsafe runs
  * after {@code package}, so the jar exists by the time this does; its path comes from the pom, as
  * {@value #JAR_PROPERTY}.
  */
@@ -44,6 +47,16 @@ class GatewayPackagedJarIT {
 
     /** What Spring Boot logs once the application context is up and the server is listening. */
     private static final String STARTED_LINE = "Started GatewayApplication";
+
+    /**
+     * Tomcat's line naming the port it bound. The gateway is started on port 0 and this is read
+     * rather than a port reserved here and released, which another process could take in between
+     * (the race #238 recorded for a relay test).
+     */
+    private static final Pattern BOUND_PORT_LINE = Pattern.compile("Tomcat started on port (\\d+)");
+
+    /** The prefixes of the variables the gateway and its telemetry read, none of which it may inherit. */
+    private static final List<String> INHERITED_PREFIXES_REMOVED = List.of("GATEWAY_", "OTEL_");
 
     private static final String READINESS_PATH = "/actuator/health/readiness";
 
@@ -67,11 +80,12 @@ class GatewayPackagedJarIT {
 
     @Test
     void Given_the_packaged_jar_When_it_is_run_Then_it_starts_and_reports_ready() throws Exception {
-        int port = freePort();
         Deque<String> tail = new ArrayDeque<>();
-        Process gateway = start(packagedJar(), port);
+        AtomicInteger boundPort = new AtomicInteger();
+        Process gateway = start(packagedJar());
         try {
-            CompletableFuture<Boolean> started = CompletableFuture.supplyAsync(() -> readUntilStarted(gateway, tail));
+            CompletableFuture<Boolean> started =
+                    CompletableFuture.supplyAsync(() -> readUntilStarted(gateway, tail, boundPort));
             boolean reachedStarted;
             try {
                 reachedStarted = started.get(START_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
@@ -84,6 +98,10 @@ class GatewayPackagedJarIT {
             assertThat(reachedStarted)
                     .as("the packaged gateway exited before it started; its last output:%n%s", joined(tail))
                     .isTrue();
+            int port = boundPort.get();
+            assertThat(port)
+                    .as("the port Tomcat reported binding; its last output:%n%s", joined(tail))
+                    .isPositive();
 
             HttpResponse<String> readiness = HttpClient.newBuilder()
                     .connectTimeout(REQUEST_TIMEOUT)
@@ -113,10 +131,13 @@ class GatewayPackagedJarIT {
         return path;
     }
 
-    private static Process start(Path jar, int port) throws IOException {
+    private static Process start(Path jar) throws IOException {
         Path java = Path.of(System.getProperty("java.home"), "bin", "java");
         ProcessBuilder builder = new ProcessBuilder(java.toString(), "-jar", jar.toString()).redirectErrorStream(true);
-        builder.environment().put("GATEWAY_PORT", String.valueOf(port));
+        builder.environment()
+                .keySet()
+                .removeIf(name -> INHERITED_PREFIXES_REMOVED.stream().anyMatch(name::startsWith));
+        builder.environment().put("GATEWAY_PORT", "0");
         // The one setting the gateway refuses to start without (KeycloakRegistrationTest).
         builder.environment().put("GATEWAY_CLIENT_SECRET", "a-test-client-secret");
         return builder.start();
@@ -124,12 +145,12 @@ class GatewayPackagedJarIT {
 
     /**
      * Reads the gateway's output until it reports having started, keeping the last lines for a
-     * failure message.
+     * failure message and recording the port Tomcat reports binding on the way.
      *
      * @return true once the started line appears; false if the output ends, which means the process
      *     exited first
      */
-    private static boolean readUntilStarted(Process gateway, Deque<String> tail) {
+    private static boolean readUntilStarted(Process gateway, Deque<String> tail, AtomicInteger boundPort) {
         BufferedReader output =
                 new BufferedReader(new InputStreamReader(gateway.getInputStream(), StandardCharsets.UTF_8));
         try {
@@ -142,6 +163,10 @@ class GatewayPackagedJarIT {
                             tail.removeFirst();
                         }
                     }
+                }
+                Matcher bound = BOUND_PORT_LINE.matcher(line);
+                if (bound.find()) {
+                    boundPort.set(Integer.parseInt(bound.group(1)));
                 }
                 if (line.contains(STARTED_LINE)) {
                     // Keep reading in the background, so a full pipe can never stall the gateway
@@ -179,12 +204,6 @@ class GatewayPackagedJarIT {
     private static String joined(Deque<String> tail) {
         synchronized (tail) {
             return String.join(System.lineSeparator(), tail);
-        }
-    }
-
-    private static int freePort() throws IOException {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
         }
     }
 }

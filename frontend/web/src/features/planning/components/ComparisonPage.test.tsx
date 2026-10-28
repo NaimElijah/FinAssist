@@ -9,6 +9,7 @@ import { Outlet, type RouteObject } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
+import type { WriteAccess } from '@/shared/lib/writeAccess';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -131,7 +132,10 @@ function ledger(scenarios: readonly unknown[], comparison?: FetchAnswer): FetchA
 }
 
 /** Render the comparison page, with `accountOptions` provided as src/app would provide them. */
-function renderComparison(accountOptions: AccountOptions = LOADED) {
+function renderComparison(
+    accountOptions: AccountOptions = LOADED,
+    access: WriteAccess = { canWrite: true },
+) {
     const routes: RouteObject[] = [
         {
             element: (
@@ -142,7 +146,7 @@ function renderComparison(accountOptions: AccountOptions = LOADED) {
             children: planningRoutes,
         },
     ];
-    return renderRoutes(routes, '/planning/compare');
+    return renderRoutes(routes, '/planning/compare', { access });
 }
 
 /** The Scenarios checkbox labelled `label`. */
@@ -193,6 +197,22 @@ describe('ComparisonPage', () => {
                 .getByRole('navigation', { name: 'Planning' })
                 .querySelector('[aria-current="page"]')?.textContent,
         ).toBe('Compare');
+    });
+
+    it('Given_a_read_only_session_When_two_scenarios_are_compared_Then_the_form_is_offered_and_the_comparison_requested', async () => {
+        // A projection, a comparison and a lookup are reads: a viewer sees every area (ADR-032),
+        // so hiding one behind useWriteAccess would take away what the role exists for.
+        const requests = fakeFetch(ledger(SCENARIOS, () => pendingResponse()));
+        renderComparison(LOADED, { canWrite: false });
+
+        await compare(userEvent.setup({ delay: null }), [
+            'Aggressive saving (ILS)',
+            'Do nothing (ILS)',
+        ]);
+
+        await waitFor(() => {
+            expect(requests.filter(isComparison)).toHaveLength(1);
+        });
     });
 
     it('Given_two_scenarios_and_an_account_chosen_When_compared_Then_it_requests_them_in_list_order_with_the_first_as_baseline', async () => {

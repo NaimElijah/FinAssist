@@ -1,10 +1,12 @@
 package io.github.naimelijah.finassist.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -12,10 +14,13 @@ import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.Yaml;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.BooleanNode;
+import tools.jackson.databind.node.IntNode;
 
 /**
  * Reads {@code ops/keycloak/finassist-realm.json} as data, without starting Keycloak, and pins
@@ -47,6 +52,30 @@ class KeycloakRealmTest {
     /** The service whose environment resolves the realm's placeholders at import. */
     private static final String KEYCLOAK_SERVICE = "keycloak";
 
+    /**
+     * A key naming a secret wherever it sits in the realm: Keycloak's own {@code secret} on a
+     * client, an SMTP server's {@code password}, an identity provider's {@code clientSecret}, an
+     * LDAP federation's {@code bindCredential}, a key provider's {@code privateKey}.
+     */
+    private static final Pattern SECRET_KEY = Pattern.compile("(?i).*(secret|password|credential|privatekey).*");
+
+    /**
+     * Keys {@link #SECRET_KEY} matches that hold no secret. Each is named, so a new false positive
+     * fails the sweep below until someone decides it here, rather than being skipped by a looser
+     * pattern: {@code passwordPolicy} is the policy expression the realm enforces, and {@code
+     * resetPasswordAllowed} is a switch. ({@code clientAuthenticatorType}'s value is {@code
+     * client-secret}, but its key does not match.) A user's {@code credentials} matches too, but
+     * holds only objects, which the sweep walks into rather than records.
+     */
+    private static final Set<String> KEYS_THAT_HOLD_NO_SECRET = Set.of("passwordPolicy", "resetPasswordAllowed");
+
+    /**
+     * A Compose value that refuses to start without its variable: {@code ${VAR:?message}}. A
+     * {@code :-} default or a bare {@code ${VAR}} would let Keycloak import the literal placeholder
+     * text as the secret instead (see {@link KeycloakRealmIT}'s javadoc).
+     */
+    private static final String REQUIRED_COMPOSE_VALUE = "^\\$\\{%s:\\?[^}]+}$";
+
     /** One {@code ${VAR}} reference in the realm file, capturing the variable's name. */
     private static final Pattern PLACEHOLDER_REFERENCE = Pattern.compile("\\$\\{([A-Z_][A-Z0-9_]*)}");
 
@@ -60,23 +89,22 @@ class KeycloakRealmTest {
     private static final Pattern BARE_PLACEHOLDER = Pattern.compile("^\\$\\{[A-Z_][A-Z0-9_]*}$");
 
     private static JsonNode realm() {
+        return JSON.readTree(rawText());
+    }
+
+    /** The realm file, located through {@value #OPS_DIR_PROPERTY}, failing loudly when it is unset. */
+    private static Path realmFile() {
         String directory = System.getProperty(OPS_DIR_PROPERTY);
         if (directory == null) {
             throw new IllegalStateException(OPS_DIR_PROPERTY
                     + " is not set. Failsafe and surefire set it in pom.xml; run this test through Maven, or"
                     + " pass -D" + OPS_DIR_PROPERTY + "=<repository>/ops.");
         }
-        Path file = Path.of(directory, "keycloak", REALM_FILE).toAbsolutePath().normalize();
-        try {
-            return JSON.readTree(Files.readString(file));
-        } catch (Exception e) {
-            throw new IllegalStateException("could not read " + file, e);
-        }
+        return Path.of(directory, "keycloak", REALM_FILE).toAbsolutePath().normalize();
     }
 
     private static String rawText() {
-        String directory = System.getProperty(OPS_DIR_PROPERTY);
-        Path file = Path.of(directory, "keycloak", REALM_FILE).toAbsolutePath().normalize();
+        Path file = realmFile();
         try {
             return Files.readString(file);
         } catch (Exception e) {
@@ -102,6 +130,15 @@ class KeycloakRealmTest {
         throw new AssertionError("no matching user in the realm file");
     }
 
+    /**
+     * The member, read as exactly the given node. {@code path(key).asBoolean()} answers {@code
+     * false} for a key that is missing, so a deleted {@code registrationAllowed} would pass an
+     * {@code isFalse()} while Keycloak applied its own default; a node comparison fails instead.
+     */
+    private static void assertMember(JsonNode holder, String member, JsonNode expected) {
+        assertThat(holder.path(member)).as("%s in the realm file", member).isEqualTo(expected);
+    }
+
     private static List<String> texts(JsonNode array) {
         return array.valueStream().map(JsonNode::asString).collect(Collectors.toList());
     }
@@ -110,19 +147,26 @@ class KeycloakRealmTest {
     void Given_the_realm_file_When_read_Then_registration_and_password_reset_and_remember_me_are_off() {
         JsonNode realm = realm();
 
-        assertThat(realm.path("registrationAllowed").asBoolean()).isFalse();
-        assertThat(realm.path("resetPasswordAllowed").asBoolean()).isFalse();
-        assertThat(realm.path("rememberMe").asBoolean()).isFalse();
+        assertMember(realm, "registrationAllowed", BooleanNode.FALSE);
+        assertMember(realm, "resetPasswordAllowed", BooleanNode.FALSE);
+        assertMember(realm, "rememberMe", BooleanNode.FALSE);
     }
 
     @Test
     void Given_the_realm_file_When_read_Then_brute_force_protection_is_on_with_the_agreed_thresholds() {
         JsonNode realm = realm();
 
-        assertThat(realm.path("bruteForceProtected").asBoolean()).isTrue();
-        assertThat(realm.path("failureFactor").asInt()).isEqualTo(5);
-        assertThat(realm.path("waitIncrementSeconds").asInt()).isEqualTo(60);
-        assertThat(realm.path("maxFailureWaitSeconds").asInt()).isEqualTo(900);
+        assertMember(realm, "bruteForceProtected", BooleanNode.TRUE);
+        // Off, because the realm has one owner: a permanent lockout after five wrong guesses would
+        // lock that owner out until someone with the admin password intervened.
+        assertMember(realm, "permanentLockout", BooleanNode.FALSE);
+        assertMember(realm, "maxTemporaryLockouts", IntNode.valueOf(0));
+        assertMember(realm, "quickLoginCheckMilliSeconds", IntNode.valueOf(1000));
+        assertMember(realm, "minimumQuickLoginWaitSeconds", IntNode.valueOf(60));
+        assertMember(realm, "maxDeltaTimeSeconds", IntNode.valueOf(43200));
+        assertMember(realm, "failureFactor", IntNode.valueOf(5));
+        assertMember(realm, "waitIncrementSeconds", IntNode.valueOf(60));
+        assertMember(realm, "maxFailureWaitSeconds", IntNode.valueOf(900));
     }
 
     @Test
@@ -140,10 +184,10 @@ class KeycloakRealmTest {
     void Given_the_realm_file_When_read_Then_the_token_lifetimes_and_rotation_match_the_agreed_values() {
         JsonNode realm = realm();
 
-        assertThat(realm.path("accessTokenLifespan").asInt()).isEqualTo(300);
-        assertThat(realm.path("ssoSessionIdleTimeout").asInt()).isEqualTo(1800);
-        assertThat(realm.path("ssoSessionMaxLifespan").asInt()).isEqualTo(36000);
-        assertThat(realm.path("revokeRefreshToken").asBoolean()).isFalse();
+        assertMember(realm, "accessTokenLifespan", IntNode.valueOf(300));
+        assertMember(realm, "ssoSessionIdleTimeout", IntNode.valueOf(1800));
+        assertMember(realm, "ssoSessionMaxLifespan", IntNode.valueOf(36000));
+        assertMember(realm, "revokeRefreshToken", BooleanNode.FALSE);
     }
 
     @Test
@@ -161,11 +205,11 @@ class KeycloakRealmTest {
     void Given_the_gateway_client_When_read_Then_it_uses_only_the_standard_flow_with_pkce_s256() {
         JsonNode gateway = client(realm(), "finassist-gateway");
 
-        assertThat(gateway.path("publicClient").asBoolean()).isFalse();
-        assertThat(gateway.path("standardFlowEnabled").asBoolean()).isTrue();
-        assertThat(gateway.path("implicitFlowEnabled").asBoolean()).isFalse();
-        assertThat(gateway.path("directAccessGrantsEnabled").asBoolean()).isFalse();
-        assertThat(gateway.path("serviceAccountsEnabled").asBoolean()).isFalse();
+        assertMember(gateway, "publicClient", BooleanNode.FALSE);
+        assertMember(gateway, "standardFlowEnabled", BooleanNode.TRUE);
+        assertMember(gateway, "implicitFlowEnabled", BooleanNode.FALSE);
+        assertMember(gateway, "directAccessGrantsEnabled", BooleanNode.FALSE);
+        assertMember(gateway, "serviceAccountsEnabled", BooleanNode.FALSE);
         assertThat(gateway.path("attributes").path("pkce.code.challenge.method").asString())
                 .isEqualTo("S256");
     }
@@ -185,11 +229,11 @@ class KeycloakRealmTest {
     void Given_the_assistant_client_When_read_Then_it_is_a_confidential_service_account_only_client() {
         JsonNode assistant = client(realm(), "finassist-assistant");
 
-        assertThat(assistant.path("publicClient").asBoolean()).isFalse();
-        assertThat(assistant.path("serviceAccountsEnabled").asBoolean()).isTrue();
-        assertThat(assistant.path("standardFlowEnabled").asBoolean()).isFalse();
-        assertThat(assistant.path("implicitFlowEnabled").asBoolean()).isFalse();
-        assertThat(assistant.path("directAccessGrantsEnabled").asBoolean()).isFalse();
+        assertMember(assistant, "publicClient", BooleanNode.FALSE);
+        assertMember(assistant, "serviceAccountsEnabled", BooleanNode.TRUE);
+        assertMember(assistant, "standardFlowEnabled", BooleanNode.FALSE);
+        assertMember(assistant, "implicitFlowEnabled", BooleanNode.FALSE);
+        assertMember(assistant, "directAccessGrantsEnabled", BooleanNode.FALSE);
     }
 
     @Test
@@ -338,7 +382,7 @@ class KeycloakRealmTest {
         assertThat(texts(owner.path("requiredActions"))).containsExactlyInAnyOrder("UPDATE_PASSWORD", "CONFIGURE_TOTP");
         JsonNode credential = owner.path("credentials").get(0);
         assertThat(credential.path("type").asString()).isEqualTo("password");
-        assertThat(credential.path("temporary").asBoolean()).isTrue();
+        assertMember(credential, "temporary", BooleanNode.TRUE);
         assertThat(texts(owner.path("realmRoles"))).containsExactly("owner");
     }
 
@@ -367,25 +411,134 @@ class KeycloakRealmTest {
     }
 
     /**
-     * The one guarantee that matters most in a file this build never encrypts. Every client
-     * secret and every credential value must read as an unresolved placeholder, never a literal.
+     * The one guarantee that matters most in a file this build never encrypts, and this repository
+     * is public. Every client's secret, not only the two clients the realm holds today, must read
+     * as an unresolved placeholder, never a literal; a client with no {@code secret} at all is a
+     * public one, which the flow tests above refuse for both of today's.
      */
     @Test
     void Given_the_realm_file_When_read_Then_every_client_secret_is_a_bare_placeholder() {
-        for (String clientId : List.of("finassist-gateway", "finassist-assistant")) {
-            String secret = client(realm(), clientId).path("secret").asString();
-            assertThat(secret).matches(BARE_PLACEHOLDER);
+        List<JsonNode> secrets = realm().path("clients")
+                .valueStream()
+                .filter(client -> client.has("secret"))
+                .map(client -> client.path("secret"))
+                .toList();
+
+        assertThat(secrets).as("the realm's client secrets").hasSizeGreaterThanOrEqualTo(2);
+        assertThat(secrets).allSatisfy(secret -> assertBarePlaceholder("a client's secret", secret));
+    }
+
+    /** Every user's every credential, not only the owner's first. */
+    @Test
+    void Given_the_realm_file_When_read_Then_every_users_credential_value_is_a_bare_placeholder() {
+        List<JsonNode> values = credentialValues();
+
+        assertThat(values).as("the realm's credential values").isNotEmpty();
+        assertThat(values).allSatisfy(value -> assertBarePlaceholder("a user's credential value", value));
+    }
+
+    /**
+     * The same rule for a secret anywhere else in the file, so that a section the realm does not
+     * hold today — an SMTP server, an identity provider, an LDAP federation, a key provider —
+     * cannot bring a literal in under a key the two tests above never visit. Under every key
+     * {@link #SECRET_KEY} matches, other than one {@link #KEYS_THAT_HOLD_NO_SECRET} names, each
+     * scalar value of any type, and each scalar element of an array value (Keycloak stores a
+     * component's config values as string arrays), must be a bare placeholder: a number or a
+     * boolean there fails as surely as a literal string.
+     */
+    @Test
+    void Given_the_whole_realm_tree_When_swept_Then_every_value_under_a_secret_key_is_a_bare_placeholder() {
+        Map<String, JsonNode> found = secretValuesByPointer();
+
+        assertThat(found.keySet())
+                .as("the sweep found the client secrets, so it walks the tree")
+                .contains("/clients/0/secret", "/clients/1/secret");
+        found.forEach((pointer, value) -> assertBarePlaceholder(pointer, value));
+    }
+
+    /** Every user's every credential {@code value} in the realm file. */
+    private static List<JsonNode> credentialValues() {
+        return realm().path("users")
+                .valueStream()
+                .flatMap(user -> user.path("credentials").valueStream())
+                .map(credential -> credential.path("value"))
+                .toList();
+    }
+
+    /** Every scalar in the realm file held under a key naming a secret, by JSON pointer. */
+    private static Map<String, JsonNode> secretValuesByPointer() {
+        return secretValuesByPointer(realm());
+    }
+
+    private static Map<String, JsonNode> secretValuesByPointer(JsonNode tree) {
+        Map<String, JsonNode> found = new LinkedHashMap<>();
+        collectSecretValues("", tree, false, found);
+        return found;
+    }
+
+    /**
+     * The sweep's positive control: the shapes a literal would take in sections today's realm
+     * lacks, each of which an earlier sweep, recording only a string directly under its key, let
+     * through.
+     */
+    @Test
+    void Given_literals_in_component_config_arrays_and_a_numeric_password_When_swept_Then_each_is_found_and_refused() {
+        JsonNode tree = JSON.readTree("""
+                {
+                  "components": {
+                    "org.keycloak.storage.UserStorageProvider": [
+                      {"name": "ldap", "config": {"bindCredential": ["a-literal-bind-credential"]}}
+                    ],
+                    "org.keycloak.keys.KeyProvider": [
+                      {"name": "rsa", "config": {"privateKey": ["a-literal-private-key"]}}
+                    ]
+                  },
+                  "smtpServer": {"password": 12345678}
+                }
+                """);
+
+        Map<String, JsonNode> found = secretValuesByPointer(tree);
+
+        assertThat(found)
+                .containsOnlyKeys(
+                        "/components/org.keycloak.storage.UserStorageProvider/0/config/bindCredential/0",
+                        "/components/org.keycloak.keys.KeyProvider/0/config/privateKey/0",
+                        "/smtpServer/password");
+        found.forEach((pointer, value) -> assertThatThrownBy(() -> assertBarePlaceholder(pointer, value))
+                .as("the sweep refuses the literal at %s", pointer)
+                .isInstanceOf(AssertionError.class));
+    }
+
+    /**
+     * Records every scalar in {@code node} whose nearest key matches {@link #SECRET_KEY} and is not
+     * exempt, by JSON pointer. An array passes its key on to its elements, so {@code
+     * "bindCredential": ["x"]} records {@code .../bindCredential/0}; an object's members are judged
+     * by their own keys.
+     */
+    private static void collectSecretValues(
+            String pointer, JsonNode node, boolean underSecretKey, Map<String, JsonNode> found) {
+        if (node.isObject()) {
+            node.properties()
+                    .forEach(member -> collectSecretValues(
+                            pointer + "/" + member.getKey(), member.getValue(), isSecretKey(member.getKey()), found));
+        } else if (node.isArray()) {
+            int index = 0;
+            for (JsonNode element : node) {
+                collectSecretValues(pointer + "/" + index++, element, underSecretKey, found);
+            }
+        } else if (underSecretKey) {
+            found.put(pointer, node);
         }
     }
 
-    @Test
-    void Given_the_owner_user_When_read_Then_its_credential_value_is_a_bare_placeholder() {
-        JsonNode owner = user(
-                realm(),
-                u -> "${FINASSIST_OWNER_USERNAME}".equals(u.path("username").asString(null)));
-        String credentialValue = owner.path("credentials").get(0).path("value").asString();
+    private static boolean isSecretKey(String key) {
+        return SECRET_KEY.matcher(key).matches() && !KEYS_THAT_HOLD_NO_SECRET.contains(key);
+    }
 
-        assertThat(credentialValue).matches(BARE_PLACEHOLDER);
+    /** A string node holding {@code ${VAR}} and nothing else; never a number, a boolean or a literal. */
+    private static void assertBarePlaceholder(String what, JsonNode value) {
+        assertThat(value.isString()).as("%s is a string", what).isTrue();
+        assertThat(value.asString()).as(what).matches(BARE_PLACEHOLDER);
     }
 
     /**
@@ -431,6 +584,42 @@ class KeycloakRealmTest {
                 .containsAll(named);
     }
 
+    /**
+     * The half of "no secret is ever a literal" that lives in {@code docker-compose.yml}. Keycloak
+     * imports an unset variable as its own placeholder text, so a secret's variable must be
+     * required where Compose resolves it: {@code ${VAR:?message}}, which refuses to start the
+     * container. A {@code :-} default there would quietly supply a value anyone reading this
+     * repository could type.
+     *
+     * <p>The secrets are the variables the realm places under a secret key, found by the same sweep
+     * as above, and the test pins that set exactly. A secret added to the realm therefore fails it
+     * until its variable joins the list below - on purpose, so that whoever adds one also decides
+     * its {@code :?} entry in Compose - and every variable on the list must be required there.
+     */
+    @Test
+    void Given_the_realms_secrets_When_compared_with_compose_Then_keycloak_is_given_each_through_a_required_variable() {
+        Set<String> secretVariables = new TreeSet<>();
+        Stream.concat(secretValuesByPointer().values().stream(), credentialValues().stream())
+                .filter(JsonNode::isString)
+                .forEach(value -> {
+                    Matcher reference = PLACEHOLDER_REFERENCE.matcher(value.asString());
+                    while (reference.find()) {
+                        secretVariables.add(reference.group(1));
+                    }
+                });
+        Map<String, Object> environment = keycloakServiceEnvironment();
+
+        assertThat(secretVariables)
+                .as("the realm's secret variables")
+                .containsExactlyInAnyOrder(
+                        "GATEWAY_CLIENT_SECRET", "ASSISTANT_CLIENT_SECRET", "FINASSIST_OWNER_INITIAL_PASSWORD");
+        for (String variable : secretVariables) {
+            assertThat(String.valueOf(environment.get(variable)))
+                    .as("%s on the %s service in %s", variable, KEYCLOAK_SERVICE, COMPOSE_FILE)
+                    .matches(String.format(REQUIRED_COMPOSE_VALUE, variable));
+        }
+    }
+
     /** Every distinct {@code ${VAR}} the realm file refers to, in a stable order for a failure message. */
     private static Set<String> placeholdersNamedByTheRealm() {
         Set<String> names = new TreeSet<>();
@@ -447,6 +636,11 @@ class KeycloakRealmTest {
      * line-wise reading would misread.
      */
     private static Set<String> keycloakServiceEnvironmentKeys() {
+        return keycloakServiceEnvironment().keySet();
+    }
+
+    /** The {@code keycloak} service's environment, each value as Compose's file spells it, unresolved. */
+    private static Map<String, Object> keycloakServiceEnvironment() {
         String directory = System.getProperty(REPO_DIR_PROPERTY);
         if (directory == null) {
             throw new IllegalStateException(REPO_DIR_PROPERTY
@@ -458,8 +652,7 @@ class KeycloakRealmTest {
             Map<String, Object> compose = new Yaml().load(reader);
             Map<String, Object> services = asMap(compose.get("services"), "services");
             Map<String, Object> keycloak = asMap(services.get(KEYCLOAK_SERVICE), KEYCLOAK_SERVICE);
-            return asMap(keycloak.get("environment"), KEYCLOAK_SERVICE + ".environment")
-                    .keySet();
+            return asMap(keycloak.get("environment"), KEYCLOAK_SERVICE + ".environment");
         } catch (Exception e) {
             throw new IllegalStateException("could not read " + file, e);
         }

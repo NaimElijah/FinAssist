@@ -504,8 +504,8 @@ def Given_an_allow_list_that_admits_everyone_or_no_one_When_settings_are_built_T
 
 @pytest.mark.parametrize(
     "value",
-    ["localhost:8000", "127.0.0.1:8000", "[::1]", "::1"],
-    ids=["name-with-port", "address-with-port", "bracketed-ipv6", "bare-ipv6"],
+    ["localhost:8000", "127.0.0.1:8000", "[::1]", "::1", "[localhost]"],
+    ids=["name-with-port", "address-with-port", "bracketed-ipv6", "bare-ipv6", "bracketed-name"],
 )
 def Given_an_allowed_host_with_a_port_or_bracket_When_settings_are_built_Then_it_is_refused(
     monkeypatch: pytest.MonkeyPatch, value: str

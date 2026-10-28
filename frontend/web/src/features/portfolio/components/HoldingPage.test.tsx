@@ -8,9 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import {
-    type FetchAnswer,
     fakeFetch,
+    type FetchAnswer,
     jsonResponse,
+    networkFailure,
     pendingResponse,
     problemResponse,
     type RecordedRequest,
@@ -237,6 +238,30 @@ describe('HoldingPage', () => {
         expect(figure('Position', 'Quantity')).toBe('1234.125');
         expect(screen.queryByRole('alert')).toBeNull();
         expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+    });
+
+    it('Given_the_network_fails_When_the_position_is_read_Then_an_error_state_offers_a_retry_that_reads_it_again', async () => {
+        // A request that never reached the server is worth repeating, unlike a 4xx answer, so the
+        // failure offers "Try again" (isRetryable).
+        let failing = true;
+        const requests = fakeFetch(
+            assistant({
+                position: () => (failing ? networkFailure() : jsonResponse(POSITION)),
+                valuation: () => jsonResponse(VALUATION),
+            }),
+        );
+
+        renderHolding();
+
+        const position = await screen.findByRole('region', { name: 'Position' });
+        const alert = await within(position).findByRole('alert');
+        failing = false;
+        await userEvent
+            .setup({ delay: null })
+            .click(within(alert).getByRole('button', { name: 'Try again' }));
+
+        expect(await screen.findByText('1234.125')).toBeDefined();
+        expect(requests.filter((request) => isRead(request, 'position'))).toHaveLength(2);
     });
 
     it('Given_the_position_read_fails_otherwise_When_Try_again_is_clicked_Then_it_is_read_again_and_shown', async () => {

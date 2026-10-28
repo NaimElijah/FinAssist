@@ -18,6 +18,7 @@ import {
     type RecordedRequest,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import type { FieldEdit } from '@/shared/testing/fieldEdits';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { portfolioRoutes } from '../index';
@@ -366,36 +367,79 @@ describe('DisposalSection', () => {
         expect(screen.queryByText('Realised gain')).toBeNull();
     });
 
-    it('Given_a_disposal_priced_When_the_quantity_is_edited_Then_the_result_is_gone', async () => {
-        // A result answers the quantity and proceeds it priced; beside a quantity it never priced,
-        // its cost of sale and realised gain would read as the answer for that quantity.
-        fakeFetch(assistant(() => jsonResponse(DISPOSITION)));
-        await renderSettledHolding();
-        const user = userEvent.setup({ delay: null });
-        await price(user);
-        await screen.findByRole('table', { name: LOTS_CAPTION });
-
-        await user.type(screen.getByLabelText('Quantity'), '5');
-
-        expect(screen.queryByRole('heading', { level: 3, name: RESULT_HEADING })).toBeNull();
-        expect(screen.queryByRole('table', { name: LOTS_CAPTION })).toBeNull();
-    });
-
-    it('Given_a_refusal_shown_When_the_currency_is_changed_Then_the_refusal_clears', async () => {
-        const detail = 'Cannot dispose of 40 units of VOO: 10.5 are held.';
+    it('Given_the_assistant_refuses_the_pricing_as_FORBIDDEN_When_priced_Then_the_fixed_sentence_is_shown_instead_of_its_detail', async () => {
+        // The server enforces access whatever the client hides (ADR-032), and a refusal never
+        // tells the user which permission it was (ErrorState's fixed sentence).
         fakeFetch(
-            assistant(() => problemResponse({ status: 422, code: 'INSUFFICIENT_HOLDING', detail })),
+            assistant(() =>
+                problemResponse({
+                    status: 403,
+                    code: 'FORBIDDEN',
+                    detail: 'Role guest lacks portfolio:read.',
+                }),
+            ),
         );
         await renderSettledHolding();
-        const user = userEvent.setup({ delay: null });
-        await price(user, { quantity: '40' });
+
+        await price(userEvent.setup({ delay: null }));
+
         const section = screen.getByRole('region', { name: SECTION });
-        await within(section).findByRole('alert');
-
-        await user.selectOptions(screen.getByLabelText('Currency'), 'ILS');
-
-        expect(within(section).queryByRole('alert')).toBeNull();
+        const alert = await within(section).findByRole('alert');
+        expect(alert.textContent).toContain("You don't have permission to see this.");
+        expect(alert.textContent).not.toContain('portfolio:read');
     });
+
+    // Every field of the form, since each calls clearSettledOutcome on its own (frontend/web
+    // CLAUDE.md: editing any field of a settled form clears its answer, and, for the disposal,
+    // its result).
+    const DISPOSAL_FIELD_EDITS = [
+        { field: 'quantity', edit: (user) => user.type(screen.getByLabelText('Quantity'), '5') },
+        {
+            field: 'proceeds_amount',
+            edit: (user) => user.type(screen.getByLabelText('Proceeds amount'), '0'),
+        },
+        {
+            field: 'currency',
+            edit: (user) => user.selectOptions(screen.getByLabelText('Currency'), 'ILS'),
+        },
+    ] satisfies readonly FieldEdit[];
+
+    for (const { field, edit } of DISPOSAL_FIELD_EDITS) {
+        it(`Given_a_disposal_priced_When_the_${field}_is_edited_Then_the_result_is_gone`, async () => {
+            // A result answers the disposal it priced; beside inputs it never priced, its cost of
+            // sale and realised gain would read as the answer for them.
+            fakeFetch(assistant(() => jsonResponse(DISPOSITION)));
+            await renderSettledHolding();
+            const user = userEvent.setup({ delay: null });
+            await price(user);
+            await screen.findByRole('table', { name: LOTS_CAPTION });
+
+            await edit(user);
+
+            expect(screen.queryByRole('heading', { level: 3, name: RESULT_HEADING })).toBeNull();
+            expect(screen.queryByRole('table', { name: LOTS_CAPTION })).toBeNull();
+        });
+    }
+
+    for (const { field, edit } of DISPOSAL_FIELD_EDITS) {
+        it(`Given_a_refusal_shown_When_the_${field}_is_changed_Then_the_refusal_clears`, async () => {
+            const detail = 'Cannot dispose of 40 units of VOO: 10.5 are held.';
+            fakeFetch(
+                assistant(() =>
+                    problemResponse({ status: 422, code: 'INSUFFICIENT_HOLDING', detail }),
+                ),
+            );
+            await renderSettledHolding();
+            const user = userEvent.setup({ delay: null });
+            await price(user, { quantity: '40' });
+            const section = screen.getByRole('region', { name: SECTION });
+            await within(section).findByRole('alert');
+
+            await edit(user);
+
+            expect(within(section).queryByRole('alert')).toBeNull();
+        });
+    }
 
     it('Given_a_quantity_the_assistant_refuses_as_non_positive_When_priced_Then_the_RULE_VIOLATED_detail_shows_in_an_error_state', async () => {
         const detail = 'A disposal must be of a positive quantity.';

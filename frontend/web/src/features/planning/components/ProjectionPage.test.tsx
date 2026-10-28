@@ -9,6 +9,7 @@ import { Outlet, type RouteObject } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
+import type { WriteAccess } from '@/shared/lib/writeAccess';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -113,7 +114,10 @@ function ledger(scenarios: readonly unknown[], projection?: FetchAnswer): FetchA
 }
 
 /** Render the projection page, with `accountOptions` provided as src/app would provide them. */
-function renderProjection(accountOptions: AccountOptions = LOADED) {
+function renderProjection(
+    accountOptions: AccountOptions = LOADED,
+    access: WriteAccess = { canWrite: true },
+) {
     const routes: RouteObject[] = [
         {
             element: (
@@ -124,7 +128,7 @@ function renderProjection(accountOptions: AccountOptions = LOADED) {
             children: planningRoutes,
         },
     ];
-    return renderRoutes(routes, '/planning/projection');
+    return renderRoutes(routes, '/planning/projection', { access });
 }
 
 /** Choose `scenario`, enter the horizon, pick `step`, and submit. */
@@ -173,6 +177,21 @@ describe('ProjectionPage', () => {
                 .getByRole('navigation', { name: 'Planning' })
                 .querySelector('[aria-current="page"]')?.textContent,
         ).toBe('Projection');
+    });
+
+    it('Given_a_read_only_session_When_a_scenario_is_projected_Then_the_form_is_offered_and_the_projection_shown', async () => {
+        // A projection, a comparison and a lookup are reads: a viewer sees every area (ADR-032),
+        // so hiding one behind useWriteAccess would take away what the role exists for.
+        fakeFetch(ledger([SAVING], () => jsonResponse(WITH_SHORTFALL)));
+        renderProjection(LOADED, { canWrite: false });
+
+        await project(userEvent.setup({ delay: null }));
+
+        expect(
+            await screen.findByText(
+                paragraph('Cash first falls below zero at the step ending 1 Oct 2026.'),
+            ),
+        ).toBeDefined();
     });
 
     it('Given_a_projection_with_a_shortfall_When_projected_Then_the_callout_names_the_step_it_ends_at_with_the_caveat', async () => {

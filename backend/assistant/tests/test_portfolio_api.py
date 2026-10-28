@@ -299,8 +299,26 @@ def Given_proceeds_finer_than_the_currency_admits_When_priced_Then_they_are_refu
         ("quantity", _disposal(quantity="12abc")),
         ("proceeds.amount", _disposal(amount="3,000.00")),
         ("proceeds.currency", _disposal(currency="CHF")),
+        # Every decimal is a string, never a JSON number (ADR-028): a number is refused, not
+        # coerced, whether or not it happens to be whole.
+        ("quantity", {**_disposal(), "quantity": 12}),
+        ("quantity", {**_disposal(), "quantity": 1.5}),
+        ("proceeds.amount", {**_disposal(), "proceeds": {"amount": 3000, "currency": "USD"}}),
+        ("proceeds.amount", {**_disposal(), "proceeds": {"amount": 3000.5, "currency": "USD"}}),
+        ("proceeds", {"quantity": "12"}),
     ],
-    ids=["prose", "exponent", "trailing-text", "grouped-digits", "unknown-currency"],
+    ids=[
+        "prose",
+        "exponent",
+        "trailing-text",
+        "grouped-digits",
+        "unknown-currency",
+        "integer-quantity",
+        "fractional-quantity",
+        "integer-amount",
+        "fractional-amount",
+        "missing-proceeds",
+    ],
 )
 def Given_a_malformed_body_member_When_a_disposal_is_priced_Then_it_is_a_malformed_request(
     client: TestClient, field: str, body: dict[str, Any]
@@ -311,6 +329,20 @@ def Given_a_malformed_body_member_When_a_disposal_is_priced_Then_it_is_a_malform
     assert response.status_code == 400
     assert response.json()["code"] == "MALFORMED_REQUEST"
     assert [error["field"] for error in response.json()["errors"]] == [field]
+
+
+def Given_a_body_that_is_not_valid_JSON_When_a_disposal_is_priced_Then_it_is_a_malformed_request(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        DISPOSAL_URL,
+        content=b'{"quantity": "12",',
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "MALFORMED_REQUEST"
+    assert response.json()["errors"]
 
 
 @pytest.mark.parametrize(
@@ -505,8 +537,12 @@ def Given_proceeds_in_any_wire_currency_When_a_disposal_is_priced_Then_the_code_
 ) -> None:
     """Proceeds in the lots' currency realise a gain; in any other they cannot be combined with the
     cost. Either way the code was understood: a refusal about the request, never a 500."""
-    expected = 200 if code == OLDER.unit_cost.currency.code else 422
+    same_currency = code == OLDER.unit_cost.currency.code
 
     response = client.post(DISPOSAL_URL, json=_disposal(amount="3000", currency=code))
 
-    assert response.status_code == expected
+    if same_currency:
+        assert response.status_code == 200
+    else:
+        assert response.status_code == 422
+        assert response.json()["code"] == "CURRENCY_MISMATCH"

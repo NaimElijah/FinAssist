@@ -26,6 +26,8 @@ if sys.platform == "win32":
     POSIX_PERMISSIONS_BIND = False
 else:
     POSIX_PERMISSIONS_BIND = os.geteuid() != 0
+# ERROR_PRIVILEGE_NOT_HELD: how Windows refuses a symlink to a user without Developer Mode.
+WINDOWS_PRIVILEGE_NOT_HELD = 1314
 
 
 def _clone(root: Path, files: dict[str, bytes], gitignore: bytes | None = None) -> Path:
@@ -110,6 +112,46 @@ def Given_a_value_only_inside_a_longer_token_When_checked_Then_it_passes(
     assert status == secret_check.EXIT_PASSED
 
 
+# Read as a pattern, `.` takes any character, `y+` a run of them, and `(Lk9)` a group: so the
+# literal text would not match it, and the near miss below would.
+METACHARACTER_SECRET = "Fixture.only+7Qv2(Lk9)"
+NEAR_MISS = "FixtureXonlyyy7Qv2Lk9"
+
+
+def Given_a_secret_holding_regex_metacharacters_When_checked_Then_its_literal_text_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"ci.yml": f"PASSWORD={METACHARACTER_SECRET}\n".encode()})
+
+    status, output = _run(root, _environment(GATEWAY_CLIENT_SECRET=METACHARACTER_SECRET), capsys)
+
+    assert status == secret_check.EXIT_REFUSED
+    assert "GATEWAY_CLIENT_SECRET" in output
+
+
+def Given_a_secret_holding_regex_metacharacters_When_only_a_near_miss_is_held_Then_it_passes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"ci.yml": f"PASSWORD={NEAR_MISS}\n".encode()})
+
+    status, _ = _run(root, _environment(GATEWAY_CLIENT_SECRET=METACHARACTER_SECRET), capsys)
+
+    assert status == secret_check.EXIT_PASSED
+
+
+def Given_a_non_ascii_secret_When_a_utf8_file_holds_it_Then_it_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret = "Fixture-only-Ünïcødé-שלום"
+    root = _clone(tmp_path, {"docs/notes.md": f"password: {secret}\n".encode()})
+
+    status, output = _run(root, _environment(KEYCLOAK_ADMIN_PASSWORD=secret), capsys)
+
+    assert status == secret_check.EXIT_REFUSED
+    assert "KEYCLOAK_ADMIN_PASSWORD" in output
+    assert secret not in output
+
+
 def Given_an_unset_or_empty_secret_When_checked_Then_it_is_skipped_rather_than_matched(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -188,7 +230,10 @@ def Given_a_symlink_to_a_file_holding_a_secret_When_checked_Then_it_is_not_follo
     root = _clone(tmp_path / "clone", {})
     try:
         (root / "link").symlink_to(outside, target_is_directory=True)
-    except OSError:
+    except OSError as error:
+        # Only Windows without Developer Mode may refuse this; anywhere else it is a real failure.
+        if getattr(error, "winerror", None) != WINDOWS_PRIVILEGE_NOT_HELD:
+            raise
         pytest.skip("this machine does not let an unprivileged user create a symlink")
 
     status, _ = _run(root, _environment(POSTGRES_PASSWORD=PUBLISHED), capsys)
@@ -225,12 +270,54 @@ def Given_an_unreadable_directory_git_does_not_ignore_When_checked_Then_it_fails
     assert "locked" in output
 
 
+@pytest.mark.skipif(
+    not POSIX_PERMISSIONS_BIND, reason="needs POSIX permissions, as a non-root user"
+)
+def Given_an_unreadable_file_git_does_not_ignore_When_checked_Then_it_fails_misconfigured(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"locked.txt": f"PASSWORD={PUBLISHED}\n".encode()})
+    (root / "locked.txt").chmod(0)
+    try:
+        status, output = _run(root, _environment(), capsys)
+    finally:
+        (root / "locked.txt").chmod(0o644)
+
+    assert status == secret_check.EXIT_MISCONFIGURED
+    assert "cannot read" in output
+    assert "PermissionError" in output
+
+
+def Given_no_root_argument_When_checked_Then_it_fails_misconfigured(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    status = secret_check.main([], _environment())
+
+    assert status == secret_check.EXIT_MISCONFIGURED
+    assert "the repository's root as the only argument" in capsys.readouterr().out
+
+
+def Given_two_root_arguments_When_checked_Then_it_fails_misconfigured(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"README.md": b"text\n"})
+
+    status = secret_check.main([str(root), str(root)], _environment())
+
+    assert status == secret_check.EXIT_MISCONFIGURED
+    assert "the repository's root as the only argument" in capsys.readouterr().out
+
+
 def Given_an_unexpected_failure_When_checked_Then_only_its_type_is_reported(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = _clone(tmp_path, {"README.md": b"text\n"})
+    read = secret_check._read
 
     def failing_read(path: Path) -> bytes:
+        # Fails on the content read alone: the ignore files before it are still read as usual.
+        if path.name != "README.md":
+            return read(path)
         raise RuntimeError(f"could not read a file holding {PUBLISHED}")
 
     monkeypatch.setattr(secret_check, "_read", failing_read)
@@ -257,10 +344,21 @@ def Given_the_compose_file_When_its_secrets_are_read_Then_the_check_covers_each(
 def Given_the_compose_file_When_the_check_service_is_read_Then_it_is_handed_each_secret() -> None:
     compose = (REPOSITORY_ROOT / "docker-compose.yml").read_bytes().decode()
 
-    # `secret-check` is the one service that takes a secret as `NAME: ${NAME:-}`, empty default.
-    handed = set(re.findall(r"^\s+([A-Z0-9_]+): \$\{\1:-\}$", compose, re.MULTILINE))
+    # The `secret-check` service takes each secret as `NAME: ${NAME:-}`, with an empty default.
+    block = _service_block(compose, "secret-check")
+    handed = set(re.findall(r"^\s+([A-Z0-9_]+): \$\{\1:-\}$", block, re.MULTILINE))
 
     assert handed == set(secret_check.SECRET_VARIABLES)
+
+
+def _service_block(compose: str, service: str) -> str:
+    """The lines under `service`'s key in `services:`, up to the next key at its indent or less."""
+    lines = compose.splitlines()
+    start = lines.index(f"  {service}:")
+    ends = (
+        index for index in range(start + 1, len(lines)) if re.match(r"^ {0,2}[^\s#]", lines[index])
+    )
+    return "\n".join(lines[start + 1 : next(ends, len(lines))])
 
 
 # --- The walk agrees with git --------------------------------------------------------------------
@@ -332,7 +430,9 @@ def Given_ignore_files_git_reads_byte_by_byte_When_walked_Then_it_sees_what_git_
 ) -> None:
     # Each line is a way the walker once read an ignore file differently from git, and hid a file
     # that git would publish: a trailing tab kept, a lone carriage return as a line break, a BOM
-    # cancelling a first-line negation, and an unclosed `[` matched as a literal.
+    # cancelling a first-line negation, and an unclosed `[` matched as a literal. The lines after
+    # `*.txt` pin the rest of gitignore(5)'s glob forms: a trailing `/**`, one negated, `**` between
+    # two components, `?`, `[!...]`, and a backslash escaping `#`, `!` or a trailing space.
     root = _clone(
         tmp_path / "repo",
         {
@@ -344,8 +444,28 @@ def Given_ignore_files_git_reads_byte_by_byte_When_walked_Then_it_sees_what_git_
             "sub/.gitignore": b"\xef\xbb\xbf!keep.txt\n",
             "sub/keep.txt": b"x",
             "sub/drop.txt": b"x",
+            "logs/run.dat": b"x",
+            "logs/deep/run.dat": b"x",
+            "drop.out": b"x",
+            "keep/a.out": b"x",
+            "keep/deep/b.out": b"x",
+            "deep/z.bin": b"x",
+            "deep/x/y/z.bin": b"x",
+            "other/deep/z.bin": b"x",
+            "data.bin": b"x",
+            "dat.bin": b"x",
+            "datum.bin": b"x",
+            "va.bin": b"x",
+            "v1.bin": b"x",
+            "#hash": b"x",
+            "!bang": b"x",
+            "space": b"x",
         },
-        gitignore=b"foo\t\na\rb\nbar[\nbaz   \n*.txt\n",
+        gitignore=(
+            b"foo\t\na\rb\nbar[\nbaz   \n*.txt\n"
+            b"logs/**\n*.out\n!keep/**\ndeep/**/z.bin\ndat?.bin\nv[!0-9].bin\n"
+            b"\\#hash\n\\!bang\nspace\\ \n"
+        ),
     )
     _git(root, "init", "-q")
     seen_by_git = set(
@@ -356,6 +476,31 @@ def Given_ignore_files_git_reads_byte_by_byte_When_walked_Then_it_sees_what_git_
 
     assert walked == seen_by_git
     assert {"foo", "a", "b", "bar[", "sub/keep.txt"} <= walked
+    assert {"keep/a.out", "keep/deep/b.out", "other/deep/z.bin", "dat.bin", "datum.bin"} <= walked
+    assert {"v1.bin", "space"} <= walked
+    assert walked.isdisjoint(
+        {"logs/run.dat", "logs/deep/run.dat", "drop.out", "deep/z.bin", "deep/x/y/z.bin"}
+    )
+    assert walked.isdisjoint({"data.bin", "va.bin", "#hash", "!bang"})
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows cannot name a file with a trailing space"
+)
+def Given_an_escaped_trailing_space_When_walked_Then_it_sees_what_git_does_not_ignore(
+    tmp_path: Path,
+) -> None:
+    root = _clone(tmp_path / "repo", {"space ": b"x", "space": b"x"}, gitignore=b"space\\ \n")
+    _git(root, "init", "-q")
+    seen_by_git = set(
+        _git(root, "ls-files", "--cached", "--others", "--exclude-standard").splitlines()
+    )
+
+    walked = set(secret_check.scanned_files(root))
+
+    assert walked == seen_by_git
+    assert "space" in walked
+    assert "space " not in walked
 
 
 def Given_this_checkout_When_walked_Then_every_tracked_file_is_scanned() -> None:

@@ -66,7 +66,17 @@ import tools.jackson.databind.json.JsonMapper;
  *       refused {@code invalid_grant}, as Keycloak refuses it, so the sign-in itself fails rather
  *       than a flag alone recording the mismatch.
  *   <li>{@link #lastAccessToken()}, {@link #lastRefreshToken()} and {@link #lastIdToken()} — the
- *       exact values last issued, for the log sweep to search for.
+ *       exact values last issued — {@link #lastCodeVerifier()}, the PKCE verifier the gateway last
+ *       presented, and {@link #lastClientAuthorization()}, the {@code Authorization} header its last
+ *       token request carried, for the log sweep to search for.
+ *   <li>the token endpoint authenticates the client by {@code client_secret_basic}, the method
+ *       the gateway's registration declares in {@code KeycloakRegistration}: {@code Authorization:
+ *       Basic} carrying {@code finassist-gateway} and the secret this fake was built with, refused
+ *       {@code 401 invalid_client} otherwise, as Keycloak refuses a confidential client that fails
+ *       to authenticate. It pins that one method rather than modelling what Keycloak accepts, so a
+ *       registration that switched to another method would fail here. A {@code refresh_token}
+ *       grant must present a refresh token this fake issued, refused {@code invalid_grant}
+ *       otherwise.
  *   <li>{@link #stall(Endpoint)} and {@link #releaseStalledRequests()} — the endpoint accepts the
  *       connection and then never answers, which is what an unbounded HTTP client hangs on
  *       forever (see {@code GatewayKeycloakTimeoutIT}). {@link #stalledArrivals(Endpoint)} says
@@ -100,6 +110,8 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     private final ExecutorService exchanges = Executors.newCachedThreadPool();
     private final RSAKey rsaKey;
     private final Map<String, PendingAuthorization> pendingByCode = new ConcurrentHashMap<>();
+    private final Set<String> issuedRefreshTokens = ConcurrentHashMap.newKeySet();
+    private final String clientSecret;
     private final Set<Endpoint> stalled = ConcurrentHashMap.newKeySet();
     // An EnumMap is not thread-safe, but this one is filled once here and never changed again; only
     // the counters it holds are, and they are atomic.
@@ -110,14 +122,24 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     private final AtomicReference<String> lastAccessToken = new AtomicReference<>();
     private final AtomicReference<String> lastRefreshToken = new AtomicReference<>();
     private final AtomicReference<String> lastIdToken = new AtomicReference<>();
+    private final AtomicReference<String> lastCodeVerifier = new AtomicReference<>();
+    private final AtomicReference<String> lastClientAuthorization = new AtomicReference<>();
     private volatile boolean lastAuthorizationRequestHadPkce;
     private volatile boolean lastTokenRequestPassedPkce;
+    private volatile boolean lastTokenRequestAuthenticatedClient;
 
     private volatile String issuerOverride;
     private volatile long accessTokenExpiresInSeconds = 300;
     private volatile boolean refuseNextRefreshOnce;
 
-    public FakeOpenIdProvider() throws JOSEException, IOException {
+    /**
+     * Starts the provider on a loopback port the OS assigns.
+     *
+     * @param clientSecret the secret the gateway under test is configured with, which every token
+     *     request must authenticate with
+     */
+    public FakeOpenIdProvider(String clientSecret) throws JOSEException, IOException {
+        this.clientSecret = clientSecret;
         this.rsaKey = new RSAKeyGenerator(RSA_KEY_SIZE_BITS)
                 .keyID(KEY_ID)
                 .algorithm(JWSAlgorithm.RS256)
@@ -240,6 +262,15 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         return lastTokenRequestPassedPkce;
     }
 
+    /**
+     * Whether the last token request authenticated as {@code finassist-gateway} with this fake's
+     * secret, by {@code client_secret_basic}. Reset when a flow starts at the authorization
+     * endpoint, like {@link #lastTokenRequestPassedPkce()}.
+     */
+    public boolean lastTokenRequestAuthenticatedClient() {
+        return lastTokenRequestAuthenticatedClient;
+    }
+
     public String lastAccessToken() {
         return lastAccessToken.get();
     }
@@ -250,6 +281,21 @@ public final class FakeOpenIdProvider implements AutoCloseable {
 
     public String lastIdToken() {
         return lastIdToken.get();
+    }
+
+    /** The {@code code_verifier} the last authorization-code exchange carried, whether or not it matched. */
+    public String lastCodeVerifier() {
+        return lastCodeVerifier.get();
+    }
+
+    /**
+     * The {@code Authorization} header the last token request carried, whether or not it
+     * authenticated: under {@code client_secret_basic}, the form in which the client secret
+     * actually leaves the gateway, since the secret itself never travels alone. Cleared when a flow
+     * starts at the authorization endpoint, so it is {@code null} until that flow's exchange arrives.
+     */
+    public String lastClientAuthorization() {
+        return lastClientAuthorization.get();
     }
 
     @Override
@@ -263,6 +309,8 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         Map<String, String> query = parseFormEncoded(exchange.getRequestURI().getRawQuery());
         // A new flow starts here, so the exchange flag must not still describe the previous one.
         lastTokenRequestPassedPkce = false;
+        lastTokenRequestAuthenticatedClient = false;
+        lastClientAuthorization.set(null);
         lastAuthorizationRequestHadPkce =
                 query.get("code_challenge") != null && "S256".equals(query.get("code_challenge_method"));
         String code = "fake-auth-code-" + UUID.randomUUID();
@@ -280,11 +328,18 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         }
         Map<String, String> form =
                 parseFormEncoded(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+        String authorization = exchange.getRequestHeaders().getFirst("Authorization");
+        lastClientAuthorization.set(authorization);
+        lastTokenRequestAuthenticatedClient = clientAuthenticated(authorization);
+        if (!lastTokenRequestAuthenticatedClient) {
+            respondJson(exchange, 401, "{\"error\":\"invalid_client\"}");
+            return;
+        }
         String grantType = form.get("grant_type");
         if ("authorization_code".equals(grantType)) {
             handleAuthorizationCodeGrant(exchange, form);
         } else if ("refresh_token".equals(grantType)) {
-            handleRefreshTokenGrant(exchange);
+            handleRefreshTokenGrant(exchange, form);
         } else {
             respondJson(exchange, 400, "{\"error\":\"unsupported_grant_type\"}");
         }
@@ -299,6 +354,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
             respondJson(exchange, 400, "{\"error\":\"invalid_grant\",\"error_description\":\"Code not valid\"}");
             return;
         }
+        lastCodeVerifier.set(form.get("code_verifier"));
         boolean passed = s256Matches(form.get("code_verifier"), pending.codeChallenge());
         lastTokenRequestPassedPkce = passed;
         if (!passed) {
@@ -307,6 +363,29 @@ public final class FakeOpenIdProvider implements AutoCloseable {
             return;
         }
         issueTokens(exchange, pending.nonce());
+    }
+
+    /**
+     * {@code client_secret_basic}, RFC 6749 §2.3.1: Basic credentials whose user and password are
+     * the form-encoded client id and secret. Anything else — no header, another scheme, another
+     * client or secret — is not this gateway authenticating.
+     */
+    private boolean clientAuthenticated(String authorization) {
+        String prefix = "Basic ";
+        if (authorization == null || !authorization.startsWith(prefix)) {
+            return false;
+        }
+        String decoded;
+        try {
+            decoded = new String(
+                    Base64.getDecoder().decode(authorization.substring(prefix.length())), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException notBase64) {
+            return false;
+        }
+        int colon = decoded.indexOf(':');
+        return colon >= 0
+                && CLIENT_ID.equals(urlDecode(decoded.substring(0, colon)))
+                && clientSecret.equals(urlDecode(decoded.substring(colon + 1)));
     }
 
     /**
@@ -332,7 +411,12 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         }
     }
 
-    private void handleRefreshTokenGrant(HttpExchange exchange) throws IOException {
+    private void handleRefreshTokenGrant(HttpExchange exchange, Map<String, String> form) throws IOException {
+        String presented = form.get("refresh_token");
+        if (presented == null || !issuedRefreshTokens.contains(presented)) {
+            respondJson(exchange, 400, "{\"error\":\"invalid_grant\",\"error_description\":\"Invalid refresh token\"}");
+            return;
+        }
         if (refuseNextRefreshOnce) {
             refuseNextRefreshOnce = false;
             respondJson(exchange, 400, "{\"error\":\"invalid_grant\",\"error_description\":\"refresh token revoked\"}");
@@ -348,6 +432,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         String refreshToken = "fake-refresh-token-" + UUID.randomUUID();
         lastAccessToken.set(accessToken);
         lastRefreshToken.set(refreshToken);
+        issuedRefreshTokens.add(refreshToken);
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("access_token", accessToken);

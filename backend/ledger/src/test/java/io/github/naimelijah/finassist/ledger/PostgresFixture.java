@@ -1,5 +1,8 @@
 package io.github.naimelijah.finassist.ledger;
 
+import java.time.Clock;
+import java.time.ZoneOffset;
+import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -7,6 +10,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
@@ -34,32 +38,42 @@ public abstract class PostgresFixture {
     }
 
     /**
-     * Every table, in one statement.
+     * Every table the migrations created, read from the catalog on each reset rather than listed by
+     * hand: a table a new migration adds is emptied between tests from the moment it exists, and so is
+     * every table in a schema a new context adds, where a hand-kept list of either would leak its rows
+     * from one test into the next until someone remembered it.
      *
-     * <p>{@code TRUNCATE} rather than {@code DELETE} for a reason beyond speed: the journal's
-     * append-only triggers refuse a {@code DELETE} outright, and correctly so. Row triggers do not
-     * fire for {@code TRUNCATE}, and it needs an ownership privilege the eventual production role
-     * will not hold, which is what makes it a safe hole to leave open (ADR-024).
-     *
-     * <p>{@code flyway_schema_history} is deliberately absent: emptying it would make Flyway re-run
-     * every migration into a schema that already has it.
+     * <p>Every schema PostgreSQL does not own itself is read: {@code pg_catalog}, {@code
+     * information_schema}, and the {@code pg_}-prefixed ones such as {@code pg_toast} are not. Flyway
+     * keeps {@code flyway_schema_history} in {@code public}, and emptying it would make Flyway re-run
+     * every migration into a schema that already has it, so it is excluded by name wherever it lives.
      */
-    private static final String EMPTY_EVERY_TABLE = """
-            TRUNCATE accounting.journal_entry,
-                     accounting.journal_transaction_state,
-                     accounting.journal_transaction,
-                     accounting.account,
-                     budgeting.budget_limit,
-                     budgeting.budget,
-                     budgeting.categorisation_rule,
-                     planning.scenario_flow,
-                     planning.scenario,
-                     planning.planned_flow
-            RESTART IDENTITY CASCADE
+    private static final String EVERY_MIGRATED_TABLE = """
+            SELECT format('%I.%I', table_schema, table_name)
+              FROM information_schema.tables
+             WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+               AND table_schema NOT LIKE 'pg\\_%'
+               AND table_type = 'BASE TABLE'
+               AND table_name <> 'flyway_schema_history'
+             ORDER BY 1
             """;
 
     @Autowired
     private JdbcClient jdbc;
+
+    /**
+     * Replaces {@code LedgerSecurityConfiguration}'s {@code Clock.systemUTC()} for every {@code *IT}
+     * that extends this class, built by {@link #clock()}: the token validators read this bean, and
+     * {@link TestTokens} signs relative to the same {@link TestTokens#NOW}, so a token's lifetime is
+     * judged against the instant it was issued for rather than against however long the fork has run.
+     * One override for every subclass keeps them on one cached context.
+     */
+    @TestBean
+    private Clock clock;
+
+    static Clock clock() {
+        return Clock.fixed(TestTokens.NOW, ZoneOffset.UTC);
+    }
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry registry) {
@@ -110,9 +124,29 @@ public abstract class PostgresFixture {
         jwksUriOverride = null;
     }
 
+    /**
+     * Every table, in one statement.
+     *
+     * <p>{@code TRUNCATE} rather than {@code DELETE} for a reason beyond speed: the journal's
+     * append-only triggers refuse a {@code DELETE} outright, and correctly so. Row triggers do not
+     * fire for {@code TRUNCATE}, and it needs an ownership privilege the eventual production role
+     * will not hold, which is what makes it a safe hole to leave open (ADR-024).
+     *
+     * <p>No {@code CASCADE}: every table is named, so a foreign key between two of them is satisfied
+     * by emptying both at once, and a table holding a reference that the query above missed makes the
+     * statement fail rather than being emptied unseen. {@code RESTART IDENTITY} stays, because {@code
+     * categorisation_rule.ordinal} is an identity whose values a test reads.
+     *
+     * <p>The statement is assembled from the catalog's own names, each already quoted by {@code
+     * format('%I')}; no identifier here comes from outside the database.
+     */
     @BeforeEach
     void emptyEveryTable() {
-        jdbc.sql(EMPTY_EVERY_TABLE).update();
+        List<String> tables = jdbc.sql(EVERY_MIGRATED_TABLE).query(String.class).list();
+        if (tables.isEmpty()) {
+            throw new IllegalStateException("no migrated table exists to empty; the migrations did not run");
+        }
+        jdbc.sql("TRUNCATE " + String.join(", ", tables) + " RESTART IDENTITY").update();
     }
 
     /** For the few assertions that are about rows rather than aggregates. */

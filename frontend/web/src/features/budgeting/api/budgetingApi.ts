@@ -5,7 +5,8 @@
  * Each function types the response with the generated wire type and maps it, member by member,
  * onto the feature's own type. A generated type stops here: components and hooks see only
  * `types/`. Decimal amounts stay the strings the ledger sent (ADR-028). A currency the contract
- * does not name is refused here with `ApiBodyError`, as the other features refuse theirs.
+ * does not name, or an amount that is not a decimal string, is refused here with `ApiBodyError`,
+ * as the other features refuse theirs.
  */
 import { ApiBodyError, LEDGER_API, requestJson, sendJson } from '@/shared/api/client';
 import type {
@@ -20,6 +21,7 @@ import type {
     MoneyDto,
     UnbudgetedSpendResponse,
 } from '@/shared/api/contracts/ledger/types.gen';
+import { decimalString } from '@/shared/api/decimal';
 import { log } from '@/shared/lib/logger';
 
 import type { Budget, CategoryLimit, DefineBudgetInput } from '../types/budget';
@@ -58,7 +60,10 @@ function knownCurrency(value: Currency, url: string): Currency {
 }
 
 function toMoney(wire: MoneyDto, url: string): Money {
-    return { amount: wire.amount, currency: knownCurrency(wire.currency, url) };
+    return {
+        amount: decimalString(wire.amount, url, 'amount'),
+        currency: knownCurrency(wire.currency, url),
+    };
 }
 
 function toPeriod(wire: BudgetPeriodDto): BudgetPeriod {
@@ -113,8 +118,8 @@ function toBudgetReview(wire: BudgetReviewResponse, url: string): BudgetReview {
  *
  * @returns the budgets, in the ledger's order.
  * @throws ApiError - on a non-2xx response.
- * @throws ApiBodyError - when the response carries no JSON body, or a currency the contract does
- *   not name.
+ * @throws ApiBodyError - when the response carries no JSON body, a currency the contract does
+ *   not name, or an amount that is not a decimal string.
  */
 export async function listBudgets(): Promise<Budget[]> {
     const wire = await requestJson<BudgetResponse[]>(BUDGETS_URL);
@@ -131,8 +136,8 @@ export async function listBudgets(): Promise<Budget[]> {
  *   no limits, a duplicate category, a non-positive limit, a limit in another currency, or a
  *   period that does not start before it ends - 400 `MALFORMED_REQUEST`, possibly listing field
  *   `errors`, for a request the ledger cannot read.
- * @throws ApiBodyError - when the response carries no JSON body, or a currency the contract does
- *   not name.
+ * @throws ApiBodyError - when the response carries no JSON body, a currency the contract does
+ *   not name, or an amount that is not a decimal string.
  */
 export async function defineBudget(input: DefineBudgetInput): Promise<Budget> {
     const body: DefineBudgetRequest = {
@@ -154,8 +159,8 @@ export async function defineBudget(input: DefineBudgetInput): Promise<Budget> {
  * @returns the review: every budgeted category's limit, spend and remaining, spend unbudgeted
  *   for a category with no limit, and spend that matched no rule at all.
  * @throws ApiError - on a non-2xx response: 404 `BUDGET_NOT_FOUND` for an unknown budget.
- * @throws ApiBodyError - when the response carries no JSON body, or a currency the contract does
- *   not name.
+ * @throws ApiBodyError - when the response carries no JSON body, a currency the contract does
+ *   not name, or an amount that is not a decimal string.
  */
 export async function reviewBudget(budgetId: string): Promise<BudgetReview> {
     const url = budgetUrl(budgetId, 'review');

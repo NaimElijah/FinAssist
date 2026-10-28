@@ -8,6 +8,7 @@ point of the exercise: it must not go stale merely because the process has been 
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -15,14 +16,13 @@ from fastapi.testclient import TestClient
 
 from finassist_assistant.adapters.app import create_app
 from finassist_assistant.adapters.auth import TokenVerifier
-from finassist_assistant.adapters.seed import seeded_assembly
+from finassist_assistant.adapters.seed import SEED_SYMBOLS, seeded_assembly
 from finassist_assistant.adapters.settings import Settings
+from finassist_assistant.marketdata.domain.model import Ticker
+from finassist_assistant.portfolio.domain.model import Symbol
 
 HOLDINGS = "/api/v1/portfolio/holdings"
 START = datetime(2026, 3, 5, 12, 0, tzinfo=UTC)
-
-# Present in the seed data; asserted absent from the start-up log.
-_SEEDED_AMOUNT = "380.00"
 
 
 class _MovableClock:
@@ -137,13 +137,39 @@ def Given_the_seed_is_on_When_an_unseeded_symbol_is_read_Then_it_is_holding_not_
     assert response.json()["code"] == "HOLDING_NOT_FOUND"
 
 
+def _is_json_record(line: str) -> bool:
+    try:
+        return isinstance(json.loads(line), dict)
+    except json.JSONDecodeError:
+        return False
+
+
 def Given_the_seed_is_on_When_the_app_starts_Then_it_is_logged_with_symbols_and_no_amount(
     capsys: pytest.CaptureFixture[str], token_verifier: TokenVerifier
 ) -> None:
+    """Every amount the seed holds - each lot's unit cost and each symbol's price - is read from
+    the seeded assembly itself, so a change to the seed data cannot leave this checking for an
+    amount that no longer exists. The timestamp is left out of the search: its fractional
+    seconds could contain an amount such as ``25.50`` by chance. Every line must be a JSON
+    record first, so an amount written outside the logging boundary has nowhere to hide."""
+    seeded = seeded_assembly(_MovableClock(START))
+    amounts = {
+        str(lot.unit_cost.amount)
+        for name in SEED_SYMBOLS
+        for lot in seeded.ledger.lots_for(Symbol(name))
+    } | {str(seeded.feed.latest(Ticker(name)).price.amount) for name in SEED_SYMBOLS}
+    assert amounts, "the seed holds no amount, so the absence check below would prove nothing"
+
     capsys.readouterr()
     create_app(_settings(dev_seed=True), token_verifier=token_verifier)
-    captured = capsys.readouterr().out
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    stray = [line for line in lines if not _is_json_record(line)]
+    assert not stray, f"stdout carries lines the logging boundary did not write: {stray}"
+    records = [json.loads(line) for line in lines]
 
-    assert "development seed loaded" in captured
-    assert "VOO" in captured
-    assert _SEEDED_AMOUNT not in captured
+    [seed_line] = [record for record in records if record["event"] == "development seed loaded"]
+    assert seed_line["symbols"] == list(SEED_SYMBOLS)
+    rendered = json.dumps(
+        [{key: value for key, value in record.items() if key != "timestamp"} for record in records]
+    )
+    assert not {amount for amount in amounts if amount in rendered}

@@ -5,7 +5,9 @@
  * Each function types the response with the generated wire type and maps it, member by member,
  * onto the feature's own type. A generated type stops here: components and hooks see only
  * `types/`. Quantities and amounts stay the strings the assistant sent, signs included - never
- * converted (ADR-028, ADR-029).
+ * converted (ADR-028, ADR-029). A currency the contract does not name, or a quantity or amount
+ * that is not a decimal string, is refused here with `ApiBodyError`, as the other features refuse
+ * theirs.
  */
 import { ApiBodyError, ASSISTANT_API, requestJson, sendJson } from '@/shared/api/client';
 import type {
@@ -16,6 +18,7 @@ import type {
     PositionModel,
     ValuationModel,
 } from '@/shared/api/contracts/assistant/types.gen';
+import { decimalString } from '@/shared/api/decimal';
 import { log } from '@/shared/lib/logger';
 
 import type { DisposalInput, Disposition, Lot } from '../types/disposal';
@@ -55,17 +58,21 @@ function toMoney(wire: MoneyModel, url: string): Money {
     if (!CURRENCIES.includes(wire.currency)) {
         return unknownCurrency(url);
     }
-    return { amount: wire.amount, currency: wire.currency };
+    return { amount: decimalString(wire.amount, url, 'amount'), currency: wire.currency };
 }
 
 function toPosition(wire: PositionModel, url: string): Position {
-    return { symbol: wire.symbol, quantity: wire.quantity, cost: toMoney(wire.cost, url) };
+    return {
+        symbol: wire.symbol,
+        quantity: decimalString(wire.quantity, url, 'quantity'),
+        cost: toMoney(wire.cost, url),
+    };
 }
 
 function toValuation(wire: ValuationModel, url: string): Valuation {
     return {
         symbol: wire.symbol,
-        quantity: wire.quantity,
+        quantity: decimalString(wire.quantity, url, 'quantity'),
         cost: toMoney(wire.cost, url),
         unitPrice: toMoney(wire.unitPrice, url),
         marketValue: toMoney(wire.marketValue, url),
@@ -76,7 +83,7 @@ function toValuation(wire: ValuationModel, url: string): Valuation {
 function toLot(wire: LotModel, url: string): Lot {
     return {
         acquiredOn: wire.acquiredOn,
-        quantity: wire.quantity,
+        quantity: decimalString(wire.quantity, url, 'quantity'),
         unitCost: toMoney(wire.unitCost, url),
     };
 }
@@ -84,7 +91,7 @@ function toLot(wire: LotModel, url: string): Lot {
 function toDisposition(wire: DispositionModel, url: string): Disposition {
     return {
         symbol: wire.symbol,
-        quantity: wire.quantity,
+        quantity: decimalString(wire.quantity, url, 'quantity'),
         proceeds: toMoney(wire.proceeds, url),
         costOfSale: toMoney(wire.costOfSale, url),
         realisedGain: toMoney(wire.realisedGain, url),
@@ -98,8 +105,8 @@ function toDisposition(wire: DispositionModel, url: string): Disposition {
  * @param symbol - the symbol as the owner typed it; the assistant upper-cases it.
  * @returns the position, its quantity and cost exactly as the assistant sent them.
  * @throws ApiError - on a non-2xx response: 404 `HOLDING_NOT_FOUND` when nothing is held.
- * @throws ApiBodyError - when the response carries no JSON body, or a currency the contract does
- *   not name.
+ * @throws ApiBodyError - when the response carries no JSON body, a currency the contract does
+ *   not name, or a quantity or amount that is not a decimal string.
  */
 export async function readPosition(symbol: string): Promise<Position> {
     const url = holdingUrl(symbol, 'position');
@@ -115,8 +122,8 @@ export async function readPosition(symbol: string): Promise<Position> {
  *   negative amount.
  * @throws ApiError - on a non-2xx response: 404 `HOLDING_NOT_FOUND` when nothing is held, 503
  *   `PRICE_UNAVAILABLE` when no quote is recent enough to value it.
- * @throws ApiBodyError - when the response carries no JSON body, or a currency the contract does
- *   not name.
+ * @throws ApiBodyError - when the response carries no JSON body, a currency the contract does
+ *   not name, or a quantity or amount that is not a decimal string.
  */
 export async function valueHolding(symbol: string): Promise<Valuation> {
     const url = holdingUrl(symbol, 'valuation');
@@ -140,8 +147,8 @@ export async function valueHolding(symbol: string): Promise<Valuation> {
  *   for more units than are held; 422 `RULE_VIOLATED` for a non-positive quantity or an amount
  *   finer than its currency; 422 `CURRENCY_MISMATCH` for proceeds in a currency other than the
  *   lots'; 400 `MALFORMED_REQUEST`, listing field `errors`.
- * @throws ApiBodyError - when the response carries no JSON body, or a currency the contract does
- *   not name.
+ * @throws ApiBodyError - when the response carries no JSON body, a currency the contract does
+ *   not name, or a quantity or amount that is not a decimal string.
  */
 export async function priceDisposal(symbol: string, input: DisposalInput): Promise<Disposition> {
     const url = holdingUrl(symbol, 'disposal');

@@ -21,6 +21,7 @@ import type {
     TransitionRequest,
     VoidRequest,
 } from '@/shared/api/contracts/ledger/types.gen';
+import { decimalString } from '@/shared/api/decimal';
 import { log } from '@/shared/lib/logger';
 
 import {
@@ -46,11 +47,6 @@ export const ACCOUNT_NOT_FOUND = 'ACCOUNT_NOT_FOUND';
 const ACCOUNTS_URL = `${LEDGER_API}/accounts`;
 const TRANSACTIONS_URL = `${LEDGER_API}/transactions`;
 
-/**
- * The wire's decimal-string pattern, as `contracts/ledger-v1.openapi.json` declares it (ADR-028).
- */
-const DECIMAL_STRING = /^-?\d+(\.\d+)?$/;
-
 /** The URL of one account's sub-resource, with the id encoded as a single path segment. */
 function accountUrl(accountId: string, subResource: string): string {
     return `${ACCOUNTS_URL}/${encodeURIComponent(accountId)}/${subResource}`;
@@ -64,11 +60,11 @@ function transactionUrl(transactionId: string, action: string): string {
 /**
  * A member whose value the contract does not allow.
  *
- * The generated types promise one of five account types and currencies, and a decimal string for
- * every amount, but the body is unvalidated JSON. An unknown type would render an account with no
- * type at all, and a malformed amount or currency would throw inside `MoneyText` at render,
- * replacing the whole accounting area rather than failing the one read. The value itself is left
- * out of the log line, since it arrived unvalidated.
+ * The generated types promise one of five account types and currencies, but the body is
+ * unvalidated JSON. An unknown type would render an account with no type at all, and an unknown
+ * currency would throw inside `MoneyText` at render, replacing the whole accounting area rather
+ * than failing the one read; an amount is refused the same way by the shared `decimalString`. The
+ * value itself is left out of the log line, since it arrived unvalidated.
  *
  * @throws ApiBodyError - always.
  */
@@ -85,16 +81,6 @@ function knownCurrency(value: Currency, url: string): Currency {
     return CURRENCIES.includes(value) ? value : disallowedValue(url, 'currency');
 }
 
-/**
- * `value` as the decimal string the contract promises. It is typed `unknown` because a JSON number
- * would pass the pattern once coerced to text, and the wire carries a string.
- */
-function decimalAmount(value: unknown, url: string): string {
-    return typeof value === 'string' && DECIMAL_STRING.test(value)
-        ? value
-        : disallowedValue(url, 'amount');
-}
-
 function toAccount(wire: AccountResponse, url: string): Account {
     return {
         id: wire.id,
@@ -105,7 +91,10 @@ function toAccount(wire: AccountResponse, url: string): Account {
 }
 
 function toMoney(wire: MoneyDto, url: string): Money {
-    return { amount: decimalAmount(wire.amount, url), currency: knownCurrency(wire.currency, url) };
+    return {
+        amount: decimalString(wire.amount, url, 'amount'),
+        currency: knownCurrency(wire.currency, url),
+    };
 }
 
 function toEntry(wire: EntryDto, url: string): Entry {

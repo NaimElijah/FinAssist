@@ -106,8 +106,13 @@ def _for_each_route(
 
 @pytest.mark.parametrize(
     "headers",
-    [{}, {"Authorization": "Basic dXNlcjpwYXNz"}],
-    ids=["no-header", "basic-scheme"],
+    [
+        {},
+        {"Authorization": "Basic dXNlcjpwYXNz"},
+        {"Authorization": "Bearer"},
+        {"Authorization": "Bearer    "},
+    ],
+    ids=["no-header", "basic-scheme", "bearer-scheme-no-token", "bearer-scheme-blank-token"],
 )
 def Given_no_bearer_credential_When_a_protected_route_is_requested_Then_401_with_a_bare_challenge(
     anonymous: TestClient, headers: dict[str, str]
@@ -117,6 +122,19 @@ def Given_no_bearer_credential_When_a_protected_route_is_requested_Then_401_with
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == "Bearer"
     assert response.json()["code"] == "UNAUTHENTICATED"
+
+
+def Given_a_lowercase_bearer_scheme_When_a_protected_route_is_requested_Then_it_is_admitted(
+    anonymous: TestClient, owner_headers: dict[str, str]
+) -> None:
+    """The scheme is matched case-insensitively, as RFC 9110 says an auth scheme is. Nothing is
+    held for this symbol, so 404 is the answer only an admitted caller ever sees."""
+    token = owner_headers["Authorization"].removeprefix("Bearer ")
+
+    response = anonymous.get(POSITION_URL, headers={"Authorization": f"bearer {token}"})
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "HOLDING_NOT_FOUND"
 
 
 def Given_a_refused_token_When_a_protected_route_is_requested_Then_it_is_401_invalid_token(
@@ -249,10 +267,14 @@ def Given_an_owner_or_viewer_token_When_any_route_is_requested_Then_it_is_admitt
     path: str,
     body: dict[str, Any] | None,
 ) -> None:
+    """Nothing is held, so every route answers 404 ``HOLDING_NOT_FOUND`` - the answer only a caller
+    past both authentication and authorization ever sees, where "not 401 or 403" would also
+    have admitted a 500."""
     with TestClient(app, headers=headers_for([role])) as client:
         response = client.request(method, path, json=body)
 
-    assert response.status_code not in (401, 403)
+    assert response.status_code == 404
+    assert response.json()["code"] == "HOLDING_NOT_FOUND"
 
 
 @pytest.mark.parametrize(

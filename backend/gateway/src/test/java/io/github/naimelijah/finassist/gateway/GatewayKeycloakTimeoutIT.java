@@ -27,7 +27,7 @@ import org.springframework.test.context.DynamicPropertySource;
  * {@code keycloak-db} — is the one an unbounded client cannot survive: the TCP handshake
  * completes, so no connect timeout fires, and the client waits for a first byte for ever, holding
  * a Tomcat thread while the browser spins with no error. A refused connection, which
- * {@code GatewayLoginFlowIT.LedgerDown} already covers for a relay, fails immediately and proves
+ * {@code GatewayLoginFlowIT.UpstreamsDown} already covers for a relay, fails immediately and proves
  * nothing about a timeout.
  *
  * <p>Three calls leave this gateway for Keycloak, and each is exercised below:
@@ -39,7 +39,8 @@ import org.springframework.test.context.DynamicPropertySource;
  * </ul>
  *
  * <p>None of them is the relay's own {@code RestClient}, which Spring Cloud Gateway builds from
- * Boot's auto-configured builder and which has therefore always been bounded. Spring Security's
+ * Boot's auto-configured builder and which has therefore always been bounded; {@code
+ * GatewayRelayTimeoutIT} stalls that one. Spring Security's
  * token clients and {@code OidcIdTokenDecoderFactory} each build their own HTTP client from a
  * static factory instead, so each has to be given Boot's budget deliberately —
  * {@code KeycloakRegistration} is where that is done.
@@ -55,13 +56,23 @@ import org.springframework.test.context.DynamicPropertySource;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
             "finassist.oidc.client-secret=a-test-client-secret",
+            // WEB_ORIGIN, the plain-HTTP cookie jar and the localhost Host header depend on these,
+            // which application.yml would otherwise take from the process environment.
+            "finassist.web.public-url=http://localhost:5173",
+            "finassist.http.allowed-hosts=localhost,127.0.0.1",
+            "finassist.http.cookie-secure=false",
             "spring.http.clients.connect-timeout=" + GatewayKeycloakTimeoutIT.BUDGET,
             "spring.http.clients.read-timeout=" + GatewayKeycloakTimeoutIT.BUDGET
         })
 class GatewayKeycloakTimeoutIT {
 
-    /** The outbound budget this context runs with, short so a bounded call fails quickly. */
-    static final String BUDGET = "1s";
+    /**
+     * The outbound budget this context runs with: short, so a bounded call fails quickly, but not
+     * so short that it fails the calls each case needs to succeed. It bounds every call to the fake
+     * provider, so the cold code exchange and JWK fetch of the refresh case's sign-in share it, and
+     * a one-second budget failed that sign-in ({@code ?signin=failed}) on a loaded machine.
+     */
+    static final String BUDGET = "3s";
 
     /** How long the gateway may take to answer once Keycloak has stopped answering it. */
     private static final Duration ANSWER_LIMIT = Duration.ofSeconds(20);
@@ -80,7 +91,7 @@ class GatewayKeycloakTimeoutIT {
 
     @BeforeAll
     static void startFakes() throws Exception {
-        idp = new FakeOpenIdProvider();
+        idp = new FakeOpenIdProvider("a-test-client-secret");
         ledger = new FakeService();
     }
 

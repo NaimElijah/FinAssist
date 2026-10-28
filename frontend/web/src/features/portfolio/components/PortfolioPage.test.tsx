@@ -6,6 +6,7 @@ import { screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
+import type { WriteAccess } from '@/shared/lib/writeAccess';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -31,8 +32,8 @@ function readsOf(segment: string): FetchAnswer {
             : unexpectedRequest(request);
 }
 
-function renderPortfolio() {
-    return renderRoutes(portfolioRoutes, '/portfolio');
+function renderPortfolio(access: WriteAccess = { canWrite: true }) {
+    return renderRoutes(portfolioRoutes, '/portfolio', { access });
 }
 
 describe('PortfolioPage', () => {
@@ -49,6 +50,20 @@ describe('PortfolioPage', () => {
     it('Given_a_symbol_When_looked_up_Then_it_navigates_to_that_holding', async () => {
         fakeFetch(readsOf('VOO'));
         const { router } = renderPortfolio();
+        const user = userEvent.setup({ delay: null });
+
+        await user.type(await screen.findByLabelText('Symbol'), 'VOO');
+        await user.click(screen.getByRole('button', { name: 'Look up' }));
+
+        expect(await screen.findByRole('heading', { level: 1, name: 'VOO' })).toBeDefined();
+        expect(router.state.location.pathname).toBe('/portfolio/VOO');
+    });
+
+    it('Given_a_read_only_session_When_a_symbol_is_looked_up_Then_the_lookup_is_offered_and_navigates', async () => {
+        // A projection, a comparison and a lookup are reads: a viewer sees every area (ADR-032),
+        // so hiding one behind useWriteAccess would take away what the role exists for.
+        fakeFetch(readsOf('VOO'));
+        const { router } = renderPortfolio({ canWrite: false });
         const user = userEvent.setup({ delay: null });
 
         await user.type(await screen.findByLabelText('Symbol'), 'VOO');

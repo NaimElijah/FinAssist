@@ -54,14 +54,24 @@ From `frontend/web`:
   `typescript: >=4.8.4 <6.1.0` — past that, `npm ci` fails with ERESOLVE. Dependabot is configured
   to ignore `typescript >=6.1.0` so it stops proposing the bump every week. Lift the pin and that
   ignore entry together, once typescript-eslint supports 7.
+- **A feature's layers point inward**: `types`, then `api`, `hooks`, `components`, each importing
+  only those before it; the feature's root (`index.ts`, `routes.tsx`) is imported, from inside
+  the feature, only by tests;
+  and only its `api/` imports a generated contract type. `tests/architecture.test.ts` fails the
+  build otherwise, reading every import form with the TypeScript parser and refusing a computed
+  specifier it cannot resolve.
+- **No test file commits a `.skip`, `.todo` or `.only`** on `it`, `test`, `describe` or `suite`:
+  ESLint's `no-restricted-syntax` fails `npm run lint`. `it.fails`, `skipIf` and `runIf` stay
+  allowed — a test that must fail, and a skip a platform decides.
 
 ## Review conventions
 
 Nothing here fails CI. These are patterns to check for in review, named so they stay consistent.
 
 - **A feature's `api/` is its anti-corruption layer.** It types each response with the generated
-  wire type and maps it, member by member, onto the feature's own type in `types/`; nothing
-  outside `api/` imports a generated type (ADR-029).
+  wire type and maps it, member by member, onto the feature's own type in `types/` (ADR-029).
+  Every decimal member goes through `decimalString` from `src/shared/api/decimal.ts`, so a JSON
+  number is refused with `ApiBodyError` (ADR-028).
 - **A feature's query keys come from one factory constant**, such as `accountKeys`, never a key
   literal spelled at the call site. A mutation invalidates only the keys that can have changed,
   never a wider prefix that would refetch data nothing touched.

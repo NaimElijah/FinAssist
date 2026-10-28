@@ -92,7 +92,28 @@ describe('redaction', () => {
         const cyclic: Record<string, unknown> = { name: 'loop' };
         cyclic.self = cyclic;
 
-        expect(() => redactFields(cyclic)).not.toThrow();
+        const redacted = redactFields(cyclic);
+
+        // The record keeps its ordinary field, and the `self` chain the bound cut short ends in
+        // a redaction rather than being written out without end.
+        expect(redacted.name).toBe('loop');
+        let level: unknown = redacted;
+        while (level !== null && typeof level === 'object') {
+            level = (level as Record<string, unknown>).self;
+        }
+        expect(level).toBe(REDACTED);
+    });
+
+    it('Given_an_oauth_client_secret_an_id_token_and_a_credential_When_redacted_Then_each_value_is_replaced', () => {
+        // The 'secret', 'idtoken' and 'credential' fragments, each pinned by a field spelled the
+        // way an OIDC client or a config object would carry it.
+        expect(
+            redactFields({ clientSecret: 'abc', idToken: 'abc.def.ghi', credential: 'abc' }),
+        ).toEqual({
+            clientSecret: REDACTED,
+            idToken: REDACTED,
+            credential: REDACTED,
+        });
     });
 });
 

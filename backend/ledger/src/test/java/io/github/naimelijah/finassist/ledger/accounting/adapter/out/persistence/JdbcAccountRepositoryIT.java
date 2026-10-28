@@ -4,13 +4,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.DuplicateAccountNameException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.out.AccountRepository;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.out.TransactionRepository;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.Account;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountType;
+import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Entry;
+import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Transaction;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
+import io.github.naimelijah.finassist.ledger.shared.Money;
+import java.time.LocalDate;
+import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -27,6 +36,9 @@ class JdbcAccountRepositoryIT extends PostgresFixture {
 
     @Autowired
     private AccountRepository accounts;
+
+    @Autowired
+    private TransactionRepository transactions;
 
     @Test
     void Given_an_account_When_it_is_saved_Then_it_is_read_back_whole() {
@@ -50,6 +62,24 @@ class JdbcAccountRepositoryIT extends PostgresFixture {
 
         assertThatThrownBy(() -> accounts.save(Account.open("Groceries", AccountType.EXPENSE, Currency.USD)))
                 .isInstanceOf(DuplicateAccountNameException.class);
+    }
+
+    /**
+     * The index itself, reached without the adapter: a second row claiming a normalised name already
+     * held is refused by {@code account_normalised_name_key}, whoever writes it. The case above passes
+     * through {@code save}, which would also go red if the adapter merely stopped translating the
+     * refusal; this one goes red only if the index is gone.
+     */
+    @Test
+    void
+            Given_a_normalised_name_already_held_When_a_second_row_is_inserted_directly_Then_the_unique_index_refuses_it() {
+        accounts.save(Account.open("Groceries", AccountType.EXPENSE, Currency.ILS));
+
+        assertThatThrownBy(() -> jdbc().sql("INSERT INTO accounting.account (id, name, normalised_name, type, currency)"
+                                + " VALUES (:id, 'GROCERIES', 'groceries', 'EXPENSE', 'USD')")
+                        .param("id", AccountId.generate().value())
+                        .update())
+                .hasMessageContaining("account_normalised_name_key");
     }
 
     /**
@@ -115,6 +145,33 @@ class JdbcAccountRepositoryIT extends PostgresFixture {
         accounts.save(tokyo);
 
         assertThat(accounts.findById(tokyo.id()).orElseThrow().currency()).isEqualTo(Currency.JPY);
+    }
+
+    /**
+     * Every currency the Java table holds is one the schema stores: the account and the journal each
+     * carry their own {@code CHECK (currency IN (...))}, written by hand, and a currency added to {@link
+     * Currency} but not to them would be refused only when the owner first used it. {@code
+     * SchemaBoundariesIT} holds every such list in the three schemas to the same table.
+     */
+    @ParameterizedTest
+    @EnumSource(Currency.class)
+    void Given_a_currency_the_ledger_knows_When_an_account_and_a_transaction_in_it_are_stored_Then_both_read_back(
+            Currency currency) {
+        Account wallet = Account.open("Wallet " + currency, AccountType.ASSET, currency);
+        Account spending = Account.open("Spending " + currency, AccountType.EXPENSE, currency);
+        accounts.save(wallet);
+        accounts.save(spending);
+        Transaction purchase = Transaction.record(
+                LocalDate.of(2026, 3, 1),
+                "A purchase in " + currency,
+                List.of(
+                        new Entry(spending.id(), Money.of("1", currency)),
+                        new Entry(wallet.id(), Money.of("-1", currency))));
+
+        transactions.save(purchase, new Actor("owner-user"));
+
+        assertThat(accounts.findById(wallet.id())).contains(wallet);
+        assertThat(transactions.findById(purchase.id())).contains(purchase);
     }
 
     /**

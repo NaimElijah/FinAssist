@@ -15,13 +15,16 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URI;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -59,7 +62,14 @@ import org.springframework.test.context.DynamicPropertySource;
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "finassist.oidc.client-secret=a-test-client-secret")
+        properties = {
+            "finassist.oidc.client-secret=" + GatewayLoginFlowIT.CLIENT_SECRET,
+            // WEB_ORIGIN, the plain-HTTP cookie jar and the localhost Host header depend on these,
+            // which application.yml would otherwise take from the process environment.
+            "finassist.web.public-url=http://localhost:5173",
+            "finassist.http.allowed-hosts=localhost,127.0.0.1",
+            "finassist.http.cookie-secure=false"
+        })
 @ExtendWith(OutputCaptureExtension.class)
 class GatewayLoginFlowIT {
 
@@ -93,6 +103,27 @@ class GatewayLoginFlowIT {
     /** A W3C trace id the client picks, so the value asserted downstream can only have come from it. */
     private static final String CLIENT_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
 
+    /**
+     * The gateway's client secret in this context. Spelled once, because the log sweep searches
+     * for it as well as configuring it. Not private, because the class's own annotation names it.
+     */
+    static final String CLIENT_SECRET = "a-test-client-secret";
+
+    /** A secret the fake provider was not built with, for the context that must be refused. */
+    static final String WRONG_CLIENT_SECRET = "not-the-providers-client-secret";
+
+    /**
+     * The fixed WARN line {@code GatewayRelayProblems} writes for a refused refresh. The sweep below
+     * requires it, so a capture that holds no gateway line at all cannot pass for a clean one.
+     */
+    private static final String REFUSED_REFRESH_LINE = "A relay's authorization could not be renewed";
+
+    /** The scheme {@code client_secret_basic} credentials travel under. */
+    private static final String BASIC_PREFIX = "Basic ";
+
+    /** Trailing base64 padding, which an unpadded encoding of the same bytes leaves off. */
+    private static final Pattern BASE64_PADDING = Pattern.compile("=+$");
+
     /** A disposal request body, shaped like the assistant's, so the relayed POST really carries one. */
     private static final String DISPOSAL_BODY =
             "{\"quantity\":\"10\",\"pricePerUnit\":{\"amount\":\"12.34\",\"currency\":\"USD\"}}";
@@ -110,7 +141,7 @@ class GatewayLoginFlowIT {
 
     @BeforeAll
     static void startFakes() throws Exception {
-        idp = new FakeOpenIdProvider();
+        idp = new FakeOpenIdProvider(CLIENT_SECRET);
         ledger = new FakeService();
         assistant = new FakeService();
     }
@@ -290,6 +321,9 @@ class GatewayLoginFlowIT {
      */
     private void signIn(HttpClient client) throws Exception {
         HttpResponse<Void> callback = completeCallback(client);
+        assertThat(idp.lastTokenRequestAuthenticatedClient())
+                .as("the token request authenticated as the gateway's client, by client_secret_basic")
+                .isTrue();
         assertThat(idp.lastTokenRequestPassedPkce())
                 .as("the token request's code_verifier hashes to the authorization request's S256 challenge")
                 .isTrue();
@@ -321,6 +355,13 @@ class GatewayLoginFlowIT {
         return cookieValue(client, "FINASSIST-XSRF-TOKEN");
     }
 
+    private static HttpCookie cookieNamed(List<HttpCookie> cookies, String name) {
+        return cookies.stream()
+                .filter(cookie -> cookie.getName().equals(name))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no " + name + " cookie in the jar"));
+    }
+
     private static String cookieValue(HttpClient client, String name) {
         CookieManager cookies = (CookieManager) client.cookieHandler().orElseThrow();
         return cookies.getCookieStore().getCookies().stream()
@@ -336,6 +377,48 @@ class GatewayLoginFlowIT {
                     throws Exception {
         try (HttpClient client = newClient()) {
             signIn(client);
+        }
+    }
+
+    /**
+     * "The browser holds two cookies and no token", after a real sign-in rather than MockMvc's
+     * {@code oidcLogin()}, which skips the callback's login filter and success handler and so
+     * cannot see a cookie either of them adds. The jar is read whole, because the claim is "these
+     * and nothing else", and every value in it is searched for each token the provider issued.
+     *
+     * <p>The sign-in rotates the session id and so re-issues the session cookie, which is why its
+     * flag is read here as well as where a session is first created ({@code GatewayApplicationIT}):
+     * the session cookie stays out of script's reach, and the CSRF cookie stays readable, because
+     * the web client must copy it into a header.
+     */
+    @Test
+    void
+            Given_a_completed_sign_in_When_the_browsers_cookies_are_read_Then_it_holds_only_an_httponly_session_cookie_and_a_readable_csrf_cookie()
+                    throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+            List<String> tokens = List.of(idp.lastAccessToken(), idp.lastRefreshToken(), idp.lastIdToken());
+
+            List<HttpCookie> cookies = ((CookieManager) client.cookieHandler().orElseThrow())
+                    .getCookieStore()
+                    .getCookies();
+
+            assertThat(cookies)
+                    .extracting(HttpCookie::getName)
+                    .containsExactlyInAnyOrder(SESSION_COOKIE, "FINASSIST-XSRF-TOKEN");
+            assertThat(cookieNamed(cookies, SESSION_COOKIE).isHttpOnly())
+                    .as("the session cookie is HttpOnly")
+                    .isTrue();
+            assertThat(cookieNamed(cookies, "FINASSIST-XSRF-TOKEN").isHttpOnly())
+                    .as("the CSRF cookie is HttpOnly")
+                    .isFalse();
+            for (HttpCookie cookie : cookies) {
+                for (String token : tokens) {
+                    assertThat(cookie.getValue())
+                            .as("the %s cookie", cookie.getName())
+                            .doesNotContain(token);
+                }
+            }
         }
     }
 
@@ -829,44 +912,194 @@ class GatewayLoginFlowIT {
     /**
      * The end-to-end half of the guarantee {@code SignInFailureHandlerTest} already pins at the
      * unit level: nothing this flow logs carries a value that would let a reader impersonate the
-     * session or redeem anything on the owner's behalf. A refused refresh is the highest-risk
-     * moment in the whole relay, so it is the one this sweep deliberately drives through.
+     * session or redeem anything on the owner's behalf.
+     *
+     * <p>Two browsers, so that every moment a secret is handled falls inside one capture. The first
+     * signs in, makes a relay that must refresh its expired access token first - a successful
+     * refresh and a successful relay, so the second generation of tokens is in play too - and signs
+     * out, which hands the ID token back as {@code id_token_hint}. The second signs in and makes a
+     * relay whose refresh the provider refuses, the highest-risk moment in the whole relay.
+     *
+     * <p>Every secret value those flows handle is searched for: both generations of tokens, the
+     * authorization {@code code} and {@code state} each browser carried to the callback, each PKCE
+     * verifier, the client's {@code Basic} credentials as they left for the token endpoint, the
+     * client secret, each CSRF token, and each session id before and after its sign-in. The code
+     * and the state are searched in every form a log line could carry them: decoded, URL-encoded
+     * as a logged query holds them, and without base64 padding, because Spring's {@code state} is
+     * padded base64url whose {@code =} a query carries as {@code %3D}. The refused refresh's own
+     * WARN line must be there too: without it, a capture that saw none of the gateway's output
+     * would pass this test as easily as a clean log.
      */
     @Test
-    void Given_a_login_and_a_refused_refresh_When_the_logs_are_swept_Then_no_token_code_or_session_value_appears(
-            CapturedOutput output) throws Exception {
-        try (HttpClient client = newClient()) {
-            idp.setAccessTokenExpiresInSeconds(-120);
+    void
+            Given_a_sign_in_a_refresh_a_sign_out_and_a_refused_refresh_When_the_logs_are_swept_Then_no_secret_appears_in_any_form(
+                    CapturedOutput output) throws Exception {
+        List<String> secrets = new ArrayList<>(List.of(CLIENT_SECRET));
+        idp.setAccessTokenExpiresInSeconds(-120);
+        try (HttpClient browser = newClient()) {
+            secrets.addAll(signInRecordingSecrets(browser));
+            String idToken = idp.lastIdToken();
+            String signInAccessToken = idp.lastAccessToken();
+            idp.setAccessTokenExpiresInSeconds(300);
+
+            HttpResponse<String> relayed = relay(browser, "/ledger/api/v1/accounts");
+            assertThat(relayed.statusCode()).isEqualTo(200);
+            assertThat(idp.lastAccessToken())
+                    .as("the access token after the refresh")
+                    .isNotEqualTo(signInAccessToken);
+            assertThat(ledger.lastRequest().header("authorization"))
+                    .as("the relay carried the refreshed access token")
+                    .isEqualTo("Bearer " + idp.lastAccessToken());
+            secrets.addAll(List.of(idp.lastAccessToken(), idp.lastRefreshToken()));
+
+            HttpResponse<String> signedOut = relayPost(browser, "/bff/logout", csrfTokenValue(browser));
+            assertThat(signedOut.statusCode()).isEqualTo(200);
+            assertThat(signedOut.body())
+                    .as("the sign-out handed the ID token back as id_token_hint")
+                    .contains(idToken);
+        }
+        idp.setAccessTokenExpiresInSeconds(-120);
+        try (HttpClient browser = newClient()) {
+            secrets.addAll(signInRecordingSecrets(browser));
             idp.refuseNextRefresh();
 
-            HttpResponse<Void> callback = completeCallback(client);
-            assertThat(callback.statusCode()).isEqualTo(302);
-            String accessToken = idp.lastAccessToken();
-            String refreshToken = idp.lastRefreshToken();
-            String idToken = idp.lastIdToken();
-            String sessionCookie = sessionCookieValue(client);
-
-            HttpResponse<String> response = relay(client, "/ledger/api/v1/accounts");
-            assertThat(response.statusCode()).isEqualTo(401);
-
-            String logs = output.getAll();
-            assertThat(logs)
-                    .doesNotContain(accessToken)
-                    .doesNotContain(refreshToken)
-                    .doesNotContain(idToken)
-                    .doesNotContain(sessionCookie);
+            HttpResponse<String> refused = relay(browser, "/ledger/api/v1/accounts");
+            assertThat(refused.statusCode()).isEqualTo(401);
         }
+
+        String logs = output.getAll();
+        assertThat(logs).as("the capture holds the gateway's own output").contains(REFUSED_REFRESH_LINE);
+        assertThat(secrets)
+                .as("values the sweep searches for")
+                .allSatisfy(value -> assertThat(value).isNotBlank());
+        assertThat(secrets.stream().filter(logs::contains).toList())
+                .as("secret values found in the captured logs")
+                .isEmpty();
     }
 
     /**
-     * A dedicated context so that only this test's ledger URI is unreachable, leaving the outer
-     * class's live {@code ledger} and {@code assistant} fakes untouched for every other test.
+     * A successful sign-in, returning every secret value it put in play: the code and state in
+     * each {@link #loggableForms} form, the PKCE verifier, the three tokens issued, the client's
+     * {@code Basic} credentials, the CSRF token, and the session id before and after.
+     */
+    private List<String> signInRecordingSecrets(HttpClient client) throws Exception {
+        URI authorizeUri = startLogin(client);
+        String preSignInSession = sessionCookieValue(client);
+        URI authorizationResponse = authorizationResponse(client, authorizeUri);
+        String code = queryParam(authorizationResponse, "code");
+        String state = queryParam(authorizationResponse, "state");
+
+        // The provider's query exactly as it encoded it, as a browser would carry it, so the padded
+        // state reaches the gateway as %3D rather than re-encoded by sendCallback.
+        HttpResponse<Void> callback = getFollowingNothing(
+                client, gatewayUrl(authorizationResponse.getRawPath() + "?" + authorizationResponse.getRawQuery()));
+
+        assertThat(callback.headers().firstValue("Location")).hasValue(WEB_ORIGIN + "/");
+        String clientAuthorization = idp.lastClientAuthorization();
+        assertThat(clientAuthorization).as("the token request's Authorization").startsWith(BASIC_PREFIX);
+        List<String> secrets = new ArrayList<>();
+        secrets.addAll(loggableForms(code));
+        secrets.addAll(loggableForms(state));
+        secrets.addAll(List.of(
+                idp.lastCodeVerifier(),
+                idp.lastAccessToken(),
+                idp.lastRefreshToken(),
+                idp.lastIdToken(),
+                clientAuthorization.substring(BASIC_PREFIX.length()),
+                csrfTokenValue(client),
+                preSignInSession,
+                sessionCookieValue(client)));
+        return secrets;
+    }
+
+    /** {@code value} decoded, URL-encoded, and with any trailing base64 padding removed. */
+    private static List<String> loggableForms(String value) {
+        return List.of(
+                value,
+                URLEncoder.encode(value, StandardCharsets.UTF_8),
+                BASE64_PADDING.matcher(value).replaceAll(""));
+    }
+
+    /**
+     * A gateway configured with a client secret the provider does not hold: the provider refuses
+     * its code exchange {@code 401 invalid_client}, and the sign-in fails rather than completing.
+     * The fake's client check is otherwise never refused, so without this a fake that waved every
+     * client through would leave each successful sign-in in this class proving nothing about it.
      */
     @Nested
     @SpringBootTest(
             webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-            properties = "finassist.oidc.client-secret=a-test-client-secret")
-    class LedgerDown {
+            properties = {
+                "finassist.oidc.client-secret=" + WRONG_CLIENT_SECRET,
+                "finassist.web.public-url=http://localhost:5173",
+                "finassist.http.allowed-hosts=localhost,127.0.0.1",
+                "finassist.http.cookie-secure=false"
+            })
+    class WrongClientSecret {
+
+        @LocalServerPort
+        private int wrongSecretPort;
+
+        @DynamicPropertySource
+        static void oidcProperties(DynamicPropertyRegistry registry) {
+            registry.add("finassist.oidc.public-url", idp::baseUrl);
+            registry.add("finassist.oidc.internal-url", idp::baseUrl);
+            registry.add("finassist.relay.ledger-uri", ledger::baseUrl);
+            registry.add("finassist.relay.assistant-uri", assistant::baseUrl);
+        }
+
+        @Test
+        void Given_a_gateway_holding_the_wrong_client_secret_When_it_exchanges_the_code_Then_the_sign_in_fails()
+                throws Exception {
+            try (HttpClient client = newClient()) {
+                URI authorizeUri = URI.create(getFollowingNothing(
+                                client, "http://localhost:" + wrongSecretPort + "/bff/oauth2/authorization/keycloak")
+                        .headers()
+                        .firstValue("Location")
+                        .orElseThrow());
+                URI codeRedirect = URI.create(getFollowingNothing(client, authorizeUri.toString())
+                        .headers()
+                        .firstValue("Location")
+                        .orElseThrow());
+
+                HttpResponse<Void> callback = getFollowingNothing(
+                        client,
+                        new URI(
+                                        "http",
+                                        null,
+                                        "localhost",
+                                        wrongSecretPort,
+                                        codeRedirect.getPath(),
+                                        codeRedirect.getQuery(),
+                                        null)
+                                .toString());
+
+                assertThat(idp.lastClientAuthorization())
+                        .as("the code exchange reached the provider, with Basic credentials")
+                        .startsWith(BASIC_PREFIX);
+                assertThat(idp.lastTokenRequestAuthenticatedClient())
+                        .as("the provider authenticated the gateway's client")
+                        .isFalse();
+                assertSignInFailed(callback);
+            }
+        }
+    }
+
+    /**
+     * A dedicated context whose ledger and assistant URIs both point at ports nothing listens on,
+     * leaving the outer class's live {@code ledger} and {@code assistant} fakes untouched for every
+     * other test.
+     */
+    @Nested
+    @SpringBootTest(
+            webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+            properties = {
+                "finassist.oidc.client-secret=" + CLIENT_SECRET,
+                "finassist.web.public-url=http://localhost:5173",
+                "finassist.http.allowed-hosts=localhost,127.0.0.1",
+                "finassist.http.cookie-secure=false"
+            })
+    class UpstreamsDown {
 
         /** The address {@code server.address} defaults to in {@code application.yml}. */
         private static final String LOOPBACK = "127.0.0.1";
@@ -875,10 +1108,10 @@ class GatewayLoginFlowIT {
         private int downPort;
 
         /**
-         * The dead ledger's port, held by a socket that is bound but never listens. Bound to the
-         * address the gateway binds, it keeps that address and the wildcard on this port from any
-         * other socket, so nothing can listen where the relay connects. Never listening, a
-         * connection to it is refused rather than left to time out: at once on Linux, and after
+         * The dead upstreams' ports, each held by a socket that is bound but never listens. Bound
+         * to the address the gateway binds, each keeps that address and the wildcard on its port
+         * from any other socket, so nothing can listen where the relay connects. Never listening, a
+         * connection to one is refused rather than left to time out: at once on Linux, and after
          * about two seconds of SYN retries on Windows, well inside the relay's five-second connect
          * timeout.
          *
@@ -889,11 +1122,26 @@ class GatewayLoginFlowIT {
          */
         private static Socket deadLedgerSocket;
 
+        private static Socket deadAssistantSocket;
+
         @DynamicPropertySource
-        static void deadLedger(DynamicPropertyRegistry registry) throws IOException {
+        static void deadUpstreams(DynamicPropertyRegistry registry) throws IOException {
             // Spring calls this on every load of this context, so a reload must not leak the
-            // socket the previous load held.
-            releaseDeadLedger();
+            // sockets the previous load held.
+            releaseDeadUpstreams();
+            deadLedgerSocket = heldButNeverListening();
+            deadAssistantSocket = heldButNeverListening();
+            int deadLedgerPort = deadLedgerSocket.getLocalPort();
+            int deadAssistantPort = deadAssistantSocket.getLocalPort();
+            registry.add("finassist.oidc.public-url", idp::baseUrl);
+            registry.add("finassist.oidc.internal-url", idp::baseUrl);
+            // The held address itself, not localhost, which may resolve to an address the held
+            // socket does not cover.
+            registry.add("finassist.relay.ledger-uri", () -> "http://" + LOOPBACK + ":" + deadLedgerPort);
+            registry.add("finassist.relay.assistant-uri", () -> "http://" + LOOPBACK + ":" + deadAssistantPort);
+        }
+
+        private static Socket heldButNeverListening() throws IOException {
             Socket held = new Socket();
             // The default, made explicit because the guarantee rests on it. On Linux two sockets
             // share a port only when both set SO_REUSEADDR, and Tomcat's does; Windows' JDK binds
@@ -902,20 +1150,15 @@ class GatewayLoginFlowIT {
             // The address the gateway binds (server.address), so the two contend for one port
             // rather than coexisting on different addresses.
             held.bind(new InetSocketAddress(InetAddress.getByName(LOOPBACK), 0));
-            deadLedgerSocket = held;
-            int deadPort = held.getLocalPort();
-            registry.add("finassist.oidc.public-url", idp::baseUrl);
-            registry.add("finassist.oidc.internal-url", idp::baseUrl);
-            // The held address itself, not localhost, which may resolve to an address the held
-            // socket does not cover.
-            registry.add("finassist.relay.ledger-uri", () -> "http://" + LOOPBACK + ":" + deadPort);
-            registry.add("finassist.relay.assistant-uri", assistant::baseUrl);
+            return held;
         }
 
         @AfterAll
-        static void releaseDeadLedger() throws IOException {
-            if (deadLedgerSocket != null) {
-                deadLedgerSocket.close();
+        static void releaseDeadUpstreams() throws IOException {
+            for (Socket held : new Socket[] {deadLedgerSocket, deadAssistantSocket}) {
+                if (held != null) {
+                    held.close();
+                }
             }
         }
 
@@ -924,20 +1167,33 @@ class GatewayLoginFlowIT {
         }
 
         /**
-         * What makes the relay test deterministic: no server this test process starts, the
-         * gateway's own Tomcat included, can bind the address and port the relay connects to.
+         * What makes the relay tests deterministic: no server this test process starts, the
+         * gateway's own Tomcat included, can bind the address and port a relay connects to.
          */
         @Test
-        void Given_the_dead_ledgers_port_When_a_server_tries_to_bind_it_Then_the_bind_is_refused() {
-            int deadPort = deadLedgerSocket.getLocalPort();
-            InetAddress address = deadLedgerSocket.getLocalAddress();
+        void Given_the_dead_upstreams_ports_When_a_server_tries_to_bind_them_Then_the_bind_is_refused() {
+            for (Socket held : List.of(deadLedgerSocket, deadAssistantSocket)) {
+                int deadPort = held.getLocalPort();
+                InetAddress address = held.getLocalAddress();
 
-            assertThatThrownBy(() -> new ServerSocket(deadPort, 1, address).close())
-                    .isInstanceOf(BindException.class);
+                assertThatThrownBy(() -> new ServerSocket(deadPort, 1, address).close())
+                        .isInstanceOf(BindException.class);
+            }
         }
 
         @Test
         void Given_the_ledger_is_unreachable_When_relayed_Then_it_answers_502_upstream_unavailable() throws Exception {
+            assertRelayAnswers502(url("/ledger/api/v1/accounts"));
+        }
+
+        @Test
+        void Given_the_assistant_is_unreachable_When_relayed_Then_it_answers_502_upstream_unavailable()
+                throws Exception {
+            assertRelayAnswers502(url("/assistant/api/v1/portfolio/holdings/ACME/position"));
+        }
+
+        /** Signs in against this context's gateway, then asserts the relay's problem for {@code target}. */
+        private void assertRelayAnswers502(String target) throws Exception {
             try (HttpClient client = newClient()) {
                 HttpResponse<Void> entry = getFollowingNothing(client, url("/bff/oauth2/authorization/keycloak"));
                 URI authorizeUri =
@@ -955,7 +1211,7 @@ class GatewayLoginFlowIT {
                 assertThat(callback.headers().firstValue("Location")).contains(WEB_ORIGIN + "/");
 
                 HttpResponse<String> response = client.send(
-                        HttpRequest.newBuilder(URI.create(url("/ledger/api/v1/accounts")))
+                        HttpRequest.newBuilder(URI.create(target))
                                 .timeout(TIMEOUT)
                                 .GET()
                                 .build(),
@@ -964,7 +1220,8 @@ class GatewayLoginFlowIT {
                 assertThat(response.statusCode())
                         .as("the relay's answer, whose body was %s", response.body())
                         .isEqualTo(502);
-                assertThat(response.body()).contains("UPSTREAM_UNAVAILABLE");
+                assertThat(response.headers().firstValue("content-type")).contains("application/problem+json");
+                assertThat(response.body()).contains("\"status\":502").contains("\"code\":\"UPSTREAM_UNAVAILABLE\"");
             }
         }
     }

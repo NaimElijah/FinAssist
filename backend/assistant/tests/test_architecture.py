@@ -1,19 +1,25 @@
 """Enforces the structural rules declared in docs/architecture/architecture.md.
 
-Seven rules:
+Ten rules:
 
-1. Dependencies point inward - no inward layer imports a framework.
-2. No inward layer imports the adapter layer, where the anti-corruption layers live.
-3. No context imports another context. Only ``shared`` is common ground.
-4. No context imports the composition root, where the frameworks are wired.
-5. No domain module names ``float``. Money is exact decimal, in both languages.
-6. No domain module reads the wall clock. The caller passes the time in.
-7. No inbound adapter imports an outbound one. A route reaches a client only through a use case.
+1. Dependencies point inward - no inward layer imports a framework or the standard library's
+   I/O.
+2. No inward layer opens a file through the builtin ``open``.
+3. No inward layer imports the adapter layer, where the anti-corruption layers live.
+4. No context imports another context. Only ``shared`` is common ground.
+5. No context imports the composition root, where the frameworks are wired.
+6. No domain module names ``float``. Money is exact decimal, in both languages.
+7. No inward module reads the wall clock - not the domain, not a use case, not ``shared``.
+   The caller passes the time in; the composition root reads the clock once.
+8. No inbound adapter imports an outbound one. A route reaches a client only through a use case.
+9. No domain module imports the application layer. The use cases call the domain, never the
+   reverse - the inward half of ``LedgerArchitectureTest.layers_point_inward``.
+10. ``shared`` imports no context. It is the common ground every context may use, so a
+   dependency from it onto one context would reach every other through it.
 
-Rules 4 and 5 mirror commitments the ledger already enforces or documents:
-``LedgerArchitectureTest.money_is_never_floating_point`` for the first, and the "pass the
-clock in" convention for the second, which every domain function here already follows and
-nothing checked.
+Rules 6 and 7 mirror rules the ledger enforces too:
+``LedgerArchitectureTest.money_is_never_floating_point`` for the first, and
+``LedgerArchitectureTest.clock_is_read_only_in_the_composition_root`` for the second.
 
 **These are checked statically, by parsing every source file, not by importing packages and
 inspecting sys.modules.** An earlier version did the latter and was blind by construction:
@@ -90,13 +96,87 @@ FORBIDDEN_FRAMEWORKS = _declared_runtime_distributions() | frozenset(
     {"opentelemetry", "pydantic_core", "starlette", "sqlalchemy", "jwt", "cryptography"}
 )
 
+# Standard-library modules no inward layer may import, because each is I/O however it arrives:
+#
+# - the network: `socket`, `ssl`, `select`, `selectors`, and `http` - a transport type besides;
+# - network protocols: `urllib`, `smtplib`, `ftplib`, `imaplib`, `poplib`, `xmlrpc`;
+# - the filesystem: `os`, `pathlib`, `io`, `shutil`, `tempfile`;
+# - storage: `sqlite3`, `dbm`, `shelve`;
+# - processes and event loops: `subprocess`, `multiprocessing`, `asyncio`.
+#
+# The derivation above reads only pyproject.toml, so the standard library is invisible to it - an
+# inward module could open a socket and the framework rule passed. Nothing inward imports any of
+# these today; the composition root and the inbound adapters use `http.HTTPStatus`, where it
+# belongs. The builtin `open` needs no import at all, so the same rule matches its call instead.
+FORBIDDEN_STANDARD_IO = frozenset(
+    {
+        "socket",
+        "ssl",
+        "select",
+        "selectors",
+        "http",
+        "urllib",
+        "smtplib",
+        "ftplib",
+        "imaplib",
+        "poplib",
+        "xmlrpc",
+        "os",
+        "pathlib",
+        "io",
+        "shutil",
+        "tempfile",
+        "sqlite3",
+        "dbm",
+        "shelve",
+        "subprocess",
+        "multiprocessing",
+        "asyncio",
+    }
+)
+
+OPEN_BUILTIN = "open"
+
+
+def _is_forbidden_inward(module: str) -> bool:
+    """Whether an inward module importing *module* reaches a framework or the I/O beneath one."""
+    root = module.split(".")[0]
+    return root in FORBIDDEN_FRAMEWORKS or root in FORBIDDEN_STANDARD_IO
+
 
 DOMAIN_SEGMENT = "domain"
 
 # Attribute calls that read the wall clock. Matched as calls, never by name: `is_stale` and
 # `age` both take a parameter called `now`, and a name-based rule would fail the build on the
-# very convention it exists to enforce.
-CLOCK_READS = frozenset({"now", "today", "utcnow", "time", "monotonic", "time_ns"})
+# very convention it exists to enforce. The process clocks are here too: a use case that times
+# itself has read a clock just as surely as one that stamps a date.
+CLOCK_READS = frozenset(
+    {
+        "now",
+        "today",
+        "utcnow",
+        "time",
+        "time_ns",
+        "monotonic",
+        "monotonic_ns",
+        "perf_counter",
+        "perf_counter_ns",
+        "process_time",
+        "process_time_ns",
+        "localtime",
+        "gmtime",
+        "ctime",
+    }
+)
+
+# The modules whose members CLOCK_READS names. Importing a reader out of one of them binds it
+# to a name of the importer's choosing - `from time import time as clock` - which no name-based
+# match on the call could follow, so the import itself is the violation.
+#
+# `datetime` is deliberately absent. Its readers are methods - `datetime.now`, `date.today` -
+# reached through a class the attribute match already sees, and the one member it exports whose
+# name CLOCK_READS holds is `time`, the time-of-day class: a type, not a reader.
+CLOCK_MODULES = frozenset({"time"})
 
 ADAPTER_SEGMENT = "adapters"
 
@@ -182,19 +262,49 @@ def _clock_reads_in(source: str, filename: str = "<test>") -> list[str]:
 
     A parameter *named* ``now`` is still not a violation - ``is_stale`` and ``age`` both take
     one - so a bare name is flagged only where it is being called.
+
+    Two indirections are matched as well: importing a reader (or everything) out of ``time``,
+    which lets it be called under any alias, and ``getattr`` naming a reader as a string, which
+    no attribute node shows.
     """
     tree = ast.parse(source, filename=filename)
     found: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in CLOCK_READS:
             found.append(f"{node.attr} at line {node.lineno}")
-        elif (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id in CLOCK_READS
-        ):
-            found.append(f"{node.func.id}() at line {node.lineno}")
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module in CLOCK_MODULES:
+            found.extend(
+                f"import of {node.module}.{alias.name} at line {node.lineno}"
+                for alias in node.names
+                if alias.name in CLOCK_READS or alias.name == "*"
+            )
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id in CLOCK_READS:
+                found.append(f"{node.func.id}() at line {node.lineno}")
+            elif (
+                node.func.id == "getattr"
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value in CLOCK_READS
+            ):
+                found.append(f"getattr(..., {node.args[1].value!r}) at line {node.lineno}")
     return found
+
+
+def _file_opens_in(source: str, filename: str = "<test>") -> list[str]:
+    """Every call to the builtin ``open``.
+
+    Matched as a call on the bare name only, the way a bare clock read is: a method that happens
+    to be called ``open`` - a position opened, a gate opened - is an attribute, and no I/O.
+    """
+    tree = ast.parse(source, filename=filename)
+    return [
+        f"{OPEN_BUILTIN}() at line {node.lineno}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == OPEN_BUILTIN
+    ]
 
 
 def _context_of(path: Path) -> str | None:
@@ -215,21 +325,103 @@ def _context_imported_by(module: str) -> str | None:
     return None
 
 
+INBOUND_SEGMENT = "inbound"
+OUTBOUND_SEGMENT = "outbound"
+
+
+def _is_inbound_adapter(path: Path) -> bool:
+    """A module under a context's ``adapters/inbound``: what calls the context."""
+    parts = path.relative_to(SRC).parts
+    return parts[0] in CONTEXTS and parts[1:3] == (ADAPTER_SEGMENT, INBOUND_SEGMENT)
+
+
+def _names_outbound_adapter(module: str) -> bool:
+    """A module name under any context's ``adapters/outbound``: what a context calls."""
+    parts = module.split(".")
+    return (
+        parts[0] == ROOT_PACKAGE
+        and len(parts) > 1
+        and parts[1] in CONTEXTS
+        and parts[2:4] == [ADAPTER_SEGMENT, OUTBOUND_SEGMENT]
+    )
+
+
+APPLICATION_SEGMENT = "application"
+
+
+def _names_application_layer(module: str) -> bool:
+    """A module name under any context's ``application``: its ports and use cases."""
+    parts = module.split(".")
+    return (
+        len(parts) > 2
+        and parts[0] == ROOT_PACKAGE
+        and parts[1] in CONTEXTS
+        and parts[2] == APPLICATION_SEGMENT
+    )
+
+
+def _module_name(path: Path) -> str:
+    """The dotted name a file is imported by: its package, plus its stem unless it is one."""
+    package = _module_package(path)
+    return package if path.name == "__init__.py" else f"{package}.{path.stem}"
+
+
+# Each rule runs over the files it holds, filtered here once, rather than over every file with
+# the rest skipped. A skip is not a check, and a filter rendered as hundreds of skips hid the one
+# failure that matters: a layer renamed out of its filter's reach, so that every case of its rule
+# skipped and the suite stayed green. An empty list now fails its guard below instead.
+#
+# Two rules also refuse an import by the name it carries: the inbound-adapter rule one under
+# ``adapters/outbound``, the domain rule one under ``application``. Renaming either directory
+# would leave its name match recognising nothing and its rule green with nothing left to refuse,
+# so the files each match recognises are a scope of their own, and the guard fails on the rename
+# instead.
+INWARD_FILES = [path for path in SOURCE_FILES if _is_inward(path)]
+CONTEXT_FILES = [path for path in SOURCE_FILES if _context_of(path) is not None]
+COMPOSITION_ROOT_HELD_FILES = [
+    path for path in SOURCE_FILES if _context_of(path) is not None or _is_domain(path)
+]
+INBOUND_ADAPTER_FILES = [path for path in SOURCE_FILES if _is_inbound_adapter(path)]
+OUTBOUND_ADAPTER_FILES = [
+    path for path in SOURCE_FILES if _names_outbound_adapter(_module_name(path))
+]
+APPLICATION_FILES = [path for path in SOURCE_FILES if _names_application_layer(_module_name(path))]
+DOMAIN_FILES = [path for path in SOURCE_FILES if _is_domain(path)]
+SHARED_FILES = [path for path in SOURCE_FILES if path.relative_to(SRC).parts[0] == SHARED_PACKAGE]
+
+RULE_SCOPES = {
+    "inward": INWARD_FILES,
+    "context": CONTEXT_FILES,
+    "composition-root-held": COMPOSITION_ROOT_HELD_FILES,
+    "inbound-adapter": INBOUND_ADAPTER_FILES,
+    "outbound-adapter": OUTBOUND_ADAPTER_FILES,
+    "application": APPLICATION_FILES,
+    "domain": DOMAIN_FILES,
+    "shared": SHARED_FILES,
+}
+
+
+def _relative_id(path: Path) -> str:
+    return str(path.relative_to(SRC))
+
+
 def Given_the_source_tree_When_collected_Then_it_is_not_empty() -> None:
     """Guards every rule below from passing because it found nothing to check."""
     assert SOURCE_FILES, f"no Python sources found under {SRC}"
 
 
-def Given_the_source_tree_When_collected_Then_some_of_it_is_domain() -> None:
-    """The same guard for the two domain-scoped rules, which skip everything else.
+@pytest.mark.parametrize("scope", RULE_SCOPES)
+def Given_the_files_a_rule_holds_When_filtered_Then_there_is_at_least_one(scope: str) -> None:
+    """Guards each rule below from passing because its filter matched nothing.
 
-    Without it, renaming ``portfolio/domain/`` to ``portfolio/core/`` would make every case of
-    both rules skip and the suite stay green - the behaviour the ledger deliberately removed
-    when it deleted ``archRule.failOnEmptyShould=false``.
+    A rule parametrised over an empty list collects a single case that pytest skips ("got
+    empty parameter set"), and a skip never fails the run - so renaming ``adapters/inbound`` or
+    ``domain`` would otherwise leave that rule checking nothing while the suite stayed green, the
+    behaviour the ledger deliberately removed when it deleted
+    ``archRule.failOnEmptyShould=false``.
     """
-    assert any(_is_domain(path) for path in SOURCE_FILES), (
-        f"no domain or shared module found under {SRC}; the float and clock rules would skip "
-        "every file and pass without checking anything"
+    assert RULE_SCOPES[scope], (
+        f"no {scope} module found under {SRC}; the rules held to that scope would check nothing"
     )
 
 
@@ -308,25 +500,27 @@ def Given_the_cryptography_package_When_derived_Then_it_is_unreachable() -> None
     assert "cryptography" in FORBIDDEN_FRAMEWORKS
 
 
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
+@pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
 def Given_an_inward_module_When_parsed_Then_it_imports_no_framework(path: Path) -> None:
-    if not _is_inward(path):
-        pytest.skip("adapters are the layer allowed to import frameworks")
-
-    leaked = sorted(
-        module for module in _imported_modules(path) if module.split(".")[0] in FORBIDDEN_FRAMEWORKS
-    )
+    leaked = sorted(module for module in _imported_modules(path) if _is_forbidden_inward(module))
     assert not leaked, (
         f"{path.relative_to(SRC)} imports {leaked}. Frameworks and I/O live in adapters; "
         "the inward layers stay testable by calling them."
     )
 
 
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
-def Given_an_inward_module_When_parsed_Then_it_imports_no_adapter(path: Path) -> None:
-    if not _is_inward(path):
-        pytest.skip("adapters may import each other within their own context")
+@pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
+def Given_an_inward_module_When_parsed_Then_it_opens_no_file(path: Path) -> None:
+    """The builtin ``open`` is file I/O that needs no import, so the rule above cannot see it."""
+    found = _file_opens_in(path.read_text(encoding="utf-8"), str(path))
+    assert not found, (
+        f"{path.relative_to(SRC)} opens a file: {found}. Reading or writing a file is I/O, and "
+        "I/O lives in adapters behind a port the inward layer declares."
+    )
 
+
+@pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
+def Given_an_inward_module_When_parsed_Then_it_imports_no_adapter(path: Path) -> None:
     prefix = f"{ROOT_PACKAGE}."
     leaked = sorted(
         module
@@ -339,11 +533,9 @@ def Given_an_inward_module_When_parsed_Then_it_imports_no_adapter(path: Path) ->
     )
 
 
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
+@pytest.mark.parametrize("path", CONTEXT_FILES, ids=_relative_id)
 def Given_a_module_When_parsed_Then_it_imports_no_other_context(path: Path) -> None:
     own = _context_of(path)
-    if own is None:
-        pytest.skip("shared and the root package belong to no context")
 
     leaked = sorted(
         module
@@ -356,7 +548,23 @@ def Given_a_module_When_parsed_Then_it_imports_no_other_context(path: Path) -> N
     )
 
 
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
+@pytest.mark.parametrize("path", SHARED_FILES, ids=_relative_id)
+def Given_a_shared_module_When_parsed_Then_it_imports_no_context(path: Path) -> None:
+    """``shared`` belongs to no context, so the cross-context rule above does not hold it.
+
+    Without this, ``shared`` importing ``portfolio`` passed every rule, and every other
+    context importing ``shared`` would then depend on ``portfolio`` through it.
+    """
+    leaked = sorted(
+        module for module in _imported_modules(path) if _context_imported_by(module) is not None
+    )
+    assert not leaked, (
+        f"{path.relative_to(SRC)} imports a bounded context: {leaked}. Every context depends "
+        "on shared, so shared may depend on none of them."
+    )
+
+
+@pytest.mark.parametrize("path", COMPOSITION_ROOT_HELD_FILES, ids=_relative_id)
 def Given_a_context_module_When_parsed_Then_it_imports_no_composition_root(path: Path) -> None:
     """The composition root wires frameworks; a context must not reach back into it.
 
@@ -365,9 +573,6 @@ def Given_a_context_module_When_parsed_Then_it_imports_no_composition_root(path:
     it, and it lives under an ``adapters`` path, so the framework rule skips it too - which
     would leave nothing at all watching the direction of this dependency.
     """
-    if _context_of(path) is None and not _is_domain(path):
-        pytest.skip("the composition root and the root package may wire themselves")
-
     composition_root = f"{ROOT_PACKAGE}.{ADAPTER_SEGMENT}"
     leaked = sorted(
         module
@@ -380,28 +585,7 @@ def Given_a_context_module_When_parsed_Then_it_imports_no_composition_root(path:
     )
 
 
-INBOUND_SEGMENT = "inbound"
-OUTBOUND_SEGMENT = "outbound"
-
-
-def _is_inbound_adapter(path: Path) -> bool:
-    """A module under a context's ``adapters/inbound``: what calls the context."""
-    parts = path.relative_to(SRC).parts
-    return parts[0] in CONTEXTS and parts[1:3] == (ADAPTER_SEGMENT, INBOUND_SEGMENT)
-
-
-def _names_outbound_adapter(module: str) -> bool:
-    """A module name under any context's ``adapters/outbound``: what a context calls."""
-    parts = module.split(".")
-    return (
-        parts[0] == ROOT_PACKAGE
-        and len(parts) > 1
-        and parts[1] in CONTEXTS
-        and parts[2:4] == [ADAPTER_SEGMENT, OUTBOUND_SEGMENT]
-    )
-
-
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
+@pytest.mark.parametrize("path", INBOUND_ADAPTER_FILES, ids=_relative_id)
 def Given_an_inbound_adapter_When_parsed_Then_it_imports_no_outbound_adapter(path: Path) -> None:
     """What calls a context reaches what the context calls only through a use case.
 
@@ -410,9 +594,6 @@ def Given_an_inbound_adapter_When_parsed_Then_it_imports_no_outbound_adapter(pat
     rules above covers it: both adapters sit under ``adapters``, which the inward rules skip, and
     in one context, which the cross-context rule allows.
     """
-    if not _is_inbound_adapter(path):
-        pytest.skip("only a context's inbound adapters are held to this")
-
     leaked = sorted(module for module in _imported_modules(path) if _names_outbound_adapter(module))
     assert not leaked, (
         f"{path.relative_to(SRC)} imports an outbound adapter: {leaked}. An inbound adapter calls "
@@ -420,11 +601,25 @@ def Given_an_inbound_adapter_When_parsed_Then_it_imports_no_outbound_adapter(pat
     )
 
 
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
-def Given_a_domain_module_When_parsed_Then_it_names_no_float(path: Path) -> None:
-    if not _is_domain(path):
-        pytest.skip("only the domain is held to exact decimal arithmetic")
+@pytest.mark.parametrize("path", DOMAIN_FILES, ids=_relative_id)
+def Given_a_domain_module_When_parsed_Then_it_imports_no_application_layer(path: Path) -> None:
+    """Dependencies point inward: a use case calls the domain, and the domain never calls back.
 
+    The inward rules above stop a domain module reaching an adapter or a framework, but not
+    the application layer beside it - and that is the one import a domain function reaches
+    for first, to name a port. The ledger forbids it in ``layers_point_inward``.
+    """
+    leaked = sorted(
+        module for module in _imported_modules(path) if _names_application_layer(module)
+    )
+    assert not leaked, (
+        f"{path.relative_to(SRC)} imports the application layer: {leaked}. The domain is the "
+        "innermost layer; the ports and use cases depend on it, never the reverse."
+    )
+
+
+@pytest.mark.parametrize("path", DOMAIN_FILES, ids=_relative_id)
+def Given_a_domain_module_When_parsed_Then_it_names_no_float(path: Path) -> None:
     found = _float_uses_in(path.read_text(encoding="utf-8"), str(path))
     assert not found, (
         f"{path.relative_to(SRC)} uses floating point: {found}. Money is exact decimal - "
@@ -433,14 +628,17 @@ def Given_a_domain_module_When_parsed_Then_it_names_no_float(path: Path) -> None
     )
 
 
-@pytest.mark.parametrize("path", SOURCE_FILES, ids=lambda p: str(p.relative_to(SRC)))
-def Given_a_domain_module_When_parsed_Then_it_reads_no_clock(path: Path) -> None:
-    if not _is_domain(path):
-        pytest.skip("only the domain is required to take its time as an argument")
+@pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
+def Given_an_inward_module_When_parsed_Then_it_reads_no_clock(path: Path) -> None:
+    """Pass the clock in: the domain, the use cases and ``shared`` all take time as an argument.
 
+    The composition root reads the clock once (``utc_now``) and passes it down, so the only
+    clock reads in the tree belong under ``adapters``. A use case reading one would make its
+    behaviour depend on when the test ran, exactly as a domain function would.
+    """
     found = _clock_reads_in(path.read_text(encoding="utf-8"), str(path))
     assert not found, (
-        f"{path.relative_to(SRC)} reads the wall clock: {found}. A domain function takes the "
+        f"{path.relative_to(SRC)} reads the wall clock: {found}. An inward function takes the "
         "current time as an argument - is_stale and age already do - so its behaviour is a "
         "function of its inputs and a test never has to freeze anything."
     )
@@ -448,7 +646,7 @@ def Given_a_domain_module_When_parsed_Then_it_reads_no_clock(path: Path) -> None
 
 # ---------------------------------------------------------------------------------------------
 # The rules above are only as good as the helpers underneath them. Nothing tested those, so a
-# refactor of the import scanner could have neutered all five while every case stayed green -
+# refactor of the import scanner could have neutered every one while every case stayed green -
 # the same class of failure as the sys.modules version this file's docstring describes, which
 # also passed green on code it could not see. These assert the scanner itself.
 # ---------------------------------------------------------------------------------------------
@@ -536,6 +734,58 @@ def Given_source_reading_the_clock_When_scanned_Then_the_call_is_found() -> None
     assert _clock_reads_in("import time\nx = time.time()")
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import time\nx = time.perf_counter()",
+        "import time\nx = time.perf_counter_ns()",
+        "import time\nx = time.monotonic_ns()",
+        "import time\nx = time.process_time()",
+        "import time\nx = time.process_time_ns()",
+        "import time\nx = time.localtime()",
+        "import time\nx = time.gmtime()",
+        "import time\nx = time.ctime()",
+    ],
+)
+def Given_source_reading_a_process_or_calendar_clock_When_scanned_Then_it_is_found(
+    source: str,
+) -> None:
+    assert _clock_reads_in(source), source
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from time import time as clock\nx = clock()",
+        "from time import perf_counter as tick\nx = tick()",
+        "from time import localtime",
+        "from time import monotonic as tick",
+        "from time import *\nx = monotonic()",
+    ],
+)
+def Given_a_clock_reader_imported_under_any_name_When_scanned_Then_the_import_is_found(
+    source: str,
+) -> None:
+    # An alias moves the call out of reach of any name match - `clock()` names nothing in
+    # CLOCK_READS - so the import that binds it is what the rule must see.
+    assert any("import of" in found for found in _clock_reads_in(source)), source
+
+
+def Given_a_clock_reader_named_through_getattr_When_scanned_Then_it_is_found() -> None:
+    # No Attribute node: the reader's name is a string constant.
+    found = _clock_reads_in('import datetime\nx = getattr(datetime.datetime, "now")()')
+
+    assert any("getattr" in item for item in found), found
+
+
+def Given_a_non_clock_import_from_datetime_When_scanned_Then_it_is_not_a_violation() -> None:
+    # Every domain module imports `date` or `datetime` as a type; the import rule must not flag
+    # that, or it would be uninstallable.
+    assert _clock_reads_in("from datetime import UTC, date, datetime, timedelta") == []
+    # `datetime.time` is the time-of-day class, whose name only happens to be a reader's.
+    assert _clock_reads_in("from datetime import time") == []
+
+
 def Given_an_uncalled_clock_reference_When_scanned_Then_it_is_still_a_violation() -> None:
     # How a clock read actually enters a frozen value object: no Call node at that point, so a
     # call-shape-only rule saw nothing at all.
@@ -579,3 +829,86 @@ def Given_a_module_name_When_asked_Then_only_a_contexts_outbound_adapters_are_ou
     assert not _names_outbound_adapter(f"{ROOT_PACKAGE}.portfolio.adapters.inbound.api")
     assert not _names_outbound_adapter(f"{ROOT_PACKAGE}.adapters.wiring")
     assert not _names_outbound_adapter("outbound.adapters")
+
+
+def Given_a_module_name_When_asked_Then_only_a_contexts_application_layer_is_application() -> None:
+    assert _names_application_layer(f"{ROOT_PACKAGE}.portfolio.application.port.LedgerPort")
+    assert _names_application_layer(f"{ROOT_PACKAGE}.marketdata.application")
+    assert not _names_application_layer(f"{ROOT_PACKAGE}.portfolio.domain.model")
+    assert not _names_application_layer(f"{ROOT_PACKAGE}.shared.money")
+    assert not _names_application_layer(f"{ROOT_PACKAGE}.application")
+    assert not _names_application_layer("application")
+
+
+def Given_a_relative_import_of_the_application_layer_When_scanned_Then_it_is_named() -> None:
+    # A domain module two levels deep reaches its own context's ports with `from ...application`;
+    # the rule sees that only because the scanner resolves it to an absolute name first.
+    package = f"{ROOT_PACKAGE}.portfolio.domain.model"
+    imported = _imports_in("from ...application.port import LedgerPort", package)
+
+    assert any(_names_application_layer(module) for module in imported), imported
+
+
+# Spelled out rather than read from FORBIDDEN_STANDARD_IO, so that deleting an entry from the set
+# fails a case here instead of quietly removing it. Two submodules stand in for every dotted form.
+@pytest.mark.parametrize(
+    "module",
+    [
+        "socket",
+        "ssl",
+        "select",
+        "selectors",
+        "http",
+        "urllib",
+        "smtplib",
+        "ftplib",
+        "imaplib",
+        "poplib",
+        "xmlrpc",
+        "xmlrpc.client",
+        "os",
+        "os.path",
+        "pathlib",
+        "io",
+        "shutil",
+        "tempfile",
+        "sqlite3",
+        "dbm",
+        "shelve",
+        "subprocess",
+        "multiprocessing",
+        "asyncio",
+    ],
+)
+def Given_a_standard_library_io_import_When_checked_Then_it_is_forbidden_inward(
+    module: str,
+) -> None:
+    imported = _imports_in(f"import {module}", PACKAGE) | _imports_in(
+        f"from {module} import member", PACKAGE
+    )
+
+    assert imported and all(_is_forbidden_inward(name) for name in imported), imported
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'open("holdings.csv")',
+        'with open(path, "w") as handle:\n    handle.write(text)',
+        "def load(path):\n    return open(path).read()",
+    ],
+)
+def Given_source_calling_the_builtin_open_When_scanned_Then_it_is_found(source: str) -> None:
+    assert _file_opens_in(source), source
+
+
+def Given_a_method_named_open_When_scanned_Then_it_is_not_a_violation() -> None:
+    # Only the builtin reaches the filesystem; a domain method of the same name does not.
+    assert _file_opens_in("position.open(on=trade_date)") == []
+    assert _file_opens_in("def open(self, on):\n    return on") == []
+
+
+def Given_an_ordinary_standard_library_import_When_checked_Then_it_is_allowed_inward() -> None:
+    # The domain imports these every day; refusing them would make the rule uninstallable.
+    for module in ("decimal", "datetime", "dataclasses", "enum", "collections.abc"):
+        assert not _is_forbidden_inward(module), module

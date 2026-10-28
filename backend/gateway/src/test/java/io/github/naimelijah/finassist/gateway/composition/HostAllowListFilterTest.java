@@ -188,9 +188,13 @@ class HostAllowListFilterTest {
      * a bracket could never match, and a gateway started with one would refuse every request
      * under that name. Refused at start-up instead, with the entry named, as the ledger and the
      * assistant refuse one (ADR-030).
+     *
+     * <p>{@code local[host} and {@code local]host} each hold one character of the three and
+     * nothing else the rule looks for, so dropping any one of {@code :}, {@code [} or {@code ]}
+     * from the rule fails a case of its own.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"localhost:8090", "::1", "[::1]", "[::1]:8090", "local]host"})
+    @ValueSource(strings = {"localhost:8090", "::1", "[::1]", "[::1]:8090", "local[host", "local]host"})
     void Given_an_allow_list_entry_with_a_colon_or_a_bracket_When_the_filter_is_built_Then_it_is_rejected(
             String entry) {
         assertThatThrownBy(() -> new HostAllowListFilter(List.of("localhost", entry)))

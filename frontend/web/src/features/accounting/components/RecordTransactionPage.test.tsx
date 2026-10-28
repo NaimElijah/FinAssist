@@ -7,7 +7,6 @@ import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
-import { todayIsoDate } from '@/shared/lib/today';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -16,6 +15,8 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
+import { pinClockJustAfterLocalMidnight } from '@/shared/testing/localClock';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
 
 import { accountKeys } from '../hooks/accountQueries';
@@ -31,19 +32,27 @@ const CHECKING = {
     type: 'ASSET',
     currency: 'ILS',
 } as const;
-// A different currency from Checking's, on purpose: it proves each entry's currency comes from
-// its own posted-to account, not from the first row or a hardcoded default.
+// Checking's currency, so a transaction between the two balances and the fake ledger may accept
+// it: the real one refuses entries that do not balance in a single currency.
 const RENT = {
     id: '1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b',
     name: 'Rent',
     type: 'EXPENSE',
+    currency: 'ILS',
+} as const;
+// A different currency from Checking's, on purpose: it proves each entry's currency comes from
+// its own posted-to account, not from the first row or a hardcoded default.
+const US_SAVINGS = {
+    id: '6a7b8c9d-0e1f-4a2b-8c3d-4e5f6a7b8c9d',
+    name: 'US savings',
+    type: 'ASSET',
     currency: 'USD',
 } as const;
 
-/** A ledger holding Checking and Rent, so both accounts can be picked in an entry row. */
+/** A ledger holding Checking, Rent and US savings, so each can be picked in an entry row. */
 function ledger(overrides?: FetchAnswer): FetchAnswer {
     return (request) => {
-        if (request.url === ACCOUNTS_URL) return jsonResponse([CHECKING, RENT]);
+        if (request.url === ACCOUNTS_URL) return jsonResponse([CHECKING, RENT, US_SAVINGS]);
         if (overrides !== undefined) return overrides(request);
         return unexpectedRequest(request);
     };
@@ -85,29 +94,31 @@ const RECORDED_TRANSACTION = {
     description: 'Rent',
     entries: [
         { account: CHECKING.id, amount: { amount: '-250.00', currency: 'ILS' } },
-        { account: RENT.id, amount: { amount: '250.00', currency: 'USD' } },
+        { account: RENT.id, amount: { amount: '250.00', currency: 'ILS' } },
     ],
     state: { status: 'PENDING' },
 };
 
-/** The pinned instant the form's Date field defaults from, and the ISO date it maps to. */
-const FAKE_NOW = new Date(2026, 8, 15, 12, 0);
-const TODAY = todayIsoDate(FAKE_NOW);
+/**
+ * The local date the form's Date field defaults to, written out rather than computed by the code
+ * under test, so a call site reading the date some other way cannot agree with itself.
+ */
+const TODAY = '2026-09-15';
 
 let restoreSink: () => void = () => undefined;
+let restoreClock: () => void = () => undefined;
 
 beforeEach(() => {
     // The client logs every failed request; several tests fail requests on purpose.
     restoreSink = setLogSink(() => undefined);
-    // Pins Date so a run crossing local midnight cannot flake the default-to-today assertions.
-    // Only Date is faked - user-event's own delays still run on real timers.
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(FAKE_NOW);
+    // Pins the clock just after local midnight in a zone where UTC is still on the day before,
+    // so a default read through toISOString() would name 2026-09-14 and fail.
+    restoreClock = pinClockJustAfterLocalMidnight(TODAY);
 });
 
 afterEach(() => {
     restoreSink();
-    vi.useRealTimers();
+    restoreClock();
 });
 
 describe('RecordTransactionPage read-only session', () => {
@@ -141,7 +152,7 @@ describe('RecordTransactionPage entry rows', () => {
     it('Given_two_rows_When_a_debit_is_typed_on_row_1_Then_the_same_string_mirrors_into_row_2s_credit', async () => {
         fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await user.type(await screen.findByLabelText('Debit 1'), '250.00');
 
@@ -151,7 +162,7 @@ describe('RecordTransactionPage entry rows', () => {
     it('Given_two_rows_When_a_credit_is_typed_on_row_1_Then_the_same_string_mirrors_into_row_2s_debit', async () => {
         fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
 
         await user.type(await screen.findByLabelText('Credit 1'), '90.00');
 
@@ -161,7 +172,7 @@ describe('RecordTransactionPage entry rows', () => {
     it('Given_row_2_was_edited_directly_When_row_1_is_typed_into_again_Then_row_2_no_longer_mirrors', async () => {
         fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await user.type(await screen.findByLabelText('Debit 1'), '100.00');
         expect(screen.getByLabelText('Credit 2')).toHaveProperty('value', '100.00');
 
@@ -225,7 +236,7 @@ describe('RecordTransactionPage entry rows', () => {
         // clobbering its typed '70.00'.
         fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await screen.findByLabelText('Account 1');
         await user.click(screen.getByRole('button', { name: 'Add entry' }));
 
@@ -239,7 +250,7 @@ describe('RecordTransactionPage entry rows', () => {
     it('Given_a_row_was_added_and_then_removed_back_to_two_When_row_1_is_typed_into_Then_the_mirror_does_not_resume', async () => {
         fakeFetch(ledger());
         renderForm();
-        const user = userEvent.setup();
+        const user = userEvent.setup({ delay: null });
         await screen.findByLabelText('Account 1');
         await user.click(screen.getByRole('button', { name: 'Add entry' }));
 
@@ -252,10 +263,18 @@ describe('RecordTransactionPage entry rows', () => {
 
 describe('RecordTransactionPage submission', () => {
     it('Given_a_filled_form_When_submitted_Then_it_posts_the_mapped_entries_with_each_accounts_own_currency', async () => {
+        // An ILS and a USD entry, so each entry's currency must come from its own account. The
+        // ledger refuses such a set with CURRENCY_MISMATCH - summing the entries combines two
+        // currencies, which no rate exists to do (ADR-012) - so the fake does too, rather than
+        // accept a transaction the real service never would.
         const requests = fakeFetch(
-            ledgerWithChecking((request) => {
+            ledger((request) => {
                 if (request.url === RECORD_URL && request.method === 'POST') {
-                    return jsonResponse({ ...RECORDED_TRANSACTION, occurredOn: TODAY }, 201);
+                    return problemResponse({
+                        status: 422,
+                        code: 'CURRENCY_MISMATCH',
+                        detail: 'Cannot combine ILS with USD; FinAssist performs no conversion',
+                    });
                 }
                 return unexpectedRequest(request);
             }),
@@ -263,10 +282,13 @@ describe('RecordTransactionPage submission', () => {
         renderForm();
         const user = userEvent.setup({ delay: null });
 
-        await fillValidTransaction(user);
+        await user.type(await screen.findByLabelText('Description'), 'Rent');
+        await user.selectOptions(screen.getByLabelText('Account 1'), CHECKING.id);
+        await user.selectOptions(screen.getByLabelText('Account 2'), US_SAVINGS.id);
+        await user.type(screen.getByLabelText('Credit 1'), '250.00');
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));
 
-        await screen.findByRole('heading', { level: 1, name: 'Checking' });
+        await screen.findByRole('alert');
         const posts = requests
             .filter((request) => request.method === 'POST')
             // Projected before comparing: RecordedRequest also carries headers, which this
@@ -282,10 +304,10 @@ describe('RecordTransactionPage submission', () => {
                     occurredOn: TODAY,
                     description: 'Rent',
                     entries: [
-                        // Checking is ILS, Rent is USD: each entry carries its own account's
-                        // currency, not the first row's or a hardcoded default.
+                        // Checking is ILS, US savings is USD: each entry carries its own
+                        // account's currency, not the first row's or a hardcoded default.
                         { account: CHECKING.id, amount: { amount: '-250.00', currency: 'ILS' } },
-                        { account: RENT.id, amount: { amount: '250.00', currency: 'USD' } },
+                        { account: US_SAVINGS.id, amount: { amount: '250.00', currency: 'USD' } },
                     ],
                 },
             },
@@ -330,7 +352,7 @@ describe('RecordTransactionPage submission', () => {
             ...RECORDED_TRANSACTION,
             entries: [
                 { account: CHECKING.id, amount: { amount: '-100.00', currency: 'ILS' } },
-                { account: RENT.id, amount: { amount: '150.00', currency: 'USD' } },
+                { account: RENT.id, amount: { amount: '150.00', currency: 'ILS' } },
                 { account: CHECKING.id, amount: { amount: '-50.00', currency: 'ILS' } },
             ],
         };
@@ -398,31 +420,67 @@ describe('RecordTransactionPage submission', () => {
         expect(alert.textContent).toContain('The entries do not sum to zero.');
     });
 
-    it('Given_a_422_refusal_shown_When_an_amount_is_edited_Then_the_refusal_clears', async () => {
-        // The refusal described the entries that were sent; kept on screen, it would contradict
-        // the entries the owner has since corrected.
-        fakeFetch(
-            ledger((request) => {
-                if (request.url === RECORD_URL && request.method === 'POST') {
-                    return problemResponse({
-                        status: 422,
-                        code: 'RULE_VIOLATED',
-                        detail: 'The entries do not sum to zero.',
-                    });
-                }
-                return unexpectedRequest(request);
-            }),
-        );
-        renderForm();
-        const user = userEvent.setup({ delay: null });
-        await fillValidTransaction(user);
-        await user.click(screen.getByRole('button', { name: 'Record transaction' }));
-        await screen.findByRole('alert');
+    // Every field and row control of the form, since each calls clearSettledOutcome on its own
+    // (frontend/web CLAUDE.md: editing any field of a settled form clears its answer).
+    for (const { field, arrange, edit } of [
+        {
+            field: 'an_amount_is_edited',
+            edit: (user) => user.type(screen.getByLabelText('Debit 2'), '0'),
+        },
+        {
+            field: 'a_credit_is_edited',
+            edit: (user) => user.type(screen.getByLabelText('Credit 1'), '0'),
+        },
+        {
+            field: 'an_account_is_changed',
+            edit: (user) => user.selectOptions(screen.getByLabelText('Account 2'), CHECKING.id),
+        },
+        { field: 'the_date_is_edited', edit: () => changeValue('Date', '2026-09-10') },
+        {
+            field: 'the_description_is_edited',
+            edit: (user) => user.type(screen.getByLabelText('Description'), ' for October'),
+        },
+        {
+            field: 'an_entry_is_added',
+            edit: (user) => user.click(screen.getByRole('button', { name: 'Add entry' })),
+        },
+        {
+            field: 'an_entry_is_removed',
+            arrange: async (user) => {
+                await user.click(screen.getByRole('button', { name: 'Add entry' }));
+                await user.selectOptions(screen.getByLabelText('Account 3'), RENT.id);
+                await user.type(screen.getByLabelText('Debit 3'), '1.00');
+            },
+            edit: (user) => user.click(screen.getByRole('button', { name: 'Remove entry 3' })),
+        },
+    ] satisfies readonly FieldEdit[]) {
+        it(`Given_a_422_refusal_shown_When_${field}_Then_the_refusal_clears`, async () => {
+            // The refusal described the entries that were sent; kept on screen, it would
+            // contradict the entries the owner has since corrected.
+            fakeFetch(
+                ledger((request) => {
+                    if (request.url === RECORD_URL && request.method === 'POST') {
+                        return problemResponse({
+                            status: 422,
+                            code: 'RULE_VIOLATED',
+                            detail: 'The entries do not sum to zero.',
+                        });
+                    }
+                    return unexpectedRequest(request);
+                }),
+            );
+            renderForm();
+            const user = userEvent.setup({ delay: null });
+            await fillValidTransaction(user);
+            await arrange?.(user);
+            await user.click(screen.getByRole('button', { name: 'Record transaction' }));
+            await screen.findByRole('alert');
 
-        await user.type(screen.getByLabelText('Debit 2'), '0');
+            await edit(user);
 
-        expect(screen.queryByRole('alert')).toBeNull();
-    });
+            expect(screen.queryByRole('alert')).toBeNull();
+        });
+    }
 
     it('Given_a_request_in_flight_When_submitted_Then_the_submit_button_is_disabled', async () => {
         fakeFetch(

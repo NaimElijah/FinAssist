@@ -303,3 +303,144 @@ describe('priceDisposal', () => {
         await expect(priceDisposal('VOO', INPUT)).rejects.toBeInstanceOf(ApiBodyError);
     });
 });
+
+/**
+ * Values the wire never carries for a decimal (ADR-028): a JSON number, which would pass a pattern
+ * test once coerced to text, and a string that is not a decimal at all.
+ */
+const NOT_DECIMAL_STRINGS: readonly { readonly name: string; readonly value: unknown }[] = [
+    { name: 'a_JSON_number', value: 12.5 },
+    { name: 'not_a_decimal_string', value: '1,234.50' },
+];
+
+/** USD money carrying `amount` as it arrived, unvalidated. */
+function money(amount: unknown): { amount: unknown; currency: string } {
+    return { amount, currency: 'USD' };
+}
+
+/** A position response whose decimals default to valid strings; one may be replaced. */
+function decimalPosition({
+    quantity = '10.125',
+    cost = '4321.50',
+}: Partial<Record<'quantity' | 'cost', unknown>> = {}): unknown {
+    return { symbol: 'VOO', quantity, cost: money(cost) };
+}
+
+type ValuationDecimal = 'quantity' | 'cost' | 'unitPrice' | 'marketValue' | 'unrealisedGain';
+
+/** A valuation response whose decimals default to valid strings; one may be replaced. */
+function decimalValuation(replaced: Partial<Record<ValuationDecimal, unknown>> = {}): unknown {
+    const value = (member: ValuationDecimal, fallback: string) =>
+        member in replaced ? replaced[member] : fallback;
+    return {
+        symbol: 'VOO',
+        quantity: value('quantity', '10.125'),
+        cost: money(value('cost', '4321.50')),
+        unitPrice: money(value('unitPrice', '512.34')),
+        marketValue: money(value('marketValue', '5187.44')),
+        unrealisedGain: money(value('unrealisedGain', '-865.94')),
+    };
+}
+
+type DispositionDecimal =
+    'quantity' | 'proceeds' | 'costOfSale' | 'realisedGain' | 'lotQuantity' | 'lotUnitCost';
+
+/** A disposition response whose decimals default to valid strings; one may be replaced. */
+function decimalDisposition(replaced: Partial<Record<DispositionDecimal, unknown>> = {}): unknown {
+    const value = (member: DispositionDecimal, fallback: string) =>
+        member in replaced ? replaced[member] : fallback;
+    return {
+        symbol: 'VOO',
+        quantity: value('quantity', '4'),
+        proceeds: money(value('proceeds', '2100.00')),
+        costOfSale: money(value('costOfSale', '1600.00')),
+        realisedGain: money(value('realisedGain', '500.00')),
+        remaining: [
+            {
+                acquiredOn: '2024-03-01',
+                quantity: value('lotQuantity', '6'),
+                unitCost: money(value('lotUnitCost', '400.00')),
+            },
+        ],
+    };
+}
+
+/** A decimal member, how a response carries `value` in it alone, and the read that maps it. */
+interface DecimalMember {
+    readonly subject: string;
+    readonly when: string;
+    readonly body: (value: unknown) => unknown;
+    readonly read: () => Promise<unknown>;
+}
+
+const DISPOSAL_INPUT = { quantity: '4', proceeds: { amount: '2100.00', currency: 'USD' } } as const;
+
+/** Every decimal member each read returns. */
+const DECIMAL_MEMBERS: readonly DecimalMember[] = [
+    {
+        subject: 'a_positions_quantity',
+        when: 'read',
+        body: (value) => decimalPosition({ quantity: value }),
+        read: () => readPosition('VOO'),
+    },
+    {
+        subject: 'a_positions_cost_amount',
+        when: 'read',
+        body: (value) => decimalPosition({ cost: value }),
+        read: () => readPosition('VOO'),
+    },
+    ...(
+        [
+            ['quantity', 'quantity'],
+            ['cost', 'cost_amount'],
+            ['unitPrice', 'unit_price_amount'],
+            ['marketValue', 'market_value_amount'],
+            ['unrealisedGain', 'unrealised_gain_amount'],
+        ] as const
+    ).map(([member, name]) => ({
+        subject: `a_valuations_${name}`,
+        when: 'valued',
+        body: (value: unknown) => decimalValuation({ [member]: value }),
+        read: () => valueHolding('VOO'),
+    })),
+    ...(
+        [
+            ['quantity', 'quantity'],
+            ['proceeds', 'proceeds_amount'],
+            ['costOfSale', 'cost_of_sale_amount'],
+            ['realisedGain', 'realised_gain_amount'],
+            ['lotQuantity', 'remaining_lots_quantity'],
+            ['lotUnitCost', 'remaining_lots_unit_cost_amount'],
+        ] as const
+    ).map(([member, name]) => ({
+        subject: `a_dispositions_${name}`,
+        when: 'priced',
+        body: (value: unknown) => decimalDisposition({ [member]: value }),
+        read: () => priceDisposal('VOO', DISPOSAL_INPUT),
+    })),
+];
+
+describe('a decimal the contract does not allow', () => {
+    // Accounting already refuses one (accountingApi.test.ts). Refused at the read, because past it
+    // a JSON number fails nowhere: JSON.parse has already made it a binary float, rounding any
+    // figure it cannot hold exactly, MoneyText's pattern passes it once coerced to text, and a
+    // quantity renders as it came - so an inexact figure would be shown silently, as if exact.
+    it('Given_every_fixture_with_valid_decimals_When_read_Then_each_read_succeeds', async () => {
+        // The control for the tests below: each fixture is a valid response but for the one
+        // member a test replaces, so a rejection there is that member's doing.
+        for (const { body, read } of DECIMAL_MEMBERS) {
+            stubFetch(jsonResponse(body('1.00')));
+            await expect(read()).resolves.toBeDefined();
+        }
+    });
+
+    for (const { subject, when, body, read } of DECIMAL_MEMBERS) {
+        for (const { name, value } of NOT_DECIMAL_STRINGS) {
+            it(`Given_${subject}_that_is_${name}_When_${when}_Then_it_rejects_with_an_ApiBodyError`, async () => {
+                stubFetch(jsonResponse(body(value)));
+
+                await expect(read()).rejects.toBeInstanceOf(ApiBodyError);
+            });
+        }
+    }
+});

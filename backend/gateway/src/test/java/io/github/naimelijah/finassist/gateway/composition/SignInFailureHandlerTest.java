@@ -32,7 +32,8 @@ import org.springframework.security.oauth2.core.OAuth2Error;
  * Boot swap the console appender for its ECS one.
  *
  * <p>A full sign-in and relay, with every log line swept for a token, cookie or session id, needs a
- * real Keycloak and the relay routes; that is {@code GatewayLoginFlowIT}'s.
+ * running gateway, an OpenID provider and the relay routes; that is {@code GatewayLoginFlowIT}'s,
+ * against its fake provider rather than a real Keycloak.
  */
 class SignInFailureHandlerTest {
 

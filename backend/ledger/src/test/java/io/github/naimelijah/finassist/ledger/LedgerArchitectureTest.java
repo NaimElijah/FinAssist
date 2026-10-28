@@ -5,11 +5,17 @@ import static com.tngtech.archunit.core.domain.JavaClass.Predicates.INTERFACES;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noCodeUnits;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.AccessTarget;
+import com.tngtech.archunit.core.domain.AccessTarget.CodeUnitAccessTarget;
+import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaConstructor;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
@@ -17,11 +23,19 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountType;
+import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Comparison;
+import java.time.Clock;
+import java.time.InstantSource;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collection;
+import java.util.Date;
+import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -62,6 +76,10 @@ class LedgerArchitectureTest {
      * {@code tools.jackson.databind.ObjectMapper} field into either layer undetected. {@code
      * io.swagger..} and {@code org.springdoc..} close the same gap for the OpenAPI annotations and
      * generator the build gained alongside it (ADR-028).
+     *
+     * <p>{@code java.sql..} and {@code java.net..} are the JDK's own I/O seams: a {@code Connection} or
+     * an {@code HttpClient} in the domain or a use case is persistence or transport arriving without a
+     * framework, which the other entries cannot see because it imports none.
      */
     private static final String[] FORBIDDEN_FRAMEWORK_PACKAGES = {
         "org.springframework..",
@@ -70,8 +88,16 @@ class LedgerArchitectureTest {
         "com.fasterxml.jackson..",
         "tools.jackson..",
         "io.swagger..",
-        "org.springdoc.."
+        "org.springdoc..",
+        "java.sql..",
+        "java.net.."
     };
+
+    /**
+     * Where a monetary amount can live: every context's domain, and the {@code shared} kernel that
+     * holds {@code Money} itself.
+     */
+    private static final String[] MONEY_HOLDING_PACKAGES = {ROOT + "..domain..", SHARED};
 
     /**
      * Dependencies point inward only, in every context at once. The patterns span contexts
@@ -131,23 +157,137 @@ class LedgerArchitectureTest {
             .because("the domain is the product; frameworks are replaceable detail");
 
     /**
-     * Money is exact or it is wrong. A floating-point field in any context's domain is a defect, not
-     * a performance choice.
+     * Money is exact or it is wrong. A floating-point field in any context's domain, or in the kernel
+     * that holds {@code Money}, is a defect, not a performance choice. An array of them is one too,
+     * at any depth, which is why the raw type's base component is what is checked.
      */
     @ArchTest
     static final ArchRule money_is_never_floating_point = noFields()
             .that()
             .areDeclaredInClassesThat()
-            .resideInAPackage(ROOT + "..domain..")
+            .resideInAnyPackage(MONEY_HOLDING_PACKAGES)
             .should()
-            .haveRawType(double.class)
-            .orShould()
-            .haveRawType(float.class)
-            .orShould()
-            .haveRawType(Double.class)
-            .orShould()
-            .haveRawType(Float.class)
+            .haveRawType(floatingPoint())
             .because("monetary amounts use BigDecimal; see docs/requirements/requirements.md");
+
+    /**
+     * The field rule sees only a field's raw type, so a {@code List<Double>} field, or a {@code Double}
+     * handed to or returned from a method, passes it. A dependency on the boxed types catches those,
+     * generic type arguments included, and any boxing or unboxing, which javac compiles to a call on
+     * {@code Double} or {@code Float}.
+     */
+    @ArchTest
+    static final ArchRule money_never_depends_on_a_boxed_floating_point_type = noClasses()
+            .that()
+            .resideInAnyPackage(MONEY_HOLDING_PACKAGES)
+            .should()
+            .dependOnClassesThat()
+            .belongToAnyOf(Double.class, Float.class)
+            .because("monetary amounts use BigDecimal; see docs/requirements/requirements.md");
+
+    /**
+     * ArchUnit records no dependency on a primitive, so {@code static BigDecimal fromDouble(double)}
+     * passes both rules above. A method or constructor taking or returning a floating-point type is
+     * the door a binary approximation walks in through.
+     */
+    @ArchTest
+    static final ArchRule money_is_never_passed_or_returned_as_floating_point = noCodeUnits()
+            .that()
+            .areDeclaredInClassesThat()
+            .resideInAnyPackage(MONEY_HOLDING_PACKAGES)
+            .should()
+            .haveRawReturnType(floatingPoint())
+            .orShould()
+            .haveRawParameterTypes(anyElement(floatingPoint()))
+            .because("monetary amounts use BigDecimal; see docs/requirements/requirements.md");
+
+    /**
+     * A primitive {@code double} local leaves no type in the bytecode ArchUnit reads, and none of the
+     * rules above sees a call to code outside the ledger. So what is checked is the call through which
+     * a binary approximation reaches money or leaves it: no call, and no method or constructor
+     * reference, whose target takes or returns a floating-point type, such as {@code
+     * BigDecimal.valueOf(cents * 0.1)}, {@code new BigDecimal(double)} or {@code
+     * BigDecimal.doubleValue()}. Arithmetic on a {@code double} that never crosses a call, such as
+     * {@code (long) (cents * 1.1)}, still passes: no bytecode rule sees it.
+     */
+    @ArchTest
+    static final ArchRule money_never_calls_through_floating_point = noClasses()
+            .that()
+            .resideInAnyPackage(MONEY_HOLDING_PACKAGES)
+            .should()
+            .accessTargetWhere(takesOrReturnsFloatingPoint())
+            .because("monetary amounts use BigDecimal; see docs/requirements/requirements.md");
+
+    private static DescribedPredicate<JavaAccess<?>> takesOrReturnsFloatingPoint() {
+        DescribedPredicate<JavaClass> floatingPoint = floatingPoint();
+        return new DescribedPredicate<>(
+                "call or reference code taking or returning " + floatingPoint.getDescription()) {
+            @Override
+            public boolean test(JavaAccess<?> access) {
+                return access.getTarget() instanceof CodeUnitAccessTarget codeUnit
+                        && (floatingPoint.test(codeUnit.getRawReturnType())
+                                || codeUnit.getRawParameterTypes().stream().anyMatch(floatingPoint));
+            }
+        };
+    }
+
+    private static final Set<Class<?>> FLOATING_POINT_TYPES =
+            Set.of(double.class, float.class, Double.class, Float.class);
+
+    private static DescribedPredicate<JavaClass> floatingPoint() {
+        return new DescribedPredicate<>("a floating-point type, or an array of one") {
+            @Override
+            public boolean test(JavaClass type) {
+                JavaClass base = type.getBaseComponentType();
+                return FLOATING_POINT_TYPES.stream().anyMatch(base::isEquivalentTo);
+            }
+        };
+    }
+
+    private static DescribedPredicate<List<JavaClass>> anyElement(DescribedPredicate<JavaClass> predicate) {
+        return new DescribedPredicate<>("any of which is " + predicate.getDescription()) {
+            @Override
+            public boolean test(List<JavaClass> types) {
+                return types.stream().anyMatch(predicate);
+            }
+        };
+    }
+
+    /**
+     * The quantities "Derived, never stored" forbids a domain field or a column to be named after, as a
+     * regular-expression alternation both Java and PostgreSQL read. {@code SchemaBoundariesIT} matches
+     * columns against this same constant, so the two halves of the rule cannot drift apart.
+     */
+    static final String DERIVED_QUANTITIES = "balance|spent|remaining|projection";
+
+    /** The names "Derived, never stored" forbids a domain field to carry, in any case. */
+    private static final String DERIVED_QUANTITY_NAME = "(?i).*(" + DERIVED_QUANTITIES + ").*";
+
+    /**
+     * Derived, never stored (root {@code CLAUDE.md}, "The domain"): a balance is summed from entries,
+     * a budget's spend passed in and its remainder computed, a projection computed from its scenario.
+     * A domain field named after one of those quantities is the bug that rule exists to prevent — a
+     * value that can drift from the facts it was derived from.
+     *
+     * <p>Scoped by name, with two exempt fields that hold no stored quantity: {@code
+     * AccountType.normalBalance} is the side a balance sits on, a constant of the type rather than an
+     * amount; {@code Comparison.projections} is held by a value that is itself derived, computed per
+     * request from its projections and never persisted. Any other field of {@code Comparison} is held
+     * to the rule. Its storage-side half is {@code SchemaBoundariesIT}'s refusal of a column with such a
+     * name.
+     */
+    @ArchTest
+    static final ArchRule derived_quantities_are_never_stored = noFields()
+            .that()
+            .areDeclaredInClassesThat()
+            .resideInAPackage(ROOT + "..domain..")
+            .and()
+            .doNotHaveFullName(AccountType.class.getName() + ".normalBalance")
+            .and()
+            .doNotHaveFullName(Comparison.class.getName() + ".projections")
+            .should()
+            .haveNameMatching(DERIVED_QUANTITY_NAME)
+            .because("a balance, a spend, a remainder or a projection is derived on every read, never stored");
 
     /**
      * A cycle between aggregates inside one context means an aggregate boundary is wrong.
@@ -179,6 +319,71 @@ class LedgerArchitectureTest {
             .dependOnClassesThat()
             .resideInAPackage(COMPOSITION)
             .because("frameworks and cross-context translation travel inward only through declared ports");
+
+    /**
+     * The clock is read once, in the composition root, and passed down (root {@code CLAUDE.md}, "Pass
+     * the clock in"). A domain transition takes a date, a projection its horizon, a use case its dates
+     * as arguments; a {@code now()} anywhere else makes that code depend on when it runs, which no
+     * test can pin.
+     *
+     * <p>A method reference counts as a read, not only a call: {@code Instant::now} handed to a
+     * supplier reads the clock as surely as calling it, and is the form a call-only rule would miss.
+     * Every {@code now} overload is refused, the {@code Clock}-taking ones too, because the place to
+     * turn a {@code Clock} into a date is the composition root, which is the one package exempt.
+     *
+     * <p>{@code java.util} reads the clock as well, without saying {@code now}: {@code new Date()}, a
+     * {@code Calendar.getInstance} overload and {@code new GregorianCalendar()} each start from the
+     * current time, called or as a {@code Date::new} reference. Their other constructors and factories
+     * take the instant they hold, so only these forms are refused.
+     */
+    @ArchTest
+    static final ArchRule clock_is_read_only_in_the_composition_root = noClasses()
+            .that()
+            .resideOutsideOfPackage(COMPOSITION)
+            .should()
+            .accessTargetWhere(readsTheClock())
+            .because("the clock is read once, in the composition root, and passed down as a value");
+
+    /**
+     * The read above names its method, so a class that is handed a {@code Clock} or an {@code
+     * InstantSource} and calls {@code instant()} or {@code millis()} on it passes that rule while
+     * depending on when it runs just the same. Outside the composition root nothing may hold either:
+     * what a use case or a domain transition receives is the date the root read from it.
+     */
+    @ArchTest
+    static final ArchRule no_clock_is_held_outside_the_composition_root = noClasses()
+            .that()
+            .resideOutsideOfPackage(COMPOSITION)
+            .should()
+            .dependOnClassesThat()
+            .belongToAnyOf(Clock.class, InstantSource.class)
+            .because("the clock is read once, in the composition root, and passed down as a value");
+
+    private static final Set<String> SYSTEM_CLOCK_METHODS = Set.of("currentTimeMillis", "nanoTime");
+
+    private static DescribedPredicate<JavaAccess<?>> readsTheClock() {
+        return new DescribedPredicate<>("read the clock: java.time *.now, Clock.system*, InstantSource.system,"
+                + " System.currentTimeMillis, System.nanoTime, new Date(), Calendar.getInstance*"
+                + " or new GregorianCalendar()") {
+            @Override
+            public boolean test(JavaAccess<?> access) {
+                AccessTarget target = access.getTarget();
+                JavaClass owner = target.getOwner();
+                String name = target.getName();
+                boolean timeNow = owner.getPackageName().startsWith("java.time") && name.equals("now");
+                boolean systemClock = (owner.isEquivalentTo(Clock.class) || owner.isEquivalentTo(InstantSource.class))
+                        && name.startsWith("system");
+                boolean systemTime = owner.isEquivalentTo(System.class) && SYSTEM_CLOCK_METHODS.contains(name);
+                boolean calendarNow = owner.isAssignableTo(Calendar.class) && name.startsWith("getInstance");
+                boolean currentInstantConstructed =
+                        (owner.isEquivalentTo(Date.class) || owner.isEquivalentTo(GregorianCalendar.class))
+                                && name.equals(JavaConstructor.CONSTRUCTOR_NAME)
+                                && target instanceof CodeUnitAccessTarget constructor
+                                && constructor.getRawParameterTypes().isEmpty();
+                return timeNow || systemClock || systemTime || calendarNow || currentInstantConstructed;
+            }
+        };
+    }
 
     /**
      * The application layer is wired by constructor, not by the container.

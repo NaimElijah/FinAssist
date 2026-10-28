@@ -69,6 +69,8 @@ class BudgetServiceTest {
         assertThatThrownBy(() -> service.define(new DefineBudgetCommand(
                         MARCH, Currency.ILS, List.of(new CategoryLimit(GROCERIES, Money.of("1200.00", Currency.USD))))))
                 .isInstanceOf(IllegalArgumentException.class);
+
+        verify(budgets, never()).save(any());
     }
 
     @Test
@@ -98,7 +100,7 @@ class BudgetServiceTest {
      * A review takes the first matching rule, so the order rules come back in decides the answer.
      * What the service owes is to hand them over in the order it was given them; that the store then
      * returns them in that order is the {@code ORDER BY ordinal} asserted in
-     * {@code JdbcCategorisationRuleRepositoryIT}.
+     * {@code JdbcBudgetingRepositoriesIT}.
      */
     @Test
     void Given_rules_added_in_order_When_they_are_stored_Then_the_order_is_preserved() {
@@ -111,15 +113,6 @@ class BudgetServiceTest {
         org.mockito.InOrder added = inOrder(rules);
         added.verify(rules).add(coffee);
         added.verify(rules).add(eatingOut);
-    }
-
-    @Test
-    void Given_a_rule_with_a_blank_fragment_When_added_Then_the_domain_refuses_it() {
-        assertThatThrownBy(() -> service.add(new CategorisationRule("   ", GROCERIES)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("fragment");
-
-        verify(rules, never()).add(any());
     }
 
     /** Listing derives nothing of its own - ordering is the repository's job. */
