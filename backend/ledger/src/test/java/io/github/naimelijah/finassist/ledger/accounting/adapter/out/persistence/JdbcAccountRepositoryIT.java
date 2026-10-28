@@ -53,6 +53,24 @@ class JdbcAccountRepositoryIT extends PostgresFixture {
     }
 
     /**
+     * The index itself, reached without the adapter: a second row claiming a normalised name already
+     * held is refused by {@code account_normalised_name_key}, whoever writes it. The case above passes
+     * through {@code save}, which would also go red if the adapter merely stopped translating the
+     * refusal; this one goes red only if the index is gone.
+     */
+    @Test
+    void
+            Given_a_normalised_name_already_held_When_a_second_row_is_inserted_directly_Then_the_unique_index_refuses_it() {
+        accounts.save(Account.open("Groceries", AccountType.EXPENSE, Currency.ILS));
+
+        assertThatThrownBy(() -> jdbc().sql("INSERT INTO accounting.account (id, name, normalised_name, type, currency)"
+                                + " VALUES (:id, 'GROCERIES', 'groceries', 'EXPENSE', 'USD')")
+                        .param("id", AccountId.generate().value())
+                        .update())
+                .hasMessageContaining("account_normalised_name_key");
+    }
+
+    /**
      * The chart of accounts holding both "Groceries" and "groceries" is a mistake, not a distinction:
      * every balance and journal query would split between two accounts a person reads as one.
      */
