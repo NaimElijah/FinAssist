@@ -38,17 +38,19 @@ class MoneyDtoShapesTest {
     /**
      * Every other copy, found in the compiled production classes rather than listed by hand, so a copy a
      * new context adds is compared from the moment it exists — the same static scan {@code
-     * WebSliceSecurityImportTest} uses.
+     * WebSliceSecurityImportTest} uses. Scanned once for the class: every parameterised case asks for the
+     * copies, and the import is the expensive part.
      */
+    private static final List<Class<?>> COPIES = new ClassFileImporter()
+            .withImportOption(new ImportOption.DoNotIncludeTests()).importPackages(LedgerArchitectureTest.ROOT).stream()
+                    .filter(candidate -> candidate.getSimpleName().equals(ACCOUNTING.getSimpleName()))
+                    .filter(candidate -> !candidate.isEquivalentTo(ACCOUNTING))
+                    .<Class<?>>map(JavaClass::reflect)
+                    .sorted(Comparator.comparing(Class::getName))
+                    .toList();
+
     static Stream<Class<?>> copies() {
-        return new ClassFileImporter()
-                        .withImportOption(new ImportOption.DoNotIncludeTests())
-                        .importPackages(LedgerArchitectureTest.ROOT)
-                        .stream()
-                        .filter(candidate -> candidate.getSimpleName().equals(ACCOUNTING.getSimpleName()))
-                        .filter(candidate -> !candidate.isEquivalentTo(ACCOUNTING))
-                        .<Class<?>>map(JavaClass::reflect)
-                        .sorted(Comparator.comparing(Class::getName));
+        return COPIES.stream();
     }
 
     /** A scan finding nothing would leave every case below passing over no copy at all. */
