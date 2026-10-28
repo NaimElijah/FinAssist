@@ -2,7 +2,15 @@ package io.github.naimelijah.finassist.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.naimelijah.finassist.ledger.shared.Currency;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -67,6 +75,62 @@ class SchemaBoundariesIT extends PostgresFixture {
         assertThat(stored)
                 .as("a balance, spend, remainder or projection is derived on every read, never stored")
                 .isEmpty();
+    }
+
+    /**
+     * The currency table is written three times over: {@link Currency} in Java, {@code test_currency.py}'s
+     * in Python (held together by {@code MoneyVectorsTest}), and a hand-written {@code CHECK (currency IN
+     * (...))} on every table that stores one. This holds the third to the first: every table in the three
+     * schemas with a {@code currency} column carries a check naming exactly the currencies {@link
+     * Currency} declares, no fewer and no more, so a currency added on one side is refused by this test
+     * rather than by the owner's first write in it.
+     */
+    @Test
+    void Given_the_migrated_schema_When_its_currency_checks_are_read_Then_each_names_exactly_the_currency_table() {
+        List<String> tablesStoringACurrency = jdbc().sql("""
+                        SELECT table_schema || '.' || table_name
+                          FROM information_schema.columns
+                         WHERE table_schema IN (:schemas) AND column_name = 'currency'
+                        """)
+                .param("schemas", CONTEXT_SCHEMAS)
+                .query(String.class)
+                .list();
+        Map<String, Set<String>> codesByTable = new TreeMap<>();
+        jdbc().sql("""
+                        SELECT namespace.nspname || '.' || relation.relname AS table_name,
+                               pg_get_constraintdef(check_constraint.oid) AS definition
+                          FROM pg_constraint check_constraint
+                          JOIN pg_class relation ON relation.oid = check_constraint.conrelid
+                          JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+                         WHERE check_constraint.contype = 'c'
+                           AND namespace.nspname IN (:schemas)
+                           AND pg_get_constraintdef(check_constraint.oid) LIKE '%currency%'
+                        """)
+                .param("schemas", CONTEXT_SCHEMAS)
+                .query((row, rowNumber) ->
+                        Map.entry(row.getString("table_name"), quotedCodes(row.getString("definition"))))
+                .list()
+                .forEach(check -> codesByTable.put(check.getKey(), check.getValue()));
+        Set<String> currencyTable =
+                Arrays.stream(Currency.values()).map(Currency::name).collect(Collectors.toCollection(TreeSet::new));
+
+        assertThat(tablesStoringACurrency)
+                .as("a scan finding no currency column proves nothing")
+                .isNotEmpty();
+        assertThat(codesByTable.keySet())
+                .as("every table storing a currency checks it")
+                .containsExactlyInAnyOrderElementsOf(tablesStoringACurrency);
+        assertThat(codesByTable)
+                .as("each currency check names exactly the currencies Currency declares")
+                .allSatisfy((table, codes) -> assertThat(codes).as(table).isEqualTo(currencyTable));
+    }
+
+    private static Set<String> quotedCodes(String checkDefinition) {
+        return Pattern.compile("'([A-Z]{3})'")
+                .matcher(checkDefinition)
+                .results()
+                .map(match -> match.group(1))
+                .collect(Collectors.toCollection(TreeSet::new));
     }
 
     /** Every context owns a schema, so a missing one means a migration did not run. */
