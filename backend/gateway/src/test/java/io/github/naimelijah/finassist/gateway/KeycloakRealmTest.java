@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.Reader;
 import java.nio.file.Files;
@@ -53,18 +54,20 @@ class KeycloakRealmTest {
 
     /**
      * A key naming a secret wherever it sits in the realm: Keycloak's own {@code secret} on a
-     * client, and any {@code password} — an SMTP server's, an identity provider's {@code
-     * clientSecret}, a {@code bindCredential}'s sibling — whose value must never be a literal.
+     * client, an SMTP server's {@code password}, an identity provider's {@code clientSecret}, an
+     * LDAP federation's {@code bindCredential}, a key provider's {@code privateKey}.
      */
-    private static final Pattern SECRET_KEY = Pattern.compile("(?i).*(secret|password|credential).*");
+    private static final Pattern SECRET_KEY = Pattern.compile("(?i).*(secret|password|credential|privatekey).*");
 
     /**
      * Keys {@link #SECRET_KEY} matches that hold no secret. Each is named, so a new false positive
      * fails the sweep below until someone decides it here, rather than being skipped by a looser
      * pattern: {@code passwordPolicy} is the policy expression the realm enforces, and {@code
-     * clientAuthenticatorType}'s value is {@code client-secret}, but its key does not match.
+     * resetPasswordAllowed} is a switch. ({@code clientAuthenticatorType}'s value is {@code
+     * client-secret}, but its key does not match.) A user's {@code credentials} matches too, but
+     * holds only objects, which the sweep walks into rather than records.
      */
-    private static final Set<String> KEYS_THAT_HOLD_NO_SECRET = Set.of("passwordPolicy");
+    private static final Set<String> KEYS_THAT_HOLD_NO_SECRET = Set.of("passwordPolicy", "resetPasswordAllowed");
 
     /**
      * A Compose value that refuses to start without its variable: {@code ${VAR:?message}}. A
@@ -436,10 +439,12 @@ class KeycloakRealmTest {
 
     /**
      * The same rule for a secret anywhere else in the file, so that a section the realm does not
-     * hold today — an SMTP server, an identity provider, an LDAP federation — cannot bring a
-     * literal password in under a key the two tests above never visit. Every textual value whose
-     * key names a secret, a password or a credential must be a bare placeholder, unless that key
-     * is one {@link #KEYS_THAT_HOLD_NO_SECRET} names.
+     * hold today — an SMTP server, an identity provider, an LDAP federation, a key provider —
+     * cannot bring a literal in under a key the two tests above never visit. Under every key
+     * {@link #SECRET_KEY} matches, other than one {@link #KEYS_THAT_HOLD_NO_SECRET} names, each
+     * scalar value of any type, and each scalar element of an array value (Keycloak stores a
+     * component's config values as string arrays), must be a bare placeholder: a number or a
+     * boolean there fails as surely as a literal string.
      */
     @Test
     void Given_the_whole_realm_tree_When_swept_Then_every_value_under_a_secret_key_is_a_bare_placeholder() {
@@ -460,32 +465,74 @@ class KeycloakRealmTest {
                 .toList();
     }
 
-    /** Every textual value in the realm file under a key naming a secret, by JSON pointer. */
+    /** Every scalar in the realm file held under a key naming a secret, by JSON pointer. */
     private static Map<String, JsonNode> secretValuesByPointer() {
+        return secretValuesByPointer(realm());
+    }
+
+    private static Map<String, JsonNode> secretValuesByPointer(JsonNode tree) {
         Map<String, JsonNode> found = new LinkedHashMap<>();
-        collectSecretValues("", realm(), found);
+        collectSecretValues("", tree, false, found);
         return found;
     }
 
-    /** Every textual value in {@code node} whose own key matches {@link #SECRET_KEY}, by JSON pointer. */
-    private static void collectSecretValues(String pointer, JsonNode node, Map<String, JsonNode> found) {
-        if (node.isObject()) {
-            node.properties().forEach(member -> {
-                String child = pointer + "/" + member.getKey();
-                JsonNode value = member.getValue();
-                if (value.isString()
-                        && SECRET_KEY.matcher(member.getKey()).matches()
-                        && !KEYS_THAT_HOLD_NO_SECRET.contains(member.getKey())) {
-                    found.put(child, value);
+    /**
+     * The sweep's positive control: the shapes a literal would take in sections today's realm
+     * lacks, each of which an earlier sweep, recording only a string directly under its key, let
+     * through.
+     */
+    @Test
+    void Given_literals_in_component_config_arrays_and_a_numeric_password_When_swept_Then_each_is_found_and_refused() {
+        JsonNode tree = JSON.readTree("""
+                {
+                  "components": {
+                    "org.keycloak.storage.UserStorageProvider": [
+                      {"name": "ldap", "config": {"bindCredential": ["a-literal-bind-credential"]}}
+                    ],
+                    "org.keycloak.keys.KeyProvider": [
+                      {"name": "rsa", "config": {"privateKey": ["a-literal-private-key"]}}
+                    ]
+                  },
+                  "smtpServer": {"password": 12345678}
                 }
-                collectSecretValues(child, value, found);
-            });
+                """);
+
+        Map<String, JsonNode> found = secretValuesByPointer(tree);
+
+        assertThat(found)
+                .containsOnlyKeys(
+                        "/components/org.keycloak.storage.UserStorageProvider/0/config/bindCredential/0",
+                        "/components/org.keycloak.keys.KeyProvider/0/config/privateKey/0",
+                        "/smtpServer/password");
+        found.forEach((pointer, value) -> assertThatThrownBy(() -> assertBarePlaceholder(pointer, value))
+                .as("the sweep refuses the literal at %s", pointer)
+                .isInstanceOf(AssertionError.class));
+    }
+
+    /**
+     * Records every scalar in {@code node} whose nearest key matches {@link #SECRET_KEY} and is not
+     * exempt, by JSON pointer. An array passes its key on to its elements, so {@code
+     * "bindCredential": ["x"]} records {@code .../bindCredential/0}; an object's members are judged
+     * by their own keys.
+     */
+    private static void collectSecretValues(
+            String pointer, JsonNode node, boolean underSecretKey, Map<String, JsonNode> found) {
+        if (node.isObject()) {
+            node.properties()
+                    .forEach(member -> collectSecretValues(
+                            pointer + "/" + member.getKey(), member.getValue(), isSecretKey(member.getKey()), found));
         } else if (node.isArray()) {
             int index = 0;
             for (JsonNode element : node) {
-                collectSecretValues(pointer + "/" + index++, element, found);
+                collectSecretValues(pointer + "/" + index++, element, underSecretKey, found);
             }
+        } else if (underSecretKey) {
+            found.put(pointer, node);
         }
+    }
+
+    private static boolean isSecretKey(String key) {
+        return SECRET_KEY.matcher(key).matches() && !KEYS_THAT_HOLD_NO_SECRET.contains(key);
     }
 
     /** A string node holding {@code ${VAR}} and nothing else; never a number, a boolean or a literal. */
@@ -545,12 +592,15 @@ class KeycloakRealmTest {
      * repository could type.
      *
      * <p>The secrets are the variables the realm places under a secret key, found by the same sweep
-     * as above, so a secret added to the realm is held to this without a change here.
+     * as above, and the test pins that set exactly. A secret added to the realm therefore fails it
+     * until its variable joins the list below - on purpose, so that whoever adds one also decides
+     * its {@code :?} entry in Compose - and every variable on the list must be required there.
      */
     @Test
     void Given_the_realms_secrets_When_compared_with_compose_Then_keycloak_is_given_each_through_a_required_variable() {
         Set<String> secretVariables = new TreeSet<>();
         Stream.concat(secretValuesByPointer().values().stream(), credentialValues().stream())
+                .filter(JsonNode::isString)
                 .forEach(value -> {
                     Matcher reference = PLACEHOLDER_REFERENCE.matcher(value.asString());
                     while (reference.find()) {
