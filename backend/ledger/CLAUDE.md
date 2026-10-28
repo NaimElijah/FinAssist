@@ -38,7 +38,7 @@ From `backend/ledger`:
 
 ## Architecture
 
-- **The eleven ArchUnit rules in `LedgerArchitectureTest` are live.** The
+- **The thirteen ArchUnit rules in `LedgerArchitectureTest` are live.** The
   `archRule.failOnEmptyShould=false` escape hatch was deleted with the first domain class, so a
   rule matching nothing now fails rather than passing quietly. Do not reintroduce it.
 - **The domain imports no framework** — no `org.springframework..`, no `jakarta..`.

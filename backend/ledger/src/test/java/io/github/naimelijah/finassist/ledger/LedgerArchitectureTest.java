@@ -5,6 +5,7 @@ import static com.tngtech.archunit.core.domain.JavaClass.Predicates.INTERFACES;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noCodeUnits;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
@@ -67,6 +68,10 @@ class LedgerArchitectureTest {
      * {@code tools.jackson.databind.ObjectMapper} field into either layer undetected. {@code
      * io.swagger..} and {@code org.springdoc..} close the same gap for the OpenAPI annotations and
      * generator the build gained alongside it (ADR-028).
+     *
+     * <p>{@code java.sql..} and {@code java.net..} are the JDK's own I/O seams: a {@code Connection} or
+     * an {@code HttpClient} in the domain or a use case is persistence or transport arriving without a
+     * framework, which the other entries cannot see because it imports none.
      */
     private static final String[] FORBIDDEN_FRAMEWORK_PACKAGES = {
         "org.springframework..",
@@ -75,8 +80,16 @@ class LedgerArchitectureTest {
         "com.fasterxml.jackson..",
         "tools.jackson..",
         "io.swagger..",
-        "org.springdoc.."
+        "org.springdoc..",
+        "java.sql..",
+        "java.net.."
     };
+
+    /**
+     * Where a monetary amount can live: every context's domain, and the {@code shared} kernel that
+     * holds {@code Money} itself.
+     */
+    private static final String[] MONEY_HOLDING_PACKAGES = {ROOT + "..domain..", SHARED};
 
     /**
      * Dependencies point inward only, in every context at once. The patterns span contexts
@@ -136,23 +149,70 @@ class LedgerArchitectureTest {
             .because("the domain is the product; frameworks are replaceable detail");
 
     /**
-     * Money is exact or it is wrong. A floating-point field in any context's domain is a defect, not
-     * a performance choice.
+     * Money is exact or it is wrong. A floating-point field in any context's domain, or in the kernel
+     * that holds {@code Money}, is a defect, not a performance choice. An array of them is one too,
+     * at any depth, which is why the raw type's base component is what is checked.
      */
     @ArchTest
     static final ArchRule money_is_never_floating_point = noFields()
             .that()
             .areDeclaredInClassesThat()
-            .resideInAPackage(ROOT + "..domain..")
+            .resideInAnyPackage(MONEY_HOLDING_PACKAGES)
             .should()
-            .haveRawType(double.class)
-            .orShould()
-            .haveRawType(float.class)
-            .orShould()
-            .haveRawType(Double.class)
-            .orShould()
-            .haveRawType(Float.class)
+            .haveRawType(floatingPoint())
             .because("monetary amounts use BigDecimal; see docs/requirements/requirements.md");
+
+    /**
+     * The field rule sees only a field's raw type, so a {@code List<Double>} field, a local, or a
+     * {@code Double} handed to a method all pass it. A dependency on the boxed types catches each of
+     * those, generic type arguments included.
+     */
+    @ArchTest
+    static final ArchRule money_never_depends_on_a_boxed_floating_point_type = noClasses()
+            .that()
+            .resideInAnyPackage(MONEY_HOLDING_PACKAGES)
+            .should()
+            .dependOnClassesThat()
+            .belongToAnyOf(Double.class, Float.class)
+            .because("monetary amounts use BigDecimal; see docs/requirements/requirements.md");
+
+    /**
+     * ArchUnit records no dependency on a primitive, so {@code static BigDecimal fromDouble(double)}
+     * passes both rules above. A method or constructor taking or returning a floating-point type is
+     * the door a binary approximation walks in through.
+     */
+    @ArchTest
+    static final ArchRule money_is_never_passed_or_returned_as_floating_point = noCodeUnits()
+            .that()
+            .areDeclaredInClassesThat()
+            .resideInAnyPackage(MONEY_HOLDING_PACKAGES)
+            .should()
+            .haveRawReturnType(floatingPoint())
+            .orShould()
+            .haveRawParameterTypes(anyElement(floatingPoint()))
+            .because("monetary amounts use BigDecimal; see docs/requirements/requirements.md");
+
+    private static final Set<Class<?>> FLOATING_POINT_TYPES =
+            Set.of(double.class, float.class, Double.class, Float.class);
+
+    private static DescribedPredicate<JavaClass> floatingPoint() {
+        return new DescribedPredicate<>("a floating-point type, or an array of one") {
+            @Override
+            public boolean test(JavaClass type) {
+                JavaClass base = type.getBaseComponentType();
+                return FLOATING_POINT_TYPES.stream().anyMatch(base::isEquivalentTo);
+            }
+        };
+    }
+
+    private static DescribedPredicate<List<JavaClass>> anyElement(DescribedPredicate<JavaClass> predicate) {
+        return new DescribedPredicate<>("any of which is " + predicate.getDescription()) {
+            @Override
+            public boolean test(List<JavaClass> types) {
+                return types.stream().anyMatch(predicate);
+            }
+        };
+    }
 
     /**
      * A cycle between aggregates inside one context means an aggregate boundary is wrong.
