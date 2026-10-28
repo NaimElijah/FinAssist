@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -194,8 +195,11 @@ class LedgerContractIT extends PostgresFixture {
 
     /**
      * Root {@code CLAUDE.md}, "The wire": no money amount travels in a URL, where it would be logged,
-     * cached and kept in history. No path or query parameter of any operation may be a {@code MoneyDto}
-     * or carry the decimal-text pattern every amount and rate on the wire uses.
+     * cached and kept in history. No path or query parameter of any operation may be a {@code MoneyDto},
+     * carry the decimal-text pattern a request's decimals are published with, or be named after a
+     * monetary quantity. The name is checked as well as the schema because the pattern is not on every
+     * decimal — {@code ScenarioResponse.growthRatePerStep} is a bare string — and a {@code @RequestParam
+     * String amount} would carry neither a {@code $ref} nor a pattern.
      */
     @Test
     void Given_the_generated_document_When_url_parameters_are_read_Then_none_carries_money_or_a_decimal()
@@ -211,7 +215,10 @@ class LedgerContractIT extends PostgresFixture {
                                                 operation.path("parameters").valueStream()))
                         .filter(parameter -> URL_PARAMETER_LOCATIONS.contains(
                                 parameter.path("in").asString()))
-                        .filter(parameter -> carriesMoneyOrADecimal(parameter.path("schema")))
+                        .filter(parameter -> carriesMoneyOrADecimal(parameter.path("schema"))
+                                || MONETARY_NAME
+                                        .matcher(parameter.path("name").asString())
+                                        .find())
                         .map(parameter ->
                                 path.getKey() + " " + parameter.path("name").asString()))
                 .toList();
@@ -226,10 +233,14 @@ class LedgerContractIT extends PostgresFixture {
 
     private static final Set<String> URL_PARAMETER_LOCATIONS = Set.of("path", "query");
 
-    /** The pattern {@code MoneyDto.amount} and every decimal-text member is published with. */
+    /** The pattern {@code MoneyDto.amount} and every decimal a request accepts is published with. */
     private static final String DECIMAL_TEXT_PATTERN = "^-?\\d+(\\.\\d+)?$";
 
     private static final String MONEY_SCHEMA_REF = "#/components/schemas/MoneyDto";
+
+    /** A URL parameter name that announces a monetary quantity, anywhere in the name and in any case. */
+    private static final Pattern MONETARY_NAME =
+            Pattern.compile("amount|price|money|value|quantity|rate|balance", Pattern.CASE_INSENSITIVE);
 
     private static boolean carriesMoneyOrADecimal(JsonNode schema) {
         if (schema.isObject()) {
