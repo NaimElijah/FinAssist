@@ -7,11 +7,11 @@ import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.CurrencyMismatchException;
 import io.github.naimelijah.finassist.ledger.shared.Money;
-import java.lang.reflect.Method;
 import java.time.LocalDate;
-import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /** The balancing invariant and the transaction lifecycle (ADR-011). */
 class TransactionTest {
@@ -180,18 +180,58 @@ class TransactionTest {
     }
 
     /**
-     * The mirror of {@code PlannedFlowTest}'s freeze test for {@code PlanState.Realised}. The
-     * compiler already refuses {@code reconciled.clear(...)}, because {@code Reconciled} declares no
-     * such method — but a compile-time guarantee leaves no trace in the suite, so nothing would stop
-     * someone restoring one and unfreezing a reconciled transaction.
+     * Every command from every state, on the aggregate itself: the four legal transitions reach the
+     * state they name, and the other eight are refused with {@link IllegalTransitionException} naming
+     * the command and the state. {@code Reconciled} refusing all three is the freeze ADR-011 asks for,
+     * held where it is enforced — {@link Transaction}'s own guards — rather than by the absence of a
+     * method on the state type, which {@link Transaction} never calls for a frozen state.
      */
-    @Test
-    void Given_the_reconciled_state_When_inspected_Then_it_declares_no_transition_at_all() {
-        assertThat(Arrays.stream(TransactionState.Reconciled.class.getDeclaredMethods())
-                        .filter(method -> TransactionState.class.isAssignableFrom(method.getReturnType()))
-                        .map(Method::getName))
-                .as("Reconciled is frozen by the absence of a transition; see ADR-011")
-                .isEmpty();
+    @ParameterizedTest(name = "{0} -> {1}: {2}")
+    @CsvSource({
+        "Pending,    clear,     Cleared",
+        "Pending,    reconcile, refused",
+        "Pending,    void,      Voided",
+        "Cleared,    clear,     refused",
+        "Cleared,    reconcile, Reconciled",
+        "Cleared,    void,      Voided",
+        "Reconciled, clear,     refused",
+        "Reconciled, reconcile, refused",
+        "Reconciled, void,      refused",
+        "Voided,     clear,     refused",
+        "Voided,     reconcile, refused",
+        "Voided,     void,      refused"
+    })
+    void Given_a_transaction_in_a_state_When_a_command_is_applied_Then_only_the_legal_transitions_succeed(
+            String from, String command, String outcome) {
+        Transaction transaction = inState(from);
+
+        if (outcome.equals("refused")) {
+            assertThatThrownBy(() -> apply(command, transaction))
+                    .isInstanceOf(IllegalTransitionException.class)
+                    .hasMessage("Cannot " + command + " a transaction that is " + from);
+        } else {
+            assertThat(apply(command, transaction).state().name()).isEqualTo(outcome);
+        }
+    }
+
+    private static Transaction inState(String state) {
+        return switch (state) {
+            case "Pending" -> coffee();
+            case "Cleared" -> coffee().clear(WHEN);
+            case "Reconciled" -> coffee().clear(WHEN).reconcile(WHEN);
+            case "Voided" -> coffee().markVoided(WHEN, "duplicate");
+            default -> throw new IllegalArgumentException("no such state in this matrix: " + state);
+        };
+    }
+
+    /** Every command on the same day as the transaction, so no date rule can be what refuses it. */
+    private static Transaction apply(String command, Transaction transaction) {
+        return switch (command) {
+            case "clear" -> transaction.clear(WHEN);
+            case "reconcile" -> transaction.reconcile(WHEN);
+            case "void" -> transaction.markVoided(WHEN, "mistake");
+            default -> throw new IllegalArgumentException("no such command in this matrix: " + command);
+        };
     }
 
     @Test
