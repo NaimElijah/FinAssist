@@ -69,10 +69,14 @@ import tools.jackson.databind.json.JsonMapper;
  *       exact values last issued — {@link #lastCodeVerifier()}, the PKCE verifier the gateway last
  *       presented, and {@link #lastClientAuthorization()}, the {@code Authorization} header its last
  *       token request carried, for the log sweep to search for.
- *   <li>the token endpoint authenticates the client as Keycloak does for a confidential one:
- *       {@code Authorization: Basic} carrying {@code finassist-gateway} and the secret this fake
- *       was built with, refused {@code 401 invalid_client} otherwise. A {@code refresh_token} grant
- *       must present a refresh token this fake issued, refused {@code invalid_grant} otherwise.
+ *   <li>the token endpoint authenticates the client by {@code client_secret_basic}, the method
+ *       the gateway's registration declares in {@code KeycloakRegistration}: {@code Authorization:
+ *       Basic} carrying {@code finassist-gateway} and the secret this fake was built with, refused
+ *       {@code 401 invalid_client} otherwise, as Keycloak refuses a confidential client that fails
+ *       to authenticate. It pins that one method rather than modelling what Keycloak accepts, so a
+ *       registration that switched to another method would fail here. A {@code refresh_token}
+ *       grant must present a refresh token this fake issued, refused {@code invalid_grant}
+ *       otherwise.
  *   <li>{@link #stall(Endpoint)} and {@link #releaseStalledRequests()} — the endpoint accepts the
  *       connection and then never answers, which is what an unbounded HTTP client hangs on
  *       forever (see {@code GatewayKeycloakTimeoutIT}). {@link #stalledArrivals(Endpoint)} says
@@ -287,7 +291,8 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     /**
      * The {@code Authorization} header the last token request carried, whether or not it
      * authenticated: under {@code client_secret_basic}, the form in which the client secret
-     * actually leaves the gateway, since the secret itself never travels alone.
+     * actually leaves the gateway, since the secret itself never travels alone. Cleared when a flow
+     * starts at the authorization endpoint, so it is {@code null} until that flow's exchange arrives.
      */
     public String lastClientAuthorization() {
         return lastClientAuthorization.get();
@@ -305,6 +310,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         // A new flow starts here, so the exchange flag must not still describe the previous one.
         lastTokenRequestPassedPkce = false;
         lastTokenRequestAuthenticatedClient = false;
+        lastClientAuthorization.set(null);
         lastAuthorizationRequestHadPkce =
                 query.get("code_challenge") != null && "S256".equals(query.get("code_challenge_method"));
         String code = "fake-auth-code-" + UUID.randomUUID();

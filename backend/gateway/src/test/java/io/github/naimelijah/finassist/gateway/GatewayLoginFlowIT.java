@@ -109,6 +109,9 @@ class GatewayLoginFlowIT {
      */
     static final String CLIENT_SECRET = "a-test-client-secret";
 
+    /** A secret the fake provider was not built with, for the context that must be refused. */
+    static final String WRONG_CLIENT_SECRET = "not-the-providers-client-secret";
+
     /**
      * The fixed WARN line {@code GatewayRelayProblems} writes for a refused refresh. The sweep below
      * requires it, so a capture that holds no gateway line at all cannot pass for a clean one.
@@ -996,6 +999,71 @@ class GatewayLoginFlowIT {
                 value,
                 URLEncoder.encode(value, StandardCharsets.UTF_8),
                 BASE64_PADDING.matcher(value).replaceAll(""));
+    }
+
+    /**
+     * A gateway configured with a client secret the provider does not hold: the provider refuses
+     * its code exchange {@code 401 invalid_client}, and the sign-in fails rather than completing.
+     * The fake's client check is otherwise never refused, so without this a fake that waved every
+     * client through would leave each successful sign-in in this class proving nothing about it.
+     */
+    @Nested
+    @SpringBootTest(
+            webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+            properties = {
+                "finassist.oidc.client-secret=" + WRONG_CLIENT_SECRET,
+                "finassist.web.public-url=http://localhost:5173",
+                "finassist.http.allowed-hosts=localhost,127.0.0.1",
+                "finassist.http.cookie-secure=false"
+            })
+    class WrongClientSecret {
+
+        @LocalServerPort
+        private int wrongSecretPort;
+
+        @DynamicPropertySource
+        static void oidcProperties(DynamicPropertyRegistry registry) {
+            registry.add("finassist.oidc.public-url", idp::baseUrl);
+            registry.add("finassist.oidc.internal-url", idp::baseUrl);
+            registry.add("finassist.relay.ledger-uri", ledger::baseUrl);
+            registry.add("finassist.relay.assistant-uri", assistant::baseUrl);
+        }
+
+        @Test
+        void Given_a_gateway_holding_the_wrong_client_secret_When_it_exchanges_the_code_Then_the_sign_in_fails()
+                throws Exception {
+            try (HttpClient client = newClient()) {
+                URI authorizeUri = URI.create(getFollowingNothing(
+                                client, "http://localhost:" + wrongSecretPort + "/bff/oauth2/authorization/keycloak")
+                        .headers()
+                        .firstValue("Location")
+                        .orElseThrow());
+                URI codeRedirect = URI.create(getFollowingNothing(client, authorizeUri.toString())
+                        .headers()
+                        .firstValue("Location")
+                        .orElseThrow());
+
+                HttpResponse<Void> callback = getFollowingNothing(
+                        client,
+                        new URI(
+                                        "http",
+                                        null,
+                                        "localhost",
+                                        wrongSecretPort,
+                                        codeRedirect.getPath(),
+                                        codeRedirect.getQuery(),
+                                        null)
+                                .toString());
+
+                assertThat(idp.lastClientAuthorization())
+                        .as("the code exchange reached the provider, with Basic credentials")
+                        .startsWith(BASIC_PREFIX);
+                assertThat(idp.lastTokenRequestAuthenticatedClient())
+                        .as("the provider authenticated the gateway's client")
+                        .isFalse();
+                assertSignInFailed(callback);
+            }
+        }
     }
 
     /**
