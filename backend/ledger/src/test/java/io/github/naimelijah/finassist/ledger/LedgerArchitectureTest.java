@@ -12,8 +12,10 @@ import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.sli
 
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.AccessTarget;
+import com.tngtech.archunit.core.domain.AccessTarget.CodeUnitAccessTarget;
 import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaConstructor;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
@@ -24,8 +26,12 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountType;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Comparison;
 import java.time.Clock;
+import java.time.InstantSource;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collection;
+import java.util.Date;
+import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -285,6 +291,11 @@ class LedgerArchitectureTest {
      * supplier reads the clock as surely as calling it, and is the form a call-only rule would miss.
      * Every {@code now} overload is refused, the {@code Clock}-taking ones too, because the place to
      * turn a {@code Clock} into a date is the composition root, which is the one package exempt.
+     *
+     * <p>{@code java.util} reads the clock as well, without saying {@code now}: {@code new Date()}, a
+     * {@code Calendar.getInstance} overload and {@code new GregorianCalendar()} each start from the
+     * current time, called or as a {@code Date::new} reference. Their other constructors and factories
+     * take the instant they hold, so only these forms are refused.
      */
     @ArchTest
     static final ArchRule clock_is_read_only_in_the_composition_root = noClasses()
@@ -294,20 +305,43 @@ class LedgerArchitectureTest {
             .accessTargetWhere(readsTheClock())
             .because("the clock is read once, in the composition root, and passed down as a value");
 
+    /**
+     * The read above names its method, so a class that is handed a {@code Clock} or an {@code
+     * InstantSource} and calls {@code instant()} or {@code millis()} on it passes that rule while
+     * depending on when it runs just the same. Outside the composition root nothing may hold either:
+     * what a use case or a domain transition receives is the date the root read from it.
+     */
+    @ArchTest
+    static final ArchRule no_clock_is_held_outside_the_composition_root = noClasses()
+            .that()
+            .resideOutsideOfPackage(COMPOSITION)
+            .should()
+            .dependOnClassesThat()
+            .belongToAnyOf(Clock.class, InstantSource.class)
+            .because("the clock is read once, in the composition root, and passed down as a value");
+
     private static final Set<String> SYSTEM_CLOCK_METHODS = Set.of("currentTimeMillis", "nanoTime");
 
     private static DescribedPredicate<JavaAccess<?>> readsTheClock() {
-        return new DescribedPredicate<>(
-                "read the clock: java.time *.now, Clock.system*, System.currentTimeMillis" + " or System.nanoTime") {
+        return new DescribedPredicate<>("read the clock: java.time *.now, Clock.system*, InstantSource.system,"
+                + " System.currentTimeMillis, System.nanoTime, new Date(), Calendar.getInstance*"
+                + " or new GregorianCalendar()") {
             @Override
             public boolean test(JavaAccess<?> access) {
                 AccessTarget target = access.getTarget();
                 JavaClass owner = target.getOwner();
                 String name = target.getName();
                 boolean timeNow = owner.getPackageName().startsWith("java.time") && name.equals("now");
-                boolean systemClock = owner.isEquivalentTo(Clock.class) && name.startsWith("system");
+                boolean systemClock = (owner.isEquivalentTo(Clock.class) || owner.isEquivalentTo(InstantSource.class))
+                        && name.startsWith("system");
                 boolean systemTime = owner.isEquivalentTo(System.class) && SYSTEM_CLOCK_METHODS.contains(name);
-                return timeNow || systemClock || systemTime;
+                boolean calendarNow = owner.isAssignableTo(Calendar.class) && name.startsWith("getInstance");
+                boolean currentInstantConstructed =
+                        (owner.isEquivalentTo(Date.class) || owner.isEquivalentTo(GregorianCalendar.class))
+                                && name.equals(JavaConstructor.CONSTRUCTOR_NAME)
+                                && target instanceof CodeUnitAccessTarget constructor
+                                && constructor.getRawParameterTypes().isEmpty();
+                return timeNow || systemClock || systemTime || calendarNow || currentInstantConstructed;
             }
         };
     }
