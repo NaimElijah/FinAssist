@@ -387,6 +387,11 @@ class GatewaySecurityTest {
      * with each, so the refusal is the authorization rule's {@code FORBIDDEN} rather than the
      * CSRF filter's. {@code HEAD}'s answer carries no body to read a code from, so its status is
      * the assertion. An unpermitted {@code /bff/} path and Swagger UI's page complete the set.
+     *
+     * <p>So do two Actuator endpoints beside the permitted health one. {@code /actuator/heapdump}
+     * would hand over a heap holding every session's tokens and the client secret, and {@code
+     * /actuator/env} the configuration, so a health permit widened to {@code /actuator/**} must fail
+     * here, whatever the exposure list says at the time.
      */
     @ParameterizedTest
     @MethodSource("unroutedRequests")
@@ -416,6 +421,8 @@ class GatewaySecurityTest {
                 Arguments.of(HttpMethod.GET, "/admin"),
                 Arguments.of(HttpMethod.GET, "/v3/api-docs"),
                 Arguments.of(HttpMethod.GET, "/swagger-ui/index.html"),
+                Arguments.of(HttpMethod.GET, "/actuator/heapdump"),
+                Arguments.of(HttpMethod.GET, "/actuator/env"),
                 Arguments.of(HttpMethod.GET, "/bff/not-a-route"),
                 Arguments.of(HttpMethod.POST, "/bff/not-a-route"));
         Stream<Arguments> unroutedMethods = Stream.of(LEDGER_ACCOUNTS, ASSISTANT_POSITION)
