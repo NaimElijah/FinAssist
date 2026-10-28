@@ -2,9 +2,8 @@ package io.github.naimelijah.finassist.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -35,6 +34,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
@@ -66,6 +66,9 @@ class LedgerAuthorizationIT extends PostgresFixture {
 
     private static final String RANDOM_ID = UUID.randomUUID().toString();
     private static final String JSON_BODY = "{}";
+
+    private static final String UNAUTHENTICATED = "UNAUTHENTICATED";
+    private static final String FORBIDDEN = "FORBIDDEN";
 
     /** The message {@code ProblemAuthenticationEntryPoint} logs every refused request under. */
     private static final String REFUSAL_MESSAGE = "Refused a request with no valid bearer token";
@@ -189,7 +192,8 @@ class LedgerAuthorizationIT extends PostgresFixture {
             throws Exception {
         mvc.perform(endpoint.request(null, JSON_BODY))
                 .andExpect(status().isUnauthorized())
-                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"));
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
+                .andExpect(problem(UNAUTHENTICATED));
     }
 
     @ParameterizedTest
@@ -200,7 +204,8 @@ class LedgerAuthorizationIT extends PostgresFixture {
             MvcResult result = mvc.perform(endpoint.request(token, JSON_BODY)).andReturn();
             assertThat(result.getResponse().getStatus())
                     .as("%s %s with a %s token", endpoint.method(), endpoint.path(), role)
-                    .isNotIn(401, 403);
+                    .isNotIn(401, 403)
+                    .isLessThan(500);
         }
     }
 
@@ -209,7 +214,9 @@ class LedgerAuthorizationIT extends PostgresFixture {
     void Given_a_viewer_or_assistant_token_When_a_write_is_requested_Then_it_is_403(String role) throws Exception {
         String token = "viewer".equals(role) ? TestTokens.viewer() : TestTokens.assistant();
         for (Endpoint endpoint : WRITES) {
-            mvc.perform(endpoint.request(token, JSON_BODY)).andExpect(status().isForbidden());
+            mvc.perform(endpoint.request(token, JSON_BODY))
+                    .andExpect(status().isForbidden())
+                    .andExpect(problem(FORBIDDEN));
         }
     }
 
@@ -220,7 +227,8 @@ class LedgerAuthorizationIT extends PostgresFixture {
             MvcResult result = mvc.perform(endpoint.request(token, JSON_BODY)).andReturn();
             assertThat(result.getResponse().getStatus())
                     .as("%s %s with the owner token", endpoint.method(), endpoint.path())
-                    .isNotIn(401, 403);
+                    .isNotIn(401, 403)
+                    .isLessThan(500);
         }
     }
 
@@ -228,7 +236,9 @@ class LedgerAuthorizationIT extends PostgresFixture {
     void Given_a_token_granting_no_permission_When_any_endpoint_is_requested_Then_it_is_403() throws Exception {
         String token = TestTokens.noRoles();
         for (Endpoint endpoint : bothLists()) {
-            mvc.perform(endpoint.request(token, JSON_BODY)).andExpect(status().isForbidden());
+            mvc.perform(endpoint.request(token, JSON_BODY))
+                    .andExpect(status().isForbidden())
+                    .andExpect(problem(FORBIDDEN));
         }
     }
 
@@ -237,7 +247,8 @@ class LedgerAuthorizationIT extends PostgresFixture {
     void Given_a_bad_token_When_an_endpoint_is_requested_Then_it_is_401_invalid_token(String token) throws Exception {
         mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isUnauthorized())
-                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\""));
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\""))
+                .andExpect(problem(UNAUTHENTICATED));
     }
 
     /**
@@ -296,14 +307,29 @@ class LedgerAuthorizationIT extends PostgresFixture {
         assertThat(output.getOut()).doesNotContain(token);
     }
 
-    @Test
-    void Given_the_owner_token_When_head_or_options_is_sent_Then_both_are_denied() throws Exception {
-        String token = TestTokens.owner();
+    /**
+     * Only {@code GET} and {@code POST} are classified; every other verb falls to {@code denyAll}, even
+     * for the owner, and is refused by {@code ProblemAccessDeniedHandler} — which has no test of its own:
+     * this, and every other {@code FORBIDDEN} asserted in this class, is it.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"HEAD", "OPTIONS", "PUT", "PATCH", "DELETE"})
+    void Given_the_owner_token_When_an_unclassified_method_is_sent_Then_it_is_denied(String method) throws Exception {
+        mvc.perform(withHost(request(HttpMethod.valueOf(method), "/api/v1/accounts"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(JSON_BODY))
+                .andExpect(status().isForbidden())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"insufficient_scope\""))
+                .andExpect(problem(FORBIDDEN));
+    }
 
-        mvc.perform(withHost(head("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isForbidden());
-        mvc.perform(withHost(options("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isForbidden());
+    /** The RFC 9457 shape every refusal the chain writes carries, and the {@code code} naming which one. */
+    private static ResultMatcher problem(String code) {
+        return result -> {
+            content().contentType(MediaType.APPLICATION_PROBLEM_JSON).match(result);
+            jsonPath("$.code").value(code).match(result);
+        };
     }
 
     /**
@@ -319,7 +345,7 @@ class LedgerAuthorizationIT extends PostgresFixture {
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+                .andExpect(jsonPath("$.code").value(UNAUTHENTICATED));
     }
 
     /**
