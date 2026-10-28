@@ -127,10 +127,10 @@ class BudgetReviewServiceTest {
         BudgetReview review = service.review(budget.id());
 
         assertThat(review.categories())
-                .filteredOn(category -> category.category().equals(COFFEE))
-                .singleElement()
-                .extracting(CategorySpend::spent)
-                .isEqualTo(ils("18.00"));
+                .as("the spend is credited to the first matching rule's category alone, never to both")
+                .containsExactly(
+                        new CategorySpend(COFFEE, ils("100.00"), ils("18.00"), ils("82.00")),
+                        new CategorySpend(GROCERIES, ils("100.00"), Money.zero(Currency.ILS), ils("100.00")));
     }
 
     @Test
