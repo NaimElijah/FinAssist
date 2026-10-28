@@ -59,6 +59,9 @@ From `frontend/web`:
   and only its `api/` imports a generated contract type. `tests/architecture.test.ts` fails the
   build otherwise, reading every import form with the TypeScript parser and refusing a computed
   specifier it cannot resolve.
+- **No test file commits a `.skip`, `.todo` or `.only`** on `it`, `test`, `describe` or `suite`:
+  ESLint's `no-restricted-syntax` fails `npm run lint`. `it.fails`, `skipIf` and `runIf` stay
+  allowed — a test that must fail, and a skip a platform decides.
 
 ## Review conventions
 

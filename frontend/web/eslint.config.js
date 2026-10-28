@@ -44,8 +44,8 @@ export default tseslint.config(
     {
         // A committed `.skip` or `.todo` drops a specification from the suite while it still
         // reports green, and a committed `.only` drops every other test in its file. Core
-        // `no-restricted-syntax` covers the direct form (`it.skip`, `describe.only`, which also
-        // reaches `it.skip.each`) and one chained modifier (`it.concurrent.skip`). `it.fails`
+        // `no-restricted-syntax` covers the direct form (`it.skip`, `describe.only` or its alias
+        // `suite.only`, which also reaches `it.skip.each`) and one chained modifier (`it.concurrent.skip`). `it.fails`
         // stays allowed: it asserts that a test fails, and fails itself once it passes.
         files: ['**/*.test.{ts,tsx}'],
         rules: {
@@ -53,12 +53,12 @@ export default tseslint.config(
                 'error',
                 {
                     selector:
-                        'MemberExpression[object.name=/^(it|test|describe)$/][property.name=/^(skip|todo|only)$/]',
+                        'MemberExpression[object.name=/^(it|test|describe|suite)$/][property.name=/^(skip|todo|only)$/]',
                     message: SKIPPED_TEST_MESSAGE,
                 },
                 {
                     selector:
-                        'MemberExpression[object.object.name=/^(it|test|describe)$/][property.name=/^(skip|todo|only)$/]',
+                        'MemberExpression[object.object.name=/^(it|test|describe|suite)$/][property.name=/^(skip|todo|only)$/]',
                     message: SKIPPED_TEST_MESSAGE,
                 },
             ],
