@@ -7,7 +7,6 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.github.naimelijah.finassist.ledger.accounting.adapter.out.event.InMemoryAccountingEvents;
@@ -135,13 +134,15 @@ class AccountServiceTest {
         assertThat(events.published()).isEmpty();
     }
 
+    /**
+     * The in-port command refuses a blank name before any service sees it, so nothing here can reach
+     * the repository; what is pinned is the command's own boundary check.
+     */
     @Test
     void Given_a_blank_name_When_the_command_is_built_Then_it_is_refused_at_the_boundary() {
         assertThatThrownBy(() -> new OpenAccountCommand("   ", AccountType.ASSET, Currency.ILS))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must not be blank");
-
-        verifyNoInteractions(accounts);
     }
 
     /**

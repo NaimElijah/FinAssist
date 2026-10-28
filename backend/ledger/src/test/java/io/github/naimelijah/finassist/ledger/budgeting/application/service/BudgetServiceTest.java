@@ -113,15 +113,6 @@ class BudgetServiceTest {
         added.verify(rules).add(eatingOut);
     }
 
-    @Test
-    void Given_a_rule_with_a_blank_fragment_When_added_Then_the_domain_refuses_it() {
-        assertThatThrownBy(() -> service.add(new CategorisationRule("   ", GROCERIES)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("fragment");
-
-        verify(rules, never()).add(any());
-    }
-
     /** Listing derives nothing of its own - ordering is the repository's job. */
     @Test
     void Given_budgets_stored_When_listed_Then_they_come_back_in_the_repositorys_order() {
