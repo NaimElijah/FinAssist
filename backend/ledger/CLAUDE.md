@@ -130,7 +130,9 @@ bounded context (ADR-006, ADR-024).
   context on purpose; `MoneyDtoShapesTest` keeps the copies identical.
 - **The contract snapshot is regenerated with every endpoint change**, or `LedgerContractIT` fails
   the build. It also refuses an `operationId` ending `_<digits>` (a springdoc collision) and a
-  response schema missing `required` for an always-present member.
+  response schema missing `required` for an always-present member, a schema that is a JSON
+  number, and a path or query parameter that carries money or a decimal, by `$ref`, pattern or
+  name.
 
 ## Security
 

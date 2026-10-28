@@ -473,7 +473,8 @@ then the web client's types with `make generate-web-api`; CI fails on either dri
 test. Add the use case's in-port under `application/port/in/`, any out-port it needs under
 `application/port/out/`, and the service under `application/service/` — plain Java, no framework.
 Implement the out-port in `adapter/out/persistence/`, with a Flyway migration under
-`src/main/resources/db/migration/<context>/`, and expose the use case from a controller in
+`src/main/resources/db/migration/<context>/` whose SHA-256 you record in `ReleasedMigrationsTest`,
+and expose the use case from a controller in
 `adapter/in/web/`. Wire it in `composition/`, and give its URL a rule in
 `LedgerSecurityConfiguration` (`LedgerAuthorizationIT` fails on an endpoint without one).
 Regenerate the contract and the web types, and map the new wire type in the web feature's `api/`,
