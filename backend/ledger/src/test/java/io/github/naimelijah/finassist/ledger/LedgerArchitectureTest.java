@@ -171,9 +171,10 @@ class LedgerArchitectureTest {
             .because("monetary amounts use BigDecimal; see docs/requirements/requirements.md");
 
     /**
-     * The field rule sees only a field's raw type, so a {@code List<Double>} field, a local, or a
-     * {@code Double} handed to a method all pass it. A dependency on the boxed types catches each of
-     * those, generic type arguments included.
+     * The field rule sees only a field's raw type, so a {@code List<Double>} field, or a {@code Double}
+     * handed to or returned from a method, passes it. A dependency on the boxed types catches those,
+     * generic type arguments included, and any boxing or unboxing, which javac compiles to a call on
+     * {@code Double} or {@code Float}.
      */
     @ArchTest
     static final ArchRule money_never_depends_on_a_boxed_floating_point_type = noClasses()
@@ -199,6 +200,36 @@ class LedgerArchitectureTest {
             .orShould()
             .haveRawParameterTypes(anyElement(floatingPoint()))
             .because("monetary amounts use BigDecimal; see docs/requirements/requirements.md");
+
+    /**
+     * A primitive {@code double} local leaves no type in the bytecode ArchUnit reads, and none of the
+     * rules above sees a call to code outside the ledger. So what is checked is the call through which
+     * a binary approximation reaches money or leaves it: no call, and no method or constructor
+     * reference, whose target takes or returns a floating-point type, such as {@code
+     * BigDecimal.valueOf(cents * 0.1)}, {@code new BigDecimal(double)} or {@code
+     * BigDecimal.doubleValue()}. Arithmetic on a {@code double} that never crosses a call, such as
+     * {@code (long) (cents * 1.1)}, still passes: no bytecode rule sees it.
+     */
+    @ArchTest
+    static final ArchRule money_never_calls_through_floating_point = noClasses()
+            .that()
+            .resideInAnyPackage(MONEY_HOLDING_PACKAGES)
+            .should()
+            .accessTargetWhere(takesOrReturnsFloatingPoint())
+            .because("monetary amounts use BigDecimal; see docs/requirements/requirements.md");
+
+    private static DescribedPredicate<JavaAccess<?>> takesOrReturnsFloatingPoint() {
+        DescribedPredicate<JavaClass> floatingPoint = floatingPoint();
+        return new DescribedPredicate<>(
+                "call or reference code taking or returning " + floatingPoint.getDescription()) {
+            @Override
+            public boolean test(JavaAccess<?> access) {
+                return access.getTarget() instanceof CodeUnitAccessTarget codeUnit
+                        && (floatingPoint.test(codeUnit.getRawReturnType())
+                                || codeUnit.getRawParameterTypes().stream().anyMatch(floatingPoint));
+            }
+        };
+    }
 
     private static final Set<Class<?>> FLOATING_POINT_TYPES =
             Set.of(double.class, float.class, Double.class, Float.class);
