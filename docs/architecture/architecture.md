@@ -851,7 +851,7 @@ the classes and tests that enforce them in
 | **No assistant context imports another** | `test_architecture.py::…Then_it_imports_no_other_context` |
 | **No assistant context imports the composition root** | `test_architecture.py::…Then_it_imports_no_composition_root` |
 | **`shared` imports no assistant context**, so the common ground stays common | `test_architecture.py::…Then_it_imports_no_context` |
-| No floating point in an assistant domain module | `test_architecture.py::…Then_it_names_no_float` |
+| No floating point in an assistant domain module or `shared` | `test_architecture.py::…Then_it_names_no_float` |
 | **No inward assistant module — domain, application or `shared` — reads the wall clock**, aliased or not | `test_architecture.py::…Then_it_reads_no_clock` |
 | **No assistant inbound adapter imports an outbound one** — a route reaches a client only through a use case | `test_architecture.py::Given_an_inbound_adapter_When_parsed_Then_it_imports_no_outbound_adapter` |
 | **No web feature imports another**, and `shared` imports no feature | `frontend/web/tests/architecture.test.ts` |

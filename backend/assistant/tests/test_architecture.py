@@ -1,25 +1,25 @@
 """Enforces the structural rules declared in docs/architecture/architecture.md.
 
-Nine rules:
+Ten rules:
 
 1. Dependencies point inward - no inward layer imports a framework or the standard library's
-   I/O, or opens a file through the builtin ``open``.
-2. No inward layer imports the adapter layer, where the anti-corruption layers live.
-3. No context imports another context. Only ``shared`` is common ground.
-4. No context imports the composition root, where the frameworks are wired.
-5. No domain module names ``float``. Money is exact decimal, in both languages.
-6. No inward module reads the wall clock - not the domain, not a use case, not ``shared``.
+   I/O.
+2. No inward layer opens a file through the builtin ``open``.
+3. No inward layer imports the adapter layer, where the anti-corruption layers live.
+4. No context imports another context. Only ``shared`` is common ground.
+5. No context imports the composition root, where the frameworks are wired.
+6. No domain module names ``float``. Money is exact decimal, in both languages.
+7. No inward module reads the wall clock - not the domain, not a use case, not ``shared``.
    The caller passes the time in; the composition root reads the clock once.
-7. No inbound adapter imports an outbound one. A route reaches a client only through a use case.
-8. No domain module imports the application layer. The use cases call the domain, never the
+8. No inbound adapter imports an outbound one. A route reaches a client only through a use case.
+9. No domain module imports the application layer. The use cases call the domain, never the
    reverse - the inward half of ``LedgerArchitectureTest.layers_point_inward``.
-9. ``shared`` imports no context. It is the common ground every context may use, so a
+10. ``shared`` imports no context. It is the common ground every context may use, so a
    dependency from it onto one context would reach every other through it.
 
-Rules 5 and 6 mirror commitments the ledger already enforces or documents:
-``LedgerArchitectureTest.money_is_never_floating_point`` for the first, and the "pass the
-clock in" convention for the second, which every domain function here already follows and
-nothing checked.
+Rules 6 and 7 mirror rules the ledger enforces too:
+``LedgerArchitectureTest.money_is_never_floating_point`` for the first, and
+``LedgerArchitectureTest.clock_is_read_only_in_the_composition_root`` for the second.
 
 **These are checked statically, by parsing every source file, not by importing packages and
 inspecting sys.modules.** An earlier version did the latter and was blind by construction:
