@@ -160,6 +160,19 @@ class GatewayApplicationIT {
     }
 
     /**
+     * The probe Compose's healthcheck reads, since every healthcheck probes readiness (#142).
+     * Health above can answer while this one is missing: the readiness group exists
+     * only while {@code management.endpoint.health.probes.enabled} is on.
+     */
+    @Test
+    void Given_the_gateway_When_it_boots_Then_readiness_reports_up() throws Exception {
+        HttpResponse<String> response = get("/actuator/health/readiness");
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).contains("\"status\":\"UP\"");
+    }
+
+    /**
      * The budget that bounds every call this gateway makes to Keycloak — the authorization-code
      * exchange, the {@code refresh_token} grant and the JWK-set fetch — and every relayed request
      * besides.
