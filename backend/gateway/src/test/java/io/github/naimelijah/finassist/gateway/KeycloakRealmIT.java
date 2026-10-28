@@ -55,8 +55,9 @@ import tools.jackson.databind.node.StringNode;
  *       owner's forced password change and TOTP enrolment; and the gateway client's two audiences,
  *       both as its mappers and as the access token Keycloak would issue the owner through it. A
  *       key Keycloak ignored or renamed on import would leave {@link KeycloakRealmTest} green and
- *       the realm at Keycloak's own default, which for {@code registrationAllowed} would be off but
- *       for brute-force protection would be off too.
+ *       the realm at Keycloak's own default. For {@code registrationAllowed} that default is off,
+ *       so a lost key would be harmless; for {@code bruteForceProtected} it is off too, where the
+ *       realm asks for on, so a lost key would silently remove the protection.
  * </ul>
  *
  * <p>Every realm placeholder is supplied here as a container environment variable, because the
@@ -343,12 +344,8 @@ class KeycloakRealmIT {
      */
     @Test
     void Given_the_realm_as_imported_When_each_client_is_read_Then_neither_has_full_scope() throws Exception {
-        assertThat(importedClient("finassist-gateway").path("fullScopeAllowed").asBoolean())
-                .isFalse();
-        assertThat(importedClient("finassist-assistant")
-                        .path("fullScopeAllowed")
-                        .asBoolean())
-                .isFalse();
+        assertMember(importedClient("finassist-gateway"), "fullScopeAllowed", BooleanNode.FALSE);
+        assertMember(importedClient("finassist-assistant"), "fullScopeAllowed", BooleanNode.FALSE);
     }
 
     /**
