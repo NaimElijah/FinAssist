@@ -355,6 +355,13 @@ class GatewayLoginFlowIT {
         return cookieValue(client, "FINASSIST-XSRF-TOKEN");
     }
 
+    private static HttpCookie cookieNamed(List<HttpCookie> cookies, String name) {
+        return cookies.stream()
+                .filter(cookie -> cookie.getName().equals(name))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no " + name + " cookie in the jar"));
+    }
+
     private static String cookieValue(HttpClient client, String name) {
         CookieManager cookies = (CookieManager) client.cookieHandler().orElseThrow();
         return cookies.getCookieStore().getCookies().stream()
@@ -378,10 +385,16 @@ class GatewayLoginFlowIT {
      * {@code oidcLogin()}, which skips the callback's login filter and success handler and so
      * cannot see a cookie either of them adds. The jar is read whole, because the claim is "these
      * and nothing else", and every value in it is searched for each token the provider issued.
+     *
+     * <p>The sign-in rotates the session id and so re-issues the session cookie, which is why its
+     * flag is read here as well as where a session is first created ({@code GatewayApplicationIT}):
+     * the session cookie stays out of script's reach, and the CSRF cookie stays readable, because
+     * the web client must copy it into a header.
      */
     @Test
-    void Given_a_completed_sign_in_When_the_browsers_cookies_are_read_Then_it_holds_only_the_session_and_csrf_cookies()
-            throws Exception {
+    void
+            Given_a_completed_sign_in_When_the_browsers_cookies_are_read_Then_it_holds_only_an_httponly_session_cookie_and_a_readable_csrf_cookie()
+                    throws Exception {
         try (HttpClient client = newClient()) {
             signIn(client);
             List<String> tokens = List.of(idp.lastAccessToken(), idp.lastRefreshToken(), idp.lastIdToken());
@@ -393,6 +406,12 @@ class GatewayLoginFlowIT {
             assertThat(cookies)
                     .extracting(HttpCookie::getName)
                     .containsExactlyInAnyOrder(SESSION_COOKIE, "FINASSIST-XSRF-TOKEN");
+            assertThat(cookieNamed(cookies, SESSION_COOKIE).isHttpOnly())
+                    .as("the session cookie is HttpOnly")
+                    .isTrue();
+            assertThat(cookieNamed(cookies, "FINASSIST-XSRF-TOKEN").isHttpOnly())
+                    .as("the CSRF cookie is HttpOnly")
+                    .isFalse();
             for (HttpCookie cookie : cookies) {
                 for (String token : tokens) {
                     assertThat(cookie.getValue())
