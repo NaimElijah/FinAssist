@@ -66,8 +66,13 @@ import org.springframework.test.context.DynamicPropertySource;
         })
 class GatewayKeycloakTimeoutIT {
 
-    /** The outbound budget this context runs with, short so a bounded call fails quickly. */
-    static final String BUDGET = "1s";
+    /**
+     * The outbound budget this context runs with: short, so a bounded call fails quickly, but not
+     * so short that it fails the calls each case needs to succeed. It bounds every call to the fake
+     * provider, so the cold code exchange and JWK fetch of the refresh case's sign-in share it, and
+     * a one-second budget failed that sign-in ({@code ?signin=failed}) on a loaded machine.
+     */
+    static final String BUDGET = "3s";
 
     /** How long the gateway may take to answer once Keycloak has stopped answering it. */
     private static final Duration ANSWER_LIMIT = Duration.ofSeconds(20);
