@@ -1,6 +1,8 @@
 package io.github.naimelijah.finassist.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
@@ -10,6 +12,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -74,6 +78,25 @@ class LedgerAuthorizationIT extends PostgresFixture {
     private static final String REFUSAL_MESSAGE = "Refused a request with no valid bearer token";
 
     private static final JsonMapper LOG_JSON = JsonMapper.shared();
+
+    /**
+     * Every field a refusal line may carry, as dotted paths to its leaves: the fixed ECS fields
+     * Logback's structured format writes for any line, the trace context, and {@code reason}. A field
+     * outside it is something the entry point chose to add, and the place a token would arrive.
+     */
+    private static final Set<String> REFUSAL_LINE_FIELDS = Set.of(
+            "@timestamp",
+            "log.level",
+            "log.logger",
+            "process.pid",
+            "process.thread.name",
+            "service.name",
+            "service.node",
+            "ecs.version",
+            "message",
+            "traceId",
+            "spanId",
+            "reason");
 
     /**
      * The method a mapping that names none is inventoried under. A {@code @RequestMapping} with no
@@ -247,6 +270,7 @@ class LedgerAuthorizationIT extends PostgresFixture {
     void Given_a_bad_token_When_an_endpoint_is_requested_Then_it_is_401_invalid_token(String token) throws Exception {
         mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isUnauthorized())
+                .andExpect(content().string(not(containsString(token))))
                 .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\""))
                 .andExpect(problem(UNAUTHENTICATED));
     }
@@ -290,6 +314,21 @@ class LedgerAuthorizationIT extends PostgresFixture {
         assertThat(refusal.path("reason").asString())
                 .as("reason of %s", refusal)
                 .isEqualTo(reason);
+        assertThat(refusal.path("message").asString())
+                .as("message of %s", refusal)
+                .isEqualTo(REFUSAL_MESSAGE + ": " + reason);
+        assertThat(leafFields(refusal, "")).as("fields of %s", refusal).isSubsetOf(REFUSAL_LINE_FIELDS);
+    }
+
+    /** The dotted path to every leaf of a log line; an empty object, such as ECS's {@code service.node}, is a leaf. */
+    private static List<String> leafFields(JsonNode node, String prefix) {
+        if (!node.isObject() || node.isEmpty()) {
+            return List.of(prefix);
+        }
+        return node.propertyStream()
+                .flatMap(member -> leafFields(member.getValue(), prefix + member.getKey() + ".").stream())
+                .map(path -> path.endsWith(".") ? path.substring(0, path.length() - 1) : path)
+                .toList();
     }
 
     /**
@@ -304,7 +343,27 @@ class LedgerAuthorizationIT extends PostgresFixture {
             throws Exception {
         mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
 
-        assertThat(output.getOut()).doesNotContain(token);
+        assertThat(output.getAll())
+                .as("stdout and stderr while refusing a bad token")
+                .doesNotContain(ownPartsOf(token).toArray(String[]::new))
+                .doesNotContain(TestTokens.WRONG_ISSUER);
+    }
+
+    /**
+     * What a log must never carry of a token: the whole of it, its payload and signature segments each
+     * on their own, and the subject it names. The header segment is left out, since every token signed
+     * by one key shares it.
+     */
+    private static List<String> ownPartsOf(String token) {
+        String[] segments = token.split("\\.", -1);
+        List<String> parts = new ArrayList<>(List.of(token));
+        Arrays.stream(segments).skip(1).filter(segment -> !segment.isEmpty()).forEach(parts::add);
+        JsonNode subject =
+                LOG_JSON.readTree(Base64.getUrlDecoder().decode(segments[1])).path("sub");
+        if (subject.isString()) {
+            parts.add(subject.asString());
+        }
+        return parts;
     }
 
     /**

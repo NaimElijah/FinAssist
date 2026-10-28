@@ -43,7 +43,9 @@ public final class TestTokens {
     /** Matches the ledger's fixed audience (ADR-030; not a setting). */
     static final String AUDIENCE = "finassist-ledger";
 
-    private static final String WRONG_ISSUER = "http://attacker.example/realms/finassist";
+    /** Package-visible so a test can assert it never reaches the log. */
+    static final String WRONG_ISSUER = "http://attacker.example/realms/finassist";
+
     private static final String WRONG_AUDIENCE = "finassist-assistant-impersonation";
 
     /**
