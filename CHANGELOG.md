@@ -507,6 +507,11 @@ history; write the commit message well and this file writes itself.
 
 ### Security
 
+- **Four dev-only dependencies move past advisories that turned the audits red on `dev`.**
+  `filelock` 4.2.4 and `msgpack` 1.2.4, under `pip-audit`'s own cache; `undici` 8.12.3, under
+  `jsdom`, and `zod` 4.6.7, under `eslint-plugin-react-hooks`, in the web client's tests and
+  lint. None reaches the built app or the running assistant
+  ([#338](https://github.com/NaimElijah/FinAssist/issues/338)).
 - **A traced assistant no longer stalls on a hostile `tracestate` header.** OpenTelemetry 1.44.0
   parsed the header in quadratic time, before the Host allow-list or any authentication ran. With
   `OTEL_EXPORT_ENABLED` on, one unauthenticated 100 KB header would cost about 20 s of CPU, and
