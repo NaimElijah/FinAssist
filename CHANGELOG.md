@@ -186,6 +186,25 @@ history; write the commit message well and this file writes itself.
 
 ### Changed
 
+- **Every test suite was scanned against the requirements, and the gaps it found are closed.**
+  Scan 1 of M0 reviewed the ledger's, the gateway's, the assistant's, the web client's and the
+  ops suites as a whole, mapped each rule in `docs/requirements/requirements.md` to the test
+  that proves it, and fixed what could not fail. Among the gains:
+  - the ledger reads the clock only in its composition root, refuses floating point however it
+    enters, pins every released migration's SHA-256 and order, and proves the journal refuses
+    UPDATE and DELETE on all three tables;
+  - the realm test sweeps the whole file for literal secrets, and the realm IT reads the sign-in
+    rules back from the real Keycloak;
+  - the assistant's architecture rules no longer skip, and each layer's rule fails if its layer
+    is empty;
+  - the backup tests prove every restore precondition refuses before writing;
+  - tests no longer read the developer's environment or the wall clock.
+
+  Production code is unchanged apart from the web client's decimal check, under Fixed. Found and filed
+  rather than fixed: [#350](https://github.com/NaimElijah/FinAssist/issues/350),
+  [#351](https://github.com/NaimElijah/FinAssist/issues/351) and
+  [#352](https://github.com/NaimElijah/FinAssist/issues/352)
+  ([#338](https://github.com/NaimElijah/FinAssist/issues/338)).
 - **Keycloak is 26.8.1. Take `make backup` before the next `make run`.** Keycloak migrates its
   database on its first start and cannot be downgraded afterwards. `keycloak-db` stays on
   PostgreSQL 17, which 26.8 supports; moving it to 18 is
@@ -222,6 +241,12 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **The web client refuses a decimal that arrives as a JSON number, on every read.** Every decimal
+  is a string on the wire (ADR-028), but only accounting checked; budgeting, planning and
+  portfolio passed amounts, quantities and growth rates through. A service sending a JSON number,
+  already rounded by `JSON.parse`, would have had a wrong figure shown with no error. The check
+  now lives in `src/shared/api/decimal.ts`, and each feature's reads refuse one with
+  `ApiBodyError` ([#338](https://github.com/NaimElijah/FinAssist/issues/338)).
 - **`make mutation-ledger` runs again.** It had aborted before its first mutant since
   2026-09-14. `LedgerContractIT` reads a system property only Surefire and Failsafe set, so it
   failed under PIT. The mutation profile now leaves it out, as it already leaves out the other ITs
