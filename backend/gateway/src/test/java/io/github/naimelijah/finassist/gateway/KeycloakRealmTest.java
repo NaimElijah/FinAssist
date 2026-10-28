@@ -86,23 +86,22 @@ class KeycloakRealmTest {
     private static final Pattern BARE_PLACEHOLDER = Pattern.compile("^\\$\\{[A-Z_][A-Z0-9_]*}$");
 
     private static JsonNode realm() {
+        return JSON.readTree(rawText());
+    }
+
+    /** The realm file, located through {@value #OPS_DIR_PROPERTY}, failing loudly when it is unset. */
+    private static Path realmFile() {
         String directory = System.getProperty(OPS_DIR_PROPERTY);
         if (directory == null) {
             throw new IllegalStateException(OPS_DIR_PROPERTY
                     + " is not set. Failsafe and surefire set it in pom.xml; run this test through Maven, or"
                     + " pass -D" + OPS_DIR_PROPERTY + "=<repository>/ops.");
         }
-        Path file = Path.of(directory, "keycloak", REALM_FILE).toAbsolutePath().normalize();
-        try {
-            return JSON.readTree(Files.readString(file));
-        } catch (Exception e) {
-            throw new IllegalStateException("could not read " + file, e);
-        }
+        return Path.of(directory, "keycloak", REALM_FILE).toAbsolutePath().normalize();
     }
 
     private static String rawText() {
-        String directory = System.getProperty(OPS_DIR_PROPERTY);
-        Path file = Path.of(directory, "keycloak", REALM_FILE).toAbsolutePath().normalize();
+        Path file = realmFile();
         try {
             return Files.readString(file);
         } catch (Exception e) {
