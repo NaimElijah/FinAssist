@@ -99,7 +99,10 @@ bounded context (ADR-006, ADR-024).
   `ignoreMigrationPatterns`, which would start the ledger with the column missing (ADR-035).
 - **Each context's migrations live in `src/main/resources/db/migration/<context>/`, under the
   major version that context owns** — `accounting` 1, `budgeting` 2, `planning` 3 — so the next
-  accounting migration is `V1_3__<description>.sql`.
+  accounting migration is `V1_3__<description>.sql`. `ReleasedMigrationsTest` fails a script whose
+  major is not its directory's, and records each released script's SHA-256 in release order:
+  append the new one at the end, above every version its context has released, and never change a
+  digest once it is merged to `dev`.
 - **No foreign key crosses a schema.** `SchemaBoundariesIT` fails the build if one does. It is the
   storage-layer half of `contexts_do_not_depend_on_each_other`, which reads bytecode and so stops
   at the edge of the JVM.
