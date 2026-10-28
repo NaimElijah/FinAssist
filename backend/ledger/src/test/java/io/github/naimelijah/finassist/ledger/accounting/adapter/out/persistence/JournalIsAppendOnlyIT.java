@@ -139,13 +139,28 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
      * of ADR-033's obligation, proven the way this file proves the rest of ADR-020: against the
      * database directly, not through the repository. Each table carries its own constraint, so each
      * is tried with every shape the constraint exists to refuse: no recorder, a blank one, and one
-     * past {@code Actor.MAX_SUBJECT_LENGTH}.
+     * past {@code Actor.MAX_SUBJECT_LENGTH}. "No recorder" here is an explicit {@code NULL}; the case
+     * below leaves the column out instead.
      */
     @ParameterizedTest(name = "{0}, {1}")
     @MethodSource("refusedRecorders")
     void Given_a_new_journal_row_When_inserted_with_an_unusable_recorder_Then_the_database_refuses_it(
             String table, String shape, String recordedBy) {
         assertThatThrownBy(() -> insertWithRecorder(table, recordedBy))
+                .hasMessageContaining(table + "_recorded_by_shape");
+    }
+
+    /**
+     * An insert that does not name {@code recorded_by} at all takes the column's default. The default
+     * is {@code NULL} today, so the {@code CHECK} refuses the row; a {@code SET DEFAULT current_user},
+     * or any other default, would quietly attribute the row to whoever the connection is, which is not
+     * the token's subject. The explicit-{@code NULL} case above never reads the default, so only this
+     * one fails for it.
+     */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {TRANSACTION_TABLE, STATE_TABLE})
+    void Given_a_new_journal_row_When_inserted_without_naming_its_recorder_Then_the_database_refuses_it(String table) {
+        assertThatThrownBy(() -> insertWithoutNamingTheRecorder(table))
                 .hasMessageContaining(table + "_recorded_by_shape");
     }
 
@@ -193,6 +208,24 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
                     .param("id", recorded.id().value())
                     .param("on", MARCH_3)
                     .param("recordedBy", recordedBy)
+                    .update();
+        }
+    }
+
+    /** {@link #insertWithRecorder}'s rows, with {@code recorded_by} left out of the column list. */
+    private void insertWithoutNamingTheRecorder(String table) {
+        if (table.equals(TRANSACTION_TABLE)) {
+            jdbc().sql("INSERT INTO accounting.journal_transaction (id, occurred_on, description, currency)"
+                            + " VALUES (:id, :on, 'Groceries', 'ILS')")
+                    .param("id", TransactionId.generate().value())
+                    .param("on", MARCH_1)
+                    .update();
+        } else {
+            Transaction recorded = record("12.50");
+            jdbc().sql("INSERT INTO accounting.journal_transaction_state (transaction_id, sequence, state,"
+                            + " effective_on, reason) VALUES (:id, 1, 'CLEARED', :on, NULL)")
+                    .param("id", recorded.id().value())
+                    .param("on", MARCH_3)
                     .update();
         }
     }
