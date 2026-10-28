@@ -66,8 +66,9 @@ import tools.jackson.databind.json.JsonMapper;
  *       refused {@code invalid_grant}, as Keycloak refuses it, so the sign-in itself fails rather
  *       than a flag alone recording the mismatch.
  *   <li>{@link #lastAccessToken()}, {@link #lastRefreshToken()} and {@link #lastIdToken()} — the
- *       exact values last issued — and {@link #lastCodeVerifier()}, the PKCE verifier the gateway
- *       last presented, for the log sweep to search for.
+ *       exact values last issued — {@link #lastCodeVerifier()}, the PKCE verifier the gateway last
+ *       presented, and {@link #lastClientAuthorization()}, the {@code Authorization} header its last
+ *       token request carried, for the log sweep to search for.
  *   <li>the token endpoint authenticates the client as Keycloak does for a confidential one:
  *       {@code Authorization: Basic} carrying {@code finassist-gateway} and the secret this fake
  *       was built with, refused {@code 401 invalid_client} otherwise. A {@code refresh_token} grant
@@ -118,6 +119,7 @@ public final class FakeOpenIdProvider implements AutoCloseable {
     private final AtomicReference<String> lastRefreshToken = new AtomicReference<>();
     private final AtomicReference<String> lastIdToken = new AtomicReference<>();
     private final AtomicReference<String> lastCodeVerifier = new AtomicReference<>();
+    private final AtomicReference<String> lastClientAuthorization = new AtomicReference<>();
     private volatile boolean lastAuthorizationRequestHadPkce;
     private volatile boolean lastTokenRequestPassedPkce;
     private volatile boolean lastTokenRequestAuthenticatedClient;
@@ -282,6 +284,15 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         return lastCodeVerifier.get();
     }
 
+    /**
+     * The {@code Authorization} header the last token request carried, whether or not it
+     * authenticated: under {@code client_secret_basic}, the form in which the client secret
+     * actually leaves the gateway, since the secret itself never travels alone.
+     */
+    public String lastClientAuthorization() {
+        return lastClientAuthorization.get();
+    }
+
     @Override
     public void close() {
         releaseStalledRequests();
@@ -311,8 +322,9 @@ public final class FakeOpenIdProvider implements AutoCloseable {
         }
         Map<String, String> form =
                 parseFormEncoded(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-        lastTokenRequestAuthenticatedClient =
-                clientAuthenticated(exchange.getRequestHeaders().getFirst("Authorization"));
+        String authorization = exchange.getRequestHeaders().getFirst("Authorization");
+        lastClientAuthorization.set(authorization);
+        lastTokenRequestAuthenticatedClient = clientAuthenticated(authorization);
         if (!lastTokenRequestAuthenticatedClient) {
             respondJson(exchange, 401, "{\"error\":\"invalid_client\"}");
             return;

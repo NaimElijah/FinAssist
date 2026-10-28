@@ -684,7 +684,7 @@ still no bare `token`, so a token count survives.
   `LedgerAuthorizationIT.Given_any_bad_token_When_refused_Then_the_log_never_contains_that_token`,
   `test_authorization.py::Given_a_refused_token_When_answered_Then_a_correlation_id_is_carried_and_only_the_reason_logged`,
   and
-  `GatewayLoginFlowIT.Given_a_login_and_a_refused_refresh_When_the_logs_are_swept_Then_no_token_code_or_session_value_appears`.
+  `GatewayLoginFlowIT.Given_a_sign_in_a_refresh_a_sign_out_and_a_refused_refresh_When_the_logs_are_swept_Then_no_secret_appears_in_any_form`.
 
 **The authenticated stack has six limits as built**, each accepted in the ADR named:
 

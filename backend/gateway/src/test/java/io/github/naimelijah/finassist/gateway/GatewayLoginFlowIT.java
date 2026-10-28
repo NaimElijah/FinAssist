@@ -15,13 +15,16 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URI;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -111,6 +114,12 @@ class GatewayLoginFlowIT {
      * requires it, so a capture that holds no gateway line at all cannot pass for a clean one.
      */
     private static final String REFUSED_REFRESH_LINE = "A relay's authorization could not be renewed";
+
+    /** The scheme {@code client_secret_basic} credentials travel under. */
+    private static final String BASIC_PREFIX = "Basic ";
+
+    /** Trailing base64 padding, which an unpadded encoding of the same bytes leaves off. */
+    private static final Pattern BASE64_PADDING = Pattern.compile("=+$");
 
     /** A disposal request body, shaped like the assistant's, so the relayed POST really carries one. */
     private static final String DISPOSAL_BODY =
@@ -881,57 +890,112 @@ class GatewayLoginFlowIT {
     /**
      * The end-to-end half of the guarantee {@code SignInFailureHandlerTest} already pins at the
      * unit level: nothing this flow logs carries a value that would let a reader impersonate the
-     * session or redeem anything on the owner's behalf. A refused refresh is the highest-risk
-     * moment in the whole relay, so it is the one this sweep deliberately drives through.
+     * session or redeem anything on the owner's behalf.
      *
-     * <p>Every secret value the flow handles is searched for: the three tokens, the authorization
-     * {@code code} and {@code state} the browser carried to the callback, the PKCE verifier, the
-     * client secret, the CSRF token, and the session id both before and after the sign-in. The
-     * refused refresh's own WARN line must be there too: without it, a capture that saw none of
-     * the gateway's output would pass this test as easily as a clean log.
+     * <p>Two browsers, so that every moment a secret is handled falls inside one capture. The first
+     * signs in, makes a relay that must refresh its expired access token first - a successful
+     * refresh and a successful relay, so the second generation of tokens is in play too - and signs
+     * out, which hands the ID token back as {@code id_token_hint}. The second signs in and makes a
+     * relay whose refresh the provider refuses, the highest-risk moment in the whole relay.
+     *
+     * <p>Every secret value those flows handle is searched for: both generations of tokens, the
+     * authorization {@code code} and {@code state} each browser carried to the callback, each PKCE
+     * verifier, the client's {@code Basic} credentials as they left for the token endpoint, the
+     * client secret, each CSRF token, and each session id before and after its sign-in. The code
+     * and the state are searched in every form a log line could carry them: decoded, URL-encoded
+     * as a logged query holds them, and without base64 padding, because Spring's {@code state} is
+     * padded base64url whose {@code =} a query carries as {@code %3D}. The refused refresh's own
+     * WARN line must be there too: without it, a capture that saw none of the gateway's output
+     * would pass this test as easily as a clean log.
      */
     @Test
-    void Given_a_login_and_a_refused_refresh_When_the_logs_are_swept_Then_no_token_code_or_session_value_appears(
-            CapturedOutput output) throws Exception {
-        try (HttpClient client = newClient()) {
-            idp.setAccessTokenExpiresInSeconds(-120);
+    void
+            Given_a_sign_in_a_refresh_a_sign_out_and_a_refused_refresh_When_the_logs_are_swept_Then_no_secret_appears_in_any_form(
+                    CapturedOutput output) throws Exception {
+        List<String> secrets = new ArrayList<>(List.of(CLIENT_SECRET));
+        idp.setAccessTokenExpiresInSeconds(-120);
+        try (HttpClient browser = newClient()) {
+            secrets.addAll(signInRecordingSecrets(browser));
+            String idToken = idp.lastIdToken();
+            String signInAccessToken = idp.lastAccessToken();
+            idp.setAccessTokenExpiresInSeconds(300);
+
+            HttpResponse<String> relayed = relay(browser, "/ledger/api/v1/accounts");
+            assertThat(relayed.statusCode()).isEqualTo(200);
+            assertThat(idp.lastAccessToken())
+                    .as("the access token after the refresh")
+                    .isNotEqualTo(signInAccessToken);
+            assertThat(ledger.lastRequest().header("authorization"))
+                    .as("the relay carried the refreshed access token")
+                    .isEqualTo("Bearer " + idp.lastAccessToken());
+            secrets.addAll(List.of(idp.lastAccessToken(), idp.lastRefreshToken()));
+
+            HttpResponse<String> signedOut = relayPost(browser, "/bff/logout", csrfTokenValue(browser));
+            assertThat(signedOut.statusCode()).isEqualTo(200);
+            assertThat(signedOut.body())
+                    .as("the sign-out handed the ID token back as id_token_hint")
+                    .contains(idToken);
+        }
+        idp.setAccessTokenExpiresInSeconds(-120);
+        try (HttpClient browser = newClient()) {
+            secrets.addAll(signInRecordingSecrets(browser));
             idp.refuseNextRefresh();
 
-            URI authorizeUri = startLogin(client);
-            String preSignInSession = sessionCookieValue(client);
-            URI authorizationResponse = authorizationResponse(client, authorizeUri);
-            String code = queryParam(authorizationResponse, "code");
-            String state = queryParam(authorizationResponse, "state");
-            HttpResponse<Void> callback =
-                    sendCallback(client, authorizationResponse.getPath(), authorizationResponse.getQuery());
-            assertThat(callback.headers().firstValue("Location")).hasValue(WEB_ORIGIN + "/");
-            String accessToken = idp.lastAccessToken();
-            String refreshToken = idp.lastRefreshToken();
-            String idToken = idp.lastIdToken();
-            String codeVerifier = idp.lastCodeVerifier();
-            String sessionCookie = sessionCookieValue(client);
-            String csrfToken = csrfTokenValue(client);
-
-            HttpResponse<String> response = relay(client, "/ledger/api/v1/accounts");
-            assertThat(response.statusCode()).isEqualTo(401);
-
-            String logs = output.getAll();
-            assertThat(logs).as("the capture holds the gateway's own output").contains(REFUSED_REFRESH_LINE);
-            assertThat(List.of(code, state, codeVerifier, csrfToken, preSignInSession))
-                    .as("values the sweep searches for")
-                    .allSatisfy(value -> assertThat(value).isNotBlank());
-            assertThat(logs)
-                    .doesNotContain(accessToken)
-                    .doesNotContain(refreshToken)
-                    .doesNotContain(idToken)
-                    .doesNotContain(code)
-                    .doesNotContain(state)
-                    .doesNotContain(codeVerifier)
-                    .doesNotContain(CLIENT_SECRET)
-                    .doesNotContain(csrfToken)
-                    .doesNotContain(preSignInSession)
-                    .doesNotContain(sessionCookie);
+            HttpResponse<String> refused = relay(browser, "/ledger/api/v1/accounts");
+            assertThat(refused.statusCode()).isEqualTo(401);
         }
+
+        String logs = output.getAll();
+        assertThat(logs).as("the capture holds the gateway's own output").contains(REFUSED_REFRESH_LINE);
+        assertThat(secrets)
+                .as("values the sweep searches for")
+                .allSatisfy(value -> assertThat(value).isNotBlank());
+        assertThat(secrets.stream().filter(logs::contains).toList())
+                .as("secret values found in the captured logs")
+                .isEmpty();
+    }
+
+    /**
+     * A successful sign-in, returning every secret value it put in play: the code and state in
+     * each {@link #loggableForms} form, the PKCE verifier, the three tokens issued, the client's
+     * {@code Basic} credentials, the CSRF token, and the session id before and after.
+     */
+    private List<String> signInRecordingSecrets(HttpClient client) throws Exception {
+        URI authorizeUri = startLogin(client);
+        String preSignInSession = sessionCookieValue(client);
+        URI authorizationResponse = authorizationResponse(client, authorizeUri);
+        String code = queryParam(authorizationResponse, "code");
+        String state = queryParam(authorizationResponse, "state");
+
+        // The provider's query exactly as it encoded it, as a browser would carry it, so the padded
+        // state reaches the gateway as %3D rather than re-encoded by sendCallback.
+        HttpResponse<Void> callback = getFollowingNothing(
+                client, gatewayUrl(authorizationResponse.getRawPath() + "?" + authorizationResponse.getRawQuery()));
+
+        assertThat(callback.headers().firstValue("Location")).hasValue(WEB_ORIGIN + "/");
+        String clientAuthorization = idp.lastClientAuthorization();
+        assertThat(clientAuthorization).as("the token request's Authorization").startsWith(BASIC_PREFIX);
+        List<String> secrets = new ArrayList<>();
+        secrets.addAll(loggableForms(code));
+        secrets.addAll(loggableForms(state));
+        secrets.addAll(List.of(
+                idp.lastCodeVerifier(),
+                idp.lastAccessToken(),
+                idp.lastRefreshToken(),
+                idp.lastIdToken(),
+                clientAuthorization.substring(BASIC_PREFIX.length()),
+                csrfTokenValue(client),
+                preSignInSession,
+                sessionCookieValue(client)));
+        return secrets;
+    }
+
+    /** {@code value} decoded, URL-encoded, and with any trailing base64 padding removed. */
+    private static List<String> loggableForms(String value) {
+        return List.of(
+                value,
+                URLEncoder.encode(value, StandardCharsets.UTF_8),
+                BASE64_PADDING.matcher(value).replaceAll(""));
     }
 
     /**
