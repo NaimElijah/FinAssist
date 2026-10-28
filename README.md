@@ -476,7 +476,8 @@ Implement the out-port in `adapter/out/persistence/`, with a Flyway migration un
 `src/main/resources/db/migration/<context>/`, and expose the use case from a controller in
 `adapter/in/web/`. Wire it in `composition/`, and give its URL a rule in
 `LedgerSecurityConfiguration` (`LedgerAuthorizationIT` fails on an endpoint without one).
-Regenerate the contract and the web types, and map the new wire type in the web feature's `api/`.
+Regenerate the contract and the web types, and map the new wire type in the web feature's `api/`,
+passing each decimal member through `decimalString`.
 `LedgerArchitectureTest` fails the build if any dependency points the wrong way.
 
 **Conventions.** Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
