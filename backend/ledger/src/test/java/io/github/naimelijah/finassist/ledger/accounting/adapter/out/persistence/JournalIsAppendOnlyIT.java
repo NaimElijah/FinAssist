@@ -18,6 +18,8 @@ import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -48,47 +50,31 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
     @Autowired
     private TransactionRepository transactions;
 
-    @Test
-    void Given_a_recorded_entry_When_an_update_is_attempted_Then_the_database_refuses_it() {
+    /**
+     * Every statement the trigger exists to refuse, on every table it guards. {@code
+     * journal_transaction_state} has no foreign key pointing at it, so nothing but the trigger stops a
+     * {@code DELETE} of a {@code RECONCILED} row from quietly reverting the transaction to its previous
+     * state; {@code journal_transaction}'s own {@code DELETE} would otherwise be refused only by the
+     * foreign keys, for a reason that disappears with its children. The message names the operation
+     * and the table, so each case proves its own trigger fired rather than a neighbour's.
+     */
+    @ParameterizedTest(name = "{0} on {1}")
+    @CsvSource(delimiter = '|', quoteCharacter = '"', textBlock = """
+            UPDATE | journal_transaction       | UPDATE accounting.journal_transaction SET description = 'tampered' WHERE id = :id
+            DELETE | journal_transaction       | DELETE FROM accounting.journal_transaction WHERE id = :id
+            UPDATE | journal_entry             | UPDATE accounting.journal_entry SET amount = 1 WHERE transaction_id = :id
+            DELETE | journal_entry             | DELETE FROM accounting.journal_entry WHERE transaction_id = :id
+            UPDATE | journal_transaction_state | UPDATE accounting.journal_transaction_state SET state = 'VOIDED' WHERE transaction_id = :id
+            DELETE | journal_transaction_state | DELETE FROM accounting.journal_transaction_state WHERE transaction_id = :id
+            """)
+    void Given_a_recorded_transaction_When_a_row_is_updated_or_deleted_Then_the_database_refuses_it(
+            String operation, String table, String statement) {
         Transaction recorded = record("12.50");
 
-        assertThatThrownBy(() -> jdbc().sql("UPDATE accounting.journal_entry SET amount = 1 WHERE transaction_id = :id")
-                        .param("id", recorded.id().value())
-                        .update())
-                .hasMessageContaining("append-only")
-                .hasMessageContaining("ADR-020");
-    }
-
-    @Test
-    void Given_a_recorded_entry_When_a_delete_is_attempted_Then_the_database_refuses_it() {
-        Transaction recorded = record("12.50");
-
-        assertThatThrownBy(() -> jdbc().sql("DELETE FROM accounting.journal_entry WHERE transaction_id = :id")
-                        .param("id", recorded.id().value())
-                        .update())
-                .hasMessageContaining("append-only");
-    }
-
-    @Test
-    void Given_a_recorded_transaction_When_its_description_is_rewritten_Then_the_database_refuses_it() {
-        Transaction recorded = record("12.50");
-
-        assertThatThrownBy(() -> jdbc().sql(
-                                "UPDATE accounting.journal_transaction SET description = 'tampered' WHERE id = :id")
-                        .param("id", recorded.id().value())
-                        .update())
-                .hasMessageContaining("append-only");
-    }
-
-    @Test
-    void Given_a_stored_state_When_it_is_overwritten_Then_the_database_refuses_it() {
-        Transaction recorded = record("12.50");
-
-        assertThatThrownBy(() -> jdbc().sql("UPDATE accounting.journal_transaction_state SET state = 'VOIDED' WHERE"
-                                + " transaction_id = :id")
-                        .param("id", recorded.id().value())
-                        .update())
-                .hasMessageContaining("append-only");
+        assertThatThrownBy(() ->
+                        jdbc().sql(statement).param("id", recorded.id().value()).update())
+                .hasMessageContaining("the journal is append-only: " + operation + " on accounting." + table
+                        + " is refused (ADR-020)");
     }
 
     /**
