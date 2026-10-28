@@ -9,6 +9,9 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.AccessTarget;
+import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
@@ -17,11 +20,13 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -179,6 +184,43 @@ class LedgerArchitectureTest {
             .dependOnClassesThat()
             .resideInAPackage(COMPOSITION)
             .because("frameworks and cross-context translation travel inward only through declared ports");
+
+    /**
+     * The clock is read once, in the composition root, and passed down (root {@code CLAUDE.md}, "Pass
+     * the clock in"). A domain transition takes a date, a projection its horizon, a use case its dates
+     * as arguments; a {@code now()} anywhere else makes that code depend on when it runs, which no
+     * test can pin.
+     *
+     * <p>A method reference counts as a read, not only a call: {@code Instant::now} handed to a
+     * supplier reads the clock as surely as calling it, and is the form a call-only rule would miss.
+     * Every {@code now} overload is refused, the {@code Clock}-taking ones too, because the place to
+     * turn a {@code Clock} into a date is the composition root, which is the one package exempt.
+     */
+    @ArchTest
+    static final ArchRule clock_is_read_only_in_the_composition_root = noClasses()
+            .that()
+            .resideOutsideOfPackage(COMPOSITION)
+            .should()
+            .accessTargetWhere(readsTheClock())
+            .because("the clock is read once, in the composition root, and passed down as a value");
+
+    private static final Set<String> SYSTEM_CLOCK_METHODS = Set.of("currentTimeMillis", "nanoTime");
+
+    private static DescribedPredicate<JavaAccess<?>> readsTheClock() {
+        return new DescribedPredicate<>(
+                "read the clock: java.time *.now, Clock.system*, System.currentTimeMillis" + " or System.nanoTime") {
+            @Override
+            public boolean test(JavaAccess<?> access) {
+                AccessTarget target = access.getTarget();
+                JavaClass owner = target.getOwner();
+                String name = target.getName();
+                boolean timeNow = owner.getPackageName().startsWith("java.time") && name.equals("now");
+                boolean systemClock = owner.isEquivalentTo(Clock.class) && name.startsWith("system");
+                boolean systemTime = owner.isEquivalentTo(System.class) && SYSTEM_CLOCK_METHODS.contains(name);
+                return timeNow || systemClock || systemTime;
+            }
+        };
+    }
 
     /**
      * The application layer is wired by constructor, not by the container.
