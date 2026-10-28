@@ -198,7 +198,8 @@ history; write the commit message well and this file writes itself.
   - the assistant's architecture rules no longer skip, and each layer's rule fails if its layer
     is empty;
   - the backup tests prove every restore precondition refuses before writing;
-  - tests no longer read the developer's environment or the wall clock.
+  - tests no longer depend on the developer's environment, and the token tests run on a fixed
+    clock.
 
   Production code is unchanged apart from the web client's decimal check, under Fixed. Found and filed
   rather than fixed: [#350](https://github.com/NaimElijah/FinAssist/issues/350),

@@ -858,7 +858,7 @@ the classes and tests that enforce them in
 | **No web feature imports another**, and `shared` imports no feature | `frontend/web/tests/architecture.test.ts` |
 | **`src/app` imports a web feature only through its `index.ts`**, and no feature imports `src/app` | `frontend/web/tests/architecture.test.ts` (`composition direction`) |
 | **`src/shared` imports nothing from `src/app`**, the composition root nothing may import back into | `frontend/web/tests/architecture.test.ts` |
-| **A web feature's layers point inward** — `types`, then `api`, `hooks`, `components` — its root is imported only by tests, and only its `api/` imports a generated contract type | `frontend/web/tests/architecture.test.ts` (`layers inside a feature`) |
+| **A web feature's layers point inward** — `types`, then `api`, `hooks`, `components` — its root is imported, from inside the feature, only by tests, and only its `api/` imports a generated contract type | `frontend/web/tests/architecture.test.ts` (`layers inside a feature`) |
 | **No web import uses a computed specifier**, so every import is one the rules above can check; specifiers are read with the TypeScript parser, dynamic imports and `vi.mock` included | `frontend/web/tests/architecture.test.ts` |
 | **Every `@Value` placeholder in the ledger's production code resolves from `application.yml` alone**, with no environment and no container | `ApplicationYmlPlaceholdersTest` |
 | **Every endpoint the running ledger maps is in a named inventory**, so one added without a URL rule fails the build rather than shipping open | `LedgerAuthorizationIT.Given_the_running_ledger_When_its_handler_mappings_are_read_Then_they_equal_the_named_inventory` |
