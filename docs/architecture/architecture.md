@@ -528,7 +528,8 @@ own route strips `/ledger` and relays to the ledger once the session is authenti
 [ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) → the ledger's
 own path, below, answers 200 with the projection, or a problem → the response maps onto the
 feature's `Projection`, refusing one with no points, with a step or currency the contract does
-not name, or with an amount or growth rate that is not a decimal string → the callout states the first shortfall, or that there is none at that cadence, with the
+not name, or with an amount that is not a decimal string →
+the callout states the first shortfall, or that there is none at that cadence, with the
 within-step caveat; `ProjectionChart` places each point through `scalePoints`, the one place an
 amount becomes a number, and labels its extremes and horizon with the ledger's own strings through
 `MoneyText` and `DateText` (ADR-029); a `DataTable` lists every step. A 404 `SCENARIO_NOT_FOUND` or
