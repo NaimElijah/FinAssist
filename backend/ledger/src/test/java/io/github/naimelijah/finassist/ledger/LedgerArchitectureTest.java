@@ -269,11 +269,12 @@ class LedgerArchitectureTest {
      * A domain field named after one of those quantities is the bug that rule exists to prevent — a
      * value that can drift from the facts it was derived from.
      *
-     * <p>Scoped by name, with two exemptions that hold no stored quantity: {@code
+     * <p>Scoped by name, with two exempt fields that hold no stored quantity: {@code
      * AccountType.normalBalance} is the side a balance sits on, a constant of the type rather than an
-     * amount; {@code Comparison} is itself a derived value, computed per request from the projections
-     * it holds and never persisted. Its storage-side half is {@code
-     * SchemaBoundariesIT}'s refusal of a column with such a name.
+     * amount; {@code Comparison.projections} is held by a value that is itself derived, computed per
+     * request from its projections and never persisted. Any other field of {@code Comparison} is held
+     * to the rule. Its storage-side half is {@code SchemaBoundariesIT}'s refusal of a column with such a
+     * name.
      */
     @ArchTest
     static final ArchRule derived_quantities_are_never_stored = noFields()
@@ -283,7 +284,7 @@ class LedgerArchitectureTest {
             .and()
             .doNotHaveFullName(AccountType.class.getName() + ".normalBalance")
             .and()
-            .areNotDeclaredIn(Comparison.class)
+            .doNotHaveFullName(Comparison.class.getName() + ".projections")
             .should()
             .haveNameMatching(DERIVED_QUANTITY_NAME)
             .because("a balance, a spend, a remainder or a projection is derived on every read, never stored");

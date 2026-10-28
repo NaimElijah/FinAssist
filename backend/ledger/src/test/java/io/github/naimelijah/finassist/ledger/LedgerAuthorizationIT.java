@@ -276,12 +276,14 @@ class LedgerAuthorizationIT extends PostgresFixture {
     }
 
     /**
-     * Every bad token is refused in exactly one log line, at WARN, whose {@code reason} is the one
-     * category ADR-030 names for it — the same category the assistant's {@code test_auth.py} expects
-     * for the same shape, because a rule written against one service must read the other (root {@code
-     * CLAUDE.md}, "Security and operations"). {@code unknown_key} and {@code malformed} are read from
-     * Nimbus's English messages by {@code ProblemAuthenticationEntryPoint.reasonFor}, so a library
-     * upgrade rewording one would fail here rather than quietly logging {@code rejected}.
+     * Each shape {@link #categorisedBadTokens()} lists is refused in exactly one log line, at WARN, whose
+     * {@code reason} is the category ADR-030 names for it. For those shapes it is also the category the
+     * assistant's {@code test_auth.py} expects, because a rule written against one service must read the
+     * other (root {@code CLAUDE.md}, "Security and operations"). Not every bad token is listed: an HS256
+     * token and a malformed {@code Bearer} header are categorised differently by the two services, which
+     * is #352, and neither is pinned here until it is settled. {@code unknown_key} and {@code malformed}
+     * are read from Nimbus's English messages by {@code ProblemAuthenticationEntryPoint.reasonFor}, so a
+     * library upgrade rewording one would fail here rather than quietly logging {@code rejected}.
      */
     @ParameterizedTest(name = "{0}")
     @MethodSource("categorisedBadTokens")
@@ -332,10 +334,8 @@ class LedgerAuthorizationIT extends PostgresFixture {
     }
 
     /**
-     * M1: the single-token check above proves the property for {@code expired} only. Every shape
-     * {@link #badTokens()} carries — including a tampered signature, both {@code iat} failures and
-     * a token with no {@code exp} — must refuse to leak its own token into the log, not merely the
-     * one case above.
+     * Every shape in {@link #badTokens()} — a tampered signature, both {@code iat} failures and a token
+     * with no {@code exp} among them — is refused without any part of itself reaching stdout or stderr.
      */
     @ParameterizedTest
     @MethodSource("badTokens")
@@ -455,8 +455,8 @@ class LedgerAuthorizationIT extends PostgresFixture {
     }
 
     /**
-     * Every bad token, categorised or not. HS256 is refused 401 and never logged, but its category is
-     * not asserted: the ledger logs it {@code unknown_key}, from Nimbus's "Another algorithm expected,
+     * Every bad token, categorised or not. HS256 is refused 401, and its refusal is logged though the
+     * token never is, but its category is not asserted: the ledger logs it {@code unknown_key}, from Nimbus's "Another algorithm expected,
      * or no matching key(s) found", where the assistant refuses the same shape {@code malformed}. That
      * asymmetry is #352, and is not pinned here either way until it is settled.
      */
