@@ -25,14 +25,16 @@ import org.springframework.test.context.DynamicPropertySource;
  *
  * <p>{@code GatewayLoginFlowIT.UpstreamsDown} covers an upstream that refuses the connection, which
  * fails at once and says nothing about a read timeout. {@code GatewayApplicationIT} pins the
- * shipped budget's numbers; this proves the relay is held to whatever budget is configured.
+ * shipped budget's numbers; this proves the relay is held to the budget configured, not merely to
+ * some budget: {@link #ELAPSED_LIMIT} sits below the shipped ten-second read timeout, so a relay
+ * that ignored this context's override would fail it.
  *
  * <p><b>How this stays deterministic.</b> Nothing sleeps: the fake ledger's stalled handler waits on
  * a latch this test releases after each case, and is otherwise abandoned after two minutes. The
  * budget is {@link #BUDGET} for this context alone. That is long enough that the sign-in, whose calls
  * to the fake provider share it, does not time out on a loaded machine (a one-second budget did,
- * now and then), and short enough that {@link #ELAPSED_LIMIT} is many times the budget and a small
- * fraction of the stall.
+ * now and then), and short enough that {@link #ELAPSED_LIMIT} leaves it more than twice its own
+ * length of headroom while staying under the shipped budget, and a small fraction of the stall.
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -54,8 +56,12 @@ class GatewayRelayTimeoutIT {
     /** How long a request to the gateway may take before the client itself gives up. */
     private static final Duration ANSWER_LIMIT = Duration.ofSeconds(30);
 
-    /** What a passing relay must beat: far above {@link #BUDGET}, far below the fake's stall limit. */
-    private static final Duration ELAPSED_LIMIT = Duration.ofSeconds(20);
+    /**
+     * What a passing relay must beat: well above {@link #BUDGET}, but below the shipped {@code
+     * read-timeout} of 10 s in {@code application.yml}, so a relay that kept the shipped budget
+     * and ignored this context's fails rather than passing on a generous limit.
+     */
+    private static final Duration ELAPSED_LIMIT = Duration.ofSeconds(8);
 
     private static final String WEB_ORIGIN = "http://localhost:5173";
 
