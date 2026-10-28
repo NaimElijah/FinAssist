@@ -242,23 +242,6 @@ class LedgerAuthorizationIT extends PostgresFixture {
         }
     }
 
-    /**
-     * The ledger judges a token against the {@code Clock} it is given — fixed at {@link TestTokens}'s
-     * instant here — never the machine's. A token issued by the wall clock is, to that clock, issued
-     * in the future, and is refused; were the validators reading the wall clock it would be admitted,
-     * and every token this class signs would be refused instead.
-     */
-    @Test
-    void Given_a_token_issued_by_the_wall_clock_When_the_ledger_reads_its_fixed_clock_Then_it_is_refused(
-            CapturedOutput output) throws Exception {
-        mvc.perform(withHost(get("/api/v1/accounts"))
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.issuedByTheWallClock()))
-                .andExpect(status().isUnauthorized())
-                .andExpect(problem(UNAUTHENTICATED));
-
-        assertTheOneRefusalLine(output, "lifetime");
-    }
-
     @ParameterizedTest
     @MethodSource("badTokens")
     void Given_a_bad_token_When_an_endpoint_is_requested_Then_it_is_401_invalid_token(String token) throws Exception {

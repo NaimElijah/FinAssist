@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.function.UnaryOperator;
@@ -15,7 +16,9 @@ import org.springframework.security.oauth2.jwt.JwtClaimNames;
 
 /**
  * {@code LedgerSecurityConfiguration.tokenValidator}, against a fixed clock rather than the system
- * one, so {@code JwtTimestampValidator}'s 30 s skew is proven at the boundary rather than by luck.
+ * one, so {@code JwtTimestampValidator}'s 30 s skew is proven at the boundary rather than by luck;
+ * and the clock the shipped configuration hands it, which every {@code *IT} replaces with a fixed one
+ * and so cannot see.
  */
 class LedgerTokenValidationTest {
 
@@ -30,6 +33,9 @@ class LedgerTokenValidationTest {
 
     /** One second inside it. */
     private static final Duration WITHIN_SKEW = Duration.ofSeconds(29);
+
+    /** How long after {@link #NOW} the {@code jwt()} helper's token expires. */
+    private static final Duration LIFETIME = Duration.ofHours(1);
 
     /**
      * Comfortably before either expired token's {@code exp} below. {@code Jwt}'s own constructor
@@ -166,6 +172,64 @@ class LedgerTokenValidationTest {
                 .isFalse();
     }
 
+    /**
+     * One validator lives as long as the ledger does, so it must read its clock on every call: a
+     * validator that took the time once, when it was built, would admit a token for ever after. The
+     * same token, accepted, is refused once the clock passes its {@code exp} and the skew.
+     */
+    @Test
+    void Given_an_accepted_token_When_the_clock_passes_its_expiry_and_the_skew_Then_the_same_token_is_refused() {
+        MovableClock clock = new MovableClock(NOW);
+        OAuth2TokenValidator<Jwt> validating = LedgerSecurityConfiguration.tokenValidator(ISSUER, AUDIENCE, clock);
+        Jwt jwt = jwt(UnaryOperator.identity());
+
+        boolean refusedBefore = validating.validate(jwt).hasErrors();
+        clock.advance(LIFETIME.plus(BEYOND_SKEW));
+        boolean refusedAfter = validating.validate(jwt).hasErrors();
+
+        assertThat(refusedBefore).as("refused while valid").isFalse();
+        assertThat(refusedAfter).as("refused once expired beyond the skew").isTrue();
+    }
+
+    /**
+     * Every {@code *IT} replaces the {@code Clock} bean with a fixed one, so this is the only test of
+     * the clock the ledger ships with. A lagging, offset or fixed clock there would admit expired tokens
+     * or refuse fresh ones in production while every suite stayed green.
+     */
+    @Test
+    void Given_the_shipped_configuration_When_its_clock_bean_is_built_Then_it_is_the_system_utc_clock() {
+        assertThat(new LedgerSecurityConfiguration().clock()).isEqualTo(Clock.systemUTC());
+    }
+
+    /** A clock the test moves, standing for time passing between two requests carrying one token. */
+    private static final class MovableClock extends Clock {
+
+        private Instant now;
+
+        MovableClock(Instant start) {
+            now = start;
+        }
+
+        void advance(Duration by) {
+            now = now.plus(by);
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            throw new UnsupportedOperationException("the token validators read only instants, never a zone");
+        }
+    }
+
     private static Jwt jwt(UnaryOperator<Jwt.Builder> customizer) {
         return jwt(customizer, true, true);
     }
@@ -185,7 +249,7 @@ class LedgerTokenValidationTest {
                 .header("alg", "RS256")
                 .issuer(ISSUER)
                 .audience(List.of(AUDIENCE))
-                .expiresAt(NOW.plus(Duration.ofHours(1)));
+                .expiresAt(NOW.plus(LIFETIME));
         if (withSubject) {
             builder = builder.subject("owner-user");
         }

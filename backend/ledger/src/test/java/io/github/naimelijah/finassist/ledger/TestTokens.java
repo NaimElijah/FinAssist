@@ -51,7 +51,8 @@ public final class TestTokens {
      * the ledger's {@code Clock} bean at, so a token's validity never depends on when a test runs: a
      * fork reaching an {@code *IT} more than ten minutes after this class loaded would otherwise find
      * the "future" tokens valid, and one an hour later would refuse every owner request. Deliberately
-     * far from any real date, so a validator that read the wall clock instead would fail every test.
+     * far from the wall clock, so a validator that read it instead of the fixed clock would refuse every
+     * token issued here, and every test admitting one would fail.
      */
     static final Instant NOW = Instant.parse("2026-01-01T00:00:00Z");
 
@@ -125,19 +126,6 @@ public final class TestTokens {
                 .expirationTime(Date.from(NOW.plus(LIFETIME)))
                 .claim("roles", List.of("owner"));
         return signed(claims.build());
-    }
-
-    /**
-     * Otherwise valid, but issued by the machine's real clock rather than {@link #NOW}: for a ledger
-     * reading the fixed clock it is issued in the future and must be refused. What proves the ledger
-     * validates against the clock it is given, not the one on the wall.
-     */
-    public static String issuedByTheWallClock() {
-        Instant wallClock = Instant.now();
-        return signed(claims("owner-user", List.of("owner"))
-                .issueTime(Date.from(wallClock))
-                .expirationTime(Date.from(wallClock.plus(LIFETIME)))
-                .build());
     }
 
     /** {@code alg: none}. Rejected before a signature is even checked. */
