@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -36,6 +37,13 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class FakeService implements AutoCloseable {
 
+    /**
+     * How long a stalled exchange waits before giving up on its own: far beyond any budget a test
+     * asserts, but finite, so a test that forgets {@link #releaseStalledRequests()} leaks a thread
+     * for this long rather than for ever. The same limit as {@code FakeOpenIdProvider}'s.
+     */
+    private static final Duration STALL_LIMIT = Duration.ofMinutes(2);
+
     private final HttpServer server;
     private final AtomicReference<ReceivedRequest> lastRequest = new AtomicReference<>();
     private volatile CannedResponse nextResponse = CannedResponse.ok();
@@ -43,13 +51,6 @@ public final class FakeService implements AutoCloseable {
     private final AtomicReference<CountDownLatch> release = new AtomicReference<>(new CountDownLatch(1));
     private final AtomicInteger stalledArrivals = new AtomicInteger();
     private volatile boolean stalling;
-
-    /**
-     * How long a stalled exchange waits before giving up on its own: far beyond any budget a test
-     * asserts, but finite, so a test that forgets {@link #releaseStalledRequests()} leaks a thread
-     * for this long rather than for ever.
-     */
-    private static final long STALL_LIMIT_SECONDS = 120;
 
     /** Starts a server on a loopback port the OS assigns, so tests never collide over one. */
     public FakeService() throws IOException {
@@ -135,7 +136,7 @@ public final class FakeService implements AutoCloseable {
 
     private void awaitRelease() throws IOException {
         try {
-            release.get().await(STALL_LIMIT_SECONDS, TimeUnit.SECONDS);
+            release.get().await(STALL_LIMIT.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new IOException("the stalled exchange was interrupted", interrupted);
