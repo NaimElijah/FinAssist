@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger;
 
+import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,28 +35,21 @@ public abstract class PostgresFixture {
     }
 
     /**
-     * Every table, in one statement.
+     * Every table the three contexts own, read from the catalog on each reset rather than listed by
+     * hand: a table a new migration adds is emptied between tests from the moment it exists, where a
+     * hand-kept list would leak its rows from one test into the next until someone remembered it.
      *
-     * <p>{@code TRUNCATE} rather than {@code DELETE} for a reason beyond speed: the journal's
-     * append-only triggers refuse a {@code DELETE} outright, and correctly so. Row triggers do not
-     * fire for {@code TRUNCATE}, and it needs an ownership privilege the eventual production role
-     * will not hold, which is what makes it a safe hole to leave open (ADR-024).
-     *
-     * <p>{@code flyway_schema_history} is deliberately absent: emptying it would make Flyway re-run
-     * every migration into a schema that already has it.
+     * <p>Only the context schemas are read. Flyway keeps {@code flyway_schema_history} in {@code
+     * public}, and emptying it would make Flyway re-run every migration into a schema that already has
+     * it; it is excluded by name as well, so moving Flyway into a context schema cannot reach it.
      */
-    private static final String EMPTY_EVERY_TABLE = """
-            TRUNCATE accounting.journal_entry,
-                     accounting.journal_transaction_state,
-                     accounting.journal_transaction,
-                     accounting.account,
-                     budgeting.budget_limit,
-                     budgeting.budget,
-                     budgeting.categorisation_rule,
-                     planning.scenario_flow,
-                     planning.scenario,
-                     planning.planned_flow
-            RESTART IDENTITY CASCADE
+    private static final String EVERY_CONTEXT_TABLE = """
+            SELECT format('%I.%I', table_schema, table_name)
+              FROM information_schema.tables
+             WHERE table_schema IN ('accounting', 'budgeting', 'planning')
+               AND table_type = 'BASE TABLE'
+               AND table_name <> 'flyway_schema_history'
+             ORDER BY 1
             """;
 
     @Autowired
@@ -110,9 +104,25 @@ public abstract class PostgresFixture {
         jwksUriOverride = null;
     }
 
+    /**
+     * Every table, in one statement.
+     *
+     * <p>{@code TRUNCATE} rather than {@code DELETE} for a reason beyond speed: the journal's
+     * append-only triggers refuse a {@code DELETE} outright, and correctly so. Row triggers do not
+     * fire for {@code TRUNCATE}, and it needs an ownership privilege the eventual production role
+     * will not hold, which is what makes it a safe hole to leave open (ADR-024).
+     *
+     * <p>The statement is assembled from the catalog's own names, each already quoted by {@code
+     * format('%I')}; no identifier here comes from outside the database.
+     */
     @BeforeEach
     void emptyEveryTable() {
-        jdbc.sql(EMPTY_EVERY_TABLE).update();
+        List<String> tables = jdbc.sql(EVERY_CONTEXT_TABLE).query(String.class).list();
+        if (tables.isEmpty()) {
+            throw new IllegalStateException("no context table exists to empty; the migrations did not run");
+        }
+        jdbc.sql("TRUNCATE " + String.join(", ", tables) + " RESTART IDENTITY CASCADE")
+                .update();
     }
 
     /** For the few assertions that are about rows rather than aggregates. */
