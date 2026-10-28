@@ -7,6 +7,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.IThrowableProxy;
+import ch.qos.logback.core.read.ListAppender;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.CurrencyMismatchException;
 import jakarta.validation.Valid;
@@ -14,14 +19,11 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import java.net.URI;
 import java.util.List;
-import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.boot.test.system.CapturedOutput;
-import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -50,7 +52,6 @@ import org.springframework.web.server.ResponseStatusException;
  * <p>The wire values are spelled out rather than borrowed from the handler's constants, because they
  * are the contract and a test that borrowed them would pass through a change to it.
  */
-@ExtendWith(OutputCaptureExtension.class)
 class LedgerProblemHandlerTest {
 
     private static final MediaType PROBLEM_JSON = MediaType.APPLICATION_PROBLEM_JSON;
@@ -100,37 +101,63 @@ class LedgerProblemHandlerTest {
      * message is among the likeliest carriers of internals and data (ADR-028, ADR-019).
      */
     @Test
-    void Given_an_unexpected_exception_When_handled_Then_it_is_a_500_problem_whose_message_is_logged_not_served(
-            CapturedOutput output) throws Exception {
-        String body = mvc.perform(get("/internal-failure"))
-                .andExpect(status().isInternalServerError())
-                .andExpect(content().contentType(PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
-                .andExpect(jsonPath("$.detail").isNotEmpty())
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
+    void Given_an_unexpected_exception_When_handled_Then_it_is_a_500_problem_whose_message_is_logged_not_served()
+            throws Exception {
+        String body;
+        List<ILoggingEvent> events;
+        try (RecordedEvents recorded = RecordedEvents.of(LedgerProblemHandler.class)) {
+            body = mvc.perform(get("/internal-failure"))
+                    .andExpect(status().isInternalServerError())
+                    .andExpect(content().contentType(PROBLEM_JSON))
+                    .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                    .andExpect(jsonPath("$.detail").isNotEmpty())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+            events = recorded.events();
+        }
 
         assertThat(body).doesNotContain(MARKER);
-        // Standalone MockMvc starts no Boot context, so the format depends on what else this JVM ran:
-        // Boot's ECS JSON once any test has initialised logging, Logback's plain text otherwise. In
-        // JSON the event, its level and its stack trace share the marker's line; in plain text the
-        // event's line, with the level, introduces the exception on the next. Either way the level is
-        // read off the event carrying the marker, never anywhere in the output.
-        List<String> lines = output.getOut().lines().toList();
-        int exception = IntStream.range(0, lines.size())
-                .filter(index -> lines.get(index).contains(MARKER))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("no log line carries the exception's message"));
-        String carrier = lines.get(exception);
-        boolean structured = carrier.startsWith("{");
-        assertThat(structured || exception > 0)
-                .as("a log event precedes the exception")
-                .isTrue();
-        String event = structured ? carrier : lines.get(exception - 1);
-        assertThat(event)
-                .contains("Answered 500 with a generic detail")
-                .containsPattern(structured ? "\"level\":\"ERROR\"" : " ERROR ");
+        assertThat(events).as("events the handler logged").hasSize(1);
+        ILoggingEvent event = events.getFirst();
+        assertThat(event.getLevel()).as("level of %s", event).isEqualTo(Level.ERROR);
+        assertThat(event.getFormattedMessage()).isEqualTo("Answered 500 with a generic detail");
+        assertThat(event.getThrowableProxy())
+                .as("the exception logged with %s", event)
+                .isNotNull()
+                .extracting(IThrowableProxy::getMessage)
+                .isEqualTo(MARKER);
+    }
+
+    /**
+     * The events one logger emits while open, read from a Logback {@link ListAppender} rather than from
+     * the console. Standalone MockMvc starts no Boot context, so the console's format depends on whatever
+     * else this JVM ran first; the event itself does not.
+     */
+    private static final class RecordedEvents implements AutoCloseable {
+
+        private final Logger logger;
+        private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+        private RecordedEvents(Logger logger) {
+            this.logger = logger;
+            appender.start();
+            logger.addAppender(appender);
+        }
+
+        static RecordedEvents of(Class<?> loggingClass) {
+            return new RecordedEvents((Logger) LoggerFactory.getLogger(loggingClass));
+        }
+
+        List<ILoggingEvent> events() {
+            return List.copyOf(appender.list);
+        }
+
+        @Override
+        public void close() {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
