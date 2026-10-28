@@ -253,8 +253,15 @@ class LedgerArchitectureTest {
         };
     }
 
+    /**
+     * The quantities "Derived, never stored" forbids a domain field or a column to be named after, as a
+     * regular-expression alternation both Java and PostgreSQL read. {@code SchemaBoundariesIT} matches
+     * columns against this same constant, so the two halves of the rule cannot drift apart.
+     */
+    static final String DERIVED_QUANTITIES = "balance|spent|remaining|projection";
+
     /** The names "Derived, never stored" forbids a domain field to carry, in any case. */
-    private static final String DERIVED_QUANTITY_NAME = "(?i).*(balance|spent|remaining|projection).*";
+    private static final String DERIVED_QUANTITY_NAME = "(?i).*(" + DERIVED_QUANTITIES + ").*";
 
     /**
      * Derived, never stored (root {@code CLAUDE.md}, "The domain"): a balance is summed from entries,

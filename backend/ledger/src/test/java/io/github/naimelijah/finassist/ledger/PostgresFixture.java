@@ -38,18 +38,21 @@ public abstract class PostgresFixture {
     }
 
     /**
-     * Every table the three contexts own, read from the catalog on each reset rather than listed by
-     * hand: a table a new migration adds is emptied between tests from the moment it exists, where a
-     * hand-kept list would leak its rows from one test into the next until someone remembered it.
+     * Every table the migrations created, read from the catalog on each reset rather than listed by
+     * hand: a table a new migration adds is emptied between tests from the moment it exists, and so is
+     * every table in a schema a new context adds, where a hand-kept list of either would leak its rows
+     * from one test into the next until someone remembered it.
      *
-     * <p>Only the context schemas are read. Flyway keeps {@code flyway_schema_history} in {@code
-     * public}, and emptying it would make Flyway re-run every migration into a schema that already has
-     * it; it is excluded by name as well, so moving Flyway into a context schema cannot reach it.
+     * <p>Every schema PostgreSQL does not own itself is read: {@code pg_catalog}, {@code
+     * information_schema}, and the {@code pg_}-prefixed ones such as {@code pg_toast} are not. Flyway
+     * keeps {@code flyway_schema_history} in {@code public}, and emptying it would make Flyway re-run
+     * every migration into a schema that already has it, so it is excluded by name wherever it lives.
      */
-    private static final String EVERY_CONTEXT_TABLE = """
+    private static final String EVERY_MIGRATED_TABLE = """
             SELECT format('%I.%I', table_schema, table_name)
               FROM information_schema.tables
-             WHERE table_schema IN ('accounting', 'budgeting', 'planning')
+             WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+               AND table_schema NOT LIKE 'pg\\_%'
                AND table_type = 'BASE TABLE'
                AND table_name <> 'flyway_schema_history'
              ORDER BY 1
@@ -129,17 +132,21 @@ public abstract class PostgresFixture {
      * fire for {@code TRUNCATE}, and it needs an ownership privilege the eventual production role
      * will not hold, which is what makes it a safe hole to leave open (ADR-024).
      *
+     * <p>No {@code CASCADE}: every table is named, so a foreign key between two of them is satisfied
+     * by emptying both at once, and a table holding a reference that the query above missed makes the
+     * statement fail rather than being emptied unseen. {@code RESTART IDENTITY} stays, because {@code
+     * categorisation_rule.ordinal} is an identity whose values a test reads.
+     *
      * <p>The statement is assembled from the catalog's own names, each already quoted by {@code
      * format('%I')}; no identifier here comes from outside the database.
      */
     @BeforeEach
     void emptyEveryTable() {
-        List<String> tables = jdbc.sql(EVERY_CONTEXT_TABLE).query(String.class).list();
+        List<String> tables = jdbc.sql(EVERY_MIGRATED_TABLE).query(String.class).list();
         if (tables.isEmpty()) {
-            throw new IllegalStateException("no context table exists to empty; the migrations did not run");
+            throw new IllegalStateException("no migrated table exists to empty; the migrations did not run");
         }
-        jdbc.sql("TRUNCATE " + String.join(", ", tables) + " RESTART IDENTITY CASCADE")
-                .update();
+        jdbc.sql("TRUNCATE " + String.join(", ", tables) + " RESTART IDENTITY").update();
     }
 
     /** For the few assertions that are about rows rather than aggregates. */
