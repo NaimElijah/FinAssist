@@ -46,7 +46,15 @@ public final class TestTokens {
     private static final String WRONG_ISSUER = "http://attacker.example/realms/finassist";
     private static final String WRONG_AUDIENCE = "finassist-assistant-impersonation";
 
-    private static final Instant NOW = Instant.now();
+    /**
+     * The instant every token is issued relative to, and the instant {@link PostgresFixture} fixes
+     * the ledger's {@code Clock} bean at, so a token's validity never depends on when a test runs: a
+     * fork reaching an {@code *IT} more than ten minutes after this class loaded would otherwise find
+     * the "future" tokens valid, and one an hour later would refuse every owner request. Deliberately
+     * far from any real date, so a validator that read the wall clock instead would fail every test.
+     */
+    static final Instant NOW = Instant.parse("2026-01-01T00:00:00Z");
+
     private static final Duration LIFETIME = Duration.ofHours(1);
 
     /** Well beyond {@code JwtTimestampValidator}'s 30 s skew in either direction. */
@@ -117,6 +125,19 @@ public final class TestTokens {
                 .expirationTime(Date.from(NOW.plus(LIFETIME)))
                 .claim("roles", List.of("owner"));
         return signed(claims.build());
+    }
+
+    /**
+     * Otherwise valid, but issued by the machine's real clock rather than {@link #NOW}: for a ledger
+     * reading the fixed clock it is issued in the future and must be refused. What proves the ledger
+     * validates against the clock it is given, not the one on the wall.
+     */
+    public static String issuedByTheWallClock() {
+        Instant wallClock = Instant.now();
+        return signed(claims("owner-user", List.of("owner"))
+                .issueTime(Date.from(wallClock))
+                .expirationTime(Date.from(wallClock.plus(LIFETIME)))
+                .build());
     }
 
     /** {@code alg: none}. Rejected before a signature is even checked. */

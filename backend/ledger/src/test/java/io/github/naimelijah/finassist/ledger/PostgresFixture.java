@@ -1,5 +1,7 @@
 package io.github.naimelijah.finassist.ledger;
 
+import java.time.Clock;
+import java.time.ZoneOffset;
 import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
@@ -8,6 +10,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
@@ -54,6 +57,20 @@ public abstract class PostgresFixture {
 
     @Autowired
     private JdbcClient jdbc;
+
+    /**
+     * Replaces {@code LedgerSecurityConfiguration}'s {@code Clock.systemUTC()} for every {@code *IT}
+     * that extends this class, built by {@link #clock()}: the token validators read this bean, and
+     * {@link TestTokens} signs relative to the same {@link TestTokens#NOW}, so a token's lifetime is
+     * judged against the instant it was issued for rather than against however long the fork has run.
+     * One override for every subclass keeps them on one cached context.
+     */
+    @TestBean
+    private Clock clock;
+
+    static Clock clock() {
+        return Clock.fixed(TestTokens.NOW, ZoneOffset.UTC);
+    }
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry registry) {
