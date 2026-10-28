@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 
@@ -90,6 +91,33 @@ class WebSliceSecurityImportTest {
                 .as("@WebMvcTest slices that would boot with no security filter chain at all")
                 .isEmpty();
     }
+
+    /**
+     * Importing {@link WebSliceSecurity} is not enough if the slice then keeps its filters off MockMvc:
+     * {@code @AutoConfigureMockMvc(addFilters = false)} registers no servlet filter, the security chain
+     * included, so the slice boots with security configured and never consulted — the same false pass
+     * as forgetting the import. Read through the meta-annotation graph for the reason the class comment
+     * gives.
+     */
+    @Test
+    void Given_every_web_mvc_slice_When_its_mock_mvc_configuration_is_read_Then_none_turns_the_filters_off() {
+        List<String> withoutFilters = WEB_MVC_SLICES.stream()
+                .filter(slice -> slice.isMetaAnnotatedWith(TURNS_MOCK_MVC_FILTERS_OFF))
+                .map(JavaClass::getFullName)
+                .toList();
+
+        assertThat(withoutFilters)
+                .as("@WebMvcTest slices whose MockMvc skips every filter, the security chain included")
+                .isEmpty();
+    }
+
+    /** The member of {@code @AutoConfigureMockMvc} that decides whether servlet filters are applied. */
+    private static final String ADD_FILTERS = "addFilters";
+
+    private static final DescribedPredicate<JavaAnnotation<?>> TURNS_MOCK_MVC_FILTERS_OFF = DescribedPredicate.describe(
+            "@AutoConfigureMockMvc(addFilters = false)",
+            annotation -> annotation.getRawType().isEquivalentTo(AutoConfigureMockMvc.class)
+                    && annotation.get(ADD_FILTERS).map(Boolean.FALSE::equals).orElse(false));
 
     /**
      * Matches an {@code @Import} annotation, wherever it sits in the meta-annotation graph, that
