@@ -451,6 +451,7 @@ make audit     # pip-audit and npm audit --audit-level=high
 | Test the web client | `make test-web` | `cd frontend/web && npm run test:coverage` |
 | Build the web bundle | `make build-web` | `cd frontend/web && npm run build` |
 | Regenerate the web client's contract types | `make generate-web-api` | `cd frontend/web && npm run generate:api` |
+| Check the web client's contract types are current | `make check-web-api` | `cd frontend/web && npm run generate:api`, then `git status --porcelain -- src/shared/api/contracts`, which must list nothing, untracked files included; CI's `web` job runs it. It rewrites the types in place, so `make lint` leaves it out |
 | Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
 | Lint and types | `make lint` | `./mvnw -B spotless:check` (ledger and gateway); `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; for the smoke check (`make lint-smoke`), the backup CLI (`make lint-backup`) and the secret check (`make lint-secret-check`), `uv run ruff check`, `ruff format --check` and `mypy --strict` over `../../ops/smoke`, `../../ops/backup` and `../../ops/secret_check` respectively, all from `backend/assistant`; `npm run lint`, `format:check`, `typecheck` |
 | Format | `make format` | `./mvnw -B spotless:apply` (ledger and gateway); `uv run ruff format . ../../ops/smoke ../../ops/backup ../../ops/secret_check`, `uv run ruff check --fix . ../../ops/smoke ../../ops/backup ../../ops/secret_check`; `npm run format` |
@@ -465,7 +466,8 @@ make audit     # pip-audit and npm audit --audit-level=high
 </details>
 
 **After every endpoint change**, regenerate that service's contract with the command in the table,
-then the web client's types with `make generate-web-api`; CI fails on either drifting. Editing
+then the web client's types with `make generate-web-api`; CI fails on either drifting, and
+`make check-web-api` runs its check on the types locally. Editing
 `backend/assistant/pyproject.toml`'s dependencies needs `make lock` too, since CI installs with
 `uv sync --locked` and refuses a stale lockfile.
 

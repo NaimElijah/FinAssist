@@ -22,7 +22,7 @@ UV        := uv
         test test-ledger test-gateway test-assistant test-backup test-secret-check test-web \
         mutation-ledger lint lint-ledger lint-gateway lint-assistant lint-smoke lint-backup \
         lint-secret-check lint-web \
-        build-web generate-web-api format audit audit-assistant audit-web clean
+        build-web generate-web-api check-web-api format audit audit-assistant audit-web clean
 
 help: ## List available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -133,6 +133,16 @@ build-web: ## Production bundle
 
 generate-web-api: ## Regenerate the web client's contract types from contracts/*.openapi.json
 	cd $(WEB) && npm run generate:api
+
+# Not part of `make lint`, which never rewrites a file: openapi-ts.config.ts fixes the output paths,
+# so this regenerates the types in place, and in a dirty tree reports uncommitted ones as drift.
+# `git diff` compares tracked files only, so a file the generator newly emits would pass it while
+# the committed types stay incomplete. `git status --porcelain` lists untracked files too, so either
+# kind of drift fails the check, and the listing names the files (ADR-049).
+check-web-api: ## Fail if regenerating the web client's contract types changes any file; rewrites them in place
+	cd $(WEB) && npm run generate:api
+	cd $(WEB) && git status --porcelain -- src/shared/api/contracts
+	cd $(WEB) && test -z "$$(git status --porcelain -- src/shared/api/contracts)"
 
 format: ## Rewrite sources to match the formatters
 	cd $(LEDGER) && $(MVNW) spotless:apply

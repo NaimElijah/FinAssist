@@ -43,13 +43,16 @@ From `frontend/web`:
   `npm run format`. **Audit** — `npm audit --audit-level=high`. `format:check` runs
   `prettier --check .`, which covers this file too.
 - **Regenerate the contract types** — `make generate-web-api`: `npm run generate:api`.
+- **Check the contract types** — `make check-web-api`, which CI's `web` job runs:
+  `npm run generate:api`, then `git status --porcelain -- src/shared/api/contracts`, which must
+  list nothing, untracked files included. It rewrites the types in place, so `make lint` omits it.
 
 ## Build-enforced rules
 
 - **The contract types under `src/shared/api/contracts/` are generated, never hand-written.**
   Regenerate them after any of the three contracts changes — `openapi-ts.config.ts` reads the
-  ledger's, the assistant's and the gateway's. CI fails the `web` job on a diff it did not expect
-  (ADR-029).
+  ledger's, the assistant's and the gateway's. `make check-web-api` fails the `web` job on a diff
+  it did not expect (ADR-029).
 - **TypeScript is pinned to 6.0.3, not 7.x,** because `typescript-eslint` 8 declares
   `typescript: >=4.8.4 <6.1.0` — past that, `npm ci` fails with ERESOLVE. Dependabot is configured
   to ignore `typescript >=6.1.0` so it stops proposing the bump every week. Lift the pin and that

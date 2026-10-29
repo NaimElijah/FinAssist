@@ -52,8 +52,8 @@ backups and the smoke check). Keep them in sync with `README.md`'s Development t
 - **Clean** — `make clean`: `./mvnw -B -q clean` (ledger, gateway), then delete the assistant's
   caches and coverage files and the web client's `dist/` and `coverage/`; never `.env` or volumes.
 - **After every endpoint change**, regenerate that service's contract (the command is in its file;
-  its contract test fails the build otherwise), then the web client's types:
-  `make generate-web-api`, which is `cd frontend/web && npm run generate:api`.
+  its contract test fails the build otherwise), then the web client's types and their check:
+  `make generate-web-api` (`cd frontend/web && npm run generate:api`), then `make check-web-api`.
 
 ## Layout
 

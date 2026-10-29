@@ -146,14 +146,9 @@ jobs:
       - name: Install locked dependencies
         run: cd frontend/web && npm ci
 
-      # `git diff` compares tracked files only, so a file the generator newly emits would pass it
-      # while the committed types stay incomplete. `git status --porcelain` lists untracked files
-      # too, so either kind of drift fails the step, and the listing names the files.
+      # Untracked files count as drift too: the target says why it uses `git status --porcelain`.
       - name: Contract types are current
-        run: |
-          cd frontend/web && npm run generate:api
-          git status --porcelain -- src/shared/api/contracts
-          test -z "$(git status --porcelain -- src/shared/api/contracts)"
+        run: make check-web-api
 
       - name: Lint, format check and types
         run: make lint-web
