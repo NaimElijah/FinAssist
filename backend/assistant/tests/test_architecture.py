@@ -1,6 +1,6 @@
 """Enforces the structural rules declared in docs/architecture/architecture.md.
 
-Eleven rules:
+Twelve rules:
 
 1. Dependencies point inward - no inward layer imports a framework or the standard library's
    I/O.
@@ -18,6 +18,8 @@ Eleven rules:
 10. ``shared`` imports no context. It is the common ground every context may use, so a
    dependency from it onto one context would reach every other through it.
 11. No outbound adapter imports an inbound one. The wire shape stops at the route.
+12. A translation in ``adapters/wiring.py`` calls the upstream context's use case, never its
+   out-ports or adapters.
 
 Rules 6, 7 and 11 mirror rules the ledger enforces too:
 ``LedgerArchitectureTest.money_is_never_floating_point`` for the first,
@@ -199,6 +201,17 @@ def _imported_modules(path: Path) -> set[str]:
     return _imports_in(path.read_text(encoding="utf-8"), _module_package(path), str(path))
 
 
+def _resolved_from(node: ast.ImportFrom, package: str) -> str:
+    """The absolute module a ``from ... import`` reads, its relative dots resolved."""
+    if node.level == 0:
+        return node.module or ""
+    # `from . import x` resolves against the file's own package, `from .. import x` against its
+    # parent, and so on.
+    parts = package.split(".")
+    trimmed = parts[: len(parts) - (node.level - 1)]
+    return ".".join([*trimmed, node.module] if node.module else trimmed)
+
+
 def _imports_in(source: str, package: str, filename: str = "<test>") -> set[str]:
     """The same, over source text rather than a path.
 
@@ -213,14 +226,7 @@ def _imports_in(source: str, package: str, filename: str = "<test>") -> set[str]
         if isinstance(node, ast.Import):
             imported.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
-            if node.level == 0:
-                base = node.module or ""
-            else:
-                # `from . import x` resolves against the file's own package, `from .. import x`
-                # against its parent, and so on.
-                parts = package.split(".")
-                trimmed = parts[: len(parts) - (node.level - 1)]
-                base = ".".join([*trimmed, node.module] if node.module else trimmed)
+            base = _resolved_from(node, package)
             imported.add(base)
             imported.update(f"{base}.{alias.name}" for alias in node.names if base)
 
@@ -386,6 +392,87 @@ def _module_name(path: Path) -> str:
     return package if path.name == "__init__.py" else f"{package}.{path.stem}"
 
 
+PORT_SEGMENT = "port"
+PROTOCOL = "Protocol"
+WIRING = SRC / ADAPTER_SEGMENT / "wiring.py"
+
+
+def _dotted(node: ast.AST) -> str:
+    """``a.b.c`` for a chain of attributes on a name; empty for anything else."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute) and (base := _dotted(node.value)):
+        return f"{base}.{node.attr}"
+    return ""
+
+
+def _bindings(tree: ast.Module, package: str) -> dict[str, str]:
+    """Each name an import binds anywhere in the module, mapped to what it is bound to."""
+    bound: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            base = _resolved_from(node, package)
+            bound.update(
+                {alias.asname or alias.name: f"{base}.{alias.name}" for alias in node.names}
+            )
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                bound[alias.asname or root] = alias.name if alias.asname else root
+    return bound
+
+
+def _out_port_protocols(paths: list[Path]) -> frozenset[str]:
+    """The qualified name of every ``Protocol`` declared under a context's ``application/port``."""
+    return frozenset(
+        f"{_module_name(path)}.{node.name}"
+        for path in paths
+        if _module_name(path).split(".")[3:4] == [PORT_SEGMENT]
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.ClassDef)
+        and any(_dotted(base).split(".")[-1] == PROTOCOL for base in node.bases)
+    )
+
+
+def _translations_in(tree: ast.Module) -> list[ast.ClassDef]:
+    """The module's classes that do something: those defining a method.
+
+    ``Assembly`` and ``Portfolio`` are records of what was built, and holding the outbound adapters
+    and the feed port is their job; only a class with behaviour can call past a use case.
+    """
+    return [
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and any(isinstance(member, ast.FunctionDef | ast.AsyncFunctionDef) for member in node.body)
+    ]
+
+
+def _reaches_past_use_case(name: str, protocols: frozenset[str]) -> bool:
+    """Whether a qualified name is a context's adapter, or one of its out-port protocols."""
+    parts = name.split(".")
+    in_adapters = len(parts) > 2 and parts[1] in CONTEXTS and parts[2] == ADAPTER_SEGMENT
+    return in_adapters or any(name == port or name.startswith(f"{port}.") for port in protocols)
+
+
+def _translation_overreach_in(source: str, package: str, protocols: frozenset[str]) -> list[str]:
+    """Every name a translation's body resolves to a context's out-port protocol or adapter.
+
+    The bases are skipped: they name the downstream port a translation implements, if any. An
+    out-port's exceptions stay allowed, because converting them at the boundary is the job.
+    """
+    tree = ast.parse(source)
+    bound = _bindings(tree, package)
+    found: set[str] = set()
+    for translation in _translations_in(tree):
+        for node in (node for member in translation.body for node in ast.walk(member)):
+            head, _, rest = _dotted(node).partition(".")
+            name = ".".join(filter(None, [bound[head], rest])) if head in bound else ""
+            if name and _reaches_past_use_case(name, protocols):
+                found.add(f"{translation.name} names {name} at line {getattr(node, 'lineno', 0)}")
+    return sorted(found)
+
+
 # Each rule runs over the files it holds, filtered here once, rather than over every file with
 # the rest skipped. A skip is not a check, and a filter rendered as hundreds of skips hid the one
 # failure that matters: a layer renamed out of its filter's reach, so that every case of its rule
@@ -410,6 +497,7 @@ OUTBOUND_ADAPTER_FILES = [
 APPLICATION_FILES = [path for path in SOURCE_FILES if _names_application_layer(_module_name(path))]
 DOMAIN_FILES = [path for path in SOURCE_FILES if _is_domain(path)]
 SHARED_FILES = [path for path in SOURCE_FILES if path.relative_to(SRC).parts[0] == SHARED_PACKAGE]
+OUT_PORT_PROTOCOLS = _out_port_protocols(APPLICATION_FILES)
 
 RULE_SCOPES = {
     "inward": INWARD_FILES,
@@ -640,6 +728,43 @@ def Given_an_outbound_adapter_When_parsed_Then_it_imports_no_inbound_adapter(pat
         f"{path.relative_to(SRC)} imports an inbound adapter: {leaked}. An outbound adapter "
         "translates a foreign shape into the context's model, never into the wire shape a route "
         "publishes."
+    )
+
+
+def Given_the_wiring_module_When_parsed_Then_it_holds_a_translation_and_out_ports_to_refuse() -> (
+    None
+):
+    """Guards the translation rule below from passing because it recognised nothing.
+
+    It holds only the classes of ``wiring.py`` that define a method, and refuses only the protocols
+    it finds under ``application/port``; moving the translation or renaming that layer would
+    otherwise leave it green with nothing to check.
+    """
+    translations = [node.name for node in _translations_in(ast.parse(WIRING.read_bytes()))]
+
+    assert translations, f"no class defining a method found in {WIRING}"
+    assert OUT_PORT_PROTOCOLS, f"no Protocol found under any context's application/{PORT_SEGMENT}"
+
+
+def Given_a_translation_When_parsed_Then_it_names_no_out_port_or_adapter() -> None:
+    """A translation calls the upstream context's use case, never its repositories.
+
+    ``MarketDataQuotes`` answers portfolio's ``QuotePort`` through ``LatestQuote``, which is where
+    market data refuses a stale quote. Reaching ``QuoteFeedPort`` or the feed adapter instead would
+    value a holding at a price of any age, and no rule inside either context could see it: the
+    translation lives in the composition root, which may import both. The module's assembly
+    function still names the adapters and ports it wires; only the translations are held.
+
+    Static, so a name it cannot resolve is missed: a string annotation, or a path through an
+    allowed object such as ``self.quotes.feed``. Those are held in review.
+    """
+    found = _translation_overreach_in(
+        WIRING.read_text(encoding="utf-8"), _module_package(WIRING), OUT_PORT_PROTOCOLS
+    )
+    assert not found, (
+        f"{WIRING.relative_to(SRC)} reaches past an upstream use case: {found}. A translation "
+        "calls the upstream context's in-port and converts its exceptions; its out-ports and "
+        "adapters are wired by the assembly, never called by the translation."
     )
 
 
@@ -978,3 +1103,53 @@ def Given_an_ordinary_standard_library_import_When_checked_Then_it_is_allowed_in
     # The domain imports these every day; refusing them would make the rule uninstallable.
     for module in ("decimal", "datetime", "dataclasses", "enum", "collections.abc"):
         assert not _is_forbidden_inward(module), module
+
+
+FEED_PORT = f"{ROOT_PACKAGE}.marketdata.application.port.QuoteFeedPort"
+TRANSLATION_PACKAGE = f"{ROOT_PACKAGE}.adapters"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from finassist_assistant.marketdata.application.port import QuoteFeedPort\n"
+        "class T:\n    feed: QuoteFeedPort\n    def f(self): ...",
+        "import finassist_assistant.marketdata.application.port as ports\n"
+        "class T:\n    def f(self, feed: ports.QuoteFeedPort): ...",
+        "class T:\n    def f(self):\n"
+        "        from ..marketdata.adapters.outbound.feed import InMemoryQuoteFeed\n"
+        "        return InMemoryQuoteFeed()",
+    ],
+)
+def Given_a_translation_naming_an_out_port_or_adapter_When_scanned_Then_it_is_found(
+    source: str,
+) -> None:
+    found = _translation_overreach_in(source, TRANSLATION_PACKAGE, frozenset({FEED_PORT}))
+
+    assert found, source
+
+
+def Given_a_translation_naming_a_use_case_and_a_port_exception_When_scanned_Then_it_passes() -> (
+    None
+):
+    # Converting the upstream's exceptions is the translation's job, and they live beside the port.
+    source = (
+        "from finassist_assistant.marketdata.application.port import QuoteUnavailableError\n"
+        "from finassist_assistant.marketdata.application.usecase import LatestQuote\n"
+        "class T:\n    quotes: LatestQuote\n    def f(self):\n"
+        "        try:\n            return self.quotes\n"
+        "        except QuoteUnavailableError:\n            raise"
+    )
+
+    assert _translation_overreach_in(source, TRANSLATION_PACKAGE, frozenset({FEED_PORT})) == []
+
+
+def Given_a_record_or_a_base_naming_an_out_port_When_scanned_Then_it_passes() -> None:
+    # A record of what was assembled holds adapters by design; a base names the implemented port.
+    source = (
+        "from finassist_assistant.marketdata.application.port import QuoteFeedPort\n"
+        "class Assembly:\n    feed: QuoteFeedPort\n"
+        "class T(QuoteFeedPort):\n    def f(self): ..."
+    )
+
+    assert _translation_overreach_in(source, TRANSLATION_PACKAGE, frozenset({FEED_PORT})) == []
