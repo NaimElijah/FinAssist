@@ -97,13 +97,17 @@ class GatewayApplicationIT {
     private static final String HEALTH_ENDPOINT = "health";
 
     /**
-     * What a process environment variable overriding {@code management.endpoints.web.exposure.*}
-     * starts with once Boot's relaxed binding has normalised it: upper case, {@code .} and {@code -}
-     * as {@code _}.
+     * What every name that binds to {@code management.endpoints.web.exposure.*} starts with once
+     * normalised as {@link #relaxed} does, the canonical {@code MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_}
+     * variable form.
      */
-    private static final String EXPOSURE_VARIABLE_PREFIX = "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_";
+    private static final String EXPOSURE_PREFIX = "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_";
 
-    private static final String EXPOSURE_PROPERTY_PREFIX = "management.endpoints.web.exposure.";
+    /** The inline-JSON source, {@code spring.application.json}, normalised as {@link #relaxed} does. */
+    private static final String INLINE_JSON = "SPRING_APPLICATION_JSON";
+
+    /** The prefix of every {@code spring.config.*} name, which can load another document. */
+    private static final String CONFIG_PREFIX = "SPRING_CONFIG_";
 
     @LocalServerPort
     private int port;
@@ -235,15 +239,22 @@ class GatewayApplicationIT {
      * have to fail at once for anything to notice. This pins the exposure layer on its own, so a
      * widened list fails the build whatever the chain says.
      *
-     * <p>The process must not set the list itself first. A {@code MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_*}
-     * variable or a {@code management.endpoints.web.exposure.*} system property outranks {@code
+     * <p>The process must not set the list itself first, nor be able to. A {@code
+     * MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_*} variable sets it; {@code SPRING_APPLICATION_JSON} carries
+     * inline properties, and a {@code SPRING_CONFIG_*} variable ({@code _LOCATION}, {@code
+     * _ADDITIONAL_LOCATION}, {@code _IMPORT}) points at another document. Each outranks {@code
      * application.yml}, so one could turn this red for a reason that is not the code's, or green
-     * with the shipped file widened beneath it.
+     * with the shipped file widened beneath it. The two that only can are refused whatever they hold,
+     * since parsing them is what Spring is for. Names are compared as Spring's relaxed binding reads
+     * them, case-insensitive with {@code .} and {@code -} as {@code _}, so the matching system
+     * properties are refused too. Not refused: an active profile, and an {@code application.yml} in
+     * the working directory or its {@code config/}, which reach the list only through a document this
+     * check does not look for; the gateway ships no profile file.
      */
     @Test
     void Given_the_shipped_configuration_When_the_web_exposed_endpoints_are_resolved_Then_health_is_the_only_one() {
         assertThat(exposureOverrides())
-                .as("environment variables and system properties that would decide the exposure in place of"
+                .as("environment variables and system properties that would, or could, decide the exposure in place of"
                         + " application.yml; unset them, or this pin reads the environment, not the shipped file")
                 .isEmpty();
 
@@ -252,18 +263,25 @@ class GatewayApplicationIT {
                 .containsExactly(HEALTH_ENDPOINT);
     }
 
-    /** The name of every variable or system property in this process that overrides the exposure list. */
+    /** The name of every variable or system property in this process that overrides, or can override, the list. */
     private static List<String> exposureOverrides() {
         Stream<String> variables = System.getenv().keySet().stream()
-                .filter(name -> name.toUpperCase(Locale.ROOT)
-                        .replace('.', '_')
-                        .replace('-', '_')
-                        .startsWith(EXPOSURE_VARIABLE_PREFIX))
+                .filter(name -> canSetTheExposure(relaxed(name)))
                 .map(name -> "environment variable " + name);
         Stream<String> properties = System.getProperties().stringPropertyNames().stream()
-                .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(EXPOSURE_PROPERTY_PREFIX))
+                .filter(name -> canSetTheExposure(relaxed(name)))
                 .map(name -> "system property " + name);
         return Stream.concat(variables, properties).sorted().toList();
+    }
+
+    private static boolean canSetTheExposure(String relaxedName) {
+        return relaxedName.startsWith(EXPOSURE_PREFIX)
+                || relaxedName.equals(INLINE_JSON)
+                || relaxedName.startsWith(CONFIG_PREFIX);
+    }
+
+    private static String relaxed(String name) {
+        return name.toUpperCase(Locale.ROOT).replace('.', '_').replace('-', '_');
     }
 
     private static String idOf(PathMappedEndpoint endpoint) {
