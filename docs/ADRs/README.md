@@ -27,7 +27,7 @@ append-only history: to change course, add a new record and mark the old one
 | [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, extended by 050, corrected by 047 |
 | [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, extended by 033 |
 | [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted, extended by 041 |
-| [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted |
+| [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted, extended by 051 |
 | [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted, extended by 048, which supersedes its in-memory-log sentence |
 | [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033 and 035 |
 | [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted, extended by 047 |
@@ -56,6 +56,7 @@ append-only history: to change course, add a new record and mark the old one
 | [048](ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md) | Domain events stay in-process until a consumer exists, and production keeps no event log | Accepted |
 | [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted |
 | [050](ADR-050-no-domain-metric-yet-decided-again.md) | No domain metric yet, decided again, with new triggers | Accepted |
+| [051](ADR-051-what-a-translation-may-decide.md) | What a translation may decide: choosing records stays in `composition`, a rule in the downstream's own words moves into it | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -199,3 +200,9 @@ the first business endpoints shipped, and the position was inherited rather than
 kept: nothing pages anyone, and the HTTP server metrics already carry the ledger's error rate. The
 new triggers are the first alerting rule, the first deployment beyond the owner's machine, and a
 failure the owner learns of from the books ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
+
+051 extends 022 on 2026-10-29, answering its trigger for a decision held in `composition`. Choosing
+which upstream records answer a question stays translation, so "an `EXPENSE` line is spend" stays.
+A rule stated wholly in the downstream's own vocabulary is that context's invariant, so planning
+now refuses an account named twice itself. The answer is the same 422, but it now comes before the
+scenario is looked up ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
