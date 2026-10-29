@@ -20,8 +20,9 @@ Thirteen rules:
 11. No outbound adapter imports an inbound one. The wire shape stops at the route.
 12. A translation - a class in the composition root that implements a context's port
    ``Protocol`` - calls the upstream context's use case, never its out-ports or adapters.
-13. No module imports by a call - ``importlib.import_module`` or ``__import__`` - so every import
-   is a statement the rules above can read.
+13. No module imports or runs code by a call - ``importlib.import_module``, ``__import__``,
+   ``importlib.util``, ``runpy``, ``exec`` or ``eval``, called, referenced, aliased or named to
+   ``getattr`` - so every import is a statement the rules above can read.
 
 Rules 6, 7 and 11 mirror rules the ledger enforces too:
 ``LedgerArchitectureTest.money_is_never_floating_point`` for the first,
@@ -303,28 +304,85 @@ def _clock_reads_in(source: str, filename: str = "<test>") -> list[str]:
     return found
 
 
-# The calls that import a module named at run time. The import rules read statements, and a
-# call's argument can be any string, so the call itself is refused rather than its argument read.
-DYNAMIC_IMPORTERS = frozenset({"import_module", "__import__"})
+# The names that import a module named at run time, or run source text that may import one. The
+# import rules read statements, and an argument can be any string, so the name itself is refused
+# rather than its argument read: `import_module` and `__import__`; `importlib.util`'s loaders and
+# a loader's `exec_module`; `runpy`'s two runners; and `exec` and `eval`, whose text can hold an
+# import statement no rule here parses. Nothing in the tree has a use for any of them.
+DYNAMIC_IMPORTERS = frozenset(
+    {
+        "import_module",
+        "__import__",
+        "spec_from_file_location",
+        "module_from_spec",
+        "exec_module",
+        "run_module",
+        "run_path",
+        "exec",
+        "eval",
+    }
+)
+
+# The modules whose purpose is loading code by name or by path. Importing one at all is refused,
+# so a loader reached through a member this file does not list - `importlib.util.find_spec`,
+# `pkgutil.resolve_name`, a `zipimport` importer - is refused too.
+DYNAMIC_IMPORT_MODULES = frozenset(
+    {"importlib.util", "importlib.machinery", "runpy", "pkgutil", "zipimport"}
+)
 IMPORTLIB = "importlib"
+GETATTR = "getattr"
+
+
+def _is_dynamic_import_module(module: str) -> bool:
+    return any(module == name or module.startswith(f"{name}.") for name in DYNAMIC_IMPORT_MODULES)
 
 
 def _dynamic_imports_in(source: str, filename: str = "<test>") -> list[str]:
-    """Every call to an importer, by name or as an attribute, and every import binding one.
+    """Every reference to an importer or a code runner, and every import binding one.
 
-    The import is matched as well as the call, for the reason the clock rule matches one:
-    ``from importlib import import_module as load`` leaves a call named ``load`` that no name
-    match could follow.
+    Matched as a reference, called or not, the way the clock rule matches a reader:
+    ``_load = importlib.import_module`` followed by ``_load(name)`` holds no call to an importer's
+    name. The import is matched as well, for the reason the clock rule matches one:
+    ``from importlib import import_module as load`` leaves a call named ``load`` that no name match
+    could follow. And ``getattr`` naming an importer as a string is matched, since no attribute node
+    shows it.
     """
     found: list[str] = []
     for node in ast.walk(ast.parse(source, filename=filename)):
-        if isinstance(node, ast.Call) and _dotted(node.func).split(".")[-1] in DYNAMIC_IMPORTERS:
-            found.append(f"{_dotted(node.func)}() at line {node.lineno}")
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == IMPORTLIB:
+        if isinstance(node, ast.Name) and node.id in DYNAMIC_IMPORTERS:
+            found.append(f"{node.id} at line {node.lineno}")
+        elif isinstance(node, ast.Attribute) and (
+            node.attr in DYNAMIC_IMPORTERS or _is_dynamic_import_module(_dotted(node))
+        ):
+            found.append(f"{_dotted(node) or node.attr} at line {node.lineno}")
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == GETATTR
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value in DYNAMIC_IMPORTERS
+        ):
+            found.append(f"getattr(..., {node.args[1].value!r}) at line {node.lineno}")
+        elif isinstance(node, ast.Import):
             found.extend(
-                f"import of {IMPORTLIB}.{alias.name} at line {node.lineno}"
+                f"import of {alias.name} at line {node.lineno}"
                 for alias in node.names
-                if alias.name in DYNAMIC_IMPORTERS or alias.name == "*"
+                if _is_dynamic_import_module(alias.name)
+            )
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            found.extend(
+                f"import of {node.module}.{alias.name} at line {node.lineno}"
+                for alias in node.names
+                if _is_dynamic_import_module(node.module)
+                or (
+                    node.module == IMPORTLIB
+                    and (
+                        alias.name in DYNAMIC_IMPORTERS
+                        or alias.name == "*"
+                        or _is_dynamic_import_module(f"{IMPORTLIB}.{alias.name}")
+                    )
+                )
             )
     return found
 
@@ -804,7 +862,13 @@ def Given_a_module_When_parsed_Then_it_imports_nothing_by_a_call(path: Path) -> 
 
     ``importlib.import_module("fastapi")`` in a domain module, or a context loading another by
     name, would pass every rule above. The web client refuses a computed import specifier for the
-    same reason.
+    same reason. Refused: every name in ``DYNAMIC_IMPORTERS`` - called, referenced, aliased by an
+    import, or named to ``getattr`` as a string - and any import of a module in
+    ``DYNAMIC_IMPORT_MODULES``.
+
+    Static, so what no node names is missed: an importer's name assembled at run time and handed to
+    ``getattr``, or read out of a namespace by subscript - ``vars(importlib)["import_module"]``,
+    ``__builtins__["__import__"]``. Those are held in review.
     """
     found = _dynamic_imports_in(path.read_text(encoding="utf-8"), str(path))
     assert not found, (
@@ -1504,6 +1568,32 @@ def Given_a_protocol_outside_a_port_package_When_discovered_Then_it_is_not_a_por
         "from importlib import *",
         'm = __import__("fastapi")',
         'import builtins\nm = builtins.__import__("fastapi")',
+        # Named as a string, so no attribute node shows it.
+        'import importlib\nm = getattr(importlib, "import_module")("fastapi")',
+        'import builtins\nload = getattr(builtins, "__import__")',
+        # Referenced, then called under another name.
+        'import importlib\n_f = importlib.import_module\nm = _f("fastapi")',
+        "_f = __import__",
+        # Loading from a path, through importlib.util and a loader.
+        "import importlib.util",
+        "from importlib import util",
+        "from importlib.util import find_spec",
+        'import importlib\nspec = importlib.util.find_spec("fastapi")',
+        'spec = spec_from_file_location("x", "x.py")',
+        "module = module_from_spec(spec)",
+        "spec.loader.exec_module(module)",
+        "from importlib.machinery import SourceFileLoader",
+        # runpy, and the other stdlib loaders.
+        "import runpy",
+        'from runpy import run_module\nrun_module("fastapi")',
+        'import runpy as r\nr.run_path("x.py")',
+        'import pkgutil\npkgutil.resolve_name("fastapi:FastAPI")',
+        "import zipimport",
+        # Source text, which may hold an import statement.
+        'exec("import fastapi")',
+        "eval(\"__import__('fastapi')\")",
+        'import builtins\nbuiltins.exec("import fastapi")',
+        'run = getattr(builtins, "exec")',
     ],
 )
 def Given_source_importing_by_a_call_When_scanned_Then_it_is_found(source: str) -> None:
@@ -1511,6 +1601,15 @@ def Given_source_importing_by_a_call_When_scanned_Then_it_is_found(source: str) 
 
 
 def Given_an_ordinary_importlib_use_When_scanned_Then_it_is_not_a_violation() -> None:
-    # Reading a distribution's version imports nothing; refusing it would refuse too much.
+    # Reading a distribution's version or a packaged file imports nothing; refusing it would refuse
+    # too much.
     assert _dynamic_imports_in("from importlib.metadata import version") == []
     assert _dynamic_imports_in("from importlib import resources") == []
+    assert (
+        _dynamic_imports_in('import importlib.metadata\nv = importlib.metadata.version("x")') == []
+    )
+    assert (
+        _dynamic_imports_in('import importlib.resources\nf = importlib.resources.files("x")') == []
+    )
+    # A name that only contains an importer's is not one.
+    assert _dynamic_imports_in("executor = evaluate(utility)") == []
