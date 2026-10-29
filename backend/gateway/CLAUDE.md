@@ -49,6 +49,10 @@ From `backend/gateway`:
 
 - **The Spring Cloud starter takes its version from the `spring-cloud-dependencies` BOM**
   (`spring-cloud.version` in `pom.xml`), never a version of its own.
+- **A relayed method is named twice, and both must admit every operation in `contracts/`**: the
+  routes' `Method=` in `application.yml` and the chain's relay matchers in
+  `GatewaySecurityConfiguration`. `GatewayRelayRoutesTest` holds the routes, and
+  `GatewaySecurityTest` the chain, to `ledger-v1` and `assistant-v1` (#339); a new method needs both.
 - **The catch-all answers a framework refusal at its own status.**
   `GatewayRelayProblems.relayFailed` peels an `ErrorResponse` off first — 405
   `METHOD_NOT_ALLOWED` and 406 `NOT_ACCEPTABLE`, the only two `GET /bff/me` can provoke — and logs

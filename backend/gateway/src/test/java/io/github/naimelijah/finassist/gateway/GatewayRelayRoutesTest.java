@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -19,6 +20,7 @@ import org.springframework.cloud.gateway.server.mvc.config.PredicateProperties;
 import org.springframework.cloud.gateway.server.mvc.predicate.GatewayRequestPredicates;
 import org.springframework.http.HttpMethod;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.function.RequestPredicate;
 import org.springframework.web.servlet.function.ServerRequest;
 import org.yaml.snakeyaml.Yaml;
@@ -30,9 +32,12 @@ import tools.jackson.databind.JsonNode;
  * contract publishes and the route refuses is a typed call the browser can make and never complete
  * — and nothing else in this module reads both files.
  *
- * <p>The routes are read as data, without a context, and each shortcut is parsed by the gateway's
- * own {@link PredicateProperties} and {@link FilterProperties} and built into the gateway's own
- * {@link GatewayRequestPredicates}, so a match here is the match the running relay makes.
+ * <p>The routes are read as data from the raw {@code application.yml}, without a context. Each
+ * shortcut is parsed by the gateway's own {@link PredicateProperties} and {@link FilterProperties}
+ * and built into the gateway's own {@link GatewayRequestPredicates}, so a match here is the match
+ * those predicates make for the routes as the file writes them. Nothing the file does not show is
+ * seen: a {@code ${...}} placeholder is read as its literal text, and an environment variable,
+ * system property or profile that overrides a route when the gateway runs is invisible here.
  *
  * <p>This covers the route alone. {@code GatewaySecurityConfiguration} names its relay methods
  * apart from these predicates, and {@code GatewaySecurityTest} holds the chain to the same
@@ -55,9 +60,22 @@ class GatewayRelayRoutesTest {
     /** The one server both contracts declare, which makes each path the path the service serves. */
     private static final String CONTRACT_SERVER_URL = "/";
 
-    private static final String PATH_PREDICATE = "Path";
-    private static final String METHOD_PREDICATE = "Method";
-    private static final String STRIP_PREFIX_FILTER = "StripPrefix";
+    /**
+     * Predicate and filter names as the gateway resolves them: {@code RouterFunctionHolderFactory}
+     * uncapitalises a shortcut's name before looking its operation up, so {@code Path=} and {@code
+     * path=} name one predicate. Every name read from the file goes through {@link #operationName}.
+     */
+    private static final String PATH_PREDICATE = operationName("Path");
+
+    private static final String METHOD_PREDICATE = operationName("Method");
+    private static final String STRIP_PREFIX_FILTER = operationName("StripPrefix");
+
+    /**
+     * What makes a path segment a pattern rather than a literal: a PathPattern wildcard or capture,
+     * or a {@code ${...}} placeholder this raw read leaves unresolved. A stripped segment holding one
+     * says nothing about the literal prefix the browser sends.
+     */
+    private static final Pattern NON_LITERAL_SEGMENT = Pattern.compile("[*?{$]");
 
     /** A route's predicates and filters, each by name with its shortcut arguments in order. */
     private record Route(String id, Map<String, List<String>> predicates, Map<String, List<String>> filters) {
@@ -76,12 +94,21 @@ class GatewayRelayRoutesTest {
             int stripped = filters.containsKey(STRIP_PREFIX_FILTER)
                     ? Integer.parseInt(filters.get(STRIP_PREFIX_FILTER).getFirst())
                     : 0;
-            List<String> segments = Arrays.stream(pathPatterns()[0].split("/"))
+            String pattern = pathPatterns()[0];
+            List<String> segments = Arrays.stream(pattern.split("/"))
                     .filter(segment -> !segment.isEmpty())
                     .toList();
-            return segments.subList(0, stripped).stream()
-                    .map(segment -> "/" + segment)
-                    .reduce("", String::concat);
+            assertThat(stripped)
+                    .as("the segments the %s route's StripPrefix= removes, out of %s", id, pattern)
+                    .isBetween(0, segments.size());
+            List<String> strippedSegments = segments.subList(0, stripped);
+            assertThat(strippedSegments)
+                    .as(
+                            "the segments the %s route strips from %s, each of which must be literal to name"
+                                    + " the prefix the browser sends",
+                            id, pattern)
+                    .noneMatch(segment -> NON_LITERAL_SEGMENT.matcher(segment).find());
+            return strippedSegments.stream().map(segment -> "/" + segment).reduce("", String::concat);
         }
 
         RequestPredicate pathPredicate() {
@@ -195,23 +222,38 @@ class GatewayRelayRoutesTest {
         for (Object entry : routes) {
             Map<String, Object> route = asMap(entry, "a route");
             String id = (String) route.get("id");
+            // The gateway ANDs every predicate a route names, so a second Path= or Method=
+            // narrows the first. Keyed by name, this map could hold only one of them and the
+            // narrowing would pass unseen, so a repeat fails instead.
             Map<String, List<String>> predicates = new LinkedHashMap<>();
             for (String shortcut : shortcuts(route.get("predicates"), id)) {
                 PredicateProperties predicate = new PredicateProperties(shortcut);
-                predicates.put(
-                        predicate.getName(), List.copyOf(predicate.getArgs().values()));
+                String name = operationName(predicate.getName());
+                if (predicates.putIfAbsent(name, List.copyOf(predicate.getArgs().values())) != null) {
+                    throw new AssertionError("route " + id + " names the " + predicate.getName()
+                            + " predicate more than once, and the gateway ANDs them; teach this test to read both");
+                }
             }
-            // Keyed by name, so a repeated filter keeps its first arguments; only StripPrefix,
-            // which a route names once, is read from this map.
+            // Repeated filters are legitimate (RemoveRequestHeader=), so this keeps each name's
+            // first arguments. StripPrefix= is the one read from it, and a second one would strip
+            // again, so a repeat of that one fails.
             Map<String, List<String>> filters = new LinkedHashMap<>();
             for (String shortcut : shortcuts(route.get("filters"), id)) {
                 FilterProperties filter = new FilterProperties(shortcut);
-                filters.putIfAbsent(
-                        filter.getName(), List.copyOf(filter.getArgs().values()));
+                String name = operationName(filter.getName());
+                if (filters.putIfAbsent(name, List.copyOf(filter.getArgs().values())) != null
+                        && name.equals(STRIP_PREFIX_FILTER)) {
+                    throw new AssertionError("route " + id + " names StripPrefix more than once, and each one strips");
+                }
             }
             byId.put(id, new Route(id, predicates, filters));
         }
         return byId;
+    }
+
+    /** A predicate's or filter's name as the gateway resolves it to an operation. */
+    private static String operationName(String name) {
+        return StringUtils.uncapitalize(name);
     }
 
     /** A route's predicates or filters, which this file writes in the shortcut form alone. */

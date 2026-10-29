@@ -22,9 +22,15 @@ public final class BackendContracts {
     /** Set by surefire and failsafe in {@code pom.xml} to the repository's {@code contracts/} directory. */
     private static final String CONTRACTS_DIR_PROPERTY = "finassist.contracts.dir";
 
-    /** Path Item members that are not operations (OpenAPI 3.x); every other member names a method. */
+    /**
+     * Path Item members that are not operations (OpenAPI 3.x). Beside these and the {@link
+     * #EXTENSION_PREFIX} extensions, every member names a method.
+     */
     private static final Set<String> PATH_ITEM_NON_OPERATIONS =
             Set.of("$ref", "summary", "description", "servers", "parameters");
+
+    /** Specification extensions, which OpenAPI allows on a Path Item and which name no method. */
+    private static final String EXTENSION_PREFIX = "x-";
 
     /**
      * A contract path names a template, the wire a value. Substituting one keeps a match honest: a
@@ -81,6 +87,7 @@ public final class BackendContracts {
                 .propertyStream()
                 .flatMap(pathItem -> pathItem.getValue().propertyNames().stream()
                         .filter(member -> !PATH_ITEM_NON_OPERATIONS.contains(member))
+                        .filter(member -> !member.startsWith(EXTENSION_PREFIX))
                         .map(method ->
                                 new Operation(HttpMethod.valueOf(method.toUpperCase(Locale.ROOT)), pathItem.getKey())))
                 .toList();
