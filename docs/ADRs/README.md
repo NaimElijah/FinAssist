@@ -6,28 +6,28 @@ append-only history: to change course, add a new record and mark the old one
 
 | ADR | Decision | Status |
 |---|---|---|
-| [001](ADR-001-polyglot-java-python-split.md) | Split into a Java ledger and a Python assistant | Accepted, corrected by 047 |
-| [002](ADR-002-java-spring-boot-for-the-ledger.md) | Java 21 and Spring Boot for the ledger | Accepted, corrected by 047 |
-| [003](ADR-003-python-fastapi-for-assistant-and-analysis.md) | Python 3.13 and FastAPI for the assistant | Accepted, extended by 046 |
+| [001](ADR-001-polyglot-java-python-split.md) | Split into a Java ledger and a Python assistant | Accepted, extended by 030, corrected by 047 |
+| [002](ADR-002-java-spring-boot-for-the-ledger.md) | Java 21 and Spring Boot for the ledger | Accepted, its Java 21 line held by 045, corrected by 047 |
+| [003](ADR-003-python-fastapi-for-assistant-and-analysis.md) | Python 3.13 and FastAPI for the assistant | Accepted, extended by 046, its Python 3.13 line held by 045 |
 | [004](ADR-004-http-openapi-service-contract.md) | HTTP with a versioned OpenAPI document as the contract | Accepted |
 | [005](ADR-005-docker-compose-as-the-run-mechanism.md) | Compose is the mechanism, the Makefile the interface | Accepted, extended by 049 and 054, corrected by 047 |
 | [006](ADR-006-postgresql-for-the-ledger-store.md) | PostgreSQL as the ledger's store | Accepted, resolved by 024 |
 | [007](ADR-007-asymmetric-hexagonal-architecture.md) | Asymmetric hexagonal: tactical DDD in the ledger only | Accepted, extended by 010 |
 | [008](ADR-008-backend-frontend-root-layout.md) | `backend/` and `frontend/` as the root split | Accepted, extended by 052 |
 | [009](ADR-009-react-vite-spa-for-the-web-client.md) | React + Vite SPA for the web client | Accepted, extended by 029 |
-| [010](ADR-010-bounded-context-map.md) | The context map, and context-first packaging | Accepted, extended by 015 and 046, corrected by 047 |
+| [010](ADR-010-bounded-context-map.md) | The context map, and context-first packaging | Accepted, extended by 015, 029 and 046, corrected by 047 |
 | [011](ADR-011-double-entry-bookkeeping.md) | Double-entry, five account types, transaction lifecycle | Accepted |
 | [012](ADR-012-multi-currency-without-conversion.md) | Multi-currency amounts, with no conversion | Accepted |
 | [013](ADR-013-fifo-lot-based-cost-basis.md) | Lot-based holdings with FIFO cost basis | Accepted, extended by 041 |
 | [014](ADR-014-grounded-answers-require-citations.md) | An answer stating a figure must cite the ledger | Accepted |
 | [015](ADR-015-planning-as-a-sixth-bounded-context.md) | `planning` as a sixth bounded context, in the ledger | Accepted |
 | [016](ADR-016-deterministic-per-currency-projection.md) | Deterministic, per-currency projections | Accepted |
-| [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted |
+| [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted, its Testcontainers deferral resolved by 025 |
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
-| [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, extended by 050, corrected by 047 |
-| [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, extended by 033 |
+| [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, extended by 030, 039 and 050, corrected by 047 |
+| [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, acted on by 023, extended by 033, its persistence obligation resolved by 024 |
 | [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted, extended by 041 and 055 |
-| [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted, extended by 051 |
+| [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted, extended by 051, with a bounded exception in 028 |
 | [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted, extended by 048, which supersedes its in-memory-log sentence |
 | [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033 and 035 |
 | [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted, extended by 047 |
@@ -91,13 +91,14 @@ names them. 031's own text stays as written, because these records are append-on
 033 extends 020 and 024 on 2026-09-22, once authentication existed to discharge the "who" both
 records had deferred: every journal row now names the authenticated subject that wrote it, from
 `V1_2__journal_recorded_by.sql` onward. 021's rule that identity is generated inside the service
-still holds — an actor travels beside a command, never inside one.
+still holds — a command may carry the actor who issued it, but never an identity for what it
+creates.
 
 034 records, on 2026-09-22, why `ops/smoke/auth_smoke.py` is run by hand and never by CI, and
 weighs the evidence against that choice: the check's first real run found a defect no CI job
 would have caught, whose class a cheap unit test now guards.
 
-035 corrects 024 and 033 on 2026-09-22, after review found that `V1_2` would have stopped the
+035 extends 024 and corrects 033 on 2026-09-22, after review found that `V1_2` would have stopped the
 owner's ledger from starting: a major version per context means a new migration for any context
 but the highest arrives below a version already applied, which Flyway refuses unless it is told
 to run out of order. `LedgerUpgradeIT` now starts the ledger against the history a real database

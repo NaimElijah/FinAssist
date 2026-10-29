@@ -1,6 +1,7 @@
 # ADR-010: The context map, and context-first packaging
 
-- **Status:** Accepted, extended by [ADR-015](ADR-015-planning-as-a-sixth-bounded-context.md) and
+- **Status:** Accepted, extended by [ADR-015](ADR-015-planning-as-a-sixth-bounded-context.md),
+  [ADR-029](ADR-029-web-client-stack.md) and
   [ADR-046](ADR-046-architecture-rules-read-the-code-never-load-it.md), corrected by
   [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md)
 - **Date:** 2026-08-29

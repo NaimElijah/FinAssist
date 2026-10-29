@@ -1,7 +1,7 @@
 # ADR-001: Split FinAssist into a Java ledger and a Python assistant
 
-- **Status:** Accepted, corrected by
-  [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md)
+- **Status:** Accepted, extended by [ADR-030](ADR-030-oidc-authentication-through-a-bff-gateway.md),
+  corrected by [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md)
 - **Date:** 2026-08-29
 
 ## Context
