@@ -165,23 +165,27 @@ class LedgerObservabilityIT extends PostgresFixture {
      * there is no {@code prometheus} endpoint to expose.
      *
      * <p>The running context also reads the machine, so the test first refuses an environment
-     * variable or a system property that sets the exposure itself. Either outranks {@code
-     * application.yml}: an {@code _INCLUDE} of {@code "*"} would turn the test red with nothing
-     * shipped wrong, and one that names the four would mask a widening in the file. Names are compared
-     * as Spring's relaxed binding reads them, case-insensitive with {@code .} and {@code -} as {@code
-     * _}. Not refused: {@code SPRING_APPLICATION_JSON}, {@code SPRING_CONFIG_*} and an active profile,
-     * which can reach the list only through a document this check does not parse; the ledger ships
-     * no profile file.
+     * variable or a system property that sets the exposure itself, or that can: {@code
+     * SPRING_APPLICATION_JSON} carries inline properties, and a {@code SPRING_CONFIG_*} variable
+     * ({@code _LOCATION}, {@code _ADDITIONAL_LOCATION}, {@code _IMPORT}) points at another document.
+     * Each outranks {@code application.yml}: an {@code _INCLUDE} of {@code "*"} would turn the test
+     * red with nothing shipped wrong, and one that names the four would mask a widening in the file.
+     * The two that only can are refused whatever they hold, since parsing them is what Spring is
+     * for. Names are compared as Spring's relaxed binding reads them, case-insensitive with {@code .}
+     * and {@code -} as {@code _}, so {@code spring.application.json} and {@code spring.config.*}
+     * properties are refused too. Not refused: an active profile, and an {@code application.yml} in
+     * the working directory or its {@code config/}, which reach the list only through a document this
+     * check does not look for; the ledger ships no profile file.
      */
     @Test
     void Given_the_shipped_configuration_When_the_web_endpoints_are_resolved_Then_only_the_four_listed_are_exposed() {
         assertThat(exposureSettings(System.getenv().keySet()))
-                .as("an environment variable sets the web exposure, so this context answers for the machine,"
-                        + " not for the shipped application.yml; unset it to run this test")
+                .as("an environment variable sets, or can set, the web exposure, so this context answers for"
+                        + " the machine, not for the shipped application.yml; unset it to run this test")
                 .isEmpty();
         assertThat(exposureSettings(System.getProperties().stringPropertyNames()))
-                .as("a system property sets the web exposure, so this context answers for the JVM's"
-                        + " arguments, not for the shipped application.yml; remove it to run this test")
+                .as("a system property sets, or can set, the web exposure, so this context answers for the"
+                        + " JVM's arguments, not for the shipped application.yml; remove it to run this test")
                 .isEmpty();
 
         Set<String> exposed =
@@ -199,11 +203,23 @@ class LedgerObservabilityIT extends PostgresFixture {
      */
     private static final String EXPOSURE_PREFIX = "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_";
 
+    /** The inline-JSON source, {@code spring.application.json}, normalised as {@link #relaxed} does. */
+    private static final String INLINE_JSON = "SPRING_APPLICATION_JSON";
+
+    /** The prefix of every {@code spring.config.*} name, which can load another document. */
+    private static final String CONFIG_PREFIX = "SPRING_CONFIG_";
+
     private static List<String> exposureSettings(Set<String> names) {
         return names.stream()
-                .filter(name -> relaxed(name).startsWith(EXPOSURE_PREFIX))
+                .filter(name -> canSetTheExposure(relaxed(name)))
                 .sorted()
                 .toList();
+    }
+
+    private static boolean canSetTheExposure(String relaxedName) {
+        return relaxedName.startsWith(EXPOSURE_PREFIX)
+                || relaxedName.equals(INLINE_JSON)
+                || relaxedName.startsWith(CONFIG_PREFIX);
     }
 
     private static String relaxed(String name) {
