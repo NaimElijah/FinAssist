@@ -1,6 +1,7 @@
 # ADR-031: Keycloak as the identity provider
 
-- **Status:** Accepted, extended by [ADR-036](ADR-036-least-privilege-keycloak-client-scoping.md).
+- **Status:** Accepted, extended by [ADR-036](ADR-036-least-privilege-keycloak-client-scoping.md),
+  corrected by [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md).
 - **Date:** 2026-09-16
 
 ## Context

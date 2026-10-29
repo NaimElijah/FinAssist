@@ -1,6 +1,7 @@
 # ADR-032: Role-based authorization, owned by each service
 
-- **Status:** Accepted
+- **Status:** Accepted, corrected by
+  [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md)
 - **Date:** 2026-09-16
 
 ## Context

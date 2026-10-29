@@ -1,6 +1,7 @@
 # ADR-019: OpenTelemetry, structured logs, and one redaction boundary per service
 
-- **Status:** Accepted
+- **Status:** Accepted, corrected by
+  [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md)
 - **Date:** 2026-08-31
 
 ## Context

@@ -1,6 +1,7 @@
 # ADR-001: Split FinAssist into a Java ledger and a Python assistant
 
-- **Status:** Accepted
+- **Status:** Accepted, corrected by
+  [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md)
 - **Date:** 2026-08-29
 
 ## Context

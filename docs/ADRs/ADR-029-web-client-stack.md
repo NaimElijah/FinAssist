@@ -1,6 +1,7 @@
 # ADR-029: The web client's routing, server state, contract types and styling
 
 - **Status:** Accepted, extended by [ADR-030](ADR-030-oidc-authentication-through-a-bff-gateway.md)
+  and [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md)
 - **Date:** 2026-09-14
 
 Extends [ADR-009](ADR-009-react-vite-spa-for-the-web-client.md), which chose a React 19 and Vite 8
