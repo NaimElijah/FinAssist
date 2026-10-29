@@ -28,7 +28,7 @@ append-only history: to change course, add a new record and mark the old one
 | [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, extended by 033 |
 | [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted, extended by 041 |
 | [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted |
-| [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted |
+| [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted, extended by 048, which supersedes its in-memory-log sentence |
 | [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033 and 035 |
 | [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted, extended by 047 |
 | [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted, extended by 030 |
@@ -53,6 +53,7 @@ append-only history: to change course, add a new record and mark the old one
 | [045](ADR-045-dependabot-triage-and-toolchain-holds.md) | Dependabot's updates are triaged weekly, the Java pair moves together, and the toolchain lines move only by ADR | Accepted, extended by 047 |
 | [046](ADR-046-architecture-rules-read-the-code-never-load-it.md) | Architecture rules read the code and never load it | Accepted |
 | [047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) | Twelve passages of Accepted records reconciled with the system as built | Accepted |
+| [048](ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md) | Domain events stay in-process until a consumer exists, and production keeps no event log | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -177,3 +178,9 @@ declares no client scope, the gateway answers no `NOT_FOUND`, and order within a
 `ReleasedMigrationsTest` after all. Two items decide: the raw commands are the supported path on
 Windows, and a Maven major moves by ADR while its minor and patch releases move by Dependabot's
 weekly triage.
+
+048 extends 023 on 2026-10-29, because 023's first revisit trigger fired on the first repository
+(2026-09-07) and nothing replaced the in-memory event log, which grew with every write the running
+ledger recorded. The services still raise every event and their tests still pin each one;
+production now discards them, the recording logs are test doubles, and the outbox waits for its
+first consumer ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
