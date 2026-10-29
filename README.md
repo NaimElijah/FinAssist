@@ -417,11 +417,13 @@ cd backend/gateway && ./mvnw spring-boot:run
 ```
 
 The everyday commands. CI calls the per-codebase targets behind them (`make test-ledger`,
-`make lint-web` and the rest), so a local run and a CI job cannot drift apart:
+`make lint-web` and the rest), so a local run and a CI job cannot drift apart. The CI steps
+with no target are the `.env` seeding and the published-secret refusal that follows it, which
+starts containers under the default Compose project name ([ADR-049](docs/ADRs/ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md)):
 
 ```bash
 make setup     # .env from the example, Maven and npm dependencies, the assistant's locked venv
-make test      # all five suites; Docker must be running for the ledger's and the gateway's
+make test      # all seven suites; Docker must be running for the ledger's and the gateway's
 make lint      # Spotless, Ruff, mypy, ESLint, Prettier and tsc, in check mode
 make format    # the same formatters, applied
 make audit     # pip-audit and npm audit --audit-level=high
@@ -512,8 +514,8 @@ take each bump in one PR, and Temurin and Python stay on 21 and 3.13 until an AD
 
 | Suite | What it proves | Command |
 |---|---|---|
-| Ledger | Sixteen ArchUnit rules; the domain's invariants and properties from a fixed seed; every repository and the append-only journal against a real PostgreSQL; every endpoint's authorization against a named inventory; each controller's validation; the OpenAPI contract | `make test-ledger` |
-| Gateway | Sign-in, CSRF and sign-out; a real code-plus-PKCE sign-in and token relay against a fake OpenID provider; Keycloak timeouts; the packaged jar starting; the realm file, read as data and run in the real Keycloak image | `make test-gateway` |
+| Ledger | Eighteen ArchUnit rules; the domain's invariants and properties from a fixed seed; every repository and the append-only journal against a real PostgreSQL; every endpoint's authorization against a named inventory; each controller's validation; Actuator's exposure pinned to four endpoints; the OpenAPI contract | `make test-ledger` |
+| Gateway | Sign-in, CSRF and sign-out; a real code-plus-PKCE sign-in and token relay against a fake OpenID provider; Keycloak timeouts; the packaged jar starting; each relay route and the security chain held to the committed ledger and assistant contracts; Actuator's exposure pinned to `health`; the realm file, read as data and run in the real Keycloak image | `make test-gateway` |
 | Assistant | Source-parsing architecture rules; FIFO cost basis, grounding, staleness and Money, with Hypothesis; token verification and authorization; the problem shape; the OpenAPI contract | `make test-assistant` |
 | Backup CLI | Redaction, the manifest checks, every restore precondition, a backup's refusals, the command line and the owner-project guard, without Docker | `make test-backup` |
 | Secret check | It reads exactly the files git does not ignore, matches a value literally and only as a whole token, and refuses by variable name, never by value | `make test-secret-check` |
@@ -528,14 +530,17 @@ is in [docs/testing/testing.md](docs/testing/testing.md).
 
 **What CI runs:** five jobs on every push and pull request to `main` and `dev` — the ledger
 (format check, build, tests); the gateway (the same, `KeycloakRealmIT` included); the assistant
-(Ruff, `mypy --strict`, tests and `pip-audit`, plus the smoke check's lint and the backup CLI's and
-the secret check's lint and tests);
-the web client (contract types regenerated with no diff, lint, format check, typecheck, tests,
-production build and `npm audit`); and `docker compose config` across every profile, which also
-fails a service without the shared restart and log policy, or a healthcheck that probes anything
-but readiness. The compose job also runs `secret-check` against a published value, and requires
-it to refuse all eight secrets by name and keep `db` from starting. No CI job starts the rest
-of the Compose stack. The branch rules on `main` and `dev` require a
+(Ruff, `mypy --strict`, tests and `pip-audit`, plus the smoke check's lint and the backup CLI's,
+the secret check's and the Compose check's lint and tests);
+the web client (`make check-web-api`, which regenerates the contract types and fails on any diff,
+then lint, format check, typecheck, tests, production build and `npm audit`); and
+`make check-compose`, which runs `docker compose config` across every profile and fails a service
+without the shared restart and log policy, or a healthcheck that probes anything but readiness.
+The compose job also runs `secret-check` against a published value, and requires it to refuse all
+eight secrets by name and keep `db` from starting; that step, with the `.env` seeding it needs,
+stays inline in `ci.yml` because it starts containers under the default Compose project name
+([ADR-049](docs/ADRs/ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md)). No CI job
+starts the rest of the Compose stack. The branch rules on `main` and `dev` require a
 pull request but no status check, so a green run before merging is practice, not enforcement
 ([#134](https://github.com/NaimElijah/FinAssist/issues/134)).
 
@@ -575,7 +580,7 @@ produces each Java service's executable jar, `npm run build` the web client's st
 |---|---|---|
 | Liveness | `GET /actuator/health/liveness` (ledger and gateway), `GET /health` (assistant) | Live |
 | Readiness | `GET /actuator/health/readiness` (ledger and gateway), `GET /ready` (assistant), Keycloak's `/health/ready` on its management port | Live; every Compose healthcheck probes readiness, never liveness, so `service_healthy` means ready to serve |
-| Metrics | `GET /actuator/metrics`, `GET /actuator/prometheus` (ledger) | Live, scraped by the `monitoring` profile; no domain metric yet |
+| Metrics | `GET /actuator/metrics`, `GET /actuator/prometheus` (ledger) | Live, scraped by the `monitoring` profile; no domain metric yet ([ADR-050](docs/ADRs/ADR-050-no-domain-metric-yet-decided-again.md)) |
 | Traces | OTLP to `$OTEL_EXPORTER_OTLP_ENDPOINT` | Exported only when `OTEL_EXPORT_ENABLED=true`; the services start either way |
 | Logs | JSON on stdout, carrying a W3C trace id | ECS in the ledger and the gateway, structlog in the assistant. Redaction is enforced at the assistant's and the web client's logging boundaries; the ledger and the gateway log no credential at all — a refused token as its reason category alone, a failed sign-in as its OAuth2 error code — and the ledger does not expose `/actuator/env` |
 | Audit trail | The append-only journal | The database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)) |
@@ -627,6 +632,8 @@ ops/                    Infrastructure configuration, not application code
   keycloak/               Dockerfile and finassist-realm.json, the realm imported at start-up
   smoke/                  auth_smoke.py - the opt-in Compose check of the authentication wiring
   backup/                 backup.py - backs up, restores, and proves a restore (ADR-038)
+  secret_check/           secret_check.py - refuses a published secret before a database starts
+  compose_check/          compose_check.py - the Compose conventions check behind make check-compose
   grafana/                dashboards; beside it, the collector and Prometheus configuration
 docs/                   requirements/, architecture/, operations/, testing/, ADRs/
 .github/                CI workflow, Dependabot configuration, and the PR and issue templates
@@ -727,8 +734,10 @@ ledger client behind its own `LedgerPort`.
   earlier ones honestly name nobody, and no endpoint exposes the value yet
   ([#63](https://github.com/NaimElijah/FinAssist/issues/63),
   [ADR-033](docs/ADRs/ADR-033-the-journal-records-who.md)).
-- **Domain events have no subscriber.** They are raised, recorded in an in-memory log and asserted
-  by tests — the cost [ADR-023](docs/ADRs/ADR-023-domain-events-in-the-ledger.md) accepts.
+- **Domain events have no subscriber.** They are raised and asserted by tests, and production
+  discards them; the outbox waits for the first consumer
+  ([ADR-023](docs/ADRs/ADR-023-domain-events-in-the-ledger.md),
+  [ADR-048](docs/ADRs/ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md)).
 - **No cross-currency total is possible**, by design, so there is no single net-worth figure, and
   a projection covers one currency
   ([ADR-012](docs/ADRs/ADR-012-multi-currency-without-conversion.md)).

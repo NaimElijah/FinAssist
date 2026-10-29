@@ -126,10 +126,10 @@ backup restores ([#137](https://github.com/NaimElijah/FinAssist/issues/137)).
 
 039 decides on 2026-10-13 what ADR-019 left to "whatever runs the container", for the one runtime
 FinAssist has, Compose. A crashed service, and the whole stack after Docker restarts, comes back
-under `unless-stopped`. Each container keeps at most three 10 MB `json-file` logs. Every
-healthcheck probes readiness. CI's `compose` job checks all three against the resolved file
-([#142](https://github.com/NaimElijah/FinAssist/issues/142)). 038 was written first, for #137,
-on a branch that merges after this one.
+under `unless-stopped`. Each container keeps at most three 10 MB `json-file` logs. Every healthcheck
+probes readiness. `make check-compose`, which CI's `compose` job runs, checks all three against the
+resolved file ([#142](https://github.com/NaimElijah/FinAssist/issues/142)). 038 was written first,
+for #137, on a branch that merges after this one.
 
 040 extends 034 on 2026-10-13, because 034's first revisit trigger fired: a defect only a running
 stack would have caught, a test-scoped `snakeyaml` that kept the packaged gateway from starting at
