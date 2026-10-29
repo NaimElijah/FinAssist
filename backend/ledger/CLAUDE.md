@@ -43,9 +43,10 @@ From `backend/ledger`:
   rule matching nothing now fails rather than passing quietly. Do not reintroduce it.
 - **The domain, the application layer and `shared` import no framework and no I/O** — no Spring,
   `jakarta`, `javax`, Jackson, springdoc or swagger; no logging API (`org.slf4j`, `ch.qos.logback`,
-  `org.apache.logging`, `java.util.logging`), `io.opentelemetry`, `io.micrometer`, `org.flywaydb`,
-  `com.nimbusds` or `com.zaxxer.hikari`; no `java.sql`, `java.net`, `java.io`, `java.nio.file` or
-  `java.nio.channels` (the rest of `java.nio`, such as `StandardCharsets`, is not I/O).
+  `org.apache.logging`, `org.apache.commons.logging`, `java.util.logging`), `io.opentelemetry`,
+  `io.micrometer`, `org.flywaydb`, `com.nimbusds` or `com.zaxxer.hikari`; no `java.sql`,
+  `java.net`, `java.io`, `java.nio.file` or `java.nio.channels` (the rest of `java.nio`, such as
+  `StandardCharsets`, is not I/O).
   `FORBIDDEN_FRAMEWORK_PACKAGES` in `LedgerArchitectureTest` is the list; logging and metrics
   belong in adapters and `composition`.
 - **A translation reaches the upstream context through its in-ports only.** A `composition` class

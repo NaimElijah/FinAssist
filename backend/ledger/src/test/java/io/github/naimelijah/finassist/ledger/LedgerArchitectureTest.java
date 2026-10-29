@@ -92,7 +92,9 @@ class LedgerArchitectureTest {
      * {@code java.util.logging..}; a {@code Logger} from any of them writes output from the core as
      * surely as an SLF4J one, so each is listed. {@code com.zaxxer.hikari..} is the connection pool
      * {@code spring-boot-starter-jdbc} brings: a pool in the core is persistence without a {@code
-     * java.sql} type in sight.
+     * java.sql} type in sight. Commons Logging ({@code org.apache.commons.logging..}) arrives
+     * another way: {@code spring-core} declares it at compile scope, so a {@code LogFactory.getLog}
+     * in an aggregate compiles, and {@code org.apache.logging..} names Log4j alone.
      *
      * <p>{@code java.sql..}, {@code java.net..}, {@code java.io..}, {@code java.nio.file..} and {@code
      * java.nio.channels..} are the JDK's own I/O seams: a {@code Connection}, an {@code HttpClient}, a
@@ -113,6 +115,7 @@ class LedgerArchitectureTest {
         "org.slf4j..",
         "ch.qos.logback..",
         "org.apache.logging..",
+        "org.apache.commons.logging..",
         "java.util.logging..",
         "io.opentelemetry..",
         "io.micrometer..",
