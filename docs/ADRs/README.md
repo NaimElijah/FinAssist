@@ -24,7 +24,7 @@ append-only history: to change course, add a new record and mark the old one
 | [016](ADR-016-deterministic-per-currency-projection.md) | Deterministic, per-currency projections | Accepted |
 | [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted |
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
-| [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, corrected by 047 |
+| [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, extended by 050, corrected by 047 |
 | [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, extended by 033 |
 | [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted, extended by 041 |
 | [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted |
@@ -55,6 +55,7 @@ append-only history: to change course, add a new record and mark the old one
 | [047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) | Twelve passages of Accepted records reconciled with the system as built | Accepted |
 | [048](ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md) | Domain events stay in-process until a consumer exists, and production keeps no event log | Accepted |
 | [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted |
+| [050](ADR-050-no-domain-metric-yet-decided-again.md) | No domain metric yet, decided again, with new triggers | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -192,3 +193,9 @@ containers on published values under the owner's Compose project name, so it sta
 `ci.yml`, with the `.env` seeding it needs. Every other check is a Make target, so the
 contract-types check and the Compose conventions check became `make check-web-api` and
 `make check-compose` ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
+
+050 extends 019 on 2026-10-29, because 019's trigger for a domain metric fired on 2026-09-14, when
+the first business endpoints shipped, and the position was inherited rather than revisited. It is
+kept: nothing pages anyone, and the HTTP server metrics already carry the ledger's error rate. The
+new triggers are the first alerting rule, the first deployment beyond the owner's machine, and a
+failure the owner learns of from the books ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
