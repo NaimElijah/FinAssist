@@ -10,7 +10,7 @@ append-only history: to change course, add a new record and mark the old one
 | [002](ADR-002-java-spring-boot-for-the-ledger.md) | Java 21 and Spring Boot for the ledger | Accepted, corrected by 047 |
 | [003](ADR-003-python-fastapi-for-assistant-and-analysis.md) | Python 3.13 and FastAPI for the assistant | Accepted, extended by 046 |
 | [004](ADR-004-http-openapi-service-contract.md) | HTTP with a versioned OpenAPI document as the contract | Accepted |
-| [005](ADR-005-docker-compose-as-the-run-mechanism.md) | Compose is the mechanism, the Makefile the interface | Accepted, extended by 049, corrected by 047 |
+| [005](ADR-005-docker-compose-as-the-run-mechanism.md) | Compose is the mechanism, the Makefile the interface | Accepted, extended by 049 and 054, corrected by 047 |
 | [006](ADR-006-postgresql-for-the-ledger-store.md) | PostgreSQL as the ledger's store | Accepted, resolved by 024 |
 | [007](ADR-007-asymmetric-hexagonal-architecture.md) | Asymmetric hexagonal: tactical DDD in the ledger only | Accepted, extended by 010 |
 | [008](ADR-008-backend-frontend-root-layout.md) | `backend/` and `frontend/` as the root split | Accepted, extended by 052 |
@@ -59,6 +59,7 @@ append-only history: to change course, add a new record and mark the old one
 | [051](ADR-051-what-a-translation-may-decide.md) | What a translation may decide: choosing records stays in `composition`, a rule in the downstream's own words moves into it | Accepted |
 | [052](ADR-052-ops-holds-operator-code-one-directory-per-tool.md) | `ops/` holds operator code, one directory per tool | Accepted |
 | [053](ADR-053-the-gateways-outbound-calls-speak-http-1-1-under-one-time-budget.md) | The gateway's outbound calls speak HTTP/1.1, under one time budget | Accepted |
+| [054](ADR-054-each-service-ships-as-a-two-stage-image-run-as-a-non-root-user.md) | Each service ships as a two-stage image, built from source and run as a non-root user | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -218,4 +219,9 @@ assistant's toolchain ([#339](https://github.com/NaimElijah/FinAssist/issues/339
 fixes between 2026-09-22 and 2026-10-09 settled and no record held. They speak HTTP/1.1, because
 the JDK client's h2c upgrade offer made uvicorn answer 400 to every relayed POST. They share one 5 s
 and 10 s budget, and the relay removes four browser headers, not two
+([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
+
+054 extends 005 on 2026-10-29, recording how the ledger, the gateway and the assistant become
+images, which only their Dockerfiles said. Each is built from source in two stages and run as a
+non-root user, the build skips the tests, and nothing in CI builds an image
 ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
