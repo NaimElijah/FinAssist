@@ -180,8 +180,8 @@ class LedgerArchitectureTest {
 
     /**
      * The domain stays framework-free, which is what lets it be tested without Spring and what keeps
-     * persistence concerns out of the aggregates. JPA entities belong in the outbound adapter and
-     * are mapped; an entity is not an aggregate.
+     * persistence concerns out of the aggregates. There is no entity type: the outbound adapter maps
+     * rows to aggregates by hand (ADR-024).
      *
      * <p>The {@code shared} kernel is held to the same rule. Every domain depends on {@code Money}, so
      * a framework type in {@code shared} would reach each of them through a dependency this rule,
