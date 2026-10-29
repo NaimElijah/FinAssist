@@ -403,6 +403,7 @@ function crossLayerImportsOf(feature: string): { count: number; offences: string
 
 const GENERATED_CONTRACTS_DIR = join(SRC, 'shared', 'api', 'contracts');
 const SHARED_UI_DIR = join(SRC, 'shared', 'ui');
+const SHARED_LIB_DIR = join(SRC, 'shared', 'lib');
 
 describe('layers inside a feature', () => {
     it('Given_each_feature_When_its_directories_are_listed_Then_each_is_a_known_layer', () => {
@@ -524,6 +525,36 @@ describe('layers inside a feature', () => {
         expect(
             offences,
             "a feature's types/ imports the UI kit. Move what it needs to src/shared/lib.",
+        ).toEqual([]);
+    });
+
+    it('Given_src_shared_lib_When_its_sources_are_read_Then_none_imports_src_shared_ui', () => {
+        // The rule above sends a feature's types/ to src/shared/lib for what it shares with the
+        // UI kit. Were src/shared/lib to import src/shared/ui, even to re-export one value,
+        // types/ would depend on the whole kit again through it, and that rule would be moot.
+        const offences: string[] = [];
+        let importsResolvedInSrc = 0;
+
+        for (const file of sourceFilesUnder(SHARED_LIB_DIR)) {
+            for (const specifier of importSpecifiers(file)) {
+                const resolved = resolveInSrc(specifier, file);
+                if (resolved === undefined) continue;
+                importsResolvedInSrc += 1;
+                if (isWithin(SHARED_UI_DIR, resolved)) {
+                    offences.push(`${relative(SRC, file)} -> ${specifier}`);
+                }
+            }
+        }
+
+        // Guards the rule from passing vacuously: src/shared/lib's tests import the modules they
+        // test, so a scan that resolves no import inside src has stopped resolving specifiers.
+        expect(
+            importsResolvedInSrc,
+            'no import under src/shared/lib resolved inside src',
+        ).toBeGreaterThan(0);
+        expect(
+            offences,
+            'src/shared/lib imports the UI kit. Move the shared value into src/shared/lib.',
         ).toEqual([]);
     });
 });
