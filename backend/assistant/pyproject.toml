@@ -73,9 +73,11 @@ select = [
 # N802 would otherwise force the convention out of the repository.
 "tests/**" = ["S101", "N802"]
 # The same convention for the backup CLI's tests, which borrow these settings (make test-backup),
-# and for the secret check's (make test-secret-check).
+# and for the secret check's (make test-secret-check) and the Compose check's
+# (make test-compose-check).
 "../../ops/backup/tests/**" = ["N802"]
 "../../ops/secret_check/tests/**" = ["N802"]
+"../../ops/compose_check/tests/**" = ["N802"]
 
 [tool.mypy]
 python_version = "3.13"

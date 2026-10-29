@@ -13,7 +13,8 @@ import java.util.Objects;
  * <p><strong>The caller names which accounts are cash and which are investments.</strong> Nothing in
  * FinAssist says an {@code ASSET} account of one name is cash and another is an investment, and
  * inventing that rule to save the caller two lists would bury a policy nobody decided inside a
- * service. Either list may be empty, which opens that line at zero.
+ * service. Either list may be empty, which opens that line at zero. An account named twice, on one
+ * side or across both, is refused here, since it would be counted twice (ADR-051).
  *
  * <p>{@link AccountRef} lives in {@code port.out} because the port that consumes it does. It appears
  * here because the caller is who knows which accounts it means.
@@ -31,5 +32,6 @@ public record ProjectScenarioCommand(
         Objects.requireNonNull(step, "step");
         cashAccounts = List.copyOf(cashAccounts);
         investedAccounts = List.copyOf(investedAccounts);
+        AccountSelection.requireEachNamedOnce(cashAccounts, investedAccounts);
     }
 }

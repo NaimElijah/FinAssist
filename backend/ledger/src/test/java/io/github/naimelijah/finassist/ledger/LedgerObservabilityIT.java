@@ -14,13 +14,20 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.actuate.endpoint.ExposableEndpoint;
+import org.springframework.boot.actuate.endpoint.web.PathMappedEndpoint;
+import org.springframework.boot.actuate.endpoint.web.PathMappedEndpoints;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing;
@@ -76,6 +83,9 @@ class LedgerObservabilityIT extends PostgresFixture {
     @Autowired
     private Tracer tracer;
 
+    @Autowired
+    private PathMappedEndpoints webEndpoints;
+
     /**
      * Stands in for a database the ledger cannot reach. The failure a real outage raises is thrown
      * from the store's own port, so the request travels the real controller, service and problem
@@ -115,15 +125,16 @@ class LedgerObservabilityIT extends PostgresFixture {
     }
 
     /**
-     * Widening the exposure list is the likeliest way to leak configuration, and adding
-     * {@code prometheus} to it is exactly the kind of edit that invites a careless {@code "*"}.
-     * {@code LedgerApplicationIT} makes the same assertion; it is repeated here because this is
-     * the class whose change would break it.
+     * An endpoint outside the exposure list stays unserved in the one context where {@code
+     * prometheus} is exposed, so exposing it opened nothing beside it. {@code LedgerApplicationIT}
+     * makes the same assertion in a context without a Prometheus registry.
      *
-     * <p>{@code /actuator/env} matches no {@code permitAll} rule, so it is denied regardless of
-     * whether a token was sent — 401 with none, 403 with one that simply names no matching route
-     * (ADR-030). Neither answer is Actuator's own 404 any more; the security chain refuses the
-     * request before the dispatcher, let alone Actuator's endpoint mapping, ever sees it.
+     * <p>This is not the guard against widening the list, and cannot be. {@code /actuator/env}
+     * matches no {@code permitAll} rule, so it is denied regardless of whether a token was sent — 401
+     * with none, 403 with one that simply names no matching route (ADR-030). Neither answer is
+     * Actuator's own 404 any more; the security chain refuses the request before the dispatcher, let
+     * alone Actuator's endpoint mapping, ever sees it. So this case holds whatever the exposure list
+     * says, {@code "*"} included; the list itself is pinned by the test below.
      */
     @Test
     void Given_the_prometheus_endpoint_is_exposed_When_an_unexposed_one_is_requested_Then_it_is_still_not_served()
@@ -138,6 +149,88 @@ class LedgerObservabilityIT extends PostgresFixture {
                         .statusCode())
                 .isEqualTo(401);
         assertThat(get("/actuator/env").statusCode()).isEqualTo(403);
+    }
+
+    /**
+     * The guard ADR-019 relies on to stop the exposure list widening by accident. No HTTP answer can
+     * be that guard any more: the case above is refused by the security chain before Actuator's
+     * exposure is consulted, so it stays green with {@code "*"}. What is asserted instead is the set
+     * Actuator itself resolved: {@link PathMappedEndpoints} holds every endpoint it maps onto the web,
+     * from each web discoverer, after the include and exclude filters.
+     *
+     * <p>Read from the running context rather than from {@code application.yml}, because the context is
+     * what decides: an {@code exclude} beside the {@code include}, or a profile file, changes the
+     * answer without changing that one key. This class is the home because its context, through {@link
+     * AutoConfigureMetrics}, is one in which all four endpoints exist; without a Prometheus registry
+     * there is no {@code prometheus} endpoint to expose.
+     *
+     * <p>The running context also reads the machine, so the test first refuses an environment
+     * variable or a system property that sets the exposure itself, or that can: {@code
+     * SPRING_APPLICATION_JSON} carries inline properties, and a {@code SPRING_CONFIG_*} variable
+     * ({@code _LOCATION}, {@code _ADDITIONAL_LOCATION}, {@code _IMPORT}) points at another document.
+     * Each outranks {@code application.yml}: an {@code _INCLUDE} of {@code "*"} would turn the test
+     * red with nothing shipped wrong, and one that names the four would mask a widening in the file.
+     * The two that only can are refused whatever they hold, since parsing them is what Spring is
+     * for. Names are compared as Spring's relaxed binding reads them, case-insensitive with {@code .}
+     * and {@code -} as {@code _}, so {@code spring.application.json} and {@code spring.config.*}
+     * properties are refused too. Not refused: an active profile, and an {@code application.yml} in
+     * the working directory or its {@code config/}, which reach the list only through a document this
+     * check does not look for; the ledger ships no profile file.
+     */
+    @Test
+    void Given_the_shipped_configuration_When_the_web_endpoints_are_resolved_Then_only_the_four_listed_are_exposed() {
+        assertThat(exposureSettings(System.getenv().keySet()))
+                .as("an environment variable sets, or can set, the web exposure, so this context answers for"
+                        + " the machine, not for the shipped application.yml; unset it to run this test")
+                .isEmpty();
+        assertThat(exposureSettings(System.getProperties().stringPropertyNames()))
+                .as("a system property sets, or can set, the web exposure, so this context answers for the"
+                        + " JVM's arguments, not for the shipped application.yml; remove it to run this test")
+                .isEmpty();
+
+        Set<String> exposed =
+                webEndpoints.stream().map(LedgerObservabilityIT::idOf).collect(Collectors.toSet());
+
+        assertThat(exposed)
+                .as("management.endpoints.web.exposure must stay an explicit allow-list, never widened (ADR-019)")
+                .containsExactlyInAnyOrder("health", "info", "metrics", "prometheus");
+    }
+
+    /**
+     * The prefix every name that binds to {@code management.endpoints.web.exposure.*} carries once
+     * normalised as {@link #relaxed} does, the canonical {@code MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_}
+     * variable form.
+     */
+    private static final String EXPOSURE_PREFIX = "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_";
+
+    /** The inline-JSON source, {@code spring.application.json}, normalised as {@link #relaxed} does. */
+    private static final String INLINE_JSON = "SPRING_APPLICATION_JSON";
+
+    /** The prefix of every {@code spring.config.*} name, which can load another document. */
+    private static final String CONFIG_PREFIX = "SPRING_CONFIG_";
+
+    private static List<String> exposureSettings(Set<String> names) {
+        return names.stream()
+                .filter(name -> canSetTheExposure(relaxed(name)))
+                .sorted()
+                .toList();
+    }
+
+    private static boolean canSetTheExposure(String relaxedName) {
+        return relaxedName.startsWith(EXPOSURE_PREFIX)
+                || relaxedName.equals(INLINE_JSON)
+                || relaxedName.startsWith(CONFIG_PREFIX);
+    }
+
+    private static String relaxed(String name) {
+        return name.toUpperCase(Locale.ROOT).replace('.', '_').replace('-', '_');
+    }
+
+    private static String idOf(PathMappedEndpoint endpoint) {
+        if (endpoint instanceof ExposableEndpoint<?> exposable) {
+            return exposable.getEndpointId().toLowerCaseString();
+        }
+        throw new AssertionError("Actuator mapped an endpoint that carries no id, at " + endpoint.getRootPath());
     }
 
     /**

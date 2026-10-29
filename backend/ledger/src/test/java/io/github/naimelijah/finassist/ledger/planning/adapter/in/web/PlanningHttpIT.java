@@ -290,6 +290,24 @@ class PlanningHttpIT extends PostgresFixture {
         assertProblem(response, 422, "RULE_VIOLATED");
     }
 
+    /**
+     * The command refuses an account named twice before the service looks the scenario up, so a request
+     * that is wrong in both ways is answered 422, not 404 (ADR-051).
+     */
+    @Test
+    void Given_an_unknown_scenario_and_an_account_named_twice_When_projected_Then_it_is_a_422_rule_violated_problem()
+            throws Exception {
+        String nowhere = UUID.randomUUID().toString();
+        String account = UUID.randomUUID().toString();
+
+        HttpResponse<String> response = get(
+                SCENARIOS + "/" + nowhere + "/projection?" + YEAR_2026 + "&cash=" + account + "&invested=" + account);
+
+        assertProblem(response, 422, "RULE_VIOLATED");
+        assertThat(json(response).path("detail").asString())
+                .isEqualTo("Account reference " + account + " is named more than once; it would be counted twice");
+    }
+
     /** Opens an ILS account through the accounting API and returns the id the ledger generated for it. */
     private String openAccount(String name, String type) throws IOException, InterruptedException {
         HttpResponse<String> response = post(ACCOUNTS, """

@@ -6,7 +6,7 @@
  * (ADR-029). `recurrenceSummary` and `buildRecurrence` are pure and used both by the flows table
  * and the plan-flow form.
  */
-import { DISPLAY_LOCALE } from '@/shared/ui';
+import { DISPLAY_LOCALE } from '@/shared/lib/locale';
 
 /** The three cadences a repeating flow can step at, in the order the form offers them. */
 export const CADENCES = ['WEEKLY', 'MONTHLY', 'YEARLY'] as const;

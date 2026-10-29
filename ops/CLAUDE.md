@@ -5,6 +5,8 @@ here too, including its rules for `docker-compose.yml`; this file adds what bind
 
 ## Layout
 
+One directory per tool, none of them a deployable service of this repository's (ADR-052).
+
 - `ops/keycloak/` — `Dockerfile`, which builds the optimized Keycloak image that
   `docker-compose.yml` runs, and `finassist-realm.json`, the `finassist` realm imported at
   start-up.
@@ -15,6 +17,16 @@ here too, including its rules for `docker-compose.yml`; this file adds what bind
   that refuses a secret that any file git does not ignore holds (#302). It names a variable,
   never a value or a file. It runs as the one-shot `secret-check` service that both databases
   and Grafana wait on (ADR-044). Its tests are in `ops/secret_check/tests/`.
+- `ops/compose_check/compose_check.py` — a standard-library check, run on the host with
+  `uv run`, of the resolved Compose file it reads on stdin: each long-running service's restart
+  and log bound, the one-shots' lack of either, four readiness probes (#142, ADR-039), and no
+  `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON` key, in any
+  spelling, nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS`, in the ledger's or the
+  gateway's environment, and no `command` or `entrypoint` on either, each of which would reopen
+  the Actuator exposure their code pins and their tests cannot see. It names a service, a key or
+  a member, never a value. `placeholders.env` beside it holds a throwaway value for each `:?`
+  variable, which `make check-compose` exports, so the file resolves without `.env` or the
+  shell's secrets (ADR-049). Its tests are in `ops/compose_check/tests/`.
 - `ops/smoke/auth_smoke.py` — the only file behind the `smoke` Compose profile (ADR-034).
 - The collector, Prometheus and Grafana provisioning that the `monitoring` Compose profile mounts.
 
@@ -44,21 +56,40 @@ From the repository root unless stated:
   the rest.
 - **Test the secret check** — `make test-secret-check`: `cd backend/assistant && uv run pytest
   -c pyproject.toml ../../ops/secret_check/tests`. Real `git`, never Docker.
+- **Check the Compose file** — `make check-compose`, which CI's `compose` job runs. Each of its
+  four Compose calls runs in a shell of its own, as `sh -c 'set -a && .
+  ./ops/compose_check/placeholders.env && set +a && docker compose --env-file .env.example
+  <arguments>'`, so the exports never reach the caller's shell. The arguments are `--profile
+  monitoring config --quiet`, the same with `--profile smoke` and with both, then `--profile
+  monitoring --profile smoke config --format json`, piped into `uv run --python
+  "$(cat backend/assistant/.python-version)" ops/compose_check/compose_check.py`, so the script
+  runs on the assistant's pinned Python, not the newest its `requires-python` minimum allows.
+  `config` starts no container, and `.env` is never read. Compose ranks the shell above any
+  `--env-file`, so the placeholders are exported, not passed as one: each `:?` variable resolves
+  to its placeholder even when the caller exported a real value, as the native run does. Any
+  other variable the caller exported, a port, a username or a flag, still outranks `.env.example`.
+- **Test the Compose check** — `make test-compose-check`: `cd backend/assistant && uv run
+  pytest -c pyproject.toml ../../ops/compose_check/tests`. Crafted resolved files, never Docker.
 - **Smoke-test authentication** (opt-in, manual) — `make smoke-auth`:
   `docker compose --profile smoke run --rm auth-smoke`, after `make run` reports every service
   healthy. Run cold, `compose run` starts the stack itself, but from existing images, without
   building.
 - **Lint** — from `backend/assistant`, `uv run ruff check`, `uv run ruff format --check` and
   `uv run mypy --strict` over `../../ops/smoke` (`make lint-smoke`), `../../ops/backup`
-  (`make lint-backup`) and `../../ops/secret_check` (`make lint-secret-check`), each its own CI
-  step in the assistant job. `make format` formats all three alongside the assistant
-  (`backend/assistant/CLAUDE.md`).
+  (`make lint-backup`), `../../ops/secret_check` (`make lint-secret-check`) and
+  `../../ops/compose_check` (`make lint-compose-check`), each its own CI step in the assistant
+  job. `make format` formats all four alongside the assistant (`backend/assistant/CLAUDE.md`).
 
 ## Rules
 
-- **The operator CLIs print their report.** `ops/smoke/auth_smoke.py`, `ops/backup/backup.py` and
-  `ops/secret_check/secret_check.py` are not services: each one's report on stdout is its
-  product, written by one `print` marked `# noqa: T201` with its reason.
+- **The operator CLIs print their report.** `ops/smoke/auth_smoke.py`, `ops/backup/backup.py`,
+  `ops/secret_check/secret_check.py` and `ops/compose_check/compose_check.py` are not services:
+  each one's report on stdout is its product, written by one `print` marked `# noqa: T201` with
+  its reason.
+- **The Compose check's report never quotes a resolved value.** The file it reads carries every
+  secret Compose interpolated; it names a service, an `x-` block, a probe path or an environment
+  key, and an input it cannot read by the error's type alone, or as nested too deeply.
+  `ops/compose_check/tests` pins this, in-process and with the script run as its own process.
 - **The secret check's report names a variable, never its value, and never the file holding it.**
   In a public repository, naming the file gives the value away. An error it did not foresee is
   reported by its type alone, since its message could quote what was being read.

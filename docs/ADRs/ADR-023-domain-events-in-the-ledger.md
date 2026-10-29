@@ -1,6 +1,8 @@
 # ADR-023: Domain events in the ledger, raised by the application service
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-048](ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md), which supersedes
+  its in-memory-log sentence
 - **Date:** 2026-09-01
 
 ## Context

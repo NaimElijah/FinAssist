@@ -23,6 +23,10 @@ public interface OpeningPositionProvider {
     /**
      * Sums the named accounts into an opening position, in the given currency and no other.
      *
+     * <p>Each reference must appear at most once across both lists: a reference named twice is
+     * summed twice. Planning's commands guarantee it, refusing a duplicate before any port is called
+     * (ADR-051), so an implementation does not check it again.
+     *
      * @param cash accounts whose balances open the cash line; empty means an opening cash of zero
      * @param invested accounts whose balances open the invested line; empty means zero
      * @param currency the scenario's currency, which the answer must be in

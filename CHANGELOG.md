@@ -11,6 +11,19 @@ history; write the commit message well and this file writes itself.
 
 ### Added
 
+- **Two Make targets run what CI used to check inline.** `make check-web-api` regenerates the web
+  client's contract types and fails on any diff, untracked files included. `make check-compose`
+  validates `docker-compose.yml` under every profile and checks its restart, log and readiness
+  conventions. It resolves the file over `.env.example` with every required secret a placeholder,
+  so neither `.env` nor a secret exported in the shell reaches it, and it fails a
+  `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_APPLICATION_JSON`, `SPRING_CONFIG_*` or JVM-options key in
+  the ledger's or the gateway's environment, and a `command` or `entrypoint` on either. The
+  conventions check is now `ops/compose_check/compose_check.py`,
+  standard library only, run on the assistant's pinned Python, with its own tests
+  (`make test-compose-check`). Only the published-secret refusal and the `.env` it needs stay
+  inline in CI
+  ([ADR-049](docs/ADRs/ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md),
+  [#339](https://github.com/NaimElijah/FinAssist/issues/339)).
 - **The stack refuses to start on a secret the repository publishes.** A new one-shot Compose
   service, `secret-check`, runs before `db`, `keycloak-db` and Grafana, which wait on it.
   - It refuses each secret that appears in a file git does not ignore, such as CI's `ci-only`
@@ -186,6 +199,44 @@ history; write the commit message well and this file writes itself.
 
 ### Changed
 
+- **Production discards domain events.** The ledger raised every event into an in-memory list that
+  nothing read and nothing truncated, so it grew with every write. `DiscardingAccountingEvents`
+  and `DiscardingPlanningEvents` now accept each event and keep none, and the recording logs are
+  test doubles. The outbox waits for the first consumer
+  ([ADR-048](docs/ADRs/ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md),
+  [#339](https://github.com/NaimElijah/FinAssist/issues/339)).
+- **Planning refuses a twice-named account itself, so four answers change.** The refusal moved
+  from the accounting translation into `ProjectScenarioCommand` and `CompareScenariosCommand`, and
+  it now comes before any lookup. The message and the 422 `RULE_VIOLATED` are unchanged.
+  - **Projection, unknown scenario and a duplicate account:** 422 `RULE_VIOLATED`, where it was
+    404 `SCENARIO_NOT_FOUND`.
+  - **Projection, a plan missing from the store and a duplicate account:** 422, where it was 500
+    with an ERROR line; without a duplicate it is still a logged 500.
+  - **Comparison, unknown first scenario and a duplicate account:** 422 `RULE_VIOLATED`, where it
+    was 422 `UNKNOWN_SCENARIO`.
+  - **Comparison, a plan missing from the store and a duplicate account:** 422, where it was 500.
+
+  A request with no duplicate is answered as before
+  ([ADR-051](docs/ADRs/ADR-051-what-a-translation-may-decide.md)).
+- **The architecture rules were widened in all four codebases.** The ledger holds eighteen rules,
+  with logging, telemetry and I/O kept out of the core and translations held to the upstream's
+  in-ports. The assistant refuses a clock outside the composition root, an import made by a call
+  (an aliased `importlib` included, and `eval` and `exec` only as the builtins), and an adapter
+  reaching across the inbound/outbound line, and exempts a translation only for a port it names as
+  a base. The web client keeps the UI kit out of `types/` and `shared/lib`, holds a feature's root
+  to entry files, and reads `.mts` and `.cts` files too. The gateway holds its relay routes and
+  security chain to the committed contracts, and the ledger and the gateway each pin Actuator's
+  exposure, refusing `SPRING_APPLICATION_JSON` and `SPRING_CONFIG_*` as well as an exposure
+  variable
+  ([ADR-046](docs/ADRs/ADR-046-architecture-rules-read-the-code-never-load-it.md)).
+- **Dependabot no longer proposes Maven 4.** The wrapper's minor and patch releases still arrive
+  in the weekly triage; a major moves by ADR
+  ([ADR-047](docs/ADRs/ADR-047-accepted-records-reconciled-with-the-system-as-built.md)).
+- **Eleven ADRs record the scan's decisions, 046 to 056.** They correct twelve passages of
+  Accepted records, decide that a Maven major moves by ADR, keep "no domain metric", and record
+  the gateway's HTTP/1.1 pin, the service images, the assistant's development seed and the web
+  client's retry rule, which no record held
+  ([ADR-047](docs/ADRs/ADR-047-accepted-records-reconciled-with-the-system-as-built.md)).
 - **Every test suite was scanned against the requirements, and the gaps it found are closed.**
   Scan 1 of M0 reviewed the ledger's, the gateway's, the assistant's, the web client's and the
   ops suites as a whole, mapped each rule in `docs/requirements/requirements.md` to the test

@@ -114,6 +114,13 @@ jobs:
       - name: Test (secret check)
         run: make test-secret-check
 
+      # ops/compose_check/compose_check.py, linted the same way and for the same reason (ADR-049).
+      - name: Lint, format check and types (Compose check)
+        run: make lint-compose-check
+
+      - name: Test (Compose check)
+        run: make test-compose-check
+
       - name: Test
         run: make test-assistant
 
@@ -146,14 +153,9 @@ jobs:
       - name: Install locked dependencies
         run: cd frontend/web && npm ci
 
-      # `git diff` compares tracked files only, so a file the generator newly emits would pass it
-      # while the committed types stay incomplete. `git status --porcelain` lists untracked files
-      # too, so either kind of drift fails the step, and the listing names the files.
+      # Untracked files count as drift too: the target says why it uses `git status --porcelain`.
       - name: Contract types are current
-        run: |
-          cd frontend/web && npm run generate:api
-          git status --porcelain -- src/shared/api/contracts
-          test -z "$(git status --porcelain -- src/shared/api/contracts)"
+        run: make check-web-api
 
       - name: Lint, format check and types
         run: make lint-web
@@ -184,7 +186,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
-      - name: Validate docker-compose.yml
+      # For ops/compose_check/compose_check.py: uv fetches the Python the target pins with
+      # --python, backend/assistant/.python-version, since the PEP 723 block states only a minimum.
+      - uses: astral-sh/setup-uv@v10.3.0
+
+      # Never reads .env: the target resolves the file over .env.example, with
+      # ops/compose_check/placeholders.env exported, and the Makefile says why each profile is
+      # validated.
+      - name: Validate docker-compose.yml and require its restart, log and readiness conventions
+        run: make check-compose
+
+      # Inline, not a Make target (ADR-049): the step below starts containers on these published
+      # values under the default project name, `finassist`, which on a developer machine is the
+      # owner's own. Only this throwaway runner may do that.
+      - name: Seed .env with published CI-only values
         run: |
           cp .env.example .env
           sed -i 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=ci-only/' .env
@@ -195,48 +210,6 @@ jobs:
           sed -i 's/^FINASSIST_OWNER_INITIAL_PASSWORD=$/FINASSIST_OWNER_INITIAL_PASSWORD=ci-only-12-chars/' .env
           sed -i 's/^GATEWAY_CLIENT_SECRET=$/GATEWAY_CLIENT_SECRET=ci-only/' .env
           sed -i 's/^ASSISTANT_CLIENT_SECRET=$/ASSISTANT_CLIENT_SECRET=ci-only/' .env
-          # --profile monitoring, or the three monitoring services are interpolated but never
-          # validated, and a broken reference among them passes. --profile smoke does the same for
-          # ops/smoke/auth_smoke.py's auth-smoke service (Refs #38); running the check itself
-          # stays a manual step (`make smoke-auth`), never a CI job.
-          docker compose --profile monitoring config --quiet
-          docker compose --profile smoke config --quiet
-          docker compose --profile monitoring --profile smoke config --quiet
-
-      # Read from the resolved file, not its text, so an alias that stops resolving fails as surely
-      # as a service that never took one, and a block copied in with other values fails too: each
-      # service must equal the x- blocks themselves (Refs #142). Uses the .env the step above wrote.
-      - name: Require the restart policy, log bound and readiness probes
-        run: |
-          docker compose --profile monitoring --profile smoke config --format json | python3 -c '
-          import json, sys
-          resolved = json.load(sys.stdin)
-          services = resolved["services"]
-          policy = resolved.get("x-restart-policy")
-          bounded_logs = resolved.get("x-logging")
-          one_shot = {"auth-smoke", "secret-check"}
-          readiness = {
-              "ledger": "/actuator/health/readiness",
-              "gateway": "/actuator/health/readiness",
-              "assistant": "/ready",
-              "keycloak": "/health/ready",
-          }
-          problems = []
-          if policy is None or bounded_logs is None:
-              problems.append("the resolved file holds no x-restart-policy or x-logging block")
-          for name, svc in sorted(services.items()):
-              if name in one_shot:
-                  if svc.get("restart") or svc.get("logging"):
-                      problems.append(f"{name}: a one-shot service takes no restart or logging")
-              elif svc.get("restart") != policy or svc.get("logging") != bounded_logs:
-                  problems.append(f"{name}: needs restart and logging as the x- blocks set them")
-          for name, path in readiness.items():
-              healthcheck = (services.get(name) or {}).get("healthcheck") or {}
-              if path not in " ".join(healthcheck.get("test") or []):
-                  problems.append(f"{name}: its healthcheck must probe {path}")
-          print("\n".join(problems) or "Every service follows the Compose conventions")
-          sys.exit(1 if problems else 0)
-          '
 
       # The gate's real wiring, which its own tests cannot reach (ADR-044). The .env above puts
       # `ci-only` or `ci-only-12-chars`, values this repository publishes, in every secret. So the
@@ -244,6 +217,7 @@ jobs:
       # unstarted; fresh values must then pass. One container and no database: seconds, not the
       # minutes that keep the smoke check out of CI (ADR-034). The reports go to $RUNNER_TEMP,
       # outside the clone the check reads, so the fresh values are never in a file it searches.
+      # Inline for the same reason as the seeding above (ADR-049).
       - name: Refuse a published secret before any database starts
         run: |
           variables="POSTGRES_PASSWORD LEDGER_DB_PASSWORD KEYCLOAK_DB_PASSWORD"

@@ -1,6 +1,6 @@
 """Enforces the structural rules declared in docs/architecture/architecture.md.
 
-Ten rules:
+Thirteen rules:
 
 1. Dependencies point inward - no inward layer imports a framework or the standard library's
    I/O.
@@ -9,17 +9,27 @@ Ten rules:
 4. No context imports another context. Only ``shared`` is common ground.
 5. No context imports the composition root, where the frameworks are wired.
 6. No domain module names ``float``. Money is exact decimal, in both languages.
-7. No inward module reads the wall clock - not the domain, not a use case, not ``shared``.
-   The caller passes the time in; the composition root reads the clock once.
+7. No module outside the composition root reads the wall clock - not the domain, not a use
+   case, not ``shared``, not a context's adapters. The composition root reads it once and passes
+   the time in.
 8. No inbound adapter imports an outbound one. A route reaches a client only through a use case.
 9. No domain module imports the application layer. The use cases call the domain, never the
    reverse - the inward half of ``LedgerArchitectureTest.layers_point_inward``.
 10. ``shared`` imports no context. It is the common ground every context may use, so a
    dependency from it onto one context would reach every other through it.
+11. No outbound adapter imports an inbound one. The wire shape stops at the route.
+12. A translation - a class in the composition root that implements a context's port
+   ``Protocol`` - calls the upstream context's use case, never its out-ports or adapters.
+13. No module imports or runs code by a call - ``importlib.import_module``, ``__import__``,
+   ``importlib.util``, ``runpy``, or the builtins ``exec`` and ``eval``, called, referenced, aliased
+   or named to ``getattr`` - so every import is a statement the rules above can read.
 
-Rules 6 and 7 mirror rules the ledger enforces too:
-``LedgerArchitectureTest.money_is_never_floating_point`` for the first, and
-``LedgerArchitectureTest.clock_is_read_only_in_the_composition_root`` for the second.
+Rules 6, 7, 11 and 12 mirror rules the ledger enforces too:
+``LedgerArchitectureTest.money_is_never_floating_point`` for the first,
+``LedgerArchitectureTest.clock_is_read_only_in_the_composition_root`` for the second,
+``LedgerArchitectureTest.outbound_adapters_do_not_reach_inbound`` for the third, and
+``LedgerArchitectureTest.translations_reach_the_upstream_context_only_through_its_in_ports`` for
+the fourth.
 
 **These are checked statically, by parsing every source file, not by importing packages and
 inspecting sys.modules.** An earlier version did the latter and was blind by construction:
@@ -36,6 +46,7 @@ See ADR-007 and ADR-010.
 import ast
 import re
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -196,6 +207,17 @@ def _imported_modules(path: Path) -> set[str]:
     return _imports_in(path.read_text(encoding="utf-8"), _module_package(path), str(path))
 
 
+def _resolved_from(node: ast.ImportFrom, package: str) -> str:
+    """The absolute module a ``from ... import`` reads, its relative dots resolved."""
+    if node.level == 0:
+        return node.module or ""
+    # `from . import x` resolves against the file's own package, `from .. import x` against its
+    # parent, and so on.
+    parts = package.split(".")
+    trimmed = parts[: len(parts) - (node.level - 1)]
+    return ".".join([*trimmed, node.module] if node.module else trimmed)
+
+
 def _imports_in(source: str, package: str, filename: str = "<test>") -> set[str]:
     """The same, over source text rather than a path.
 
@@ -210,14 +232,7 @@ def _imports_in(source: str, package: str, filename: str = "<test>") -> set[str]
         if isinstance(node, ast.Import):
             imported.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
-            if node.level == 0:
-                base = node.module or ""
-            else:
-                # `from . import x` resolves against the file's own package, `from .. import x`
-                # against its parent, and so on.
-                parts = package.split(".")
-                trimmed = parts[: len(parts) - (node.level - 1)]
-                base = ".".join([*trimmed, node.module] if node.module else trimmed)
+            base = _resolved_from(node, package)
             imported.add(base)
             imported.update(f"{base}.{alias.name}" for alias in node.names if base)
 
@@ -291,6 +306,125 @@ def _clock_reads_in(source: str, filename: str = "<test>") -> list[str]:
     return found
 
 
+# The names that import a module named at run time, or run source text that may import one. The
+# import rules read statements, and an argument can be any string, so the name itself is refused
+# rather than its argument read: `import_module` and `__import__`; `importlib.util`'s loaders and
+# a loader's `exec_module` and `load_module`, named because a loader needs no importlib to reach -
+# every module holds one as `__loader__`; and `runpy`'s two runners. Nothing in the tree has a use
+# for any of them, so each is refused as any attribute, whatever object holds it.
+DYNAMIC_IMPORTERS = frozenset(
+    {
+        "import_module",
+        "__import__",
+        "spec_from_file_location",
+        "module_from_spec",
+        "exec_module",
+        "load_module",
+        "run_module",
+        "run_path",
+    }
+)
+
+# The builtins that run source text, which may hold an import statement no rule here parses. They
+# are refused only as the builtins - a bare name, or a member of a name bound to `builtins` - since
+# the same names are ordinary methods elsewhere: PyTorch's `model.eval()` and SQLModel's
+# `session.exec(statement)` run no text.
+BUILTIN_CODE_RUNNERS = frozenset({"exec", "eval"})
+BUILTINS = "builtins"
+# The name every module sees bound to the builtins, with no import to resolve it through.
+BUILTINS_GLOBAL = "__builtins__"
+
+# The modules whose purpose is loading code by name or by path. Importing one at all is refused,
+# so a loader reached through a member this file does not list - `importlib.util.find_spec`,
+# `pkgutil.resolve_name`, a `zipimport` importer - is refused too. A reference is read by the name
+# it resolves to, so `import importlib as il` followed by `il.util.find_spec` is refused as well.
+DYNAMIC_IMPORT_MODULES = frozenset(
+    {"importlib.util", "importlib.machinery", "runpy", "pkgutil", "zipimport"}
+)
+IMPORTLIB = "importlib"
+GETATTR = "getattr"
+
+
+def _is_dynamic_import_module(module: str) -> bool:
+    return any(module == name or module.startswith(f"{name}.") for name in DYNAMIC_IMPORT_MODULES)
+
+
+def _qualified(node: ast.AST, bound: Mapping[str, str]) -> str:
+    """A reference's name resolved through the module's bindings, or as written if none binds it."""
+    return _resolve(node, bound) or _dotted(node)
+
+
+def _is_refused_member(name: str, owner: ast.AST, bound: Mapping[str, str]) -> bool:
+    """Whether *name*, read off *owner*, is an importer, or a code runner held by the builtins."""
+    return name in DYNAMIC_IMPORTERS or (
+        name in BUILTIN_CODE_RUNNERS and _qualified(owner, bound) in {BUILTINS, BUILTINS_GLOBAL}
+    )
+
+
+def _dynamic_imports_in(source: str, filename: str = "<test>", package: str = "") -> list[str]:
+    """Every reference to an importer or a code runner, and every import binding one.
+
+    Matched as a reference, called or not, the way the clock rule matches a reader:
+    ``_load = importlib.import_module`` followed by ``_load(name)`` holds no call to an importer's
+    name. The import is matched as well, for the reason the clock rule matches one:
+    ``from importlib import import_module as load`` leaves a call named ``load`` that no name match
+    could follow. And ``getattr`` naming an importer as a string is matched, since no attribute node
+    shows it.
+
+    An attribute chain is read by the name its first part resolves to through the module's imports
+    and top-level aliases, as the translation rule reads one: ``_il.machinery`` is
+    ``importlib.machinery`` when ``_il`` is ``importlib``. *package* resolves relative imports.
+    """
+    tree = ast.parse(source, filename=filename)
+    bound = _bindings(tree, package)
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and (
+            node.id in DYNAMIC_IMPORTERS or node.id in BUILTIN_CODE_RUNNERS
+        ):
+            found.append(f"{node.id} at line {node.lineno}")
+        elif isinstance(node, ast.Attribute) and (
+            _is_refused_member(node.attr, node.value, bound)
+            or _is_dynamic_import_module(_qualified(node, bound))
+        ):
+            found.append(f"{_qualified(node, bound) or node.attr} at line {node.lineno}")
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == GETATTR
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+            and _is_refused_member(node.args[1].value, node.args[0], bound)
+        ):
+            found.append(f"getattr(..., {node.args[1].value!r}) at line {node.lineno}")
+        elif isinstance(node, ast.Import):
+            found.extend(
+                f"import of {alias.name} at line {node.lineno}"
+                for alias in node.names
+                if _is_dynamic_import_module(alias.name)
+            )
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            found.extend(
+                f"import of {node.module}.{alias.name} at line {node.lineno}"
+                for alias in node.names
+                if _is_dynamic_import_module(node.module)
+                or (
+                    node.module == BUILTINS
+                    and alias.name in DYNAMIC_IMPORTERS | BUILTIN_CODE_RUNNERS
+                )
+                or (
+                    node.module == IMPORTLIB
+                    and (
+                        alias.name in DYNAMIC_IMPORTERS
+                        or alias.name == "*"
+                        or _is_dynamic_import_module(f"{IMPORTLIB}.{alias.name}")
+                    )
+                )
+            )
+    return found
+
+
 def _file_opens_in(source: str, filename: str = "<test>") -> list[str]:
     """Every call to the builtin ``open``.
 
@@ -313,9 +447,43 @@ def _context_of(path: Path) -> str | None:
     return parts[0] if parts and parts[0] in CONTEXTS else None
 
 
+def _names_context_adapter(module: str) -> bool:
+    """A module name under a context's own ``adapters``: its routes and anti-corruption layers."""
+    parts = module.split(".")
+    return (
+        len(parts) > 2
+        and parts[0] == ROOT_PACKAGE
+        and parts[1] in CONTEXTS
+        and parts[2] == ADAPTER_SEGMENT
+    )
+
+
+def _names_composition_root(module: str) -> bool:
+    """A module name under ``finassist_assistant.adapters``, the one package that wires the rest."""
+    parts = module.split(".")
+    return len(parts) > 1 and parts[0] == ROOT_PACKAGE and parts[1] == ADAPTER_SEGMENT
+
+
+def _names_adapter_layer(module: str) -> bool:
+    """A module name in the adapter layer: a context's own ``adapters``, or the composition root.
+
+    ``adapters`` is the adapter layer only where the layout puts it. Matched at any depth, a
+    directory of that name inside a domain or a use case would lift every inward rule off the
+    modules beneath it, and refuse every import of them. The inward scope and the inward import
+    rule both ask this one question, so the module one calls inward the other cannot call an
+    adapter.
+    """
+    return _names_context_adapter(module) or _names_composition_root(module)
+
+
 def _is_inward(path: Path) -> bool:
     """True for anything outside the adapter layer: domain, application, ports, use cases."""
-    return ADAPTER_SEGMENT not in path.relative_to(SRC).parts
+    return not _names_adapter_layer(_module_name(path))
+
+
+def _is_composition_root(path: Path) -> bool:
+    """A module under ``src/finassist_assistant/adapters/``, the one package that wires the rest."""
+    return _names_composition_root(_module_name(path))
 
 
 def _context_imported_by(module: str) -> str | None:
@@ -333,6 +501,17 @@ def _is_inbound_adapter(path: Path) -> bool:
     """A module under a context's ``adapters/inbound``: what calls the context."""
     parts = path.relative_to(SRC).parts
     return parts[0] in CONTEXTS and parts[1:3] == (ADAPTER_SEGMENT, INBOUND_SEGMENT)
+
+
+def _names_inbound_adapter(module: str) -> bool:
+    """A module name under any context's ``adapters/inbound``: what calls a context."""
+    parts = module.split(".")
+    return (
+        parts[0] == ROOT_PACKAGE
+        and len(parts) > 1
+        and parts[1] in CONTEXTS
+        and parts[2:4] == [ADAPTER_SEGMENT, INBOUND_SEGMENT]
+    )
 
 
 def _names_outbound_adapter(module: str) -> bool:
@@ -366,17 +545,215 @@ def _module_name(path: Path) -> str:
     return package if path.name == "__init__.py" else f"{package}.{path.stem}"
 
 
+PORT_SEGMENT = "port"
+PROTOCOL = "Protocol"
+
+# A port Protocol, as the package a translation imports it from - a context's `application.port` -
+# and its simple name, mapped to the names of the methods it declares.
+type PortName = tuple[str, str]
+type PortProtocols = Mapping[PortName, frozenset[str]]
+
+
+def _dotted(node: ast.AST) -> str:
+    """``a.b.c`` for a chain of attributes on a name; empty for anything else."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute) and (base := _dotted(node.value)):
+        return f"{base}.{node.attr}"
+    return ""
+
+
+def _resolve(node: ast.AST, bound: Mapping[str, str]) -> str:
+    """The qualified name a reference resolves to through the module's bindings; empty if none."""
+    head, _, rest = _dotted(node).partition(".")
+    return ".".join(filter(None, [bound[head], rest])) if head in bound else ""
+
+
+def _bindings(tree: ast.Module, package: str) -> dict[str, str]:
+    """Each name an import binds anywhere in the module, mapped to what it is bound to.
+
+    A top-level alias of a bound name - ``_Feed = InMemoryQuoteFeed`` - is followed too, in source
+    order, so that renaming an adapter once at the top of a module does not hide it from every rule
+    reading these bindings.
+    """
+    bound: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            base = _resolved_from(node, package)
+            bound.update(
+                {alias.asname or alias.name: f"{base}.{alias.name}" for alias in node.names}
+            )
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                bound[alias.asname or root] = alias.name if alias.asname else root
+    for statement in tree.body:
+        for target, value in _aliases(statement):
+            if resolved := _resolve(value, bound):
+                bound[target] = resolved
+    return bound
+
+
+def _aliases(statement: ast.stmt) -> list[tuple[str, ast.expr]]:
+    """Each plain name a top-level statement binds to an expression: ``x = y``, ``x: T = y``."""
+    if isinstance(statement, ast.Assign):
+        return [(t.id, statement.value) for t in statement.targets if isinstance(t, ast.Name)]
+    if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+        return [(statement.target.id, statement.value)] if statement.value else []
+    if isinstance(statement, ast.TypeAlias):
+        return [(statement.name.id, statement.value)]
+    return []
+
+
+def _port_package(module: str) -> str | None:
+    """The context ``application.port`` package a qualified name sits in or under, if any."""
+    parts = module.split(".")
+    in_port = (
+        len(parts) >= 4
+        and parts[0] == ROOT_PACKAGE
+        and parts[1] in CONTEXTS
+        and parts[2:4] == [APPLICATION_SEGMENT, PORT_SEGMENT]
+    )
+    return ".".join(parts[:4]) if in_port else None
+
+
+def _unsubscripted(node: ast.expr) -> ast.expr:
+    """The generic a subscript parameterises - ``Protocol`` for ``Protocol[T]`` - or the node."""
+    return node.value if isinstance(node, ast.Subscript) else node
+
+
+def _is_protocol_base(base: ast.expr) -> bool:
+    """``Protocol``, ``typing.Protocol``, or either subscripted - ``Protocol[T]``."""
+    return _dotted(_unsubscripted(base)).split(".")[-1] == PROTOCOL
+
+
+def _methods_of(node: ast.ClassDef) -> frozenset[str]:
+    return frozenset(
+        member.name
+        for member in node.body
+        if isinstance(member, ast.FunctionDef | ast.AsyncFunctionDef)
+    )
+
+
+def _protocols_in(source: str, module: str) -> dict[PortName, frozenset[str]]:
+    """Each ``Protocol`` a module under a context's ``application/port`` declares, with its methods.
+
+    Keyed by the port package rather than the declaring module. A translation names a port by the
+    module it imports it from, which is the package that re-exports it; keyed by the submodule
+    that declares it, splitting ``port/__init__.py`` into ``port/feed.py`` would leave every name
+    the translation uses matching nothing, and the rule green.
+    """
+    package = _port_package(module)
+    if package is None:
+        return {}
+    return {
+        (package, node.name): _methods_of(node)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ClassDef) and any(_is_protocol_base(base) for base in node.bases)
+    }
+
+
+def _out_port_protocols(paths: list[Path]) -> PortProtocols:
+    """Every ``Protocol`` declared under a context's ``application/port``, with its methods."""
+    found: dict[PortName, frozenset[str]] = {}
+    for path in paths:
+        found.update(_protocols_in(path.read_text(encoding="utf-8"), _module_name(path)))
+    return found
+
+
+def _protocol_named(name: str, protocols: PortProtocols) -> PortName | None:
+    """The port Protocol a qualified name is, or is a member of, whichever port module it passes."""
+    package = _port_package(name)
+    if package is None:
+        return None
+    return next(
+        ((package, part) for part in name.split(".")[4:] if (package, part) in protocols), None
+    )
+
+
+def _translations_in(
+    tree: ast.Module, bound: Mapping[str, str], protocols: PortProtocols
+) -> list[tuple[ast.ClassDef, frozenset[PortName]]]:
+    """The module's translations, each with the port Protocols it names as a base.
+
+    A translation is picked out by what it is, as the ledger's rule picks one out: a class that
+    implements a context's port - by shape, defining every method the Protocol declares, as
+    ``MarketDataQuotes`` defines ``QuotePort.unit_price``, or by naming the Protocol as a base.
+    ``Assembly`` and ``Portfolio`` implement none, so a record of what was wired may hold adapters
+    and out-ports, and grow a method, without becoming one. A Protocol declaring no method is
+    implemented by every class and so names none.
+
+    Only a base is returned, because only a base may be exempt. A shape is something a class can
+    acquire by accident or on purpose: defining ``latest`` beside ``unit_price`` made a class
+    implement the upstream's ``QuoteFeedPort`` by shape, and exempting that let it call the feed
+    past ``LatestQuote``. A base is a declaration, as the ledger's ``implements`` is.
+    """
+    found = []
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        methods = _methods_of(node)
+        by_shape = any(needed and needed <= methods for needed in protocols.values())
+        by_base = frozenset(
+            port
+            for base in node.bases
+            if (port := _protocol_named(_resolve(_unsubscripted(base), bound), protocols))
+        )
+        if by_shape or by_base:
+            found.append((node, by_base))
+    return found
+
+
+def _reaches_past_use_case(
+    name: str, protocols: PortProtocols, declared: frozenset[PortName]
+) -> bool:
+    """Whether a qualified name is a context's adapter, or an out-port the class does not declare.
+
+    A port named as a base is exempt for the reason the ledger exempts it
+    (``implemented.contains``): it is the translation's own downstream port, and naming it is how
+    the class says what it is.
+    """
+    port = _protocol_named(name, protocols)
+    return _names_context_adapter(name) or (port is not None and port not in declared)
+
+
+def _translation_overreach_in(source: str, package: str, protocols: PortProtocols) -> list[str]:
+    """Every name a translation's bases or body resolves to a context's out-port or adapter.
+
+    An out-port's exceptions stay allowed, because converting them at the boundary is the job.
+    """
+    tree = ast.parse(source)
+    bound = _bindings(tree, package)
+    found: set[str] = set()
+    for translation, declared in _translations_in(tree, bound, protocols):
+        parts = [*translation.bases, *translation.body]
+        for node in (node for part in parts for node in ast.walk(part)):
+            name = _resolve(node, bound)
+            if name and _reaches_past_use_case(name, protocols, declared):
+                found.add(f"{translation.name} names {name} at line {getattr(node, 'lineno', 0)}")
+    return sorted(found)
+
+
+def _translation_names_in(path: Path, protocols: PortProtocols) -> list[str]:
+    """The names of the translations a composition-root module declares."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    bound = _bindings(tree, _module_package(path))
+    return [node.name for node, _ in _translations_in(tree, bound, protocols)]
+
+
 # Each rule runs over the files it holds, filtered here once, rather than over every file with
 # the rest skipped. A skip is not a check, and a filter rendered as hundreds of skips hid the one
 # failure that matters: a layer renamed out of its filter's reach, so that every case of its rule
 # skipped and the suite stayed green. An empty list now fails its guard below instead.
 #
-# Two rules also refuse an import by the name it carries: the inbound-adapter rule one under
-# ``adapters/outbound``, the domain rule one under ``application``. Renaming either directory
-# would leave its name match recognising nothing and its rule green with nothing left to refuse,
-# so the files each match recognises are a scope of their own, and the guard fails on the rename
-# instead.
+# Three rules also refuse an import by the name it carries: the inbound-adapter rule one under
+# ``adapters/outbound``, the outbound-adapter rule one under ``adapters/inbound``, the domain rule
+# one under ``application``. Renaming any of those directories would leave its name match
+# recognising nothing and its rule green with nothing left to refuse, so the files each match
+# recognises are a scope of their own, and the guard fails on the rename instead. The inbound
+# match's scope is the inbound-adapter one, built from the same two segments.
 INWARD_FILES = [path for path in SOURCE_FILES if _is_inward(path)]
+OUTSIDE_COMPOSITION_ROOT_FILES = [path for path in SOURCE_FILES if not _is_composition_root(path)]
 CONTEXT_FILES = [path for path in SOURCE_FILES if _context_of(path) is not None]
 COMPOSITION_ROOT_HELD_FILES = [
     path for path in SOURCE_FILES if _context_of(path) is not None or _is_domain(path)
@@ -388,9 +765,12 @@ OUTBOUND_ADAPTER_FILES = [
 APPLICATION_FILES = [path for path in SOURCE_FILES if _names_application_layer(_module_name(path))]
 DOMAIN_FILES = [path for path in SOURCE_FILES if _is_domain(path)]
 SHARED_FILES = [path for path in SOURCE_FILES if path.relative_to(SRC).parts[0] == SHARED_PACKAGE]
+OUT_PORT_PROTOCOLS = _out_port_protocols(APPLICATION_FILES)
+COMPOSITION_ROOT_FILES = [path for path in SOURCE_FILES if _is_composition_root(path)]
 
 RULE_SCOPES = {
     "inward": INWARD_FILES,
+    "outside-composition-root": OUTSIDE_COMPOSITION_ROOT_FILES,
     "context": CONTEXT_FILES,
     "composition-root-held": COMPOSITION_ROOT_HELD_FILES,
     "inbound-adapter": INBOUND_ADAPTER_FILES,
@@ -398,6 +778,7 @@ RULE_SCOPES = {
     "application": APPLICATION_FILES,
     "domain": DOMAIN_FILES,
     "shared": SHARED_FILES,
+    "composition-root": COMPOSITION_ROOT_FILES,
 }
 
 
@@ -519,14 +900,30 @@ def Given_an_inward_module_When_parsed_Then_it_opens_no_file(path: Path) -> None
     )
 
 
+@pytest.mark.parametrize("path", SOURCE_FILES, ids=_relative_id)
+def Given_a_module_When_parsed_Then_it_imports_nothing_by_a_call(path: Path) -> None:
+    """Every rule here reads import statements, so an import made by a call escapes all of them.
+
+    ``importlib.import_module("fastapi")`` in a domain module, or a context loading another by
+    name, would pass every rule above. The web client refuses a computed import specifier for the
+    same reason. Refused: every name in ``DYNAMIC_IMPORTERS``, and each of ``BUILTIN_CODE_RUNNERS``
+    as the builtin - called, referenced, aliased by an import, or named to ``getattr`` as a string -
+    and any import of a module in ``DYNAMIC_IMPORT_MODULES``.
+
+    Static, so what no node names is missed: an importer's name assembled at run time and handed to
+    ``getattr``, or read out of a namespace by subscript - ``vars(importlib)["import_module"]``,
+    ``__builtins__["__import__"]``. Those are held in review.
+    """
+    found = _dynamic_imports_in(path.read_text(encoding="utf-8"), str(path), _module_package(path))
+    assert not found, (
+        f"{path.relative_to(SRC)} imports by a call: {found}. Write the import as a statement, "
+        "so the architecture rules can see what it depends on."
+    )
+
+
 @pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
 def Given_an_inward_module_When_parsed_Then_it_imports_no_adapter(path: Path) -> None:
-    prefix = f"{ROOT_PACKAGE}."
-    leaked = sorted(
-        module
-        for module in _imported_modules(path)
-        if module.startswith(prefix) and ADAPTER_SEGMENT in module.split(".")
-    )
+    leaked = sorted(module for module in _imported_modules(path) if _names_adapter_layer(module))
     assert not leaked, (
         f"{path.relative_to(SRC)} imports the adapter layer: {leaked}. The anti-corruption "
         "layers live there; nothing inward may depend on one."
@@ -573,12 +970,7 @@ def Given_a_context_module_When_parsed_Then_it_imports_no_composition_root(path:
     it, and it lives under an ``adapters`` path, so the framework rule skips it too - which
     would leave nothing at all watching the direction of this dependency.
     """
-    composition_root = f"{ROOT_PACKAGE}.{ADAPTER_SEGMENT}"
-    leaked = sorted(
-        module
-        for module in _imported_modules(path)
-        if module == composition_root or module.startswith(f"{composition_root}.")
-    )
+    leaked = sorted(module for module in _imported_modules(path) if _names_composition_root(module))
     assert not leaked, (
         f"{path.relative_to(SRC)} imports the composition root: {leaked}. Frameworks travel "
         "inward only through the ports a context declares."
@@ -598,6 +990,73 @@ def Given_an_inbound_adapter_When_parsed_Then_it_imports_no_outbound_adapter(pat
     assert not leaked, (
         f"{path.relative_to(SRC)} imports an outbound adapter: {leaked}. An inbound adapter calls "
         "a use case, and the use case reaches outbound adapters through the ports it declares."
+    )
+
+
+@pytest.mark.parametrize("path", OUTBOUND_ADAPTER_FILES, ids=_relative_id)
+def Given_an_outbound_adapter_When_parsed_Then_it_imports_no_inbound_adapter(path: Path) -> None:
+    """What a context calls knows nothing of how the context was called.
+
+    The wire shape must not reach the anti-corruption layer: a ledger client or a feed adapter
+    that named a route's request or response model would tie its translation to the published
+    contract, so a change to ``contracts/assistant-v1.openapi.json`` would reach the foreign API's
+    mapping too. The rule above holds the opposite direction only, and both adapters share a
+    context and an ``adapters`` path, which every other rule here allows. The ledger forbids the
+    same in ``outbound_adapters_do_not_reach_inbound``.
+    """
+    leaked = sorted(module for module in _imported_modules(path) if _names_inbound_adapter(module))
+    assert not leaked, (
+        f"{path.relative_to(SRC)} imports an inbound adapter: {leaked}. An outbound adapter "
+        "translates a foreign shape into the context's model, never into the wire shape a route "
+        "publishes."
+    )
+
+
+def Given_the_composition_root_When_parsed_Then_it_holds_a_translation_and_ports_to_refuse() -> (
+    None
+):
+    """Guards the translation rule below from passing because it recognised nothing.
+
+    It holds only the classes that implement a port Protocol found under ``application/port``, in
+    every composition-root module; renaming that layer, or a translation drifting out of the shape
+    of its port, would otherwise leave it green with nothing to check.
+    """
+    translations = [
+        name
+        for path in COMPOSITION_ROOT_FILES
+        for name in _translation_names_in(path, OUT_PORT_PROTOCOLS)
+    ]
+
+    assert OUT_PORT_PROTOCOLS, f"no Protocol found under any context's application/{PORT_SEGMENT}"
+    assert translations, (
+        f"no class implementing a port Protocol found under {SRC / ADAPTER_SEGMENT}"
+    )
+
+
+@pytest.mark.parametrize("path", COMPOSITION_ROOT_FILES, ids=_relative_id)
+def Given_a_translation_When_parsed_Then_it_names_no_out_port_or_adapter(path: Path) -> None:
+    """A translation calls the upstream context's use case, never its repositories.
+
+    ``MarketDataQuotes`` answers portfolio's ``QuotePort`` through ``LatestQuote``, which is where
+    market data refuses a stale quote. Reaching ``QuoteFeedPort`` or the feed adapter instead would
+    value a holding at a price of any age, and no rule inside either context could see it: the
+    translation lives in the composition root, which may import both. A module's assembly function
+    and the records it returns still name the adapters and ports they wire; only the classes that
+    implement a port are held, and each may name a port it declares as its base. Implementing one
+    by shape alone exempts nothing, or defining the upstream out-port's methods would exempt it.
+
+    Static, so a name it cannot resolve is missed: a string annotation; a path through an allowed
+    object such as ``self.quotes.feed``; an alias made inside a function or by unpacking, rather
+    than by a top-level ``Name = name``; a translation written as a function, or as a class that
+    shapes itself to no port. Those are held in review.
+    """
+    found = _translation_overreach_in(
+        path.read_text(encoding="utf-8"), _module_package(path), OUT_PORT_PROTOCOLS
+    )
+    assert not found, (
+        f"{path.relative_to(SRC)} reaches past an upstream use case: {found}. A translation "
+        "calls the upstream context's in-port and converts its exceptions; its out-ports and "
+        "adapters are wired by the assembly, never called by the translation."
     )
 
 
@@ -628,19 +1087,26 @@ def Given_a_domain_module_When_parsed_Then_it_names_no_float(path: Path) -> None
     )
 
 
-@pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
-def Given_an_inward_module_When_parsed_Then_it_reads_no_clock(path: Path) -> None:
-    """Pass the clock in: the domain, the use cases and ``shared`` all take time as an argument.
+@pytest.mark.parametrize("path", OUTSIDE_COMPOSITION_ROOT_FILES, ids=_relative_id)
+def Given_a_module_outside_the_composition_root_When_parsed_Then_it_reads_no_clock(
+    path: Path,
+) -> None:
+    """Pass the clock in: everything but the composition root takes time as an argument.
 
     The composition root reads the clock once (``utc_now``) and passes it down, so the only
-    clock reads in the tree belong under ``adapters``. A use case reading one would make its
-    behaviour depend on when the test ran, exactly as a domain function would.
+    clock reads in the tree belong under ``src/finassist_assistant/adapters/``. A use case reading
+    one would make its behaviour depend on when the test ran, exactly as a domain function would.
+
+    A context's own adapters are held too. They sit under an ``adapters`` directory, which once
+    put them outside this rule, yet a ledger client stamping its own fetch time is the same hidden
+    clock one layer out. The ledger holds every package but ``composition`` to the same rule in
+    ``clock_is_read_only_in_the_composition_root``.
     """
     found = _clock_reads_in(path.read_text(encoding="utf-8"), str(path))
     assert not found, (
-        f"{path.relative_to(SRC)} reads the wall clock: {found}. An inward function takes the "
-        "current time as an argument - is_stale and age already do - so its behaviour is a "
-        "function of its inputs and a test never has to freeze anything."
+        f"{path.relative_to(SRC)} reads the wall clock: {found}. Only the composition root reads "
+        "it; everything else takes the current time as an argument - is_stale and age already do "
+        "- so its behaviour is a function of its inputs and a test never has to freeze anything."
     )
 
 
@@ -700,6 +1166,51 @@ def Given_a_module_path_When_asked_Then_its_context_is_the_first_segment() -> No
 def Given_a_module_path_When_asked_Then_only_the_adapter_layer_is_outward() -> None:
     assert _is_inward(SRC / "portfolio" / "domain" / "__init__.py")
     assert not _is_inward(SRC / "portfolio" / "adapters" / "outbound" / "ledger" / "__init__.py")
+    assert not _is_inward(SRC / "adapters" / "wiring.py")
+
+
+def Given_an_adapters_directory_below_a_layer_When_asked_Then_it_is_still_inward() -> None:
+    # Only a context's own `adapters` and the composition root are outward; the name deeper down
+    # is just a directory, and the rules on the layer above it still hold.
+    assert _is_inward(SRC / "portfolio" / "domain" / "adapters" / "model.py")
+    assert _is_inward(SRC / "marketdata" / "application" / "usecase" / "adapters" / "feed.py")
+    assert _is_inward(SRC / "shared" / "adapters" / "money.py")
+
+
+def Given_a_module_name_When_asked_Then_only_the_layouts_adapters_are_the_adapter_layer() -> None:
+    assert _names_adapter_layer(f"{ROOT_PACKAGE}.portfolio.adapters.outbound.ledger.InMemoryLedger")
+    assert _names_adapter_layer(f"{ROOT_PACKAGE}.portfolio.adapters")
+    assert _names_adapter_layer(f"{ROOT_PACKAGE}.adapters.wiring")
+    assert _names_adapter_layer(f"{ROOT_PACKAGE}.adapters")
+    assert not _names_adapter_layer(f"{ROOT_PACKAGE}.portfolio.domain.adapters.model")
+    assert not _names_adapter_layer(f"{ROOT_PACKAGE}.marketdata.application.usecase.adapters")
+    assert not _names_adapter_layer(f"{ROOT_PACKAGE}.shared.adapters.money")
+    assert not _names_adapter_layer(ROOT_PACKAGE)
+    assert not _names_adapter_layer("adapters.wiring")
+    assert not _names_adapter_layer("other.portfolio.adapters")
+
+
+def Given_an_adapters_directory_below_a_layer_When_imported_Then_it_is_not_the_adapter_layer() -> (
+    None
+):
+    # The inward scope and the import rule must agree: a module the scope holds as inward is one
+    # an inward module may import, so no layer refuses an import of its own modules.
+    model = SRC / "portfolio" / "domain" / "adapters" / "model.py"
+    imported = _imports_in(
+        "from finassist_assistant.portfolio.domain.adapters.model import Shape", PACKAGE
+    )
+
+    assert _is_inward(model)
+    assert not any(_names_adapter_layer(module) for module in imported), imported
+
+
+def Given_a_module_path_When_asked_Then_only_the_root_adapters_are_the_composition_root() -> None:
+    assert _is_composition_root(SRC / "adapters" / "wiring.py")
+    assert not _is_composition_root(
+        SRC / "portfolio" / "adapters" / "outbound" / "ledger" / "__init__.py"
+    )
+    assert not _is_composition_root(SRC / "shared" / "money.py")
+    assert not _is_composition_root(SRC / "__init__.py")
 
 
 def Given_a_module_name_When_asked_Then_the_context_it_belongs_to_is_returned() -> None:
@@ -831,6 +1342,14 @@ def Given_a_module_name_When_asked_Then_only_a_contexts_outbound_adapters_are_ou
     assert not _names_outbound_adapter("outbound.adapters")
 
 
+def Given_a_module_name_When_asked_Then_only_a_contexts_inbound_adapters_are_inbound() -> None:
+    assert _names_inbound_adapter(f"{ROOT_PACKAGE}.portfolio.adapters.inbound.api.models")
+    assert _names_inbound_adapter(f"{ROOT_PACKAGE}.assistance.adapters.inbound")
+    assert not _names_inbound_adapter(f"{ROOT_PACKAGE}.portfolio.adapters.outbound.ledger")
+    assert not _names_inbound_adapter(f"{ROOT_PACKAGE}.adapters.app")
+    assert not _names_inbound_adapter("inbound.adapters")
+
+
 def Given_a_module_name_When_asked_Then_only_a_contexts_application_layer_is_application() -> None:
     assert _names_application_layer(f"{ROOT_PACKAGE}.portfolio.application.port.LedgerPort")
     assert _names_application_layer(f"{ROOT_PACKAGE}.marketdata.application")
@@ -912,3 +1431,284 @@ def Given_an_ordinary_standard_library_import_When_checked_Then_it_is_allowed_in
     # The domain imports these every day; refusing them would make the rule uninstallable.
     for module in ("decimal", "datetime", "dataclasses", "enum", "collections.abc"):
         assert not _is_forbidden_inward(module), module
+
+
+MARKETDATA_PORT = f"{ROOT_PACKAGE}.marketdata.application.port"
+PORTFOLIO_PORT = f"{ROOT_PACKAGE}.portfolio.application.port"
+TRANSLATION_PACKAGE = f"{ROOT_PACKAGE}.adapters"
+
+# The ports a translation in these cases may implement or reach past, as discovery reports them.
+QUOTE_PORT: PortProtocols = {(PORTFOLIO_PORT, "QuotePort"): frozenset({"unit_price"})}
+PORTS: PortProtocols = {
+    **QUOTE_PORT,
+    (MARKETDATA_PORT, "QuoteFeedPort"): frozenset({"latest"}),
+    (PORTFOLIO_PORT, "LedgerPort"): frozenset({"lots_for"}),
+}
+
+# A translation by shape: it defines QuotePort's one method.
+TRANSLATION_HEAD = "class T:\n    def unit_price(self, symbol):\n"
+FEED_ADAPTER_IMPORT = (
+    "from finassist_assistant.marketdata.adapters.outbound.feed import InMemoryQuoteFeed\n"
+)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from finassist_assistant.marketdata.application.port import QuoteFeedPort\n"
+        "class T:\n    feed: QuoteFeedPort\n    def unit_price(self, symbol): ...",
+        "import finassist_assistant.marketdata.application.port as ports\n"
+        "class T:\n    def unit_price(self, symbol, feed: ports.QuoteFeedPort): ...",
+        TRANSLATION_HEAD
+        + "        from ..marketdata.adapters.outbound.feed import InMemoryQuoteFeed\n"
+        "        return InMemoryQuoteFeed()",
+        # A top-level alias hides the adapter's name from the method that uses it.
+        FEED_ADAPTER_IMPORT
+        + "_Feed = InMemoryQuoteFeed\n"
+        + TRANSLATION_HEAD
+        + "        return _Feed()",
+        FEED_ADAPTER_IMPORT
+        + "_Feed: type = InMemoryQuoteFeed\n_Again = _Feed\n"
+        + TRANSLATION_HEAD
+        + "        return _Again()",
+        FEED_ADAPTER_IMPORT
+        + "type _Feed = InMemoryQuoteFeed\n"
+        + TRANSLATION_HEAD
+        + "        return _Feed()",
+        # A base is a dependency too: extending the feed adapter reaches it.
+        FEED_ADAPTER_IMPORT + "class T(InMemoryQuoteFeed):\n    def unit_price(self, symbol): ...",
+        # Implementing QuotePort exempts QuotePort only, not the consumer's other out-ports.
+        "from finassist_assistant.portfolio.application.port import LedgerPort\n"
+        "class T:\n    ledger: LedgerPort\n    def unit_price(self, symbol): ...",
+        # Implemented by naming the Protocol as a base, rather than by shape.
+        "from finassist_assistant.portfolio.application.port import QuotePort\n"
+        "from finassist_assistant.marketdata.application.port import QuoteFeedPort\n"
+        "class T(QuotePort):\n    feed: QuoteFeedPort",
+        # A port implemented by shape alone is not declared, so even the downstream one is found.
+        "from finassist_assistant.portfolio.application.port import QuotePort\n"
+        "class T:\n    def unit_price(self, symbol):\n"
+        "        port: QuotePort = self\n        return port",
+    ],
+)
+def Given_a_translation_naming_an_out_port_or_adapter_When_scanned_Then_it_is_found(
+    source: str,
+) -> None:
+    found = _translation_overreach_in(source, TRANSLATION_PACKAGE, PORTS)
+
+    assert found, source
+
+
+def Given_a_translation_naming_a_use_case_and_a_port_exception_When_scanned_Then_it_passes() -> (
+    None
+):
+    # Converting the upstream's exceptions is the translation's job, and they live beside the port.
+    source = (
+        "from finassist_assistant.marketdata.application.port import QuoteUnavailableError\n"
+        "from finassist_assistant.marketdata.application.usecase import LatestQuote\n"
+        "class T:\n    quotes: LatestQuote\n    def unit_price(self, symbol):\n"
+        "        try:\n            return self.quotes\n"
+        "        except QuoteUnavailableError:\n            raise"
+    )
+
+    assert _translation_overreach_in(source, TRANSLATION_PACKAGE, PORTS) == []
+
+
+def Given_a_translation_naming_the_port_it_implements_When_scanned_Then_it_passes() -> None:
+    # Its own downstream port, declared as its base, as the ledger exempts it with
+    # `implemented.contains(target)`. Implemented by shape alone, naming it is found instead, in
+    # the cases above.
+    source = (
+        "from finassist_assistant.portfolio.application.port import QuotePort\n"
+        "class ByBase(QuotePort):\n    def unit_price(self, symbol):\n"
+        "        port: QuotePort = self\n        return port\n"
+    )
+
+    assert _translation_overreach_in(source, TRANSLATION_PACKAGE, PORTS) == []
+
+
+# The name is the specification and cannot be shortened to the line length without losing part of
+# it, so E501 is waived for this one line.
+def Given_a_translation_defining_an_upstream_out_ports_method_When_scanned_Then_naming_that_out_port_is_found() -> (  # noqa: E501
+    None
+):
+    # Defining `latest` beside `unit_price` gives the class QuoteFeedPort's shape too. Were a shape
+    # an exemption, the class could forward to the feed past LatestQuote and the rule stay green.
+    source = (
+        "from finassist_assistant.marketdata.application.port import QuoteFeedPort\n"
+        "class T:\n    feed: QuoteFeedPort\n"
+        "    def latest(self, ticker):\n        return self.feed.latest(ticker)\n"
+        "    def unit_price(self, symbol):\n        return self.feed.latest(symbol)\n"
+    )
+
+    found = _translation_overreach_in(source, TRANSLATION_PACKAGE, PORTS)
+
+    assert any(f"{MARKETDATA_PORT}.QuoteFeedPort" in item for item in found), found
+
+
+def Given_a_record_with_a_method_naming_out_ports_and_adapters_When_scanned_Then_it_passes() -> (
+    None
+):
+    # `Assembly` is a record of what was wired. A method on it implements no port, so it is not a
+    # translation however many adapters and out-ports it holds.
+    source = (
+        "from finassist_assistant.marketdata.application.port import QuoteFeedPort\n"
+        "from finassist_assistant.portfolio.adapters.outbound.ledger import InMemoryLedger\n"
+        "class Assembly:\n    ledger: InMemoryLedger\n    feed: QuoteFeedPort\n"
+        "    def use_cases(self):\n        return (self.ledger, self.feed)"
+    )
+
+    assert _translation_overreach_in(source, TRANSLATION_PACKAGE, PORTS) == []
+
+
+def Given_composition_root_classes_When_asked_Then_only_port_implementers_are_translations() -> (
+    None
+):
+    tree = ast.parse(
+        "from finassist_assistant.marketdata.application.port import QuoteFeedPort\n"
+        "class ByShape:\n    def unit_price(self, symbol): ...\n"
+        "class ByBase(QuoteFeedPort): ...\n"
+        "class Record:\n    def use_cases(self): ...\n"
+        "class Partial:\n    def lots(self): ...\n"
+    )
+    bound = _bindings(tree, TRANSLATION_PACKAGE)
+    # A Protocol with no method would be implemented by every class; it must pick out none.
+    ports: PortProtocols = {**PORTS, (MARKETDATA_PORT, "Marker"): frozenset()}
+
+    held = {node.name: declared for node, declared in _translations_in(tree, bound, ports)}
+
+    # A shape makes a translation but declares nothing; only a base is exempt.
+    assert held == {
+        "ByShape": frozenset(),
+        "ByBase": frozenset({(MARKETDATA_PORT, "QuoteFeedPort")}),
+    }, held
+
+
+def Given_a_protocol_declared_in_a_port_submodule_When_discovered_Then_the_package_keys_it() -> (
+    None
+):
+    # Split out of `port/__init__.py` and re-exported from it; a translation imports it from there.
+    declared = (
+        "from typing import Protocol\n"
+        "class QuoteFeedPort(Protocol):\n    def latest(self, ticker): ...\n"
+        "class QuoteUnavailableError(LookupError): ...\n"
+    )
+
+    assert _protocols_in(declared, f"{MARKETDATA_PORT}.feed") == {
+        (MARKETDATA_PORT, "QuoteFeedPort"): frozenset({"latest"})
+    }
+
+
+def Given_a_reexported_protocol_When_a_translation_names_it_Then_it_is_found() -> None:
+    declared = "import typing\nclass QuoteFeedPort(typing.Protocol):\n    def latest(self, t): ..."
+    ports = {**QUOTE_PORT, **_protocols_in(declared, f"{MARKETDATA_PORT}.feed")}
+    source = (
+        "from finassist_assistant.marketdata.application.port import QuoteFeedPort\n"
+        "class T:\n    feed: QuoteFeedPort\n    def unit_price(self, symbol): ..."
+    )
+
+    assert _translation_overreach_in(source, TRANSLATION_PACKAGE, ports), ports
+
+
+def Given_a_generic_protocol_When_discovered_Then_it_is_recognised() -> None:
+    declared = (
+        "from typing import Protocol\n"
+        "class Feed[T](Protocol):\n    def pull(self, key: T): ...\n"
+        "class OldStyle(Protocol[T]):\n    def pull(self, key: T): ...\n"
+    )
+
+    assert set(_protocols_in(declared, MARKETDATA_PORT)) == {
+        (MARKETDATA_PORT, "Feed"),
+        (MARKETDATA_PORT, "OldStyle"),
+    }
+
+
+def Given_a_protocol_outside_a_port_package_When_discovered_Then_it_is_not_a_port() -> None:
+    declared = "from typing import Protocol\nclass Clock(Protocol):\n    def now(self): ..."
+
+    assert _protocols_in(declared, f"{ROOT_PACKAGE}.marketdata.application.usecase") == {}
+    assert _protocols_in(declared, f"{ROOT_PACKAGE}.adapters.wiring") == {}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'import importlib\nm = importlib.import_module("fastapi")',
+        "import importlib as il\nm = il.import_module(name)",
+        "from importlib import import_module as load\nm = load(name)",
+        "from importlib import *",
+        'm = __import__("fastapi")',
+        'import builtins\nm = builtins.__import__("fastapi")',
+        # Named as a string, so no attribute node shows it.
+        'import importlib\nm = getattr(importlib, "import_module")("fastapi")',
+        'import builtins\nload = getattr(builtins, "__import__")',
+        # Referenced, then called under another name.
+        'import importlib\n_f = importlib.import_module\nm = _f("fastapi")',
+        "_f = __import__",
+        # Loading from a path, through importlib.util and a loader.
+        "import importlib.util",
+        "from importlib import util",
+        "from importlib.util import find_spec",
+        'import importlib\nspec = importlib.util.find_spec("fastapi")',
+        'spec = spec_from_file_location("x", "x.py")',
+        "module = module_from_spec(spec)",
+        "spec.loader.exec_module(module)",
+        "from importlib.machinery import SourceFileLoader",
+        # An alias of importlib hides `.util` and `.machinery` from a literal reading of the text.
+        'import importlib as _il\n_il.machinery.SourceFileLoader("m", "x.py").load_module()',
+        'import importlib as _il\nloader = _il.machinery.SourceFileLoader("m", "x.py")',
+        'import importlib as _il\nspec = _il.util.find_spec("fastapi")',
+        'import importlib as _il\n_m = _il\nspec = _m.util.find_spec("fastapi")',
+        # A loader reached without importlib at all: every module carries one.
+        '__loader__.load_module("m")',
+        # runpy, and the other stdlib loaders.
+        "import runpy",
+        'from runpy import run_module\nrun_module("fastapi")',
+        'import runpy as r\nr.run_path("x.py")',
+        'import pkgutil\npkgutil.resolve_name("fastapi:FastAPI")',
+        "import zipimport",
+        # Source text, which may hold an import statement.
+        'exec("import fastapi")',
+        "eval(\"__import__('fastapi')\")",
+        'import builtins\nbuiltins.exec("import fastapi")',
+        'run = getattr(builtins, "exec")',
+        # The builtins under another name are still the builtins.
+        'import builtins as b\nb.eval("1")',
+        'import builtins\n_b = builtins\nrun = getattr(_b, "eval")',
+        '__builtins__.exec("import fastapi")',
+        'from builtins import exec as run\nrun("import fastapi")',
+        'from builtins import __import__ as load\nload("fastapi")',
+    ],
+)
+def Given_source_importing_by_a_call_When_scanned_Then_it_is_found(source: str) -> None:
+    assert _dynamic_imports_in(source), source
+
+
+def Given_an_ordinary_importlib_use_When_scanned_Then_it_is_not_a_violation() -> None:
+    # Reading a distribution's version or a packaged file imports nothing; refusing it would refuse
+    # too much.
+    assert _dynamic_imports_in("from importlib.metadata import version") == []
+    assert _dynamic_imports_in("from importlib import resources") == []
+    assert (
+        _dynamic_imports_in('import importlib.metadata\nv = importlib.metadata.version("x")') == []
+    )
+    assert (
+        _dynamic_imports_in('import importlib.resources\nf = importlib.resources.files("x")') == []
+    )
+    # A name that only contains an importer's is not one.
+    assert _dynamic_imports_in("executor = evaluate(utility)") == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # PyTorch switches a model to inference mode; nothing is compiled or imported.
+        "model.eval()",
+        # SQLModel runs a statement object, never source text.
+        "rows = session.exec(statement)",
+        'import torch\nmodel = torch.nn.Linear(1, 1)\ngetattr(model, "eval")()',
+        "def eval(self):\n    return self",
+    ],
+)
+def Given_a_method_named_eval_or_exec_When_scanned_Then_it_is_not_a_violation(source: str) -> None:
+    # Only the builtins run source text; a method of the same name on another object does not.
+    assert _dynamic_imports_in(source) == [], source

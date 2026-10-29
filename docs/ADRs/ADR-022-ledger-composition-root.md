@@ -1,6 +1,7 @@
 # ADR-022: A composition root package in the ledger, exempt from context isolation
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by [ADR-051](ADR-051-what-a-translation-may-decide.md), with a
+  bounded exception in [ADR-028](ADR-028-http-wire-conventions.md)
 - **Date:** 2026-09-01
 
 ## Context

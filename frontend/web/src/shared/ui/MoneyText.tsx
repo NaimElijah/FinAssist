@@ -1,4 +1,4 @@
-import { DISPLAY_LOCALE } from './locale';
+import { DISPLAY_LOCALE } from '../lib/locale';
 import styles from './MoneyText.module.css';
 
 /**

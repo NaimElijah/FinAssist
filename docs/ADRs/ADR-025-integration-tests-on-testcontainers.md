@@ -1,6 +1,7 @@
 # ADR-025: Integration tests run against a real PostgreSQL, in Testcontainers
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md)
 - **Date:** 2026-09-06
 
 ## Context

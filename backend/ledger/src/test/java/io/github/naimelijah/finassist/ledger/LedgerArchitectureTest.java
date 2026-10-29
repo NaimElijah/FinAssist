@@ -13,6 +13,7 @@ import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.sli
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.AccessTarget;
 import com.tngtech.archunit.core.domain.AccessTarget.CodeUnitAccessTarget;
+import com.tngtech.archunit.core.domain.Dependency;
 import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaConstructor;
@@ -77,9 +78,31 @@ class LedgerArchitectureTest {
      * io.swagger..} and {@code org.springdoc..} close the same gap for the OpenAPI annotations and
      * generator the build gained alongside it (ADR-028).
      *
-     * <p>{@code java.sql..} and {@code java.net..} are the JDK's own I/O seams: a {@code Connection} or
-     * an {@code HttpClient} in the domain or a use case is persistence or transport arriving without a
-     * framework, which the other entries cannot see because it imports none.
+     * <p>{@code org.slf4j..}, {@code io.opentelemetry..} and {@code io.micrometer..} are the logging,
+     * tracing and metrics libraries the compile classpath carries for ADR-019. Observability is an
+     * edge concern: a logger or a meter in an aggregate or a use case puts output in the core, which
+     * "nothing writes output except the logging boundary" (root {@code CLAUDE.md}) keeps out. {@code
+     * org.flywaydb..} is the migration engine and {@code com.nimbusds..} the token library the
+     * resource server pulls in; either in the core is persistence or security arriving without a
+     * Spring type the entries above would see.
+     *
+     * <p>{@code org.slf4j..} is not the only logging API on that classpath. {@code
+     * spring-boot-starter-logging} also brings Logback ({@code ch.qos.logback..}), the Log4j 2 API
+     * through {@code log4j-to-slf4j} ({@code org.apache.logging..}), and the bridge for the JDK's own
+     * {@code java.util.logging..}; a {@code Logger} from any of them writes output from the core as
+     * surely as an SLF4J one, so each is listed. {@code com.zaxxer.hikari..} is the connection pool
+     * {@code spring-boot-starter-jdbc} brings: a pool in the core is persistence without a {@code
+     * java.sql} type in sight. Commons Logging ({@code org.apache.commons.logging..}) arrives
+     * another way: {@code spring-core} declares it at compile scope, so a {@code LogFactory.getLog}
+     * in an aggregate compiles, and {@code org.apache.logging..} names Log4j alone.
+     *
+     * <p>{@code java.sql..}, {@code java.net..}, {@code java.io..}, {@code java.nio.file..} and {@code
+     * java.nio.channels..} are the JDK's own I/O seams: a {@code Connection}, an {@code HttpClient}, a
+     * {@code Reader}, a {@code Path} or a {@code FileChannel} in the domain or a use case is
+     * persistence, transport or file access arriving without a framework, which the other entries
+     * cannot see because it imports none. The rest of {@code java.nio} is not I/O - a {@code
+     * StandardCharsets} constant or a {@code ByteBuffer} touches nothing outside the process - so it
+     * stays allowed.
      */
     private static final String[] FORBIDDEN_FRAMEWORK_PACKAGES = {
         "org.springframework..",
@@ -89,8 +112,21 @@ class LedgerArchitectureTest {
         "tools.jackson..",
         "io.swagger..",
         "org.springdoc..",
+        "org.slf4j..",
+        "ch.qos.logback..",
+        "org.apache.logging..",
+        "org.apache.commons.logging..",
+        "java.util.logging..",
+        "io.opentelemetry..",
+        "io.micrometer..",
+        "org.flywaydb..",
+        "com.nimbusds..",
+        "com.zaxxer.hikari..",
         "java.sql..",
-        "java.net.."
+        "java.net..",
+        "java.io..",
+        "java.nio.file..",
+        "java.nio.channels.."
     };
 
     /**
@@ -144,13 +180,17 @@ class LedgerArchitectureTest {
 
     /**
      * The domain stays framework-free, which is what lets it be tested without Spring and what keeps
-     * persistence concerns out of the aggregates. JPA entities belong in the outbound adapter and
-     * are mapped; an entity is not an aggregate.
+     * persistence concerns out of the aggregates. There is no entity type: the outbound adapter maps
+     * rows to aggregates by hand (ADR-024).
+     *
+     * <p>The {@code shared} kernel is held to the same rule. Every domain depends on {@code Money}, so
+     * a framework type in {@code shared} would reach each of them through a dependency this rule,
+     * scoped to {@code ..domain..} alone, never sees.
      */
     @ArchTest
     static final ArchRule domain_depends_on_no_framework = noClasses()
             .that()
-            .resideInAPackage(ROOT + "..domain..")
+            .resideInAnyPackage(ROOT + "..domain..", SHARED)
             .should()
             .dependOnClassesThat()
             .resideInAnyPackage(FORBIDDEN_FRAMEWORK_PACKAGES)
@@ -319,6 +359,114 @@ class LedgerArchitectureTest {
             .dependOnClassesThat()
             .resideInAPackage(COMPOSITION)
             .because("frameworks and cross-context translation travel inward only through declared ports");
+
+    /** Where each context declares the ports it consumes, a translation's own port among them. */
+    private static final String OUT_PORTS = ROOT + "..application.port.out..";
+
+    /**
+     * A translation calls the upstream context's in-port, never its repositories (root {@code
+     * CLAUDE.md}, Architecture). A translation is a class in {@code composition} that implements a
+     * consumer's out-port, as {@code AccountingSpendJournal} implements budgeting's {@code SpendJournal}
+     * through accounting's {@code ViewJournalUseCase}. One that read {@code TransactionRepository}
+     * instead would skip every rule the upstream's use case enforces - {@code postedBetween} is what
+     * drops a voided transaction - and would tie the consumer to the upstream's storage, so extracting
+     * either context would become a change of design rather than of transport (ADR-022).
+     *
+     * <p>{@code contexts_do_not_depend_on_each_other} ignores every dependency that starts in {@code
+     * composition}, because {@code LedgerConfiguration} has to name repositories and services to wire
+     * them, so nothing else stops a translation reaching them too. Forbidden: a concrete {@code
+     * application.service} class, which binds it to one implementation rather than the use case; any
+     * adapter; and any out-port interface other than those it implements. The records in {@code
+     * port.out} that it translates into, such as {@code SpendRecord} and {@code AccountRef}, stay
+     * reachable: they are the consumer's vocabulary, which a translation exists to speak.
+     *
+     * <p>The root rule's other half, converting the upstream's exceptions at the boundary, is not
+     * checked here, since no bytecode rule sees which unchecked exception a call can raise. {@code
+     * AccountingOpeningPositionsTest} pins it for the one translation that has one to convert.
+     */
+    @ArchTest
+    static final ArchRule translations_reach_the_upstream_context_only_through_its_in_ports = classes()
+            .that(resideInAPackage(COMPOSITION).and(implementAnOutPort()))
+            .should(reachNoServiceAdapterOrOtherOutPort())
+            .because("a translation that reads a repository skips every rule the upstream's use case enforces");
+
+    private static DescribedPredicate<JavaClass> implementAnOutPort() {
+        return new DescribedPredicate<>("implement an interface in " + OUT_PORTS) {
+            @Override
+            public boolean test(JavaClass type) {
+                return type.getAllRawInterfaces().stream().anyMatch(resideInAPackage(OUT_PORTS));
+            }
+        };
+    }
+
+    private static ArchCondition<JavaClass> reachNoServiceAdapterOrOtherOutPort() {
+        DescribedPredicate<JavaClass> serviceOrAdapter =
+                resideInAPackage(ROOT + "..application.service..").or(resideInAPackage(ROOT + "..adapter.."));
+        DescribedPredicate<JavaClass> outPort = resideInAPackage(OUT_PORTS).and(INTERFACES);
+        return new ArchCondition<>("depend on no application service, no adapter, and no foreign out-port") {
+            @Override
+            public void check(JavaClass translation, ConditionEvents events) {
+                Set<JavaClass> implemented = translation.getAllRawInterfaces();
+                for (Dependency dependency : translation.getDirectDependenciesFromSelf()) {
+                    JavaClass target = dependency.getTargetClass().getBaseComponentType();
+                    boolean foreignOutPort = outPort.test(target) && !implemented.contains(target);
+                    if (serviceOrAdapter.test(target) || foreignOutPort) {
+                        events.add(SimpleConditionEvent.violated(dependency, dependency.getDescription()));
+                    }
+                }
+            }
+        };
+    }
+
+    /**
+     * The call-shaped half of the rule above, which sees only classes that implement an out-port and
+     * so misses the two natural ways to write a translation without one. {@code SpendJournal} and
+     * {@code OpeningPositionProvider} each have a single method, so a {@code @Bean} returning {@code
+     * period -> transactions.postedBetween(...)} is a translation whose body javac compiles into
+     * {@code LedgerConfiguration}, which implements nothing. And a translation that hands the read to
+     * a helper in {@code composition}, nested or top-level, moves the repository into a class that
+     * implements nothing either.
+     *
+     * <p>What separates wiring from translating is the kind of access, not the class. The wiring only
+     * <em>constructs</em> repositories, adapters and services, handing each to the next constructor;
+     * a translation <em>calls</em> the upstream's in-port. So no class in {@code composition} may call
+     * a method, or take a method reference, whose owner is an out-port interface, an {@code
+     * application.service} class or an adapter, and constructor calls stay allowed. No composition
+     * class makes such a call today: {@code LedgerConfiguration} only constructs, and the security,
+     * problem-handling and OpenAPI classes name no out-port, service or adapter at all. A
+     * {@code @Transactional} decorator in {@code composition} that delegates to a service, the shape
+     * {@code backend/ledger/CLAUDE.md} prescribes for a write across two aggregates, would trip this
+     * rule; it should delegate through the in-port it decorates, which is what keeps it a decorator.
+     *
+     * <p>Still held in review: an in-port call is allowed wherever it is made, so a translation that
+     * calls the right in-port but drops what that in-port returns is outside any bytecode rule; and
+     * the owner a call names is its static type, so a repository reached through a type outside the
+     * ledger, such as an {@code Object} cast or reflection, is not seen.
+     */
+    @ArchTest
+    static final ArchRule composition_calls_no_out_port_service_or_adapter = noClasses()
+            .that()
+            .resideInAPackage(COMPOSITION)
+            .should()
+            .accessTargetWhere(callsAMethodOnAnOutPortServiceOrAdapter())
+            .because("composition constructs the upstream's repositories and services; only a translation"
+                    + " calls the upstream, and it calls its in-ports");
+
+    private static DescribedPredicate<JavaAccess<?>> callsAMethodOnAnOutPortServiceOrAdapter() {
+        DescribedPredicate<JavaClass> outPortServiceOrAdapter = resideInAPackage(OUT_PORTS)
+                .and(INTERFACES)
+                .or(resideInAPackage(ROOT + "..application.service.."))
+                .or(resideInAPackage(ROOT + "..adapter.."));
+        return new DescribedPredicate<>(
+                "call or reference a method of an out-port interface, an application service or an adapter") {
+            @Override
+            public boolean test(JavaAccess<?> access) {
+                return access.getTarget() instanceof CodeUnitAccessTarget codeUnit
+                        && !codeUnit.getName().equals(JavaConstructor.CONSTRUCTOR_NAME)
+                        && outPortServiceOrAdapter.test(codeUnit.getOwner());
+            }
+        };
+    }
 
     /**
      * The clock is read once, in the composition root, and passed down (root {@code CLAUDE.md}, "Pass

@@ -1,6 +1,7 @@
 # ADR-045: Dependabot's updates are triaged weekly, and the toolchain lines move only by ADR
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md)
 - **Date:** 2026-10-20
 
 ## Context
