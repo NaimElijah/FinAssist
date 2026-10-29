@@ -1,6 +1,7 @@
 # ADR-005: Docker Compose is the run mechanism; the Makefile is the interface
 
-- **Status:** Accepted, corrected by
+- **Status:** Accepted, extended by
+  [ADR-049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md), corrected by
   [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md)
 - **Date:** 2026-08-29
 
