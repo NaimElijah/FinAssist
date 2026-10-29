@@ -17,9 +17,13 @@ BACKUP_TOOL := ../../ops/backup
 SECRET_CHECK := ../../ops/secret_check
 # ops/compose_check as seen from $(ASSISTANT), linted and tested the same way (ADR-049).
 COMPOSE_CHECK := ../../ops/compose_check
-# Compose over .env.example plus a throwaway value for each `:?` variable, never over .env: on a
-# developer machine that holds the owner's secrets, and the resolved file would carry them.
-COMPOSE_CONFIG := docker compose --env-file .env.example --env-file ops/compose_check/placeholders.env
+# Compose over .env.example, never over .env: on a developer machine that holds the owner's
+# secrets, and the resolved file would carry them. Compose ranks the shell's environment above any
+# --env-file, and the native run exports real secrets there, so placeholders.env is exported into
+# the recipe's own shell instead: each variable docker-compose.yml requires through `:?` resolves
+# to its placeholder whatever the caller exported. Any other variable it interpolates, a port, a
+# username or a flag, still takes the caller's exported value over .env.example's.
+COMPOSE_CONFIG := set -a && . ./ops/compose_check/placeholders.env && set +a && docker compose --env-file .env.example
 MVNW      := ./mvnw -B
 UV        := uv
 
@@ -166,7 +170,7 @@ check-web-api: ## Fail if regenerating the web client's contract types changes a
 # starts no container, so this never touches a Compose project (ADR-049). The script's PEP 723
 # `requires-python` is a minimum, so `--python` pins the assistant's .python-version: otherwise uv
 # may pick, or on CI download, a newer CPython than the one lint-compose-check's mypy targets.
-check-compose: ## Validate docker-compose.yml under every profile, then its restart, log and readiness conventions; never reads .env
+check-compose: ## Validate docker-compose.yml under every profile, then its restart, log and readiness conventions; never reads .env, and every `:?` secret is a placeholder even if exported
 	$(COMPOSE_CONFIG) --profile monitoring config --quiet
 	$(COMPOSE_CONFIG) --profile smoke config --quiet
 	$(COMPOSE_CONFIG) --profile monitoring --profile smoke config --quiet

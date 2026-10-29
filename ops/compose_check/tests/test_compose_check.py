@@ -257,3 +257,12 @@ def Given_the_variables_compose_requires_When_read_Then_the_placeholders_set_eac
     assert required
     assert sorted(names) == sorted(required)
     assert all(line.split("=", 1)[1] for line in assignments)
+
+
+def Given_the_placeholders_When_read_Then_each_value_is_a_word_sh_sources_unchanged() -> None:
+    # check-compose sources the file with /bin/sh, so a quote, space or `$` would be reinterpreted.
+    placeholders = PLACEHOLDERS.read_text(encoding="utf-8").splitlines()
+    values = [line.split("=", 1)[1] for line in placeholders if line and not line.startswith("#")]
+
+    assert values
+    assert all(re.fullmatch(r"[A-Za-z0-9_.-]+", value) for value in values)

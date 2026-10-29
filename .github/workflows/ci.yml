@@ -190,8 +190,9 @@ jobs:
       # --python, backend/assistant/.python-version, since the PEP 723 block states only a minimum.
       - uses: astral-sh/setup-uv@v10.3.0
 
-      # Never reads .env: the target resolves the file over .env.example and
-      # ops/compose_check/placeholders.env, and the Makefile says why each profile is validated.
+      # Never reads .env: the target resolves the file over .env.example, with
+      # ops/compose_check/placeholders.env exported, and the Makefile says why each profile is
+      # validated.
       - name: Validate docker-compose.yml and require its restart, log and readiness conventions
         run: make check-compose
 

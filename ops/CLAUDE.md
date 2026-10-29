@@ -19,8 +19,8 @@ here too, including its rules for `docker-compose.yml`; this file adds what bind
   `uv run`, of the resolved Compose file it reads on stdin: each long-running service's restart
   and log bound, the one-shots' lack of either, and four readiness probes (#142, ADR-039). It
   names a service, never a value. `placeholders.env` beside it holds a throwaway value for each
-  `:?` variable, so `make check-compose` resolves the file without `.env` (ADR-049). Its tests
-  are in `ops/compose_check/tests/`.
+  `:?` variable, which `make check-compose` exports, so the file resolves without `.env` or the
+  shell's secrets (ADR-049). Its tests are in `ops/compose_check/tests/`.
 - `ops/smoke/auth_smoke.py` — the only file behind the `smoke` Compose profile (ADR-034).
 - The collector, Prometheus and Grafana provisioning that the `monitoring` Compose profile mounts.
 
@@ -50,13 +50,18 @@ From the repository root unless stated:
   the rest.
 - **Test the secret check** — `make test-secret-check`: `cd backend/assistant && uv run pytest
   -c pyproject.toml ../../ops/secret_check/tests`. Real `git`, never Docker.
-- **Check the Compose file** — `make check-compose`, which CI's `compose` job runs. With
-  `C="docker compose --env-file .env.example --env-file ops/compose_check/placeholders.env"`:
-  `$C --profile monitoring config --quiet`, the same with `--profile smoke` and with both, then
-  `$C --profile monitoring --profile smoke config --format json | uv run --python
+- **Check the Compose file** — `make check-compose`, which CI's `compose` job runs. Each of its
+  four Compose calls runs in a shell of its own, as `sh -c 'set -a && .
+  ./ops/compose_check/placeholders.env && set +a && docker compose --env-file .env.example
+  <arguments>'`, so the exports never reach the caller's shell. The arguments are `--profile
+  monitoring config --quiet`, the same with `--profile smoke` and with both, then `--profile
+  monitoring --profile smoke config --format json`, piped into `uv run --python
   "$(cat backend/assistant/.python-version)" ops/compose_check/compose_check.py`, so the script
   runs on the assistant's pinned Python, not the newest its `requires-python` minimum allows.
-  `config` starts no container, and `.env` is never read.
+  `config` starts no container, and `.env` is never read. Compose ranks the shell above any
+  `--env-file`, so the placeholders are exported, not passed as one: each `:?` variable resolves
+  to its placeholder even when the caller exported a real value, as the native run does. Any
+  other variable the caller exported, a port, a username or a flag, still outranks `.env.example`.
 - **Test the Compose check** — `make test-compose-check`: `cd backend/assistant && uv run
   pytest -c pyproject.toml ../../ops/compose_check/tests`. Crafted resolved files, never Docker.
 - **Smoke-test authentication** (opt-in, manual) — `make smoke-auth`:
