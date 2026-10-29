@@ -23,11 +23,18 @@ const SRC = fileURLToPath(new URL('../src', import.meta.url));
 const FEATURES_DIR = join(SRC, 'features');
 const APP_DIR = join(SRC, 'app');
 
+/**
+ * A TypeScript source file by its extension: `.ts` and `.tsx`, and the `.mts` and `.cts` module
+ * forms, which TypeScript compiles and Vite serves as readily, so a file in either is code a rule
+ * must see.
+ */
+const SOURCE_FILE = /\.[cm]?tsx?$/;
+
 function sourceFilesUnder(dir: string): string[] {
     return readdirSync(dir).flatMap((entry) => {
         const full = join(dir, entry);
         if (statSync(full).isDirectory()) return sourceFilesUnder(full);
-        return /\.tsx?$/.test(entry) ? [full] : [];
+        return SOURCE_FILE.test(entry) ? [full] : [];
     });
 }
 
@@ -347,12 +354,12 @@ function isLayer(name: string): name is Layer {
 const FEATURE_ENTRY_FILES: readonly string[] = ['index.ts', 'routes.tsx'];
 
 /**
- * The source files directly in `dir`, by name. Only `.ts` and `.tsx`, as `sourceFilesUnder` reads:
+ * The source files directly in `dir`, by name. Only `SOURCE_FILE`s, as `sourceFilesUnder` reads:
  * a `README.md` or `.DS_Store` imports nothing, so no rule needs it placed.
  */
 function sourceFilesIn(dir: string): string[] {
     return readdirSync(dir).filter(
-        (entry) => /\.tsx?$/.test(entry) && !statSync(join(dir, entry)).isDirectory(),
+        (entry) => SOURCE_FILE.test(entry) && !statSync(join(dir, entry)).isDirectory(),
     );
 }
 
