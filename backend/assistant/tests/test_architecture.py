@@ -9,8 +9,9 @@ Ten rules:
 4. No context imports another context. Only ``shared`` is common ground.
 5. No context imports the composition root, where the frameworks are wired.
 6. No domain module names ``float``. Money is exact decimal, in both languages.
-7. No inward module reads the wall clock - not the domain, not a use case, not ``shared``.
-   The caller passes the time in; the composition root reads the clock once.
+7. No module outside the composition root reads the wall clock - not the domain, not a use
+   case, not ``shared``, not a context's adapters. The composition root reads it once and passes
+   the time in.
 8. No inbound adapter imports an outbound one. A route reaches a client only through a use case.
 9. No domain module imports the application layer. The use cases call the domain, never the
    reverse - the inward half of ``LedgerArchitectureTest.layers_point_inward``.
@@ -318,6 +319,12 @@ def _is_inward(path: Path) -> bool:
     return ADAPTER_SEGMENT not in path.relative_to(SRC).parts
 
 
+def _is_composition_root(path: Path) -> bool:
+    """A module under ``src/finassist_assistant/adapters/``, the one package that wires the rest."""
+    parts = path.relative_to(SRC).parts
+    return bool(parts) and parts[0] == ADAPTER_SEGMENT
+
+
 def _context_imported_by(module: str) -> str | None:
     parts = module.split(".")
     if len(parts) >= 2 and parts[0] == ROOT_PACKAGE and parts[1] in CONTEXTS:
@@ -377,6 +384,7 @@ def _module_name(path: Path) -> str:
 # so the files each match recognises are a scope of their own, and the guard fails on the rename
 # instead.
 INWARD_FILES = [path for path in SOURCE_FILES if _is_inward(path)]
+OUTSIDE_COMPOSITION_ROOT_FILES = [path for path in SOURCE_FILES if not _is_composition_root(path)]
 CONTEXT_FILES = [path for path in SOURCE_FILES if _context_of(path) is not None]
 COMPOSITION_ROOT_HELD_FILES = [
     path for path in SOURCE_FILES if _context_of(path) is not None or _is_domain(path)
@@ -391,6 +399,7 @@ SHARED_FILES = [path for path in SOURCE_FILES if path.relative_to(SRC).parts[0] 
 
 RULE_SCOPES = {
     "inward": INWARD_FILES,
+    "outside-composition-root": OUTSIDE_COMPOSITION_ROOT_FILES,
     "context": CONTEXT_FILES,
     "composition-root-held": COMPOSITION_ROOT_HELD_FILES,
     "inbound-adapter": INBOUND_ADAPTER_FILES,
@@ -628,19 +637,26 @@ def Given_a_domain_module_When_parsed_Then_it_names_no_float(path: Path) -> None
     )
 
 
-@pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
-def Given_an_inward_module_When_parsed_Then_it_reads_no_clock(path: Path) -> None:
-    """Pass the clock in: the domain, the use cases and ``shared`` all take time as an argument.
+@pytest.mark.parametrize("path", OUTSIDE_COMPOSITION_ROOT_FILES, ids=_relative_id)
+def Given_a_module_outside_the_composition_root_When_parsed_Then_it_reads_no_clock(
+    path: Path,
+) -> None:
+    """Pass the clock in: everything but the composition root takes time as an argument.
 
     The composition root reads the clock once (``utc_now``) and passes it down, so the only
-    clock reads in the tree belong under ``adapters``. A use case reading one would make its
-    behaviour depend on when the test ran, exactly as a domain function would.
+    clock reads in the tree belong under ``src/finassist_assistant/adapters/``. A use case reading
+    one would make its behaviour depend on when the test ran, exactly as a domain function would.
+
+    A context's own adapters are held too. They sit under an ``adapters`` directory, which once
+    put them outside this rule, yet a ledger client stamping its own fetch time is the same hidden
+    clock one layer out. The ledger holds every package but ``composition`` to the same rule in
+    ``clock_is_read_only_in_the_composition_root``.
     """
     found = _clock_reads_in(path.read_text(encoding="utf-8"), str(path))
     assert not found, (
-        f"{path.relative_to(SRC)} reads the wall clock: {found}. An inward function takes the "
-        "current time as an argument - is_stale and age already do - so its behaviour is a "
-        "function of its inputs and a test never has to freeze anything."
+        f"{path.relative_to(SRC)} reads the wall clock: {found}. Only the composition root reads "
+        "it; everything else takes the current time as an argument - is_stale and age already do "
+        "- so its behaviour is a function of its inputs and a test never has to freeze anything."
     )
 
 
@@ -700,6 +716,15 @@ def Given_a_module_path_When_asked_Then_its_context_is_the_first_segment() -> No
 def Given_a_module_path_When_asked_Then_only_the_adapter_layer_is_outward() -> None:
     assert _is_inward(SRC / "portfolio" / "domain" / "__init__.py")
     assert not _is_inward(SRC / "portfolio" / "adapters" / "outbound" / "ledger" / "__init__.py")
+
+
+def Given_a_module_path_When_asked_Then_only_the_root_adapters_are_the_composition_root() -> None:
+    assert _is_composition_root(SRC / "adapters" / "wiring.py")
+    assert not _is_composition_root(
+        SRC / "portfolio" / "adapters" / "outbound" / "ledger" / "__init__.py"
+    )
+    assert not _is_composition_root(SRC / "shared" / "money.py")
+    assert not _is_composition_root(SRC / "__init__.py")
 
 
 def Given_a_module_name_When_asked_Then_the_context_it_belongs_to_is_returned() -> None:
