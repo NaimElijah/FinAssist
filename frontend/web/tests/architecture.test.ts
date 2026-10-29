@@ -235,11 +235,15 @@ function isWithin(dir: string, path: string): boolean {
     return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
-/** Whether a path inside `src/features` is a feature's public entry: its directory or `index`. */
+/**
+ * Whether a path inside `src/features` is a feature's public entry: its directory or its
+ * `index.ts`. Not `index.tsx`: the root-file rule admits only `index.ts`, and the two must agree,
+ * or a feature could hold a second entry this rule accepts and that one refuses.
+ */
 function isFeatureEntry(path: string): boolean {
     const [feature = '', ...rest] = relative(FEATURES_DIR, path).split(sep);
     if (feature === '') return false;
-    return rest.length === 0 || (rest.length === 1 && /^index(\.tsx?)?$/.test(rest[0] ?? ''));
+    return rest.length === 0 || (rest.length === 1 && /^index(\.ts)?$/.test(rest[0] ?? ''));
 }
 
 describe('composition direction', () => {
@@ -343,6 +347,16 @@ function isLayer(name: string): name is Layer {
 const FEATURE_ENTRY_FILES: readonly string[] = ['index.ts', 'routes.tsx'];
 
 /**
+ * The source files directly in `dir`, by name. Only `.ts` and `.tsx`, as `sourceFilesUnder` reads:
+ * a `README.md` or `.DS_Store` imports nothing, so no rule needs it placed.
+ */
+function sourceFilesIn(dir: string): string[] {
+    return readdirSync(dir).filter(
+        (entry) => /\.tsx?$/.test(entry) && !statSync(join(dir, entry)).isDirectory(),
+    );
+}
+
+/**
  * Where a path inside `src/features` sits: its feature, and its layer or `'root'` for a file
  * directly in the feature's directory. Undefined outside `src/features`.
  *
@@ -404,12 +418,21 @@ describe('layers inside a feature', () => {
         expect(unknown, `rank each directory in LAYERS (${LAYERS.join(', ')})`).toEqual([]);
     });
 
+    it('Given_the_features_directory_When_listed_Then_it_holds_no_source_file', () => {
+        // isFeatureEntry reads the first segment under src/features as a feature, so a file there,
+        // such as src/features/helpers.ts, would pass as one's entry: src/app could import it, and
+        // through its re-exports reach past a feature's index. Each file belongs inside a feature.
+        expect(
+            sourceFilesIn(FEATURES_DIR),
+            'src/features holds only feature directories; move each file into a feature',
+        ).toEqual([]);
+    });
+
     it('Given_each_feature_When_its_root_is_listed_Then_each_file_is_an_entry_file', () => {
         // The layer rule skips the root's files as importers, since they compose every layer.
         // Any other file put there would escape it unchecked, so it belongs in a layer instead.
         const strays = features.flatMap((feature) =>
-            readdirSync(join(FEATURES_DIR, feature))
-                .filter((entry) => !statSync(join(FEATURES_DIR, feature, entry)).isDirectory())
+            sourceFilesIn(join(FEATURES_DIR, feature))
                 .filter((entry) => !FEATURE_ENTRY_FILES.includes(entry))
                 .map((entry) => `${feature}/${entry}`),
         );
