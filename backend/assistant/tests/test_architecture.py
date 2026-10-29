@@ -24,10 +24,12 @@ Thirteen rules:
    ``importlib.util``, ``runpy``, ``exec`` or ``eval``, called, referenced, aliased or named to
    ``getattr`` - so every import is a statement the rules above can read.
 
-Rules 6, 7 and 11 mirror rules the ledger enforces too:
+Rules 6, 7, 11 and 12 mirror rules the ledger enforces too:
 ``LedgerArchitectureTest.money_is_never_floating_point`` for the first,
-``LedgerArchitectureTest.clock_is_read_only_in_the_composition_root`` for the second, and
-``LedgerArchitectureTest.outbound_adapters_do_not_reach_inbound`` for the third.
+``LedgerArchitectureTest.clock_is_read_only_in_the_composition_root`` for the second,
+``LedgerArchitectureTest.outbound_adapters_do_not_reach_inbound`` for the third, and
+``LedgerArchitectureTest.translations_reach_the_upstream_context_only_through_its_in_ports`` for
+the fourth.
 
 **These are checked statically, by parsing every source file, not by importing packages and
 inspecting sys.modules.** An earlier version did the latter and was blind by construction:
