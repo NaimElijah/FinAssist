@@ -122,7 +122,9 @@ class LedgerApplicationIT extends PostgresFixture {
      * The exposure list in {@code application.yml} is deliberately short. Widening it to {@code "*"}
      * without meaning to would still not serve this: it matches no {@code permitAll} rule, so the
      * security chain refuses it before Actuator's own routing ever runs (ADR-030) — 401 with no
-     * token, 403 with a real one that simply names no route this chain admits.
+     * token, 403 with a real one that simply names no route this chain admits. Because that refusal
+     * holds whatever the list says, this case cannot catch a widening; {@code LedgerObservabilityIT}
+     * pins the list itself, from the endpoints Actuator resolves.
      */
     @Test
     void Given_the_application_When_an_unexposed_endpoint_is_requested_Then_it_is_not_served() throws Exception {

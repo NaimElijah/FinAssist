@@ -97,11 +97,11 @@ management:
   endpoints:
     web:
       exposure:
-        # An explicit allow-list, never "*". Since ADR-030 the security chain is the guard that
-        # matters: an endpoint not named here matches no permitAll rule, so LedgerApplicationIT's
-        # /actuator/env case is refused 401 with no token and 403 with a real one, never served.
-        # That holds whatever this list says, so widening it is no longer a way in - but keep it
-        # short anyway, because a second guard should not be the only one.
+        # An explicit allow-list, never "*". LedgerObservabilityIT's exposure test pins the set
+        # Actuator resolves from it to exactly these four, so widening it fails the build. Since
+        # ADR-030 the security chain is a second guard: an endpoint not named here matches no
+        # permitAll rule, so LedgerApplicationIT's /actuator/env case is refused 401 with no token
+        # and 403 with a real one whatever this list says - which is why that case cannot pin it.
         include: health,info,metrics,prometheus
   endpoint:
     health:

@@ -15,12 +15,17 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.actuate.endpoint.ExposableEndpoint;
+import org.springframework.boot.actuate.endpoint.web.PathMappedEndpoint;
+import org.springframework.boot.actuate.endpoint.web.PathMappedEndpoints;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing;
@@ -76,6 +81,9 @@ class LedgerObservabilityIT extends PostgresFixture {
     @Autowired
     private Tracer tracer;
 
+    @Autowired
+    private PathMappedEndpoints webEndpoints;
+
     /**
      * Stands in for a database the ledger cannot reach. The failure a real outage raises is thrown
      * from the store's own port, so the request travels the real controller, service and problem
@@ -123,7 +131,8 @@ class LedgerObservabilityIT extends PostgresFixture {
      * <p>{@code /actuator/env} matches no {@code permitAll} rule, so it is denied regardless of
      * whether a token was sent — 401 with none, 403 with one that simply names no matching route
      * (ADR-030). Neither answer is Actuator's own 404 any more; the security chain refuses the
-     * request before the dispatcher, let alone Actuator's endpoint mapping, ever sees it.
+     * request before the dispatcher, let alone Actuator's endpoint mapping, ever sees it. So this
+     * case holds whatever the exposure list says, and the list itself is pinned by the test below.
      */
     @Test
     void Given_the_prometheus_endpoint_is_exposed_When_an_unexposed_one_is_requested_Then_it_is_still_not_served()
@@ -138,6 +147,36 @@ class LedgerObservabilityIT extends PostgresFixture {
                         .statusCode())
                 .isEqualTo(401);
         assertThat(get("/actuator/env").statusCode()).isEqualTo(403);
+    }
+
+    /**
+     * The guard ADR-019 relies on to stop the exposure list widening by accident. No HTTP answer can
+     * be that guard any more: the case above is refused by the security chain before Actuator's
+     * exposure is consulted, so it stays green with {@code "*"}. What is asserted instead is the set
+     * Actuator itself resolved: {@link PathMappedEndpoints} holds every endpoint it maps onto the web,
+     * from each web discoverer, after the include and exclude filters.
+     *
+     * <p>Read from the running context rather than from {@code application.yml}, because the context is
+     * what decides: a profile file, an {@code exclude} or a {@code MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_*}
+     * variable changes the answer without changing the file. This class is the home because its
+     * context, through {@link AutoConfigureMetrics}, is one in which all four endpoints exist; without
+     * a Prometheus registry there is no {@code prometheus} endpoint to expose.
+     */
+    @Test
+    void Given_the_shipped_configuration_When_the_web_endpoints_are_resolved_Then_only_the_four_listed_are_exposed() {
+        Set<String> exposed =
+                webEndpoints.stream().map(LedgerObservabilityIT::idOf).collect(Collectors.toSet());
+
+        assertThat(exposed)
+                .as("management.endpoints.web.exposure must stay an explicit allow-list, never widened (ADR-019)")
+                .containsExactlyInAnyOrder("health", "info", "metrics", "prometheus");
+    }
+
+    private static String idOf(PathMappedEndpoint endpoint) {
+        if (endpoint instanceof ExposableEndpoint<?> exposable) {
+            return exposable.getEndpointId().toLowerCaseString();
+        }
+        throw new AssertionError("Actuator mapped an endpoint that carries no id, at " + endpoint.getRootPath());
     }
 
     /**
