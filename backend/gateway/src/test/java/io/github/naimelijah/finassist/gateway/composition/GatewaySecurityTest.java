@@ -501,11 +501,14 @@ class GatewaySecurityTest {
      * operation without widening the chain would leave that operation refused here, whatever
      * {@code GatewayRelayRoutesTest} says about the route.
      *
-     * <p>Only the chain is under test. Its refusals are {@code 401} from the entry point and
+     * <p>The chain is what is under test. Its refusals are {@code 401} from the entry point and
      * {@code 403} from the access-denied handler, a CSRF refusal included, and {@link #upstream}
-     * answers neither, so either status here is the chain's. Whatever the relay answers after the
-     * chain, the upstream's {@code 200} or a {@code 404} if a route stopped matching, is {@code
-     * GatewayRelayRoutesTest}'s concern.
+     * answers neither, so either status here is the chain's. Being neither is no proof of
+     * passage, though: an exception inside a chain filter answers {@code 500}. So {@link #upstream}
+     * forgets its last request first, and must then have received this operation's method at the
+     * path with the relay prefix stripped, which only a request that crossed the whole chain can
+     * deliver. A route that stopped matching fails here too, as a {@code 404} with nothing
+     * received; {@code GatewayRelayRoutesTest} is where that is pinned on its own.
      */
     @ParameterizedTest
     @MethodSource("publishedBackendOperations")
@@ -514,6 +517,7 @@ class GatewaySecurityTest {
         MockHttpSession session = new MockHttpSession();
         Cookie csrf = signIn(session);
         String path = relayPrefix + operation.concretePath();
+        upstream.forgetLastRequest();
 
         MockHttpServletResponse response = mvc.perform(named(request(operation.method(), path))
                         .session(session)
@@ -530,6 +534,18 @@ class GatewaySecurityTest {
                         "the status %s %s answered, whose body was %s",
                         operation.method(), path, response.getContentAsString())
                 .isNotIn(HttpStatus.UNAUTHORIZED.value(), HttpStatus.FORBIDDEN.value());
+        FakeService.ReceivedRequest relayed = upstream.lastRequest();
+        assertThat(relayed)
+                .as(
+                        "the request upstream received for %s %s, which the gateway answered %s with %s",
+                        operation.method(), path, response.getStatus(), response.getContentAsString())
+                .isNotNull();
+        assertThat(relayed.method())
+                .as("the method upstream received for %s %s", operation.method(), path)
+                .isEqualTo(operation.method().name());
+        assertThat(relayed.path())
+                .as("the path upstream received for %s %s, its relay prefix stripped", operation.method(), path)
+                .isEqualTo(operation.concretePath());
     }
 
     private static Stream<Arguments> publishedBackendOperations() {
