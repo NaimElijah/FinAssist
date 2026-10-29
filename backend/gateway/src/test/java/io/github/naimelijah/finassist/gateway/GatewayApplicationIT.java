@@ -17,15 +17,17 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+import java.util.stream.Stream;
 import org.apache.catalina.Context;
 import org.apache.tomcat.util.descriptor.web.FilterMap;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.actuate.endpoint.EndpointId;
 import org.springframework.boot.actuate.endpoint.ExposableEndpoint;
-import org.springframework.boot.actuate.endpoint.web.WebEndpointsSupplier;
+import org.springframework.boot.actuate.endpoint.web.PathMappedEndpoint;
+import org.springframework.boot.actuate.endpoint.web.PathMappedEndpoints;
 import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -92,7 +94,16 @@ class GatewayApplicationIT {
     private static final Duration SHIPPED_SESSION_TIMEOUT = Duration.ofMinutes(30);
 
     /** The one Actuator endpoint ADR-030 lets the gateway serve over HTTP, spelled here for the same reason. */
-    private static final EndpointId HEALTH_ENDPOINT = EndpointId.of("health");
+    private static final String HEALTH_ENDPOINT = "health";
+
+    /**
+     * What a process environment variable overriding {@code management.endpoints.web.exposure.*}
+     * starts with once Boot's relaxed binding has normalised it: upper case, {@code .} and {@code -}
+     * as {@code _}.
+     */
+    private static final String EXPOSURE_VARIABLE_PREFIX = "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_";
+
+    private static final String EXPOSURE_PROPERTY_PREFIX = "management.endpoints.web.exposure.";
 
     @LocalServerPort
     private int port;
@@ -111,13 +122,14 @@ class GatewayApplicationIT {
     private HttpClientSettings outboundHttpSettings;
 
     /**
-     * The Actuator endpoints this context serves over HTTP. {@code WebEndpointAutoConfiguration}
-     * builds its discoverer with the include/exclude filter that {@code
-     * management.endpoints.web.exposure} configures, so these are the endpoints that list let
-     * through, not the ones that merely exist.
+     * Every Actuator endpoint this context maps onto the web, from every web supplier: {@code
+     * @Endpoint} and {@code @WebEndpoint} beans, and controller and servlet endpoints too, each
+     * after the include and exclude filters {@code management.endpoints.web.exposure} configures.
+     * So these are the endpoints that list let through, not the ones that merely exist. The
+     * ledger's pin reads the same bean, which keeps the two services symmetric.
      */
     @Autowired
-    private WebEndpointsSupplier webEndpoints;
+    private PathMappedEndpoints webEndpoints;
 
     /**
      * One client for the class, closed afterwards. {@link HttpClient} owns a selector thread and
@@ -222,13 +234,43 @@ class GatewayApplicationIT {
      * chain: with {@code /actuator/**} permitted there and {@code *} exposed here, both layers would
      * have to fail at once for anything to notice. This pins the exposure layer on its own, so a
      * widened list fails the build whatever the chain says.
+     *
+     * <p>The process must not set the list itself first. A {@code MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_*}
+     * variable or a {@code management.endpoints.web.exposure.*} system property outranks {@code
+     * application.yml}, so one could turn this red for a reason that is not the code's, or green
+     * with the shipped file widened beneath it.
      */
     @Test
     void Given_the_shipped_configuration_When_the_web_exposed_endpoints_are_resolved_Then_health_is_the_only_one() {
-        assertThat(webEndpoints.getEndpoints())
-                .extracting(ExposableEndpoint::getEndpointId)
+        assertThat(exposureOverrides())
+                .as("environment variables and system properties that would decide the exposure in place of"
+                        + " application.yml; unset them, or this pin reads the environment, not the shipped file")
+                .isEmpty();
+
+        assertThat(webEndpoints.stream().map(GatewayApplicationIT::idOf).toList())
                 .as("the Actuator endpoints exposed over HTTP")
                 .containsExactly(HEALTH_ENDPOINT);
+    }
+
+    /** The name of every variable or system property in this process that overrides the exposure list. */
+    private static List<String> exposureOverrides() {
+        Stream<String> variables = System.getenv().keySet().stream()
+                .filter(name -> name.toUpperCase(Locale.ROOT)
+                        .replace('.', '_')
+                        .replace('-', '_')
+                        .startsWith(EXPOSURE_VARIABLE_PREFIX))
+                .map(name -> "environment variable " + name);
+        Stream<String> properties = System.getProperties().stringPropertyNames().stream()
+                .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(EXPOSURE_PROPERTY_PREFIX))
+                .map(name -> "system property " + name);
+        return Stream.concat(variables, properties).sorted().toList();
+    }
+
+    private static String idOf(PathMappedEndpoint endpoint) {
+        if (endpoint instanceof ExposableEndpoint<?> exposable) {
+            return exposable.getEndpointId().toLowerCaseString();
+        }
+        throw new AssertionError("Actuator mapped an endpoint that carries no id, at " + endpoint.getRootPath());
     }
 
     /**
