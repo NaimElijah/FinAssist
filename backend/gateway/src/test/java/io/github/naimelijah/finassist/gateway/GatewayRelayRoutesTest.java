@@ -2,16 +2,14 @@ package io.github.naimelijah.finassist.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.naimelijah.finassist.gateway.composition.support.BackendContracts;
+import io.github.naimelijah.finassist.gateway.composition.support.BackendContracts.Operation;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -25,7 +23,6 @@ import org.springframework.web.servlet.function.RequestPredicate;
 import org.springframework.web.servlet.function.ServerRequest;
 import org.yaml.snakeyaml.Yaml;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Holds each relay route in {@code application.yml} to the committed contract of the service it
@@ -37,13 +34,11 @@ import tools.jackson.databind.json.JsonMapper;
  * own {@link PredicateProperties} and {@link FilterProperties} and built into the gateway's own
  * {@link GatewayRequestPredicates}, so a match here is the match the running relay makes.
  *
- * <p>This covers the route alone. {@code GatewaySecurityConfiguration} permits the same two
- * methods on the same prefixes, and {@code GatewaySecurityTest} pins that refusal from its side.
+ * <p>This covers the route alone. {@code GatewaySecurityConfiguration} names its relay methods
+ * apart from these predicates, and {@code GatewaySecurityTest} holds the chain to the same
+ * contracts, read through the same {@link BackendContracts}.
  */
 class GatewayRelayRoutesTest {
-
-    /** Set by surefire and failsafe in {@code pom.xml} to the repository's {@code contracts/} directory. */
-    private static final String CONTRACTS_DIR_PROPERTY = "finassist.contracts.dir";
 
     private static final String APPLICATION_YAML = "/application.yml";
 
@@ -57,26 +52,12 @@ class GatewayRelayRoutesTest {
     private static final Map<String, String> CONTRACT_BY_ROUTE =
             Map.of("ledger", "ledger-v1.openapi.json", "assistant", "assistant-v1.openapi.json");
 
-    /** Path Item members that are not operations (OpenAPI 3.x); every other member names a method. */
-    private static final Set<String> PATH_ITEM_NON_OPERATIONS =
-            Set.of("$ref", "summary", "description", "servers", "parameters");
-
     /** The one server both contracts declare, which makes each path the path the service serves. */
     private static final String CONTRACT_SERVER_URL = "/";
-
-    /**
-     * A contract path names a template, the wire a value. Substituting one keeps the match honest:
-     * a literal {@code {id}} segment is not what the relay will ever see.
-     */
-    private static final Pattern TEMPLATE_VARIABLE = Pattern.compile("\\{[^/}]+}");
-
-    private static final String TEMPLATE_VALUE = "sample";
 
     private static final String PATH_PREDICATE = "Path";
     private static final String METHOD_PREDICATE = "Method";
     private static final String STRIP_PREFIX_FILTER = "StripPrefix";
-
-    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     /** A route's predicates and filters, each by name with its shortcut arguments in order. */
     private record Route(String id, Map<String, List<String>> predicates, Map<String, List<String>> filters) {
@@ -121,15 +102,6 @@ class GatewayRelayRoutesTest {
         }
     }
 
-    /** One operation a contract publishes, at the path the service itself serves it on. */
-    private record Operation(HttpMethod method, String path) {
-
-        @Override
-        public String toString() {
-            return method + " " + path;
-        }
-    }
-
     private static Stream<String> relayedRouteIds() {
         return CONTRACT_BY_ROUTE.keySet().stream().sorted();
     }
@@ -144,7 +116,7 @@ class GatewayRelayRoutesTest {
     void Given_a_backend_contract_When_its_operations_reach_the_relay_route_Then_the_method_predicate_admits_every_one(
             String routeId) {
         Route route = route(routeId);
-        List<Operation> operations = operations(CONTRACT_BY_ROUTE.get(routeId));
+        List<Operation> operations = BackendContracts.operations(BackendContracts.read(CONTRACT_BY_ROUTE.get(routeId)));
         RequestPredicate admitted = route.methodPredicate();
 
         List<Operation> refused = operations.stream()
@@ -166,13 +138,13 @@ class GatewayRelayRoutesTest {
     void Given_a_backend_contract_When_its_paths_carry_the_stripped_prefix_Then_the_path_predicate_matches_every_one(
             String routeId) {
         Route route = route(routeId);
-        JsonNode contract = contract(CONTRACT_BY_ROUTE.get(routeId));
-        List<Operation> operations = operations(CONTRACT_BY_ROUTE.get(routeId));
+        JsonNode contract = BackendContracts.read(CONTRACT_BY_ROUTE.get(routeId));
+        List<Operation> operations = BackendContracts.operations(contract);
         RequestPredicate matched = route.pathPredicate();
         String prefix = route.strippedPrefix();
 
         List<String> unmatched = operations.stream()
-                .map(operation -> prefix + concrete(operation.path()))
+                .map(operation -> prefix + operation.concretePath())
                 .distinct()
                 .filter(path -> !matched.test(relayed(HttpMethod.GET, path)))
                 .toList();
@@ -195,21 +167,6 @@ class GatewayRelayRoutesTest {
     /** The request the browser sends for a relayed operation, as the route's predicates see it. */
     private static ServerRequest relayed(HttpMethod method, String path) {
         return ServerRequest.create(new MockHttpServletRequest(method.name(), path), List.of());
-    }
-
-    private static String concrete(String templatedPath) {
-        return TEMPLATE_VARIABLE.matcher(templatedPath).replaceAll(TEMPLATE_VALUE);
-    }
-
-    private static List<Operation> operations(String contractFile) {
-        return contract(contractFile)
-                .path("paths")
-                .propertyStream()
-                .flatMap(pathItem -> pathItem.getValue().propertyNames().stream()
-                        .filter(member -> !PATH_ITEM_NON_OPERATIONS.contains(member))
-                        .map(method ->
-                                new Operation(HttpMethod.valueOf(method.toUpperCase(Locale.ROOT)), pathItem.getKey())))
-                .toList();
     }
 
     /** The route with this id, failing with what it looked for rather than a null further down. */
@@ -279,16 +236,5 @@ class GatewayRelayRoutesTest {
             throw new AssertionError(APPLICATION_YAML + " has no mapping holding " + key);
         }
         return (Map<String, Object>) map;
-    }
-
-    /** Fails loudly rather than comparing against nothing when the build did not say where to look. */
-    private static JsonNode contract(String fileName) {
-        String directory = System.getProperty(CONTRACTS_DIR_PROPERTY);
-        if (directory == null) {
-            throw new IllegalStateException(CONTRACTS_DIR_PROPERTY
-                    + " is not set. Surefire sets it in pom.xml; run this test through Maven, or pass -D"
-                    + CONTRACTS_DIR_PROPERTY + "=<repository>/contracts.");
-        }
-        return JSON.readTree(Path.of(directory, fileName).toAbsolutePath().normalize());
     }
 }
