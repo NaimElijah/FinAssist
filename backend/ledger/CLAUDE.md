@@ -38,7 +38,7 @@ From `backend/ledger`:
 
 ## Architecture
 
-- **The seventeen ArchUnit rules in `LedgerArchitectureTest` are live.** The
+- **The eighteen ArchUnit rules in `LedgerArchitectureTest` are live.** The
   `archRule.failOnEmptyShould=false` escape hatch was deleted with the first domain class, so a
   rule matching nothing now fails rather than passing quietly. Do not reintroduce it.
 - **The domain, the application layer and `shared` import no framework and no I/O** — no Spring,
@@ -50,8 +50,11 @@ From `backend/ledger`:
   implementing a consumer's out-port (`AccountingSpendJournal`, `AccountingOpeningPositions`) may
   name no `application.service` class, no adapter, and no out-port interface it does not implement;
   `translations_reach_the_upstream_context_only_through_its_in_ports` fails the build otherwise.
-  The `port.out` records it translates into stay allowed. `LedgerConfiguration` implements no
-  out-port, so it may still wire repositories.
+  The `port.out` records it translates into stay allowed. Because a lambda `@Bean` or a helper
+  class implements no out-port, `composition_calls_no_out_port_service_or_adapter` adds that no
+  `composition` class may call, or take a reference to, a method of an out-port interface, an
+  `application.service` class or an adapter: `LedgerConfiguration` constructs them, never calls
+  them. A decorator in `composition` delegates through the in-port it decorates.
 - **There is no entity type at all.** Persistence lives in `adapter/out/persistence` and maps rows
   to aggregates by hand — the strongest form of "an entity is not an aggregate".
 - **The `Money` mapping is duplicated per context on purpose.** The slice rule leaves no legal

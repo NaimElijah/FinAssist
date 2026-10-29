@@ -400,6 +400,56 @@ class LedgerArchitectureTest {
     }
 
     /**
+     * The call-shaped half of the rule above, which sees only classes that implement an out-port and
+     * so misses the two natural ways to write a translation without one. {@code SpendJournal} and
+     * {@code OpeningPositionProvider} each have a single method, so a {@code @Bean} returning {@code
+     * period -> transactions.postedBetween(...)} is a translation whose body javac compiles into
+     * {@code LedgerConfiguration}, which implements nothing. And a translation that hands the read to
+     * a helper in {@code composition}, nested or top-level, moves the repository into a class that
+     * implements nothing either.
+     *
+     * <p>What separates wiring from translating is the kind of access, not the class. The wiring only
+     * <em>constructs</em> repositories, adapters and services, handing each to the next constructor;
+     * a translation <em>calls</em> the upstream's in-port. So no class in {@code composition} may call
+     * a method, or take a method reference, whose owner is an out-port interface, an {@code
+     * application.service} class or an adapter, and constructor calls stay allowed. No composition
+     * class makes such a call today: {@code LedgerConfiguration} only constructs, and the security,
+     * problem-handling and OpenAPI classes name no out-port, service or adapter at all. A
+     * {@code @Transactional} decorator in {@code composition} that delegates to a service, the shape
+     * {@code backend/ledger/CLAUDE.md} prescribes for a write across two aggregates, would trip this
+     * rule; it should delegate through the in-port it decorates, which is what keeps it a decorator.
+     *
+     * <p>Still held in review: an in-port call is allowed wherever it is made, so a translation that
+     * calls the right in-port but drops what that in-port returns is outside any bytecode rule; and
+     * the owner a call names is its static type, so a repository reached through a type outside the
+     * ledger, such as an {@code Object} cast or reflection, is not seen.
+     */
+    @ArchTest
+    static final ArchRule composition_calls_no_out_port_service_or_adapter = noClasses()
+            .that()
+            .resideInAPackage(COMPOSITION)
+            .should()
+            .accessTargetWhere(callsAMethodOnAnOutPortServiceOrAdapter())
+            .because("composition constructs the upstream's repositories and services; only a translation"
+                    + " calls the upstream, and it calls its in-ports");
+
+    private static DescribedPredicate<JavaAccess<?>> callsAMethodOnAnOutPortServiceOrAdapter() {
+        DescribedPredicate<JavaClass> outPortServiceOrAdapter = resideInAPackage(OUT_PORTS)
+                .and(INTERFACES)
+                .or(resideInAPackage(ROOT + "..application.service.."))
+                .or(resideInAPackage(ROOT + "..adapter.."));
+        return new DescribedPredicate<>(
+                "call or reference a method of an out-port interface, an application service or an adapter") {
+            @Override
+            public boolean test(JavaAccess<?> access) {
+                return access.getTarget() instanceof CodeUnitAccessTarget codeUnit
+                        && !codeUnit.getName().equals(JavaConstructor.CONSTRUCTOR_NAME)
+                        && outPortServiceOrAdapter.test(codeUnit.getOwner());
+            }
+        };
+    }
+
+    /**
      * The clock is read once, in the composition root, and passed down (root {@code CLAUDE.md}, "Pass
      * the clock in"). A domain transition takes a date, a projection its horizon, a use case its dates
      * as arguments; a {@code now()} anywhere else makes that code depend on when it runs, which no
