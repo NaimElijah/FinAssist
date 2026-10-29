@@ -225,6 +225,9 @@ def Given_several_problems_When_checked_Then_each_is_reported_with_services_in_n
         "management.endpoints.web.exposure.include",
         "spring_application_json",
         "spring.config.additional-location",
+        "JAVA_TOOL_OPTIONS",
+        "JDK_JAVA_OPTIONS",
+        "_JAVA_OPTIONS",
     ],
 )
 @pytest.mark.parametrize("service", ["ledger", "gateway"])
@@ -265,6 +268,33 @@ def Given_a_management_key_on_a_service_without_spring_When_checked_Then_it_pass
 ) -> None:
     resolved = _conforming()
     resolved["services"]["db"]["environment"]["MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE"] = "*"
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_PASSED
+    assert lines == [PASSED]
+
+
+@pytest.mark.parametrize("member", ["command", "entrypoint"])
+@pytest.mark.parametrize("service", ["ledger", "gateway"])
+def Given_a_spring_service_overriding_its_command_line_When_checked_Then_the_member_is_named(
+    service: str, member: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    argument = f"--management.endpoints.web.exposure.include={SECRET}"
+    resolved["services"][service][member] = [argument]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: must not set {member}, which reaches Spring as an argument"]
+
+
+def Given_a_command_on_a_service_without_spring_When_checked_Then_it_passes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["secret-check"]["command"] = ["python", "/repo/secret_check.py", SECRET]
 
     status, lines = _check(resolved, capsys)
 

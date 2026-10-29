@@ -91,9 +91,10 @@ layout above.
   `uv run --python "$(cat backend/assistant/.python-version)"`, locally and in CI, to match what
   `lint-compose-check` type-checks for.
 - **It refuses an Actuator override in Compose.** The exposure pins read the test JVM's
-  environment, never Compose's, so a `MANAGEMENT_ENDPOINTS_WEB_*` key, `SPRING_APPLICATION_JSON` or
-  a `SPRING_CONFIG_*` key such as `SPRING_CONFIG_IMPORT` in the ledger's or the gateway's
-  `environment:` would pass every test
+  environment, never Compose's, so a `MANAGEMENT_ENDPOINTS_WEB_*` key, `SPRING_APPLICATION_JSON`,
+  a `SPRING_CONFIG_*` key such as `SPRING_CONFIG_IMPORT`, or a `-D` in `JAVA_TOOL_OPTIONS`,
+  `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS` in the ledger's or the gateway's `environment:`, or a
+  `command:` or `entrypoint:` whose arguments reach `SpringApplication.run`, would pass every test
   ([ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md), item 5). The check
   fails such a key, under any spelling Spring's relaxed binding reads, naming it and never its
   value.

@@ -21,11 +21,12 @@ One directory per tool, none of them a deployable service of this repository's (
   `uv run`, of the resolved Compose file it reads on stdin: each long-running service's restart
   and log bound, the one-shots' lack of either, four readiness probes (#142, ADR-039), and no
   `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON` key, in any
-  spelling, in the ledger's or the gateway's environment, which would reopen the Actuator
-  exposure their code pins and their tests cannot see. It names a service or a key, never a
-  value. `placeholders.env` beside it holds a throwaway value for each `:?` variable, which
-  `make check-compose` exports, so the file resolves without `.env` or the shell's secrets
-  (ADR-049). Its tests are in `ops/compose_check/tests/`.
+  spelling, nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS`, in the ledger's or the
+  gateway's environment, and no `command` or `entrypoint` on either, each of which would reopen
+  the Actuator exposure their code pins and their tests cannot see. It names a service, a key or
+  a member, never a value. `placeholders.env` beside it holds a throwaway value for each `:?`
+  variable, which `make check-compose` exports, so the file resolves without `.env` or the
+  shell's secrets (ADR-049). Its tests are in `ops/compose_check/tests/`.
 - `ops/smoke/auth_smoke.py` — the only file behind the `smoke` Compose profile (ADR-034).
 - The collector, Prometheus and Grafana provisioning that the `monitoring` Compose profile mounts.
 

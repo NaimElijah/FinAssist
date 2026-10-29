@@ -16,8 +16,9 @@ history; write the commit message well and this file writes itself.
   validates `docker-compose.yml` under every profile and checks its restart, log and readiness
   conventions. It resolves the file over `.env.example` with every required secret a placeholder,
   so neither `.env` nor a secret exported in the shell reaches it, and it fails a
-  `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_APPLICATION_JSON` or `SPRING_CONFIG_*` key in the ledger's
-  or the gateway's environment. The conventions check is now `ops/compose_check/compose_check.py`,
+  `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_APPLICATION_JSON`, `SPRING_CONFIG_*` or JVM-options key in
+  the ledger's or the gateway's environment, and a `command` or `entrypoint` on either. The
+  conventions check is now `ops/compose_check/compose_check.py`,
   standard library only, run on the assistant's pinned Python, with its own tests
   (`make test-compose-check`). Only the published-secret refusal and the `.env` it needs stay
   inline in CI

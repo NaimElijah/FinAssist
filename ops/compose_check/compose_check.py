@@ -9,7 +9,7 @@ script's standard input (ADR-049). Every long-running service must take the rest
 log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, the one-shot services
 must take neither, and four healthchecks must probe readiness (#142, ADR-039). Neither the ledger
 nor the gateway may set, in its environment, a key that reopens the Actuator exposure their code
-pins.
+pins, nor a `command` or `entrypoint`, whose arguments would reach Spring as properties.
 
 It reads the resolved file, not its text, so an alias that stops resolving fails as surely as a
 service that never took one, and a block copied in with other values fails too.
@@ -50,6 +50,10 @@ SPRING_APPLICATION_JSON: Final = "SPRING_APPLICATION_JSON"
 # SPRING_CONFIG_IMPORT, _ADDITIONAL_LOCATION and the rest point Spring at another document, which
 # can widen the exposure list as surely as the keys above.
 SPRING_CONFIG_PREFIX: Final = "SPRING_CONFIG_"
+# Both images run `java -jar` and pass their arguments to SpringApplication.run, so a -D the JVM
+# reads from one of these, or an argument a Compose command appends, outranks application.yml too.
+JVM_OPTION_VARIABLES: Final = frozenset({"JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS"})
+COMMAND_LINE_MEMBERS: Final = ("command", "entrypoint")
 PASSED: Final = "Every service follows the Compose conventions"
 
 
@@ -84,6 +88,11 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
                 for key in sorted(environment)
                 if _reopens_actuator(key)
             )
+            found.extend(
+                f"{name}: must not set {member}, which reaches Spring as an argument"
+                for member in COMMAND_LINE_MEMBERS
+                if service.get(member)
+            )
     for name, path in READINESS_PROBES.items():
         service = _mapping(services.get(name) or {}, "a service")
         healthcheck = _mapping(service.get("healthcheck") or {}, "a healthcheck")
@@ -102,7 +111,7 @@ def _reopens_actuator(key: str) -> bool:
     # Spring Boot binds a variable named in the dotted form as well; case is ignored for safety.
     canonical = key.upper().replace(".", "_").replace("-", "_")
     return canonical.startswith((ACTUATOR_WEB_PREFIX, SPRING_CONFIG_PREFIX)) or (
-        canonical == SPRING_APPLICATION_JSON
+        canonical == SPRING_APPLICATION_JSON or key in JVM_OPTION_VARIABLES
     )
 
 

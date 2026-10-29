@@ -130,8 +130,9 @@ pointer here, and its body stays as written.
 - **Compose's environment is the other half.** The pins read the test JVM's environment, never
   Compose's, so an edit adding such a key to the ledger's or the gateway's `environment:` would
   pass every test. `make check-compose` fails a `MANAGEMENT_ENDPOINTS_WEB_*`,
-  `SPRING_APPLICATION_JSON` or `SPRING_CONFIG_*` key in either service, under any spelling,
-  naming the key and never its value (ADR-049).
+  `SPRING_APPLICATION_JSON` or `SPRING_CONFIG_*` key in either service, under any spelling, a
+  JVM-options variable (`JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS`), and a `command`
+  or `entrypoint` on either, naming the key or member and never its value (ADR-049).
 - **What enforces it.**
   - The ledger:
     `LedgerObservabilityIT.Given_the_shipped_configuration_When_the_web_endpoints_are_resolved_Then_only_the_four_listed_are_exposed`.
