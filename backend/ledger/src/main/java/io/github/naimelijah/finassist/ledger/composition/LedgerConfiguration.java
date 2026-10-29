@@ -1,6 +1,6 @@
 package io.github.naimelijah.finassist.ledger.composition;
 
-import io.github.naimelijah.finassist.ledger.accounting.adapter.out.event.InMemoryAccountingEvents;
+import io.github.naimelijah.finassist.ledger.accounting.adapter.out.event.DiscardingAccountingEvents;
 import io.github.naimelijah.finassist.ledger.accounting.adapter.out.persistence.JdbcAccountRepository;
 import io.github.naimelijah.finassist.ledger.accounting.adapter.out.persistence.JdbcTransactionRepository;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.out.AccountRepository;
@@ -16,7 +16,7 @@ import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.Cate
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.SpendJournal;
 import io.github.naimelijah.finassist.ledger.budgeting.application.service.BudgetReviewService;
 import io.github.naimelijah.finassist.ledger.budgeting.application.service.BudgetService;
-import io.github.naimelijah.finassist.ledger.planning.adapter.out.event.InMemoryPlanningEvents;
+import io.github.naimelijah.finassist.ledger.planning.adapter.out.event.DiscardingPlanningEvents;
 import io.github.naimelijah.finassist.ledger.planning.adapter.out.persistence.JdbcPlannedFlowRepository;
 import io.github.naimelijah.finassist.ledger.planning.adapter.out.persistence.JdbcScenarioRepository;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.OpeningPositionProvider;
@@ -48,8 +48,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * be able to select by accident. The SQL is hand-written and the schema is Flyway's (ADR-024).
  *
  * <p>The event ports are the exception, and deliberately so. Nothing subscribes to a domain event
- * yet (ADR-023), and an outbox table with no consumer is exactly what ADR-020 refused to build
- * ahead of one, so those two beans stay in memory until there is something to deliver to.
+ * yet (ADR-023), so those two beans discard what they are given rather than keep a log that nothing
+ * reads; the outbox is built with the first consumer (ADR-048).
  *
  * <p>The services are called by the controllers in a context's {@code adapter.in.web}, which are
  * component-scanned rather than built here. That is the one bounded exception ADR-028 makes, so that a
@@ -97,7 +97,7 @@ public class LedgerConfiguration {
 
     @Bean
     AccountingEvents accountingEvents() {
-        return new InMemoryAccountingEvents();
+        return new DiscardingAccountingEvents();
     }
 
     @Bean
@@ -159,7 +159,7 @@ public class LedgerConfiguration {
 
     @Bean
     PlanningEvents planningEvents() {
-        return new InMemoryPlanningEvents();
+        return new DiscardingPlanningEvents();
     }
 
     @Bean

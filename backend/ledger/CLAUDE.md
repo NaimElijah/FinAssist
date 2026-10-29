@@ -81,8 +81,10 @@ From `backend/ledger`:
   semantics the suites rely on, so they carry no pending-events list. Only `accounting` and
   `planning` raise events — a `Budget` has no lifecycle. Nothing subscribes yet, deliberately
   (ADR-023).
-- **The only in-memory adapters left are the two event publishers.** Nothing subscribes, and an
-  outbox with no consumer is what ADR-020 refused to build ahead of one.
+- **Production keeps no event.** `DiscardingAccountingEvents` and `DiscardingPlanningEvents` accept
+  each event and drop it; the recording `InMemoryAccountingEvents` and `InMemoryPlanningEvents` are
+  test doubles under `src/test`, read by the service tests. The transactional outbox is deferred
+  until the first consumer exists, not refused (ADR-023, ADR-048).
 - **`@Transactional` goes on the adapter, never on an application service** —
   `the_application_layer_depends_on_no_framework` fails the build for the latter. When a use case
   must write across two aggregates, the boundary moves to a decorator in `composition`.
