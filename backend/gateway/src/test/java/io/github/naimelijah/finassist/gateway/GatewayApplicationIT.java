@@ -23,6 +23,9 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.actuate.endpoint.EndpointId;
+import org.springframework.boot.actuate.endpoint.ExposableEndpoint;
+import org.springframework.boot.actuate.endpoint.web.WebEndpointsSupplier;
 import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -88,6 +91,9 @@ class GatewayApplicationIT {
     /** ADR-030's idle timeout, {@code server.servlet.session.timeout}, spelled here for the same reason. */
     private static final Duration SHIPPED_SESSION_TIMEOUT = Duration.ofMinutes(30);
 
+    /** The one Actuator endpoint ADR-030 lets the gateway serve over HTTP, spelled here for the same reason. */
+    private static final EndpointId HEALTH_ENDPOINT = EndpointId.of("health");
+
     @LocalServerPort
     private int port;
 
@@ -103,6 +109,15 @@ class GatewayApplicationIT {
      */
     @Autowired
     private HttpClientSettings outboundHttpSettings;
+
+    /**
+     * The Actuator endpoints this context serves over HTTP. {@code WebEndpointAutoConfiguration}
+     * builds its discoverer with the include/exclude filter that {@code
+     * management.endpoints.web.exposure} configures, so these are the endpoints that list let
+     * through, not the ones that merely exist.
+     */
+    @Autowired
+    private WebEndpointsSupplier webEndpoints;
 
     /**
      * One client for the class, closed afterwards. {@link HttpClient} owns a selector thread and
@@ -197,6 +212,23 @@ class GatewayApplicationIT {
     void Given_the_shipped_configuration_When_the_outbound_http_settings_are_read_Then_they_carry_the_agreed_budget() {
         assertThat(outboundHttpSettings.connectTimeout()).isEqualTo(SHIPPED_CONNECT_TIMEOUT);
         assertThat(outboundHttpSettings.readTimeout()).isEqualTo(SHIPPED_READ_TIMEOUT);
+    }
+
+    /**
+     * ADR-030's exposure rule: health alone, because this process holds the client secret and every
+     * signed-in session's tokens, and {@code heapdump} or {@code env} would hand over either.
+     *
+     * <p>{@code GatewaySecurityTest} shows the chain refusing two such endpoints, but only the
+     * chain: with {@code /actuator/**} permitted there and {@code *} exposed here, both layers would
+     * have to fail at once for anything to notice. This pins the exposure layer on its own, so a
+     * widened list fails the build whatever the chain says.
+     */
+    @Test
+    void Given_the_shipped_configuration_When_the_web_exposed_endpoints_are_resolved_Then_health_is_the_only_one() {
+        assertThat(webEndpoints.getEndpoints())
+                .extracting(ExposableEndpoint::getEndpointId)
+                .as("the Actuator endpoints exposed over HTTP")
+                .containsExactly(HEALTH_ENDPOINT);
     }
 
     /**
