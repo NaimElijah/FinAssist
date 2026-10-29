@@ -21,8 +21,8 @@ Thirteen rules:
 12. A translation - a class in the composition root that implements a context's port
    ``Protocol`` - calls the upstream context's use case, never its out-ports or adapters.
 13. No module imports or runs code by a call - ``importlib.import_module``, ``__import__``,
-   ``importlib.util``, ``runpy``, ``exec`` or ``eval``, called, referenced, aliased or named to
-   ``getattr`` - so every import is a statement the rules above can read.
+   ``importlib.util``, ``runpy``, or the builtins ``exec`` and ``eval``, called, referenced, aliased
+   or named to ``getattr`` - so every import is a statement the rules above can read.
 
 Rules 6, 7, 11 and 12 mirror rules the ledger enforces too:
 ``LedgerArchitectureTest.money_is_never_floating_point`` for the first,
@@ -310,8 +310,8 @@ def _clock_reads_in(source: str, filename: str = "<test>") -> list[str]:
 # import rules read statements, and an argument can be any string, so the name itself is refused
 # rather than its argument read: `import_module` and `__import__`; `importlib.util`'s loaders and
 # a loader's `exec_module` and `load_module`, named because a loader needs no importlib to reach -
-# every module holds one as `__loader__`; `runpy`'s two runners; and `exec` and `eval`, whose text
-# can hold an import statement no rule here parses. Nothing in the tree has a use for any of them.
+# every module holds one as `__loader__`; and `runpy`'s two runners. Nothing in the tree has a use
+# for any of them, so each is refused as any attribute, whatever object holds it.
 DYNAMIC_IMPORTERS = frozenset(
     {
         "import_module",
@@ -322,10 +322,17 @@ DYNAMIC_IMPORTERS = frozenset(
         "load_module",
         "run_module",
         "run_path",
-        "exec",
-        "eval",
     }
 )
+
+# The builtins that run source text, which may hold an import statement no rule here parses. They
+# are refused only as the builtins - a bare name, or a member of a name bound to `builtins` - since
+# the same names are ordinary methods elsewhere: PyTorch's `model.eval()` and SQLModel's
+# `session.exec(statement)` run no text.
+BUILTIN_CODE_RUNNERS = frozenset({"exec", "eval"})
+BUILTINS = "builtins"
+# The name every module sees bound to the builtins, with no import to resolve it through.
+BUILTINS_GLOBAL = "__builtins__"
 
 # The modules whose purpose is loading code by name or by path. Importing one at all is refused,
 # so a loader reached through a member this file does not list - `importlib.util.find_spec`,
@@ -347,6 +354,13 @@ def _qualified(node: ast.AST, bound: Mapping[str, str]) -> str:
     return _resolve(node, bound) or _dotted(node)
 
 
+def _is_refused_member(name: str, owner: ast.AST, bound: Mapping[str, str]) -> bool:
+    """Whether *name*, read off *owner*, is an importer, or a code runner held by the builtins."""
+    return name in DYNAMIC_IMPORTERS or (
+        name in BUILTIN_CODE_RUNNERS and _qualified(owner, bound) in {BUILTINS, BUILTINS_GLOBAL}
+    )
+
+
 def _dynamic_imports_in(source: str, filename: str = "<test>", package: str = "") -> list[str]:
     """Every reference to an importer or a code runner, and every import binding one.
 
@@ -365,10 +379,13 @@ def _dynamic_imports_in(source: str, filename: str = "<test>", package: str = ""
     bound = _bindings(tree, package)
     found: list[str] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id in DYNAMIC_IMPORTERS:
+        if isinstance(node, ast.Name) and (
+            node.id in DYNAMIC_IMPORTERS or node.id in BUILTIN_CODE_RUNNERS
+        ):
             found.append(f"{node.id} at line {node.lineno}")
         elif isinstance(node, ast.Attribute) and (
-            node.attr in DYNAMIC_IMPORTERS or _is_dynamic_import_module(_qualified(node, bound))
+            _is_refused_member(node.attr, node.value, bound)
+            or _is_dynamic_import_module(_qualified(node, bound))
         ):
             found.append(f"{_qualified(node, bound) or node.attr} at line {node.lineno}")
         elif (
@@ -377,7 +394,8 @@ def _dynamic_imports_in(source: str, filename: str = "<test>", package: str = ""
             and node.func.id == GETATTR
             and len(node.args) >= 2
             and isinstance(node.args[1], ast.Constant)
-            and node.args[1].value in DYNAMIC_IMPORTERS
+            and isinstance(node.args[1].value, str)
+            and _is_refused_member(node.args[1].value, node.args[0], bound)
         ):
             found.append(f"getattr(..., {node.args[1].value!r}) at line {node.lineno}")
         elif isinstance(node, ast.Import):
@@ -391,6 +409,10 @@ def _dynamic_imports_in(source: str, filename: str = "<test>", package: str = ""
                 f"import of {node.module}.{alias.name} at line {node.lineno}"
                 for alias in node.names
                 if _is_dynamic_import_module(node.module)
+                or (
+                    node.module == BUILTINS
+                    and alias.name in DYNAMIC_IMPORTERS | BUILTIN_CODE_RUNNERS
+                )
                 or (
                     node.module == IMPORTLIB
                     and (
@@ -884,9 +906,9 @@ def Given_a_module_When_parsed_Then_it_imports_nothing_by_a_call(path: Path) -> 
 
     ``importlib.import_module("fastapi")`` in a domain module, or a context loading another by
     name, would pass every rule above. The web client refuses a computed import specifier for the
-    same reason. Refused: every name in ``DYNAMIC_IMPORTERS`` - called, referenced, aliased by an
-    import, or named to ``getattr`` as a string - and any import of a module in
-    ``DYNAMIC_IMPORT_MODULES``.
+    same reason. Refused: every name in ``DYNAMIC_IMPORTERS``, and each of ``BUILTIN_CODE_RUNNERS``
+    as the builtin - called, referenced, aliased by an import, or named to ``getattr`` as a string -
+    and any import of a module in ``DYNAMIC_IMPORT_MODULES``.
 
     Static, so what no node names is missed: an importer's name assembled at run time and handed to
     ``getattr``, or read out of a namespace by subscript - ``vars(importlib)["import_module"]``,
@@ -1649,6 +1671,12 @@ def Given_a_protocol_outside_a_port_package_When_discovered_Then_it_is_not_a_por
         "eval(\"__import__('fastapi')\")",
         'import builtins\nbuiltins.exec("import fastapi")',
         'run = getattr(builtins, "exec")',
+        # The builtins under another name are still the builtins.
+        'import builtins as b\nb.eval("1")',
+        'import builtins\n_b = builtins\nrun = getattr(_b, "eval")',
+        '__builtins__.exec("import fastapi")',
+        'from builtins import exec as run\nrun("import fastapi")',
+        'from builtins import __import__ as load\nload("fastapi")',
     ],
 )
 def Given_source_importing_by_a_call_When_scanned_Then_it_is_found(source: str) -> None:
@@ -1668,3 +1696,19 @@ def Given_an_ordinary_importlib_use_When_scanned_Then_it_is_not_a_violation() ->
     )
     # A name that only contains an importer's is not one.
     assert _dynamic_imports_in("executor = evaluate(utility)") == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # PyTorch switches a model to inference mode; nothing is compiled or imported.
+        "model.eval()",
+        # SQLModel runs a statement object, never source text.
+        "rows = session.exec(statement)",
+        'import torch\nmodel = torch.nn.Linear(1, 1)\ngetattr(model, "eval")()',
+        "def eval(self):\n    return self",
+    ],
+)
+def Given_a_method_named_eval_or_exec_When_scanned_Then_it_is_not_a_violation(source: str) -> None:
+    # Only the builtins run source text; a method of the same name on another object does not.
+    assert _dynamic_imports_in(source) == [], source
