@@ -17,9 +17,10 @@ history; write the commit message well and this file writes itself.
   conventions. It resolves the file over `.env.example` with every required secret a placeholder,
   so neither `.env` nor a secret exported in the shell reaches it, and it fails a
   `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_APPLICATION_JSON` or `SPRING_CONFIG_*` key in the ledger's
-  or the gateway's environment. The conventions check is now `ops/compose_check/compose_check.py`, standard library
-  only, run on the assistant's pinned Python, with its own tests (`make test-compose-check`). Only
-  the published-secret refusal and the `.env` it needs stay inline in CI
+  or the gateway's environment. The conventions check is now `ops/compose_check/compose_check.py`,
+  standard library only, run on the assistant's pinned Python, with its own tests
+  (`make test-compose-check`). Only the published-secret refusal and the `.env` it needs stay
+  inline in CI
   ([ADR-049](docs/ADRs/ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md),
   [#339](https://github.com/NaimElijah/FinAssist/issues/339)).
 - **The stack refuses to start on a secret the repository publishes.** A new one-shot Compose
