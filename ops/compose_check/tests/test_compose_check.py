@@ -1,8 +1,10 @@
-"""The Compose conventions check, driven through its command line with crafted resolved files.
+"""The Compose conventions check, driven through its standard input with crafted resolved files.
 
-Every case hands `main` what `docker compose config --format json` would print, as bytes on its
-standard input, the way `make check-compose` runs the script (#142, ADR-039, ADR-049). No case needs
-Docker: the resolved file is built here, starting from one that follows every convention.
+Each case hands the check what `docker compose config --format json` would print, as bytes on its
+standard input (#142, ADR-039, ADR-049). Most call `main` in-process; the command-line cases run
+the script as its own process, as `make check-compose` does, so its exit codes and its streams are
+the real ones. No case needs Docker: the resolved file is built here, starting from one that
+follows every convention.
 """
 
 from __future__ import annotations
@@ -11,6 +13,8 @@ import copy
 import io
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +23,9 @@ import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 PLACEHOLDERS = REPOSITORY_ROOT / "ops" / "compose_check" / "placeholders.env"
+SCRIPT = REPOSITORY_ROOT / "ops" / "compose_check" / "compose_check.py"
+# Far past any recursion limit, as a hostile or corrupted input could be.
+DEEP_NESTING = 200_000
 # Fixture value only: it stands for the real secrets a developer's resolved file carries.
 SECRET = "Fixture-only-5Wd8Jq2Ns6"
 PASSED = "Every service follows the Compose conventions"
@@ -333,6 +340,78 @@ def Given_json_not_shaped_like_a_resolved_file_When_checked_Then_it_is_refused_w
     status, lines = _run(json.dumps(resolved).encode(), capsys)
 
     assert status == compose_check.EXIT_MISCONFIGURED
+    assert len(lines) == 1
+    assert lines[0].startswith("compose-check FAILED: ")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [b"[" * DEEP_NESTING, b'{"services": ' * DEEP_NESTING],
+    ids=["arrays", "objects"],
+)
+def Given_input_nested_past_the_recursion_limit_When_checked_Then_it_is_refused_in_one_line(
+    source: bytes, capsys: pytest.CaptureFixture[str]
+) -> None:
+    status, lines = _run(source, capsys)
+
+    assert status == compose_check.EXIT_MISCONFIGURED
+    assert lines == ["compose-check FAILED: the input is nested too deeply to read"]
+
+
+def Given_a_fault_in_the_checks_themselves_When_checked_Then_it_escapes_not_posing_as_bad_input(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def faulty(resolved: object) -> list[str]:
+        raise ValueError("a bug in a check")
+
+    monkeypatch.setattr(compose_check, "problems", faulty)
+
+    with pytest.raises(ValueError, match="a bug in a check"):
+        compose_check.main(io.BytesIO(json.dumps(_conforming()).encode()))
+    assert capsys.readouterr().out == ""
+
+
+# --- The command line, as make check-compose runs it ----------------------------------------------
+
+
+def _run_script(source: bytes) -> tuple[int, list[str]]:
+    # -I, so neither the caller's PYTHON* variables nor the script's own directory shape the run.
+    process = subprocess.run(
+        [sys.executable, "-I", str(SCRIPT)], input=source, capture_output=True, check=False
+    )
+    output = (process.stdout + process.stderr).decode()
+    assert SECRET not in output
+    return process.returncode, output.splitlines()
+
+
+def Given_a_conforming_file_on_stdin_When_the_script_runs_Then_it_exits_0_and_passes() -> None:
+    status, lines = _run_script(json.dumps(_conforming()).encode())
+
+    assert status == compose_check.EXIT_PASSED == 0
+    assert lines == [PASSED]
+
+
+def Given_a_breaking_file_on_stdin_When_the_script_runs_Then_it_exits_1_naming_the_key() -> None:
+    resolved = _conforming()
+    resolved["services"]["gateway"]["environment"]["SPRING_APPLICATION_JSON"] = SECRET
+
+    status, lines = _run_script(json.dumps(resolved).encode())
+
+    assert status == compose_check.EXIT_FAILED == 1
+    assert lines == ["gateway: its environment must not set SPRING_APPLICATION_JSON"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [f'{{"services": {{"db": "{SECRET}"'.encode(), b"[" * DEEP_NESTING],
+    ids=["truncated", "deeply-nested"],
+)
+def Given_input_that_is_no_resolved_file_When_the_script_runs_Then_it_exits_2_in_one_line(
+    source: bytes,
+) -> None:
+    status, lines = _run_script(source)
+
+    assert status == compose_check.EXIT_MISCONFIGURED == 2
     assert len(lines) == 1
     assert lines[0].startswith("compose-check FAILED: ")
 

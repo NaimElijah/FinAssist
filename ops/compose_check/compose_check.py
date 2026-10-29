@@ -16,8 +16,9 @@ service that never took one, and a block copied in with other values fails too.
 
 The resolved file carries every secret Compose interpolated, so the report names a service, an
 `x-` block, a probe path or an environment key, never a value. Input that is not JSON is reported
-by the error's type alone, and JSON of the wrong shape by the part that is not a mapping. Standard
-library only; run it with `uv run`, as `ops/backup/backup.py` is.
+by the error's type alone, input nested too deeply to parse as such, and JSON of the wrong shape by
+the part that is not a mapping. Standard library only; run it with `uv run`, as
+`ops/backup/backup.py` is.
 """
 
 from __future__ import annotations
@@ -95,7 +96,7 @@ def _mapping(value: object, what: str) -> Mapping[str, object]:
 
 
 def _reopens_actuator(key: str) -> bool:
-    # Spring binds an environment variable through its dotted and its lower-case spellings too.
+    # Spring Boot binds a variable named in the dotted form as well; case is ignored for safety.
     canonical = key.upper().replace(".", "_").replace("-", "_")
     return canonical.startswith(ACTUATOR_WEB_PREFIX) or canonical == SPRING_APPLICATION_JSON
 
@@ -116,16 +117,22 @@ def main(source: BinaryIO) -> int:
     """Checks the resolved Compose file read, as JSON, from `source`.
 
     :return: `EXIT_PASSED` when every service follows the conventions, `EXIT_FAILED` when one does
-        not, and `EXIT_MISCONFIGURED` when `source` holds no resolved Compose file.
+        not, and `EXIT_MISCONFIGURED` when `source` holds no resolved Compose file: not JSON, nested
+        too deeply to parse, or JSON of the wrong shape.
     """
     try:
-        resolved = _mapping(json.loads(source.read()), "the input")
-        found = problems(resolved)
+        document = json.loads(source.read())
     except ValueError as error:
         # JSONDecodeError and UnicodeDecodeError are both ValueErrors, and the latter's message
         # quotes the bytes it could not decode: so the type alone.
         _report(f"compose-check FAILED: the input is not JSON ({type(error).__name__})")
         return EXIT_MISCONFIGURED
+    except RecursionError:
+        _report("compose-check FAILED: the input is nested too deeply to read")
+        return EXIT_MISCONFIGURED
+    # Only the shape checks raise ComposeCheckError, so a fault in a rule escapes as itself.
+    try:
+        found = problems(_mapping(document, "the input"))
     except ComposeCheckError as failure:
         _report(f"compose-check FAILED: {failure}")
         return EXIT_MISCONFIGURED

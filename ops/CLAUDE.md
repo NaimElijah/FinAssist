@@ -85,7 +85,8 @@ From the repository root unless stated:
   its reason.
 - **The Compose check's report never quotes a resolved value.** The file it reads carries every
   secret Compose interpolated; it names a service, an `x-` block, a probe path or an environment
-  key, and an input it cannot read by the error's type alone. `ops/compose_check/tests` pins this.
+  key, and an input it cannot read by the error's type alone, or as nested too deeply.
+  `ops/compose_check/tests` pins this, in-process and with the script run as its own process.
 - **The secret check's report names a variable, never its value, and never the file holding it.**
   In a public repository, naming the file gives the value away. An error it did not foresee is
   reported by its type alone, since its message could quote what was being read.
