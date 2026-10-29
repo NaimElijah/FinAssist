@@ -339,6 +339,9 @@ function isLayer(name: string): name is Layer {
     return (LAYERS as readonly string[]).includes(name);
 }
 
+/** The only files a feature's root may hold, beside its layer directories. */
+const FEATURE_ENTRY_FILES: readonly string[] = ['index.ts', 'routes.tsx'];
+
 /**
  * Where a path inside `src/features` sits: its feature, and its layer or `'root'` for a file
  * directly in the feature's directory. Undefined outside `src/features`.
@@ -399,6 +402,22 @@ describe('layers inside a feature', () => {
         );
 
         expect(unknown, `rank each directory in LAYERS (${LAYERS.join(', ')})`).toEqual([]);
+    });
+
+    it('Given_each_feature_When_its_root_is_listed_Then_each_file_is_an_entry_file', () => {
+        // The layer rule skips the root's files as importers, since they compose every layer.
+        // Any other file put there would escape it unchecked, so it belongs in a layer instead.
+        const strays = features.flatMap((feature) =>
+            readdirSync(join(FEATURES_DIR, feature))
+                .filter((entry) => !statSync(join(FEATURES_DIR, feature, entry)).isDirectory())
+                .filter((entry) => !FEATURE_ENTRY_FILES.includes(entry))
+                .map((entry) => `${feature}/${entry}`),
+        );
+
+        expect(
+            strays,
+            `a feature's root holds only ${FEATURE_ENTRY_FILES.join(' and ')}; move the rest into a layer`,
+        ).toEqual([]);
     });
 
     for (const feature of features) {
