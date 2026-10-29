@@ -51,8 +51,8 @@ backups, the smoke and Compose checks). Keep them in sync with `README.md`'s Dev
 - **Clean** — `make clean`: `./mvnw -B -q clean` (ledger, gateway), then delete the assistant's
   caches and coverage files and the web client's `dist/` and `coverage/`; never `.env` or volumes.
 - **After every endpoint change**, regenerate that service's contract (the command is in its file;
-  its contract test fails the build otherwise), then the web client's types and their check:
-  `make generate-web-api`, then `make check-web-api` (raw forms in `frontend/web/CLAUDE.md`).
+  its contract test fails the build otherwise), then `make generate-web-api` and commit the types;
+  `make check-web-api` passes only on a clean tree (raw forms in `frontend/web/CLAUDE.md`).
 
 ## Layout
 
