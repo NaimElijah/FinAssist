@@ -1,6 +1,6 @@
 """Enforces the structural rules declared in docs/architecture/architecture.md.
 
-Ten rules:
+Eleven rules:
 
 1. Dependencies point inward - no inward layer imports a framework or the standard library's
    I/O.
@@ -17,10 +17,12 @@ Ten rules:
    reverse - the inward half of ``LedgerArchitectureTest.layers_point_inward``.
 10. ``shared`` imports no context. It is the common ground every context may use, so a
    dependency from it onto one context would reach every other through it.
+11. No outbound adapter imports an inbound one. The wire shape stops at the route.
 
-Rules 6 and 7 mirror rules the ledger enforces too:
-``LedgerArchitectureTest.money_is_never_floating_point`` for the first, and
-``LedgerArchitectureTest.clock_is_read_only_in_the_composition_root`` for the second.
+Rules 6, 7 and 11 mirror rules the ledger enforces too:
+``LedgerArchitectureTest.money_is_never_floating_point`` for the first,
+``LedgerArchitectureTest.clock_is_read_only_in_the_composition_root`` for the second, and
+``LedgerArchitectureTest.outbound_adapters_do_not_reach_inbound`` for the third.
 
 **These are checked statically, by parsing every source file, not by importing packages and
 inspecting sys.modules.** An earlier version did the latter and was blind by construction:
@@ -342,6 +344,17 @@ def _is_inbound_adapter(path: Path) -> bool:
     return parts[0] in CONTEXTS and parts[1:3] == (ADAPTER_SEGMENT, INBOUND_SEGMENT)
 
 
+def _names_inbound_adapter(module: str) -> bool:
+    """A module name under any context's ``adapters/inbound``: what calls a context."""
+    parts = module.split(".")
+    return (
+        parts[0] == ROOT_PACKAGE
+        and len(parts) > 1
+        and parts[1] in CONTEXTS
+        and parts[2:4] == [ADAPTER_SEGMENT, INBOUND_SEGMENT]
+    )
+
+
 def _names_outbound_adapter(module: str) -> bool:
     """A module name under any context's ``adapters/outbound``: what a context calls."""
     parts = module.split(".")
@@ -378,11 +391,12 @@ def _module_name(path: Path) -> str:
 # failure that matters: a layer renamed out of its filter's reach, so that every case of its rule
 # skipped and the suite stayed green. An empty list now fails its guard below instead.
 #
-# Two rules also refuse an import by the name it carries: the inbound-adapter rule one under
-# ``adapters/outbound``, the domain rule one under ``application``. Renaming either directory
-# would leave its name match recognising nothing and its rule green with nothing left to refuse,
-# so the files each match recognises are a scope of their own, and the guard fails on the rename
-# instead.
+# Three rules also refuse an import by the name it carries: the inbound-adapter rule one under
+# ``adapters/outbound``, the outbound-adapter rule one under ``adapters/inbound``, the domain rule
+# one under ``application``. Renaming any of those directories would leave its name match
+# recognising nothing and its rule green with nothing left to refuse, so the files each match
+# recognises are a scope of their own, and the guard fails on the rename instead. The inbound
+# match's scope is the inbound-adapter one, built from the same two segments.
 INWARD_FILES = [path for path in SOURCE_FILES if _is_inward(path)]
 OUTSIDE_COMPOSITION_ROOT_FILES = [path for path in SOURCE_FILES if not _is_composition_root(path)]
 CONTEXT_FILES = [path for path in SOURCE_FILES if _context_of(path) is not None]
@@ -607,6 +621,25 @@ def Given_an_inbound_adapter_When_parsed_Then_it_imports_no_outbound_adapter(pat
     assert not leaked, (
         f"{path.relative_to(SRC)} imports an outbound adapter: {leaked}. An inbound adapter calls "
         "a use case, and the use case reaches outbound adapters through the ports it declares."
+    )
+
+
+@pytest.mark.parametrize("path", OUTBOUND_ADAPTER_FILES, ids=_relative_id)
+def Given_an_outbound_adapter_When_parsed_Then_it_imports_no_inbound_adapter(path: Path) -> None:
+    """What a context calls knows nothing of how the context was called.
+
+    The wire shape must not reach the anti-corruption layer: a ledger client or a feed adapter
+    that named a route's request or response model would tie its translation to the published
+    contract, so a change to ``contracts/assistant-v1.openapi.json`` would reach the foreign API's
+    mapping too. The rule above holds the opposite direction only, and both adapters share a
+    context and an ``adapters`` path, which every other rule here allows. The ledger forbids the
+    same in ``outbound_adapters_do_not_reach_inbound``.
+    """
+    leaked = sorted(module for module in _imported_modules(path) if _names_inbound_adapter(module))
+    assert not leaked, (
+        f"{path.relative_to(SRC)} imports an inbound adapter: {leaked}. An outbound adapter "
+        "translates a foreign shape into the context's model, never into the wire shape a route "
+        "publishes."
     )
 
 
@@ -854,6 +887,14 @@ def Given_a_module_name_When_asked_Then_only_a_contexts_outbound_adapters_are_ou
     assert not _names_outbound_adapter(f"{ROOT_PACKAGE}.portfolio.adapters.inbound.api")
     assert not _names_outbound_adapter(f"{ROOT_PACKAGE}.adapters.wiring")
     assert not _names_outbound_adapter("outbound.adapters")
+
+
+def Given_a_module_name_When_asked_Then_only_a_contexts_inbound_adapters_are_inbound() -> None:
+    assert _names_inbound_adapter(f"{ROOT_PACKAGE}.portfolio.adapters.inbound.api.models")
+    assert _names_inbound_adapter(f"{ROOT_PACKAGE}.assistance.adapters.inbound")
+    assert not _names_inbound_adapter(f"{ROOT_PACKAGE}.portfolio.adapters.outbound.ledger")
+    assert not _names_inbound_adapter(f"{ROOT_PACKAGE}.adapters.app")
+    assert not _names_inbound_adapter("inbound.adapters")
 
 
 def Given_a_module_name_When_asked_Then_only_a_contexts_application_layer_is_application() -> None:
