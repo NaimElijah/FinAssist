@@ -35,7 +35,7 @@ append-only history: to change course, add a new record and mark the old one
 | [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
 | [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030 |
 | [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030 and 047 |
-| [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, corrected by 047 |
+| [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037 and 053, corrected by 047 |
 | [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036, corrected by 047 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted, corrected by 047 |
 | [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035 |
@@ -58,6 +58,7 @@ append-only history: to change course, add a new record and mark the old one
 | [050](ADR-050-no-domain-metric-yet-decided-again.md) | No domain metric yet, decided again, with new triggers | Accepted |
 | [051](ADR-051-what-a-translation-may-decide.md) | What a translation may decide: choosing records stays in `composition`, a rule in the downstream's own words moves into it | Accepted |
 | [052](ADR-052-ops-holds-operator-code-one-directory-per-tool.md) | `ops/` holds operator code, one directory per tool | Accepted |
+| [053](ADR-053-the-gateways-outbound-calls-speak-http-1-1-under-one-time-budget.md) | The gateway's outbound calls speak HTTP/1.1, under one time budget | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -212,3 +213,9 @@ scenario is looked up ([#339](https://github.com/NaimElijah/FinAssist/issues/339
 backup CLI and the secret check are neither backend nor frontend, and none is a service. The tier
 split stays, and operator code lives under `ops/<tool>/`, one directory per tool, borrowing the
 assistant's toolchain ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
+
+053 extends 030 on 2026-10-29, recording how the gateway's own outbound calls behave, which four
+fixes between 2026-09-22 and 2026-10-09 settled and no record held. They speak HTTP/1.1, because
+the JDK client's h2c upgrade offer made uvicorn answer 400 to every relayed POST. They share one 5 s
+and 10 s budget, and the relay removes four browser headers, not two
+([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
