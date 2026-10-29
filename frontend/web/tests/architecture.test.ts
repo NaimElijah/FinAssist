@@ -385,6 +385,7 @@ function crossLayerImportsOf(feature: string): { count: number; offences: string
 }
 
 const GENERATED_CONTRACTS_DIR = join(SRC, 'shared', 'api', 'contracts');
+const SHARED_UI_DIR = join(SRC, 'shared', 'ui');
 
 describe('layers inside a feature', () => {
     it('Given_each_feature_When_its_directories_are_listed_Then_each_is_a_known_layer', () => {
@@ -449,6 +450,38 @@ describe('layers inside a feature', () => {
         expect(
             offences,
             "a generated contract type is used outside a feature's api/. Map it there instead.",
+        ).toEqual([]);
+    });
+
+    it('Given_the_features_When_their_types_are_read_Then_none_imports_src_shared_ui', () => {
+        // The layer rule ranks only a feature's own layers, so any layer may import src/shared.
+        // src/shared/ui re-exports React components, though, and types/ is the feature's model:
+        // the innermost layer must not depend on presentation (ADR-029). A shared value both
+        // need, such as DISPLAY_LOCALE, lives in src/shared/lib instead.
+        const offences: string[] = [];
+        let importsResolvedInSrc = 0;
+
+        for (const file of sourceFilesUnder(FEATURES_DIR)) {
+            if (featurePlace(file)?.layer !== 'types') continue;
+            for (const specifier of importSpecifiers(file)) {
+                const resolved = resolveInSrc(specifier, file);
+                if (resolved === undefined) continue;
+                importsResolvedInSrc += 1;
+                if (isWithin(SHARED_UI_DIR, resolved)) {
+                    offences.push(`${relative(SRC, file)} -> ${specifier}`);
+                }
+            }
+        }
+
+        // Guards the rule from passing vacuously: a feature's types import one another, so a
+        // scan that resolves no import inside src has stopped resolving specifiers.
+        expect(
+            importsResolvedInSrc,
+            "no import under a feature's types/ resolved inside src",
+        ).toBeGreaterThan(0);
+        expect(
+            offences,
+            "a feature's types/ imports the UI kit. Move what it needs to src/shared/lib.",
         ).toEqual([]);
     });
 });
