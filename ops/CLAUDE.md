@@ -53,8 +53,10 @@ From the repository root unless stated:
 - **Check the Compose file** — `make check-compose`, which CI's `compose` job runs. With
   `C="docker compose --env-file .env.example --env-file ops/compose_check/placeholders.env"`:
   `$C --profile monitoring config --quiet`, the same with `--profile smoke` and with both, then
-  `$C --profile monitoring --profile smoke config --format json | uv run
-  ops/compose_check/compose_check.py`. `config` starts no container, and `.env` is never read.
+  `$C --profile monitoring --profile smoke config --format json | uv run --python
+  "$(cat backend/assistant/.python-version)" ops/compose_check/compose_check.py`, so the script
+  runs on the assistant's pinned Python, not the newest its `requires-python` minimum allows.
+  `config` starts no container, and `.env` is never read.
 - **Test the Compose check** — `make test-compose-check`: `cd backend/assistant && uv run
   pytest -c pyproject.toml ../../ops/compose_check/tests`. Crafted resolved files, never Docker.
 - **Smoke-test authentication** (opt-in, manual) — `make smoke-auth`:

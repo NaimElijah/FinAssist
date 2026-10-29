@@ -186,7 +186,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
-      # For ops/compose_check/compose_check.py, whose PEP 723 block names its own Python.
+      # For ops/compose_check/compose_check.py: uv fetches the Python the target pins with
+      # --python, backend/assistant/.python-version, since the PEP 723 block states only a minimum.
       - uses: astral-sh/setup-uv@v10.3.0
 
       # Never reads .env: the target resolves the file over .env.example and

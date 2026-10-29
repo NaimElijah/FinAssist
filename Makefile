@@ -163,13 +163,15 @@ check-web-api: ## Fail if regenerating the web client's contract types changes a
 # --profile monitoring, or the three monitoring services are interpolated but never validated, and a
 # broken reference among them passes. --profile smoke does the same for ops/smoke/auth_smoke.py's
 # auth-smoke service (Refs #38); running that check stays manual (`make smoke-auth`). `config`
-# starts no container, so this never touches a Compose project (ADR-049).
+# starts no container, so this never touches a Compose project (ADR-049). The script's PEP 723
+# `requires-python` is a minimum, so `--python` pins the assistant's .python-version: otherwise uv
+# may pick, or on CI download, a newer CPython than the one lint-compose-check's mypy targets.
 check-compose: ## Validate docker-compose.yml under every profile, then its restart, log and readiness conventions; never reads .env
 	$(COMPOSE_CONFIG) --profile monitoring config --quiet
 	$(COMPOSE_CONFIG) --profile smoke config --quiet
 	$(COMPOSE_CONFIG) --profile monitoring --profile smoke config --quiet
 	$(COMPOSE_CONFIG) --profile monitoring --profile smoke config --format json \
-		| $(UV) run ops/compose_check/compose_check.py
+		| $(UV) run --python "$$(cat $(ASSISTANT)/.python-version)" ops/compose_check/compose_check.py
 
 format: ## Rewrite sources to match the formatters
 	cd $(LEDGER) && $(MVNW) spotless:apply
