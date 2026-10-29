@@ -1,6 +1,6 @@
 """Enforces the structural rules declared in docs/architecture/architecture.md.
 
-Twelve rules:
+Thirteen rules:
 
 1. Dependencies point inward - no inward layer imports a framework or the standard library's
    I/O.
@@ -20,6 +20,8 @@ Twelve rules:
 11. No outbound adapter imports an inbound one. The wire shape stops at the route.
 12. A translation in ``adapters/wiring.py`` calls the upstream context's use case, never its
    out-ports or adapters.
+13. No module imports by a call - ``importlib.import_module`` or ``__import__`` - so every import
+   is a statement the rules above can read.
 
 Rules 6, 7 and 11 mirror rules the ledger enforces too:
 ``LedgerArchitectureTest.money_is_never_floating_point`` for the first,
@@ -297,6 +299,32 @@ def _clock_reads_in(source: str, filename: str = "<test>") -> list[str]:
                 and node.args[1].value in CLOCK_READS
             ):
                 found.append(f"getattr(..., {node.args[1].value!r}) at line {node.lineno}")
+    return found
+
+
+# The calls that import a module named at run time. The import rules read statements, and a
+# call's argument can be any string, so the call itself is refused rather than its argument read.
+DYNAMIC_IMPORTERS = frozenset({"import_module", "__import__"})
+IMPORTLIB = "importlib"
+
+
+def _dynamic_imports_in(source: str, filename: str = "<test>") -> list[str]:
+    """Every call to an importer, by name or as an attribute, and every import binding one.
+
+    The import is matched as well as the call, for the reason the clock rule matches one:
+    ``from importlib import import_module as load`` leaves a call named ``load`` that no name
+    match could follow.
+    """
+    found: list[str] = []
+    for node in ast.walk(ast.parse(source, filename=filename)):
+        if isinstance(node, ast.Call) and _dotted(node.func).split(".")[-1] in DYNAMIC_IMPORTERS:
+            found.append(f"{_dotted(node.func)}() at line {node.lineno}")
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == IMPORTLIB:
+            found.extend(
+                f"import of {IMPORTLIB}.{alias.name} at line {node.lineno}"
+                for alias in node.names
+                if alias.name in DYNAMIC_IMPORTERS or alias.name == "*"
+            )
     return found
 
 
@@ -634,6 +662,21 @@ def Given_an_inward_module_When_parsed_Then_it_opens_no_file(path: Path) -> None
     assert not found, (
         f"{path.relative_to(SRC)} opens a file: {found}. Reading or writing a file is I/O, and "
         "I/O lives in adapters behind a port the inward layer declares."
+    )
+
+
+@pytest.mark.parametrize("path", SOURCE_FILES, ids=_relative_id)
+def Given_a_module_When_parsed_Then_it_imports_nothing_by_a_call(path: Path) -> None:
+    """Every rule here reads import statements, so an import made by a call escapes all of them.
+
+    ``importlib.import_module("fastapi")`` in a domain module, or a context loading another by
+    name, would pass every rule above. The web client refuses a computed import specifier for the
+    same reason.
+    """
+    found = _dynamic_imports_in(path.read_text(encoding="utf-8"), str(path))
+    assert not found, (
+        f"{path.relative_to(SRC)} imports by a call: {found}. Write the import as a statement, "
+        "so the architecture rules can see what it depends on."
     )
 
 
@@ -1169,3 +1212,24 @@ def Given_a_record_or_a_base_naming_an_out_port_When_scanned_Then_it_passes() ->
     )
 
     assert _translation_overreach_in(source, TRANSLATION_PACKAGE, frozenset({FEED_PORT})) == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'import importlib\nm = importlib.import_module("fastapi")',
+        "import importlib as il\nm = il.import_module(name)",
+        "from importlib import import_module as load\nm = load(name)",
+        "from importlib import *",
+        'm = __import__("fastapi")',
+        'import builtins\nm = builtins.__import__("fastapi")',
+    ],
+)
+def Given_source_importing_by_a_call_When_scanned_Then_it_is_found(source: str) -> None:
+    assert _dynamic_imports_in(source), source
+
+
+def Given_an_ordinary_importlib_use_When_scanned_Then_it_is_not_a_violation() -> None:
+    # Reading a distribution's version imports nothing; refusing it would refuse too much.
+    assert _dynamic_imports_in("from importlib.metadata import version") == []
+    assert _dynamic_imports_in("from importlib import resources") == []
