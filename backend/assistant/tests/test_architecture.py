@@ -323,8 +323,15 @@ def _context_of(path: Path) -> str | None:
 
 
 def _is_inward(path: Path) -> bool:
-    """True for anything outside the adapter layer: domain, application, ports, use cases."""
-    return ADAPTER_SEGMENT not in path.relative_to(SRC).parts
+    """True for anything outside the adapter layer: domain, application, ports, use cases.
+
+    ``adapters`` is the adapter layer only where the layout puts it: directly under a context, or
+    as the composition root. Matched at any depth, a directory of that name inside a domain or a
+    use case would have lifted every inward rule off the modules beneath it.
+    """
+    parts = path.relative_to(SRC).parts
+    context_adapter = parts[0] in CONTEXTS and parts[1:2] == (ADAPTER_SEGMENT,)
+    return not (_is_composition_root(path) or context_adapter)
 
 
 def _is_composition_root(path: Path) -> bool:
@@ -874,6 +881,15 @@ def Given_a_module_path_When_asked_Then_its_context_is_the_first_segment() -> No
 def Given_a_module_path_When_asked_Then_only_the_adapter_layer_is_outward() -> None:
     assert _is_inward(SRC / "portfolio" / "domain" / "__init__.py")
     assert not _is_inward(SRC / "portfolio" / "adapters" / "outbound" / "ledger" / "__init__.py")
+    assert not _is_inward(SRC / "adapters" / "wiring.py")
+
+
+def Given_an_adapters_directory_below_a_layer_When_asked_Then_it_is_still_inward() -> None:
+    # Only a context's own `adapters` and the composition root are outward; the name deeper down
+    # is just a directory, and the rules on the layer above it still hold.
+    assert _is_inward(SRC / "portfolio" / "domain" / "adapters" / "model.py")
+    assert _is_inward(SRC / "marketdata" / "application" / "usecase" / "adapters" / "feed.py")
+    assert _is_inward(SRC / "shared" / "adapters" / "money.py")
 
 
 def Given_a_module_path_When_asked_Then_only_the_root_adapters_are_the_composition_root() -> None:
