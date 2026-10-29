@@ -91,13 +91,18 @@ translation.
 
 **Makes hard**
 
-- **The refusal moves earlier, and three answers change.** The commands are built in the
-  controller, before the service looks anything up (`ComparisonController` builds
-  `CompareScenariosCommand`, ahead of `ForecastService.compare`). A client sees:
+- **The refusal moves earlier, and four answers change.** The commands are built in the
+  controller, before the service looks anything up (`ProjectionController` builds
+  `ProjectScenarioCommand` ahead of `ForecastService.project`, and `ComparisonController` builds
+  `CompareScenariosCommand` ahead of `ForecastService.compare`). A client sees:
   - **Projection, unknown scenario plus a duplicate account:** 422 `RULE_VIOLATED`. It was 404
     `SCENARIO_NOT_FOUND`, because `ForecastService.project` looks the scenario up first.
     `PlanningHttpIT.Given_an_unknown_scenario_and_an_account_named_twice_When_projected_Then_it_is_a_422_rule_violated_problem`
     pins it.
+  - **Projection, a plan missing from the store plus a duplicate account:** 422 `RULE_VIOLATED`,
+    with nothing logged. It was 500, with the ERROR line `ProjectionController` writes for a
+    scenario naming a planned flow the store lacks, because `current` refreshed the flows first.
+    A projection without a duplicate still answers 500 and logs it.
   - **Comparison, unknown first scenario plus a duplicate account:** 422 `RULE_VIOLATED`. It was
     422 `UNKNOWN_SCENARIO`. The web client branches on `UNKNOWN_SCENARIO` (`planningApi.ts`), so for
     that one request it now shows the duplicate-account detail rather than the unknown-scenario

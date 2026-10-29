@@ -205,11 +205,13 @@ history; write the commit message well and this file writes itself.
   test doubles. The outbox waits for the first consumer
   ([ADR-048](docs/ADRs/ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md),
   [#339](https://github.com/NaimElijah/FinAssist/issues/339)).
-- **Planning refuses a twice-named account itself, so three answers change.** The refusal moved
+- **Planning refuses a twice-named account itself, so four answers change.** The refusal moved
   from the accounting translation into `ProjectScenarioCommand` and `CompareScenariosCommand`, and
   it now comes before any lookup. The message and the 422 `RULE_VIOLATED` are unchanged.
   - **Projection, unknown scenario and a duplicate account:** 422 `RULE_VIOLATED`, where it was
     404 `SCENARIO_NOT_FOUND`.
+  - **Projection, a plan missing from the store and a duplicate account:** 422, where it was 500
+    with an ERROR line; without a duplicate it is still a logged 500.
   - **Comparison, unknown first scenario and a duplicate account:** 422 `RULE_VIOLATED`, where it
     was 422 `UNKNOWN_SCENARIO`.
   - **Comparison, a plan missing from the store and a duplicate account:** 422, where it was 500.
