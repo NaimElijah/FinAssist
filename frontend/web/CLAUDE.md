@@ -55,12 +55,14 @@ From `frontend/web`:
   to ignore `typescript >=6.1.0` so it stops proposing the bump every week. Lift the pin and that
   ignore entry together, once typescript-eslint supports 7.
 - **A feature's layers point inward**: `types`, then `api`, `hooks`, `components`, each importing
-  only those before it; the feature's root (`index.ts`, `routes.tsx`) is imported, from inside
-  the feature, only by tests; its `types/` imports nothing from the UI kit, `src/shared/ui`, so a
-  value both need, such as `DISPLAY_LOCALE`, lives in `src/shared/lib`;
-  and only its `api/` imports a generated contract type. `tests/architecture.test.ts` fails the
-  build otherwise, reading every import form with the TypeScript parser and refusing a computed
-  specifier it cannot resolve.
+  only those before it. A feature's root holds only its entry files, `index.ts` and `routes.tsx`,
+  every other source file sitting in a layer, and `src/features/` itself holds only feature
+  directories; from inside the feature, only tests import the root. Its `types/` imports nothing
+  from the UI kit, `src/shared/ui`, and neither does `src/shared/lib`, so a value both need, such
+  as `DISPLAY_LOCALE`, lives in `src/shared/lib` without bringing the kit along. Only its `api/`
+  imports a generated contract type. `tests/architecture.test.ts` fails the build otherwise,
+  reading every import form with the TypeScript parser and refusing a computed specifier it
+  cannot resolve.
 - **No test file commits a `.skip`, `.todo` or `.only`** on `it`, `test`, `describe` or `suite`:
   ESLint's `no-restricted-syntax` fails `npm run lint`. `it.fails`, `skipIf` and `runIf` stay
   allowed — a test that must fail, and a skip a platform decides.

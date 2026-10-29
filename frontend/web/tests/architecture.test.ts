@@ -498,9 +498,10 @@ describe('layers inside a feature', () => {
 
     it('Given_the_features_When_their_types_are_read_Then_none_imports_src_shared_ui', () => {
         // The layer rule ranks only a feature's own layers, so any layer may import src/shared.
-        // src/shared/ui re-exports React components, though, and types/ is the feature's model:
-        // the innermost layer must not depend on presentation (ADR-029). A shared value both
-        // need, such as DISPLAY_LOCALE, lives in src/shared/lib instead.
+        // src/shared/ui re-exports React components, though, and types/ is the feature's model,
+        // the innermost of the layers that point inward (frontend/web/CLAUDE.md, "A feature's
+        // layers point inward"): it must not depend on presentation. A shared value both need,
+        // such as DISPLAY_LOCALE, lives in src/shared/lib instead.
         const offences: string[] = [];
         let importsResolvedInSrc = 0;
 
