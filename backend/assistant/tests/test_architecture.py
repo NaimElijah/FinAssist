@@ -351,22 +351,43 @@ def _context_of(path: Path) -> str | None:
     return parts[0] if parts and parts[0] in CONTEXTS else None
 
 
-def _is_inward(path: Path) -> bool:
-    """True for anything outside the adapter layer: domain, application, ports, use cases.
+def _names_context_adapter(module: str) -> bool:
+    """A module name under a context's own ``adapters``: its routes and anti-corruption layers."""
+    parts = module.split(".")
+    return (
+        len(parts) > 2
+        and parts[0] == ROOT_PACKAGE
+        and parts[1] in CONTEXTS
+        and parts[2] == ADAPTER_SEGMENT
+    )
 
-    ``adapters`` is the adapter layer only where the layout puts it: directly under a context, or
-    as the composition root. Matched at any depth, a directory of that name inside a domain or a
-    use case would have lifted every inward rule off the modules beneath it.
+
+def _names_composition_root(module: str) -> bool:
+    """A module name under ``finassist_assistant.adapters``, the one package that wires the rest."""
+    parts = module.split(".")
+    return len(parts) > 1 and parts[0] == ROOT_PACKAGE and parts[1] == ADAPTER_SEGMENT
+
+
+def _names_adapter_layer(module: str) -> bool:
+    """A module name in the adapter layer: a context's own ``adapters``, or the composition root.
+
+    ``adapters`` is the adapter layer only where the layout puts it. Matched at any depth, a
+    directory of that name inside a domain or a use case would lift every inward rule off the
+    modules beneath it, and refuse every import of them. The inward scope and the inward import
+    rule both ask this one question, so the module one calls inward the other cannot call an
+    adapter.
     """
-    parts = path.relative_to(SRC).parts
-    context_adapter = parts[0] in CONTEXTS and parts[1:2] == (ADAPTER_SEGMENT,)
-    return not (_is_composition_root(path) or context_adapter)
+    return _names_context_adapter(module) or _names_composition_root(module)
+
+
+def _is_inward(path: Path) -> bool:
+    """True for anything outside the adapter layer: domain, application, ports, use cases."""
+    return not _names_adapter_layer(_module_name(path))
 
 
 def _is_composition_root(path: Path) -> bool:
     """A module under ``src/finassist_assistant/adapters/``, the one package that wires the rest."""
-    parts = path.relative_to(SRC).parts
-    return bool(parts) and parts[0] == ADAPTER_SEGMENT
+    return _names_composition_root(_module_name(path))
 
 
 def _context_imported_by(module: str) -> str | None:
@@ -590,10 +611,8 @@ def _reaches_past_use_case(
     The implemented port is exempt for the reason the ledger exempts it (``implemented.contains``):
     it is the translation's own downstream port, and naming it is how the class says what it is.
     """
-    parts = name.split(".")
-    in_adapters = len(parts) > 2 and parts[1] in CONTEXTS and parts[2] == ADAPTER_SEGMENT
     port = _protocol_named(name, protocols)
-    return in_adapters or (port is not None and port not in implemented)
+    return _names_context_adapter(name) or (port is not None and port not in implemented)
 
 
 def _translation_overreach_in(source: str, package: str, protocols: PortProtocols) -> list[str]:
@@ -796,12 +815,7 @@ def Given_a_module_When_parsed_Then_it_imports_nothing_by_a_call(path: Path) -> 
 
 @pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
 def Given_an_inward_module_When_parsed_Then_it_imports_no_adapter(path: Path) -> None:
-    prefix = f"{ROOT_PACKAGE}."
-    leaked = sorted(
-        module
-        for module in _imported_modules(path)
-        if module.startswith(prefix) and ADAPTER_SEGMENT in module.split(".")
-    )
+    leaked = sorted(module for module in _imported_modules(path) if _names_adapter_layer(module))
     assert not leaked, (
         f"{path.relative_to(SRC)} imports the adapter layer: {leaked}. The anti-corruption "
         "layers live there; nothing inward may depend on one."
@@ -848,12 +862,7 @@ def Given_a_context_module_When_parsed_Then_it_imports_no_composition_root(path:
     it, and it lives under an ``adapters`` path, so the framework rule skips it too - which
     would leave nothing at all watching the direction of this dependency.
     """
-    composition_root = f"{ROOT_PACKAGE}.{ADAPTER_SEGMENT}"
-    leaked = sorted(
-        module
-        for module in _imported_modules(path)
-        if module == composition_root or module.startswith(f"{composition_root}.")
-    )
+    leaked = sorted(module for module in _imported_modules(path) if _names_composition_root(module))
     assert not leaked, (
         f"{path.relative_to(SRC)} imports the composition root: {leaked}. Frameworks travel "
         "inward only through the ports a context declares."
@@ -1057,6 +1066,33 @@ def Given_an_adapters_directory_below_a_layer_When_asked_Then_it_is_still_inward
     assert _is_inward(SRC / "portfolio" / "domain" / "adapters" / "model.py")
     assert _is_inward(SRC / "marketdata" / "application" / "usecase" / "adapters" / "feed.py")
     assert _is_inward(SRC / "shared" / "adapters" / "money.py")
+
+
+def Given_a_module_name_When_asked_Then_only_the_layouts_adapters_are_the_adapter_layer() -> None:
+    assert _names_adapter_layer(f"{ROOT_PACKAGE}.portfolio.adapters.outbound.ledger.InMemoryLedger")
+    assert _names_adapter_layer(f"{ROOT_PACKAGE}.portfolio.adapters")
+    assert _names_adapter_layer(f"{ROOT_PACKAGE}.adapters.wiring")
+    assert _names_adapter_layer(f"{ROOT_PACKAGE}.adapters")
+    assert not _names_adapter_layer(f"{ROOT_PACKAGE}.portfolio.domain.adapters.model")
+    assert not _names_adapter_layer(f"{ROOT_PACKAGE}.marketdata.application.usecase.adapters")
+    assert not _names_adapter_layer(f"{ROOT_PACKAGE}.shared.adapters.money")
+    assert not _names_adapter_layer(ROOT_PACKAGE)
+    assert not _names_adapter_layer("adapters.wiring")
+    assert not _names_adapter_layer("other.portfolio.adapters")
+
+
+def Given_an_adapters_directory_below_a_layer_When_imported_Then_it_is_not_the_adapter_layer() -> (
+    None
+):
+    # The inward scope and the import rule must agree: a module the scope holds as inward is one
+    # an inward module may import, so no layer refuses an import of its own modules.
+    model = SRC / "portfolio" / "domain" / "adapters" / "model.py"
+    imported = _imports_in(
+        "from finassist_assistant.portfolio.domain.adapters.model import Shape", PACKAGE
+    )
+
+    assert _is_inward(model)
+    assert not any(_names_adapter_layer(module) for module in imported), imported
 
 
 def Given_a_module_path_When_asked_Then_only_the_root_adapters_are_the_composition_root() -> None:
