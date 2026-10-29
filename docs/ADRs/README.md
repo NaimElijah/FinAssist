@@ -8,14 +8,14 @@ append-only history: to change course, add a new record and mark the old one
 |---|---|---|
 | [001](ADR-001-polyglot-java-python-split.md) | Split into a Java ledger and a Python assistant | Accepted |
 | [002](ADR-002-java-spring-boot-for-the-ledger.md) | Java 21 and Spring Boot for the ledger | Accepted |
-| [003](ADR-003-python-fastapi-for-assistant-and-analysis.md) | Python 3.13 and FastAPI for the assistant | Accepted |
+| [003](ADR-003-python-fastapi-for-assistant-and-analysis.md) | Python 3.13 and FastAPI for the assistant | Accepted, extended by 046 |
 | [004](ADR-004-http-openapi-service-contract.md) | HTTP with a versioned OpenAPI document as the contract | Accepted |
 | [005](ADR-005-docker-compose-as-the-run-mechanism.md) | Compose is the mechanism, the Makefile the interface | Accepted |
 | [006](ADR-006-postgresql-for-the-ledger-store.md) | PostgreSQL as the ledger's store | Accepted, resolved by 024 |
 | [007](ADR-007-asymmetric-hexagonal-architecture.md) | Asymmetric hexagonal: tactical DDD in the ledger only | Accepted, extended by 010 |
 | [008](ADR-008-backend-frontend-root-layout.md) | `backend/` and `frontend/` as the root split | Accepted |
 | [009](ADR-009-react-vite-spa-for-the-web-client.md) | React + Vite SPA for the web client | Accepted, extended by 029 |
-| [010](ADR-010-bounded-context-map.md) | The context map, and context-first packaging | Accepted, extended by 015 |
+| [010](ADR-010-bounded-context-map.md) | The context map, and context-first packaging | Accepted, extended by 015 and 046 |
 | [011](ADR-011-double-entry-bookkeeping.md) | Double-entry, five account types, transaction lifecycle | Accepted |
 | [012](ADR-012-multi-currency-without-conversion.md) | Multi-currency amounts, with no conversion | Accepted |
 | [013](ADR-013-fifo-lot-based-cost-basis.md) | Lot-based holdings with FIFO cost basis | Accepted, extended by 041 |
@@ -51,6 +51,7 @@ append-only history: to change course, add a new record and mark the old one
 | [043](ADR-043-github-secret-scanning-and-dependabot-alerts.md) | GitHub's own secret scanning, push protection and Dependabot alerts; no scanner in CI | Accepted, extended by 044 |
 | [044](ADR-044-compose-refuses-a-published-secret.md) | Compose refuses to start on a secret that a file in the repository holds | Accepted |
 | [045](ADR-045-dependabot-triage-and-toolchain-holds.md) | Dependabot's updates are triaged weekly, the Java pair moves together, and the toolchain lines move only by ADR | Accepted |
+| [046](ADR-046-architecture-rules-read-the-code-never-load-it.md) | Architecture rules read the code and never load it | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -161,3 +162,9 @@ Python stay on the lines ADR-002 and ADR-003 chose until an ADR moves them, the 
 gateway take each bump in one PR, a Keycloak, PyJWT or Spring Security bump goes to the owner
 first, and the PRs are triaged in the week they open
 ([#138](https://github.com/NaimElijah/FinAssist/issues/138)).
+
+046 extends 003 and 010 on 2026-10-29, because both describe a mechanism that was removed the day
+they were written. The assistant's architecture tests have parsed source with `ast` since
+`ed813b1`; they never import the code. Every architecture rule in the ledger, the assistant and
+the web client now reads it, and is shown to fail on a planted violation in a deep module before it
+is trusted ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).

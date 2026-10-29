@@ -1,6 +1,7 @@
 # ADR-003: Python 3.13 and FastAPI for the assistant and analysis service
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-046](ADR-046-architecture-rules-read-the-code-never-load-it.md)
 - **Date:** 2026-08-29
 
 ## Context
