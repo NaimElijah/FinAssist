@@ -1,6 +1,7 @@
 # ADR-008: `backend/` and `frontend/` as the repository's top-level split
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-052](ADR-052-ops-holds-operator-code-one-directory-per-tool.md)
 - **Date:** 2026-08-29
 
 ## Context

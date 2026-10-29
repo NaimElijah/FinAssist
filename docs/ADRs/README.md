@@ -13,7 +13,7 @@ append-only history: to change course, add a new record and mark the old one
 | [005](ADR-005-docker-compose-as-the-run-mechanism.md) | Compose is the mechanism, the Makefile the interface | Accepted, extended by 049, corrected by 047 |
 | [006](ADR-006-postgresql-for-the-ledger-store.md) | PostgreSQL as the ledger's store | Accepted, resolved by 024 |
 | [007](ADR-007-asymmetric-hexagonal-architecture.md) | Asymmetric hexagonal: tactical DDD in the ledger only | Accepted, extended by 010 |
-| [008](ADR-008-backend-frontend-root-layout.md) | `backend/` and `frontend/` as the root split | Accepted |
+| [008](ADR-008-backend-frontend-root-layout.md) | `backend/` and `frontend/` as the root split | Accepted, extended by 052 |
 | [009](ADR-009-react-vite-spa-for-the-web-client.md) | React + Vite SPA for the web client | Accepted, extended by 029 |
 | [010](ADR-010-bounded-context-map.md) | The context map, and context-first packaging | Accepted, extended by 015 and 046, corrected by 047 |
 | [011](ADR-011-double-entry-bookkeeping.md) | Double-entry, five account types, transaction lifecycle | Accepted |
@@ -57,6 +57,7 @@ append-only history: to change course, add a new record and mark the old one
 | [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted |
 | [050](ADR-050-no-domain-metric-yet-decided-again.md) | No domain metric yet, decided again, with new triggers | Accepted |
 | [051](ADR-051-what-a-translation-may-decide.md) | What a translation may decide: choosing records stays in `composition`, a rule in the downstream's own words moves into it | Accepted |
+| [052](ADR-052-ops-holds-operator-code-one-directory-per-tool.md) | `ops/` holds operator code, one directory per tool | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -206,3 +207,8 @@ which upstream records answer a question stays translation, so "an `EXPENSE` lin
 A rule stated wholly in the downstream's own vocabulary is that context's invariant, so planning
 now refuses an account named twice itself. The answer is the same 422, but it now comes before the
 scenario is looked up ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
+
+052 extends 008 on 2026-10-29, answering its trigger, which fired three times: the smoke check, the
+backup CLI and the secret check are neither backend nor frontend, and none is a service. The tier
+split stays, and operator code lives under `ops/<tool>/`, one directory per tool, borrowing the
+assistant's toolchain ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
