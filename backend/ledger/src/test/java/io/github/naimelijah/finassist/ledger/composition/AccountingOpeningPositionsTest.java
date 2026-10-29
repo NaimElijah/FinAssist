@@ -26,7 +26,9 @@ import org.junit.jupiter.api.Test;
  *
  * <p>Driven against a mocked {@code ViewBalanceUseCase}, which is what the translation takes; it
  * never sees a repository, by design (ADR-022). How a balance is summed from entries is
- * {@code JournalServiceTest}'s and {@code BalanceTest}'s business.
+ * {@code JournalServiceTest}'s and {@code BalanceTest}'s business, and an account named twice is
+ * refused by planning's commands, in {@code ProjectScenarioCommandTest} and {@code
+ * CompareScenariosCommandTest} (ADR-051).
  */
 class AccountingOpeningPositionsTest {
 
@@ -87,26 +89,6 @@ class AccountingOpeningPositionsTest {
         assertThatThrownBy(() -> openings.positionOf(List.of(dollars), List.of(), Currency.ILS))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("no conversion");
-    }
-
-    /**
-     * An easy slip when a caller concatenates two lists of references, and a silent one: the
-     * projection would open at twice the balance, and every point, the end state and the shortfall
-     * date would be wrong with nothing to say so.
-     */
-    @Test
-    void Given_an_account_named_twice_When_a_position_is_asked_for_Then_it_is_refused() {
-        assertThatThrownBy(() -> openings.positionOf(List.of(cash, cash), List.of(), Currency.ILS))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("more than once");
-    }
-
-    /** An account is cash or it is invested, never both. */
-    @Test
-    void Given_an_account_named_on_both_sides_When_a_position_is_asked_for_Then_it_is_refused() {
-        assertThatThrownBy(() -> openings.positionOf(List.of(cash), List.of(cash), Currency.ILS))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("more than once");
     }
 
     /** An account the journal knows about, already carrying a balance. */

@@ -12,7 +12,8 @@ import java.util.Objects;
  *
  * <p>One horizon, one cadence and one opening position for all of them. {@code Comparison} refuses
  * projections that disagree on any of those rather than aligning them approximately, so offering a
- * horizon per scenario would only create a way to fail.
+ * horizon per scenario would only create a way to fail. An account named twice, on one side or across
+ * both, is refused here as {@link ProjectScenarioCommand} refuses it (ADR-051).
  */
 public record CompareScenariosCommand(
         List<ScenarioId> scenarios,
@@ -27,5 +28,6 @@ public record CompareScenariosCommand(
         scenarios = List.copyOf(scenarios);
         cashAccounts = List.copyOf(cashAccounts);
         investedAccounts = List.copyOf(investedAccounts);
+        AccountSelection.requireEachNamedOnce(cashAccounts, investedAccounts);
     }
 }

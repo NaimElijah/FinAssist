@@ -160,6 +160,24 @@ class ProjectionControllerTest {
     }
 
     /**
+     * Planning refuses an account named twice as the command is built, so the in-port is never called,
+     * and the detail is the message the translation gave while it held the rule (ADR-051).
+     */
+    @Test
+    void Given_an_account_named_as_cash_and_as_invested_When_projected_Then_it_is_a_422_rule_violated_problem()
+            throws Exception {
+        mvc.perform(firstQuarter().param("cash", CURRENT_ACCOUNT).param("invested", CURRENT_ACCOUNT))
+                .andExpect(status().is(422))
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail")
+                        .value("Account reference " + CURRENT_ACCOUNT
+                                + " is named more than once; it would be counted twice"))
+                .andExpect(jsonPath("$.code").value("RULE_VIOLATED"));
+
+        verifyNoInteractions(projector);
+    }
+
+    /**
      * Nothing is deletable, so a scenario naming a plan the store cannot find means the store is corrupt:
      * the ledger's fault, not the request's (ADR-028). The plan id reaches the log and never the wire.
      */
