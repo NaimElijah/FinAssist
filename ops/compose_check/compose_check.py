@@ -47,6 +47,9 @@ READINESS_PROBES: Final = {
 SPRING_SERVICES: Final = frozenset({"ledger", "gateway"})
 ACTUATOR_WEB_PREFIX: Final = "MANAGEMENT_ENDPOINTS_WEB_"
 SPRING_APPLICATION_JSON: Final = "SPRING_APPLICATION_JSON"
+# SPRING_CONFIG_IMPORT, _ADDITIONAL_LOCATION and the rest point Spring at another document, which
+# can widen the exposure list as surely as the keys above.
+SPRING_CONFIG_PREFIX: Final = "SPRING_CONFIG_"
 PASSED: Final = "Every service follows the Compose conventions"
 
 
@@ -98,7 +101,9 @@ def _mapping(value: object, what: str) -> Mapping[str, object]:
 def _reopens_actuator(key: str) -> bool:
     # Spring Boot binds a variable named in the dotted form as well; case is ignored for safety.
     canonical = key.upper().replace(".", "_").replace("-", "_")
-    return canonical.startswith(ACTUATOR_WEB_PREFIX) or canonical == SPRING_APPLICATION_JSON
+    return canonical.startswith((ACTUATOR_WEB_PREFIX, SPRING_CONFIG_PREFIX)) or (
+        canonical == SPRING_APPLICATION_JSON
+    )
 
 
 def _command(test: object) -> str:

@@ -220,8 +220,11 @@ def Given_several_problems_When_checked_Then_each_is_reported_with_services_in_n
         "MANAGEMENT_ENDPOINTS_WEB_BASE_PATH",
         "MANAGEMENT_ENDPOINTS_WEB_PATH_MAPPING_HEALTH",
         "SPRING_APPLICATION_JSON",
+        "SPRING_CONFIG_ADDITIONAL_LOCATION",
+        "SPRING_CONFIG_IMPORT",
         "management.endpoints.web.exposure.include",
         "spring_application_json",
+        "spring.config.additional-location",
     ],
 )
 @pytest.mark.parametrize("service", ["ledger", "gateway"])
