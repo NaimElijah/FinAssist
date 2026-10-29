@@ -309,8 +309,9 @@ def _clock_reads_in(source: str, filename: str = "<test>") -> list[str]:
 # The names that import a module named at run time, or run source text that may import one. The
 # import rules read statements, and an argument can be any string, so the name itself is refused
 # rather than its argument read: `import_module` and `__import__`; `importlib.util`'s loaders and
-# a loader's `exec_module`; `runpy`'s two runners; and `exec` and `eval`, whose text can hold an
-# import statement no rule here parses. Nothing in the tree has a use for any of them.
+# a loader's `exec_module` and `load_module`, named because a loader needs no importlib to reach -
+# every module holds one as `__loader__`; `runpy`'s two runners; and `exec` and `eval`, whose text
+# can hold an import statement no rule here parses. Nothing in the tree has a use for any of them.
 DYNAMIC_IMPORTERS = frozenset(
     {
         "import_module",
@@ -318,6 +319,7 @@ DYNAMIC_IMPORTERS = frozenset(
         "spec_from_file_location",
         "module_from_spec",
         "exec_module",
+        "load_module",
         "run_module",
         "run_path",
         "exec",
@@ -327,7 +329,8 @@ DYNAMIC_IMPORTERS = frozenset(
 
 # The modules whose purpose is loading code by name or by path. Importing one at all is refused,
 # so a loader reached through a member this file does not list - `importlib.util.find_spec`,
-# `pkgutil.resolve_name`, a `zipimport` importer - is refused too.
+# `pkgutil.resolve_name`, a `zipimport` importer - is refused too. A reference is read by the name
+# it resolves to, so `import importlib as il` followed by `il.util.find_spec` is refused as well.
 DYNAMIC_IMPORT_MODULES = frozenset(
     {"importlib.util", "importlib.machinery", "runpy", "pkgutil", "zipimport"}
 )
@@ -339,7 +342,12 @@ def _is_dynamic_import_module(module: str) -> bool:
     return any(module == name or module.startswith(f"{name}.") for name in DYNAMIC_IMPORT_MODULES)
 
 
-def _dynamic_imports_in(source: str, filename: str = "<test>") -> list[str]:
+def _qualified(node: ast.AST, bound: Mapping[str, str]) -> str:
+    """A reference's name resolved through the module's bindings, or as written if none binds it."""
+    return _resolve(node, bound) or _dotted(node)
+
+
+def _dynamic_imports_in(source: str, filename: str = "<test>", package: str = "") -> list[str]:
     """Every reference to an importer or a code runner, and every import binding one.
 
     Matched as a reference, called or not, the way the clock rule matches a reader:
@@ -348,15 +356,21 @@ def _dynamic_imports_in(source: str, filename: str = "<test>") -> list[str]:
     ``from importlib import import_module as load`` leaves a call named ``load`` that no name match
     could follow. And ``getattr`` naming an importer as a string is matched, since no attribute node
     shows it.
+
+    An attribute chain is read by the name its first part resolves to through the module's imports
+    and top-level aliases, as the translation rule reads one: ``_il.machinery`` is
+    ``importlib.machinery`` when ``_il`` is ``importlib``. *package* resolves relative imports.
     """
+    tree = ast.parse(source, filename=filename)
+    bound = _bindings(tree, package)
     found: list[str] = []
-    for node in ast.walk(ast.parse(source, filename=filename)):
+    for node in ast.walk(tree):
         if isinstance(node, ast.Name) and node.id in DYNAMIC_IMPORTERS:
             found.append(f"{node.id} at line {node.lineno}")
         elif isinstance(node, ast.Attribute) and (
-            node.attr in DYNAMIC_IMPORTERS or _is_dynamic_import_module(_dotted(node))
+            node.attr in DYNAMIC_IMPORTERS or _is_dynamic_import_module(_qualified(node, bound))
         ):
-            found.append(f"{_dotted(node) or node.attr} at line {node.lineno}")
+            found.append(f"{_qualified(node, bound) or node.attr} at line {node.lineno}")
         elif (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
@@ -878,7 +892,7 @@ def Given_a_module_When_parsed_Then_it_imports_nothing_by_a_call(path: Path) -> 
     ``getattr``, or read out of a namespace by subscript - ``vars(importlib)["import_module"]``,
     ``__builtins__["__import__"]``. Those are held in review.
     """
-    found = _dynamic_imports_in(path.read_text(encoding="utf-8"), str(path))
+    found = _dynamic_imports_in(path.read_text(encoding="utf-8"), str(path), _module_package(path))
     assert not found, (
         f"{path.relative_to(SRC)} imports by a call: {found}. Write the import as a statement, "
         "so the architecture rules can see what it depends on."
@@ -1617,6 +1631,13 @@ def Given_a_protocol_outside_a_port_package_When_discovered_Then_it_is_not_a_por
         "module = module_from_spec(spec)",
         "spec.loader.exec_module(module)",
         "from importlib.machinery import SourceFileLoader",
+        # An alias of importlib hides `.util` and `.machinery` from a literal reading of the text.
+        'import importlib as _il\n_il.machinery.SourceFileLoader("m", "x.py").load_module()',
+        'import importlib as _il\nloader = _il.machinery.SourceFileLoader("m", "x.py")',
+        'import importlib as _il\nspec = _il.util.find_spec("fastapi")',
+        'import importlib as _il\n_m = _il\nspec = _m.util.find_spec("fastapi")',
+        # A loader reached without importlib at all: every module carries one.
+        '__loader__.load_module("m")',
         # runpy, and the other stdlib loaders.
         "import runpy",
         'from runpy import run_module\nrun_module("fastapi")',
