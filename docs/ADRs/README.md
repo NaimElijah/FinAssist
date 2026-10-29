@@ -26,7 +26,7 @@ append-only history: to change course, add a new record and mark the old one
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
 | [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, extended by 050, corrected by 047 |
 | [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, extended by 033 |
-| [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted, extended by 041 |
+| [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted, extended by 041 and 055 |
 | [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted, extended by 051 |
 | [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted, extended by 048, which supersedes its in-memory-log sentence |
 | [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033 and 035 |
@@ -60,6 +60,7 @@ append-only history: to change course, add a new record and mark the old one
 | [052](ADR-052-ops-holds-operator-code-one-directory-per-tool.md) | `ops/` holds operator code, one directory per tool | Accepted |
 | [053](ADR-053-the-gateways-outbound-calls-speak-http-1-1-under-one-time-budget.md) | The gateway's outbound calls speak HTTP/1.1, under one time budget | Accepted |
 | [054](ADR-054-each-service-ships-as-a-two-stage-image-run-as-a-non-root-user.md) | Each service ships as a two-stage image, built from source and run as a non-root user | Accepted |
+| [055](ADR-055-the-assistants-development-seed-lives-in-its-composition-root.md) | The assistant's development seed lives in its composition root, and is off by default | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -224,4 +225,9 @@ and 10 s budget, and the relay removes four browser headers, not two
 054 extends 005 on 2026-10-29, recording how the ledger, the gateway and the assistant become
 images, which only their Dockerfiles said. Each is built from source in two stages and run as a
 non-root user, the build skips the tests, and nothing in CI builds an image
+([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
+
+055 extends 021 on 2026-10-29, recording the assistant's development seed, which has existed since
+2026-09-14. `ASSISTANT_DEV_SEED` is off by default, the seed lives only in the composition root,
+and it is never a data source. It goes when a ledger client and a quote feed exist
 ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).

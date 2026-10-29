@@ -1,6 +1,7 @@
 # ADR-021: The application layer — use-case ports, consumer-owned out-ports, constructor wiring
 
-- **Status:** Accepted, extended by [ADR-041](ADR-041-consume-fifo-orders-its-own-lots.md)
+- **Status:** Accepted, extended by [ADR-041](ADR-041-consume-fifo-orders-its-own-lots.md) and
+  [ADR-055](ADR-055-the-assistants-development-seed-lives-in-its-composition-root.md)
 - **Date:** 2026-09-01
 
 ## Context
