@@ -638,7 +638,7 @@ def _protocol_named(name: str, protocols: PortProtocols) -> PortName | None:
 def _translations_in(
     tree: ast.Module, bound: Mapping[str, str], protocols: PortProtocols
 ) -> list[tuple[ast.ClassDef, frozenset[PortName]]]:
-    """The module's translations, each with the port Protocols it implements.
+    """The module's translations, each with the port Protocols it names as a base.
 
     A translation is picked out by what it is, as the ledger's rule picks one out: a class that
     implements a context's port - by shape, defining every method the Protocol declares, as
@@ -646,33 +646,39 @@ def _translations_in(
     ``Assembly`` and ``Portfolio`` implement none, so a record of what was wired may hold adapters
     and out-ports, and grow a method, without becoming one. A Protocol declaring no method is
     implemented by every class and so names none.
+
+    Only a base is returned, because only a base may be exempt. A shape is something a class can
+    acquire by accident or on purpose: defining ``latest`` beside ``unit_price`` made a class
+    implement the upstream's ``QuoteFeedPort`` by shape, and exempting that let it call the feed
+    past ``LatestQuote``. A base is a declaration, as the ledger's ``implements`` is.
     """
     found = []
     for node in tree.body:
         if not isinstance(node, ast.ClassDef):
             continue
         methods = _methods_of(node)
-        by_shape = {port for port, needed in protocols.items() if needed and needed <= methods}
-        by_base = {
+        by_shape = any(needed and needed <= methods for needed in protocols.values())
+        by_base = frozenset(
             port
             for base in node.bases
             if (port := _protocol_named(_resolve(_unsubscripted(base), bound), protocols))
-        }
-        if implemented := frozenset(by_shape | by_base):
-            found.append((node, implemented))
+        )
+        if by_shape or by_base:
+            found.append((node, by_base))
     return found
 
 
 def _reaches_past_use_case(
-    name: str, protocols: PortProtocols, implemented: frozenset[PortName]
+    name: str, protocols: PortProtocols, declared: frozenset[PortName]
 ) -> bool:
-    """Whether a qualified name is a context's adapter, or an out-port the class does not implement.
+    """Whether a qualified name is a context's adapter, or an out-port the class does not declare.
 
-    The implemented port is exempt for the reason the ledger exempts it (``implemented.contains``):
-    it is the translation's own downstream port, and naming it is how the class says what it is.
+    A port named as a base is exempt for the reason the ledger exempts it
+    (``implemented.contains``): it is the translation's own downstream port, and naming it is how
+    the class says what it is.
     """
     port = _protocol_named(name, protocols)
-    return _names_context_adapter(name) or (port is not None and port not in implemented)
+    return _names_context_adapter(name) or (port is not None and port not in declared)
 
 
 def _translation_overreach_in(source: str, package: str, protocols: PortProtocols) -> list[str]:
@@ -683,11 +689,11 @@ def _translation_overreach_in(source: str, package: str, protocols: PortProtocol
     tree = ast.parse(source)
     bound = _bindings(tree, package)
     found: set[str] = set()
-    for translation, implemented in _translations_in(tree, bound, protocols):
+    for translation, declared in _translations_in(tree, bound, protocols):
         parts = [*translation.bases, *translation.body]
         for node in (node for part in parts for node in ast.walk(part)):
             name = _resolve(node, bound)
-            if name and _reaches_past_use_case(name, protocols, implemented):
+            if name and _reaches_past_use_case(name, protocols, declared):
                 found.add(f"{translation.name} names {name} at line {getattr(node, 'lineno', 0)}")
     return sorted(found)
 
@@ -1000,7 +1006,8 @@ def Given_a_translation_When_parsed_Then_it_names_no_out_port_or_adapter(path: P
     value a holding at a price of any age, and no rule inside either context could see it: the
     translation lives in the composition root, which may import both. A module's assembly function
     and the records it returns still name the adapters and ports they wire; only the classes that
-    implement a port are held, and each may name the port it implements.
+    implement a port are held, and each may name a port it declares as its base. Implementing one
+    by shape alone exempts nothing, or defining the upstream out-port's methods would exempt it.
 
     Static, so a name it cannot resolve is missed: a string annotation; a path through an allowed
     object such as ``self.quotes.feed``; an alias made inside a function or by unpacking, rather
@@ -1441,6 +1448,10 @@ FEED_ADAPTER_IMPORT = (
         "from finassist_assistant.portfolio.application.port import QuotePort\n"
         "from finassist_assistant.marketdata.application.port import QuoteFeedPort\n"
         "class T(QuotePort):\n    feed: QuoteFeedPort",
+        # A port implemented by shape alone is not declared, so even the downstream one is found.
+        "from finassist_assistant.portfolio.application.port import QuotePort\n"
+        "class T:\n    def unit_price(self, symbol):\n"
+        "        port: QuotePort = self\n        return port",
     ],
 )
 def Given_a_translation_naming_an_out_port_or_adapter_When_scanned_Then_it_is_found(
@@ -1467,15 +1478,35 @@ def Given_a_translation_naming_a_use_case_and_a_port_exception_When_scanned_Then
 
 
 def Given_a_translation_naming_the_port_it_implements_When_scanned_Then_it_passes() -> None:
-    # Its own downstream port, as the ledger exempts it with `implemented.contains(target)`.
+    # Its own downstream port, declared as its base, as the ledger exempts it with
+    # `implemented.contains(target)`. Implemented by shape alone, naming it is found instead, in
+    # the cases above.
     source = (
         "from finassist_assistant.portfolio.application.port import QuotePort\n"
-        "class ByShape:\n    def unit_price(self, symbol):\n"
+        "class ByBase(QuotePort):\n    def unit_price(self, symbol):\n"
         "        port: QuotePort = self\n        return port\n"
-        "class ByBase(QuotePort):\n    def unit_price(self, symbol): ..."
     )
 
     assert _translation_overreach_in(source, TRANSLATION_PACKAGE, PORTS) == []
+
+
+# The name is the specification and cannot be shortened to the line length without losing part of
+# it, so E501 is waived for this one line.
+def Given_a_translation_defining_an_upstream_out_ports_method_When_scanned_Then_naming_that_out_port_is_found() -> (  # noqa: E501
+    None
+):
+    # Defining `latest` beside `unit_price` gives the class QuoteFeedPort's shape too. Were a shape
+    # an exemption, the class could forward to the feed past LatestQuote and the rule stay green.
+    source = (
+        "from finassist_assistant.marketdata.application.port import QuoteFeedPort\n"
+        "class T:\n    feed: QuoteFeedPort\n"
+        "    def latest(self, ticker):\n        return self.feed.latest(ticker)\n"
+        "    def unit_price(self, symbol):\n        return self.feed.latest(symbol)\n"
+    )
+
+    found = _translation_overreach_in(source, TRANSLATION_PACKAGE, PORTS)
+
+    assert any(f"{MARKETDATA_PORT}.QuoteFeedPort" in item for item in found), found
 
 
 def Given_a_record_with_a_method_naming_out_ports_and_adapters_When_scanned_Then_it_passes() -> (
@@ -1507,10 +1538,11 @@ def Given_composition_root_classes_When_asked_Then_only_port_implementers_are_tr
     # A Protocol with no method would be implemented by every class; it must pick out none.
     ports: PortProtocols = {**PORTS, (MARKETDATA_PORT, "Marker"): frozenset()}
 
-    held = {node.name: implemented for node, implemented in _translations_in(tree, bound, ports)}
+    held = {node.name: declared for node, declared in _translations_in(tree, bound, ports)}
 
+    # A shape makes a translation but declares nothing; only a base is exempt.
     assert held == {
-        "ByShape": frozenset({(PORTFOLIO_PORT, "QuotePort")}),
+        "ByShape": frozenset(),
         "ByBase": frozenset({(MARKETDATA_PORT, "QuoteFeedPort")}),
     }, held
 
