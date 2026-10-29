@@ -42,8 +42,14 @@ def _conforming() -> dict[str, Any]:
         "x-logging": copy.deepcopy(BOUNDED_LOGS),
         "services": {
             "db": _long_running(environment={"POSTGRES_PASSWORD": SECRET}),
-            "ledger": _long_running(healthcheck=_probe("/actuator/health/readiness")),
-            "gateway": _long_running(healthcheck=_probe("/actuator/health/readiness")),
+            "ledger": _long_running(
+                healthcheck=_probe("/actuator/health/readiness"),
+                environment={"LEDGER_DB_PASSWORD": SECRET, "OTEL_EXPORT_ENABLED": "false"},
+            ),
+            "gateway": _long_running(
+                healthcheck=_probe("/actuator/health/readiness"),
+                environment={"GATEWAY_CLIENT_SECRET": SECRET, "OTEL_EXPORT_ENABLED": "false"},
+            ),
             "assistant": _long_running(healthcheck=_probe("/ready")),
             "keycloak": _long_running(healthcheck=_probe("/health/ready")),
             "grafana": _long_running(environment={"GF_SECURITY_ADMIN_PASSWORD": SECRET}),
@@ -197,6 +203,77 @@ def Given_several_problems_When_checked_Then_each_is_reported_with_services_in_n
     ]
 
 
+# --- The Actuator exposure, pinned in code, never reopened by Compose -----------------------------
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE",
+        "MANAGEMENT_ENDPOINTS_WEB_BASE_PATH",
+        "MANAGEMENT_ENDPOINTS_WEB_PATH_MAPPING_HEALTH",
+        "SPRING_APPLICATION_JSON",
+        "management.endpoints.web.exposure.include",
+        "spring_application_json",
+    ],
+)
+@pytest.mark.parametrize("service", ["ledger", "gateway"])
+def Given_a_spring_service_whose_environment_reopens_actuator_When_checked_Then_the_key_is_named(
+    service: str, key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["environment"][key] = SECRET
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: its environment must not set {key}"]
+
+
+def Given_both_spring_services_reopening_actuator_When_checked_Then_each_key_is_named_in_order(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    ledger = resolved["services"]["ledger"]["environment"]
+    ledger["SPRING_APPLICATION_JSON"] = SECRET
+    ledger["MANAGEMENT_ENDPOINTS_WEB_BASE_PATH"] = SECRET
+    gateway = resolved["services"]["gateway"]["environment"]
+    gateway["MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE"] = SECRET
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        "gateway: its environment must not set MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE",
+        "ledger: its environment must not set MANAGEMENT_ENDPOINTS_WEB_BASE_PATH",
+        "ledger: its environment must not set SPRING_APPLICATION_JSON",
+    ]
+
+
+def Given_a_management_key_on_a_service_without_spring_When_checked_Then_it_passes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["db"]["environment"]["MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE"] = "*"
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_PASSED
+    assert lines == [PASSED]
+
+
+def Given_a_spring_service_with_no_environment_When_checked_Then_it_passes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    del resolved["services"]["gateway"]["environment"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_PASSED
+    assert lines == [PASSED]
+
+
 # --- Input that is not a resolved Compose file ----------------------------------------------------
 
 
@@ -231,8 +308,24 @@ def Given_input_that_is_not_json_When_checked_Then_it_is_refused_without_quoting
             "x-logging": BOUNDED_LOGS,
             "services": {"ledger": _long_running(healthcheck=SECRET)},
         },
+        # `config` always resolves the list form to a mapping, so a list means the input is not
+        # its output, and would otherwise hide a key from the Actuator rule.
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {
+                "gateway": _long_running(environment=[f"SPRING_APPLICATION_JSON={SECRET}"]),
+            },
+        },
     ],
-    ids=["not-a-mapping", "no-services", "services-a-list", "service-a-string", "healthcheck"],
+    ids=[
+        "not-a-mapping",
+        "no-services",
+        "services-a-list",
+        "service-a-string",
+        "healthcheck",
+        "environment-a-list",
+    ],
 )
 def Given_json_not_shaped_like_a_resolved_file_When_checked_Then_it_is_refused_without_a_value(
     resolved: object, capsys: pytest.CaptureFixture[str]

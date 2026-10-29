@@ -517,7 +517,7 @@ take each bump in one PR, and Temurin and Python stay on 21 and 3.13 until an AD
 | Assistant | Source-parsing architecture rules; FIFO cost basis, grounding, staleness and Money, with Hypothesis; token verification and authorization; the problem shape; the OpenAPI contract | `make test-assistant` |
 | Backup CLI | Redaction, the manifest checks, every restore precondition, a backup's refusals, the command line and the owner-project guard, without Docker | `make test-backup` |
 | Secret check | It reads exactly the files git does not ignore, matches a value literally and only as a whole token, and refuses by variable name, never by value | `make test-secret-check` |
-| Compose check | Each restart, log-bound and readiness rule fails on a crafted resolved file, a missing `x-` block fails, and no report quotes a resolved value | `make test-compose-check` |
+| Compose check | Each restart, log-bound and readiness rule fails on a crafted resolved file, a missing `x-` block fails, an Actuator-exposure key in the ledger's or the gateway's environment fails, and no report quotes a resolved value | `make test-compose-check` |
 | Web | The file-tree architecture rules; the shared primitives; the sign-in gate; the read-only viewer; every screen end to end against a faked `fetch` | `make test-web` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
 
