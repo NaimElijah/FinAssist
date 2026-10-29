@@ -5,6 +5,8 @@ here too, including its rules for `docker-compose.yml`; this file adds what bind
 
 ## Layout
 
+One directory per tool, none of them a deployable service of this repository's (ADR-052).
+
 - `ops/keycloak/` — `Dockerfile`, which builds the optimized Keycloak image that
   `docker-compose.yml` runs, and `finassist-realm.json`, the `finassist` realm imported at
   start-up.

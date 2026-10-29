@@ -64,12 +64,13 @@ From `backend/gateway`:
   token's `JwtDecoderFactory` from `RestTemplateBuilder`. Spring Security's defaults for all three
   build their client from a static factory that never sees `spring.http.clients.*`, so dropping any
   of these beans silently makes that call unbounded — only the relay's own client gets Boot's
-  budget for free. `GatewayKeycloakTimeoutIT` stalls each endpoint in turn and fails the build if
-  one stops giving up; `GatewayRelayTimeoutIT` does the same for the relay's own read budget.
-- **Every outbound call speaks HTTP/1.1.** `GatewayConfiguration`'s `relayHttpVersion` customizer
-  pins the JDK client's version, because its HTTP/2 default offers an h2c upgrade on a cleartext
-  hop, and uvicorn answers 400 to an upgrade request that carries a body — every POST relayed to
-  the assistant. Boot exposes no property for this, so a
+  budget for free (ADR-053). `GatewayKeycloakTimeoutIT` stalls each endpoint in turn and fails the
+  build if one stops giving up; `GatewayRelayTimeoutIT` does the same for the relay's own read
+  budget.
+- **Every outbound call speaks HTTP/1.1** (ADR-053). `GatewayConfiguration`'s `relayHttpVersion`
+  customizer pins the JDK client's version, because its HTTP/2 default offers an h2c upgrade on a
+  cleartext hop, and uvicorn answers 400 to an upgrade request that carries a body — every POST
+  relayed to the assistant. Boot exposes no property for this, so a
   `ClientHttpRequestFactoryBuilderCustomizer` bean is the lever. `GatewayLoginFlowIT` fails the
   build if an upgrade offer ever reaches an upstream again. Lift it only once a relayed hop runs
   over TLS, where HTTP/2 arrives by ALPN with no upgrade header at all.

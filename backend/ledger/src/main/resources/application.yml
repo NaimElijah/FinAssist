@@ -72,8 +72,10 @@ spring:
     # arrives below the highest version already applied. Flyway classes such a migration IGNORED
     # and refuses to start (FlywayValidateException, "Detected resolved migration not applied to
     # database"), so left false, accounting and budgeting could never gain another migration at
-    # all. Safe because no foreign key crosses a schema (SchemaBoundariesIT), so order between
-    # contexts carries no meaning; order within a context is unchanged. Never set this to false:
+    # all. Safe between contexts because no foreign key crosses a schema (SchemaBoundariesIT), so
+    # order between contexts carries no meaning. Within a context it would not be safe: a script
+    # released below one already applied would run last on an upgraded database and first on a
+    # fresh one, which ReleasedMigrationsTest fails (ADR-047). Never set this to false:
     # LedgerUpgradeIT rebuilds the real applied history and starts the ledger against it, and is
     # what turns red if it is (ADR-035).
     #

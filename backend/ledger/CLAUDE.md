@@ -12,8 +12,8 @@ top-level `shared/` kernel, the `composition/` root, and `LedgerApplication`.
 
 Each context has an inbound HTTP adapter under `/api/v1`, behind `HostAllowListFilter` and
 problem+json error handling. The OpenAPI document is generated from the code and committed at
-`contracts/ledger-v1.openapi.json`, pinned by `LedgerContractIT` (ADR-004). The ledger answers
-Actuator probes and traces its business endpoints (ADR-019).
+`contracts/ledger-v1.openapi.json`, pinned by `LedgerContractIT` (ADR-004, ADR-028). The ledger
+answers Actuator probes and traces its business endpoints (ADR-019).
 
 ## Commands
 
@@ -57,7 +57,9 @@ From `backend/ledger`:
   class implements no out-port, `composition_calls_no_out_port_service_or_adapter` adds that no
   `composition` class may call, or take a reference to, a method of an out-port interface, an
   `application.service` class or an adapter: `LedgerConfiguration` constructs them, never calls
-  them. A decorator in `composition` delegates through the in-port it decorates.
+  them. A decorator in `composition` delegates through the in-port it decorates. Converting the
+  upstream's exceptions at the boundary is pinned by `AccountingOpeningPositionsTest`; a
+  translation that drops what the in-port returns is held in review.
 - **There is no entity type at all.** Persistence lives in `adapter/out/persistence` and maps rows
   to aggregates by hand — the strongest form of "an entity is not an aggregate".
 - **The `Money` mapping is duplicated per context on purpose.** The slice rule leaves no legal
@@ -110,8 +112,11 @@ bounded context (ADR-006, ADR-024).
 - **`spring.flyway.out-of-order` stays `true`; never turn it off.** One history table with a major
   version per context (ADR-024) means the next migration for any context but the highest arrives
   below a version already applied, which Flyway classes `IGNORED` and refuses to start over. Safe
-  because no foreign key crosses a schema; order within a context and checksum validation are
-  untouched. `LedgerUpgradeIT` is what turns red: it rebuilds the history a real database holds
+  between contexts because no foreign key crosses a schema. Within a context it is not safe: with
+  the flag on, a script released below one already applied runs last on an upgraded database and
+  first on a fresh one, so `ReleasedMigrationsTest` fails one that does not carry a higher version
+  than every earlier release in its directory (ADR-047). Checksum validation is untouched.
+  `LedgerUpgradeIT` is what turns red: it rebuilds the history a real database holds
   (`1.1`, `2.1`, `3.1`) from the committed scripts, byte for byte, then starts the ledger's own
   context against it. Extend it when the applied set changes. Never reach for
   `ignoreMigrationPatterns`, which would start the ledger with the column missing (ADR-035).

@@ -54,6 +54,11 @@ From `backend/assistant`:
   import it.
 - **Foreign shapes stop at the anti-corruption layer.** Ledger DTOs, Anthropic responses and
   price-feed payloads become local model types in `adapters/outbound/*` and nowhere else.
+- **A translation calls the upstream context's use case, never its out-ports or adapters.** A
+  translation is a class in the composition root that implements a context's port `Protocol`;
+  only a port it names as a base is exempt, so defining an out-port's methods exempts nothing.
+  `Given_a_translation_When_parsed_Then_it_names_no_out_port_or_adapter` fails the build
+  otherwise; the ledger's mirror is `translations_reach_the_upstream_context_only_through_its_in_ports`.
 - **Adding a dependency can widen an architecture rule silently.** The forbidden list is derived
   from `pyproject.toml` and mangles `-` to `_`, so a distribution whose import root differs from
   its name (`opentelemetry-sdk` → `opentelemetry`) is missed unless named in the explicit set in
@@ -84,7 +89,9 @@ From `backend/assistant`:
   token. Pinned by `tests/test_authorization.py`. `tests/test_auth.py` serves the assistant the
   same key-set bodies that `LedgerJwksBodyTest` serves the ledger: keep the two in step.
 - **The problem handlers live in the composition root**, `adapters/problems.py` — the one package
-  allowed to see every context's exceptions, mirroring the ledger's `LedgerProblemHandler`.
+  allowed to see every context's exceptions. The ledger maps them per context, a `*ProblemAdvice`
+  in each, and keeps only a fallback, `LedgerProblemHandler`, in `composition`; only `portfolio` is
+  served here, so one module maps them all.
 - **A logged 500 never carries an amount.** The guarantee is the problem handlers: `_withheld`
   logs a 500 caused by a validation failure through `_rejections` — each error's `loc` and `type`
   alone, never its message, its input or `exc_info`, because FastAPI's `ResponseValidationError`

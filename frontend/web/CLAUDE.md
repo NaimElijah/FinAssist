@@ -112,7 +112,7 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
 - **A chart's scale function is the only place an amount becomes a number**, and only to compute a
   pixel coordinate — `scalePoints` in `features/planning/components/chartScale.ts`. Every figure a
   person reads — labels, axis extremes, tables, title text — is the server's string through
-  `MoneyText` (ADR-029).
+  `MoneyText` (ADR-029, ADR-047).
 - **A form section scoped to one entity is keyed by that entity's id**, so navigating to another
   entity on the same route starts it afresh instead of carrying one entity's inputs or result onto
   the next. `HoldingPage` keys `DisposalSection` and its lookup by `symbol`; a test proves the
@@ -130,8 +130,8 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
   would stay locked. The form's in-flight guard decides that, never the render-time status, which
   lags a tick behind both a resubmit and a settle (#71). Each form has a test that editing a field
   clears its failure, and, for the disposal, its result.
-- **A failed read offers "Try again" only when `isRetryable(error)` holds** — a network failure,
-  or a 5xx other than a 503. The predicate lives in `src/shared/api/retry.ts`, and the query
+- **A failed read offers "Try again" only when `isRetryable(error)` holds** (ADR-056) — a network
+  failure, or a 5xx other than a 503. The predicate lives in `src/shared/api/retry.ts`, and the query
   client's automatic retry imports the same one, so the two never disagree; a 4xx is the server's
   considered answer, shown with nothing to press. Every feature renders a failed read through the
   shared `QueryErrorState` from `src/shared/ui`, which renders its `RetryButton`, never a copy of
