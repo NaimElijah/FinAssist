@@ -82,7 +82,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
           enable-cache: true
           # The interpreter is deliberately not pinned here: `uv sync` resolves it from
@@ -188,7 +188,7 @@ jobs:
 
       # For ops/compose_check/compose_check.py: uv fetches the Python the target pins with
       # --python, backend/assistant/.python-version, since the PEP 723 block states only a minimum.
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
 
       # Never reads .env: the target resolves the file over .env.example, with
       # ops/compose_check/placeholders.env exported, and the Makefile says why each profile is
