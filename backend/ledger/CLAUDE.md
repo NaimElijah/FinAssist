@@ -38,7 +38,7 @@ From `backend/ledger`:
 
 ## Architecture
 
-- **The sixteen ArchUnit rules in `LedgerArchitectureTest` are live.** The
+- **The seventeen ArchUnit rules in `LedgerArchitectureTest` are live.** The
   `archRule.failOnEmptyShould=false` escape hatch was deleted with the first domain class, so a
   rule matching nothing now fails rather than passing quietly. Do not reintroduce it.
 - **The domain, the application layer and `shared` import no framework and no I/O** — no Spring,
@@ -46,6 +46,12 @@ From `backend/ledger`:
   `io.micrometer`, `org.flywaydb` or `com.nimbusds`; no `java.sql`, `java.net`, `java.io` or
   `java.nio`. `FORBIDDEN_FRAMEWORK_PACKAGES` in `LedgerArchitectureTest` is the list; logging and
   metrics belong in adapters and `composition`.
+- **A translation reaches the upstream context through its in-ports only.** A `composition` class
+  implementing a consumer's out-port (`AccountingSpendJournal`, `AccountingOpeningPositions`) may
+  name no `application.service` class, no adapter, and no out-port interface it does not implement;
+  `translations_reach_the_upstream_context_only_through_its_in_ports` fails the build otherwise.
+  The `port.out` records it translates into stay allowed. `LedgerConfiguration` implements no
+  out-port, so it may still wire repositories.
 - **There is no entity type at all.** Persistence lives in `adapter/out/persistence` and maps rows
   to aggregates by hand — the strongest form of "an entity is not an aggregate".
 - **The `Money` mapping is duplicated per context on purpose.** The slice rule leaves no legal

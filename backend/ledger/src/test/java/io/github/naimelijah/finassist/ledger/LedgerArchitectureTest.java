@@ -13,6 +13,7 @@ import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.sli
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.AccessTarget;
 import com.tngtech.archunit.core.domain.AccessTarget.CodeUnitAccessTarget;
+import com.tngtech.archunit.core.domain.Dependency;
 import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaConstructor;
@@ -339,6 +340,64 @@ class LedgerArchitectureTest {
             .dependOnClassesThat()
             .resideInAPackage(COMPOSITION)
             .because("frameworks and cross-context translation travel inward only through declared ports");
+
+    /** Where each context declares the ports it consumes, a translation's own port among them. */
+    private static final String OUT_PORTS = ROOT + "..application.port.out..";
+
+    /**
+     * A translation calls the upstream context's in-port, never its repositories (root {@code
+     * CLAUDE.md}, Architecture). A translation is a class in {@code composition} that implements a
+     * consumer's out-port, as {@code AccountingSpendJournal} implements budgeting's {@code SpendJournal}
+     * through accounting's {@code ViewJournalUseCase}. One that read {@code TransactionRepository}
+     * instead would skip every rule the upstream's use case enforces - {@code postedBetween} is what
+     * drops a voided transaction - and would tie the consumer to the upstream's storage, so extracting
+     * either context would become a change of design rather than of transport (ADR-022).
+     *
+     * <p>{@code contexts_do_not_depend_on_each_other} ignores every dependency that starts in {@code
+     * composition}, because {@code LedgerConfiguration} has to name repositories and services to wire
+     * them, so nothing else stops a translation reaching them too. Forbidden: a concrete {@code
+     * application.service} class, which binds it to one implementation rather than the use case; any
+     * adapter; and any out-port interface other than those it implements. The records in {@code
+     * port.out} that it translates into, such as {@code SpendRecord} and {@code AccountRef}, stay
+     * reachable: they are the consumer's vocabulary, which a translation exists to speak.
+     *
+     * <p>The root rule's other half, converting the upstream's exceptions at the boundary, is not
+     * checked here, since no bytecode rule sees which unchecked exception a call can raise. {@code
+     * AccountingOpeningPositionsTest} pins it for the one translation that has one to convert.
+     */
+    @ArchTest
+    static final ArchRule translations_reach_the_upstream_context_only_through_its_in_ports = classes()
+            .that(resideInAPackage(COMPOSITION).and(implementAnOutPort()))
+            .should(reachNoServiceAdapterOrOtherOutPort())
+            .because("a translation that reads a repository skips every rule the upstream's use case enforces");
+
+    private static DescribedPredicate<JavaClass> implementAnOutPort() {
+        return new DescribedPredicate<>("implement an interface in " + OUT_PORTS) {
+            @Override
+            public boolean test(JavaClass type) {
+                return type.getAllRawInterfaces().stream().anyMatch(resideInAPackage(OUT_PORTS));
+            }
+        };
+    }
+
+    private static ArchCondition<JavaClass> reachNoServiceAdapterOrOtherOutPort() {
+        DescribedPredicate<JavaClass> serviceOrAdapter =
+                resideInAPackage(ROOT + "..application.service..").or(resideInAPackage(ROOT + "..adapter.."));
+        DescribedPredicate<JavaClass> outPort = resideInAPackage(OUT_PORTS).and(INTERFACES);
+        return new ArchCondition<>("depend on no application service, no adapter, and no foreign out-port") {
+            @Override
+            public void check(JavaClass translation, ConditionEvents events) {
+                Set<JavaClass> implemented = translation.getAllRawInterfaces();
+                for (Dependency dependency : translation.getDirectDependenciesFromSelf()) {
+                    JavaClass target = dependency.getTargetClass().getBaseComponentType();
+                    boolean foreignOutPort = outPort.test(target) && !implemented.contains(target);
+                    if (serviceOrAdapter.test(target) || foreignOutPort) {
+                        events.add(SimpleConditionEvent.violated(dependency, dependency.getDescription()));
+                    }
+                }
+            }
+        };
+    }
 
     /**
      * The clock is read once, in the composition root, and passed down (root {@code CLAUDE.md}, "Pass
