@@ -77,9 +77,18 @@ class LedgerArchitectureTest {
      * io.swagger..} and {@code org.springdoc..} close the same gap for the OpenAPI annotations and
      * generator the build gained alongside it (ADR-028).
      *
-     * <p>{@code java.sql..} and {@code java.net..} are the JDK's own I/O seams: a {@code Connection} or
-     * an {@code HttpClient} in the domain or a use case is persistence or transport arriving without a
-     * framework, which the other entries cannot see because it imports none.
+     * <p>{@code org.slf4j..}, {@code io.opentelemetry..} and {@code io.micrometer..} are the logging,
+     * tracing and metrics libraries the compile classpath carries for ADR-019. Observability is an
+     * edge concern: a logger or a meter in an aggregate or a use case puts output in the core, which
+     * "nothing writes output except the logging boundary" (root {@code CLAUDE.md}) keeps out. {@code
+     * org.flywaydb..} is the migration engine and {@code com.nimbusds..} the token library the
+     * resource server pulls in; either in the core is persistence or security arriving without a
+     * Spring type the entries above would see.
+     *
+     * <p>{@code java.sql..}, {@code java.net..}, {@code java.io..} and {@code java.nio..} are the JDK's
+     * own I/O seams: a {@code Connection}, an {@code HttpClient}, a {@code Reader} or a {@code Path} in
+     * the domain or a use case is persistence, transport or file access arriving without a framework,
+     * which the other entries cannot see because it imports none.
      */
     private static final String[] FORBIDDEN_FRAMEWORK_PACKAGES = {
         "org.springframework..",
@@ -89,8 +98,15 @@ class LedgerArchitectureTest {
         "tools.jackson..",
         "io.swagger..",
         "org.springdoc..",
+        "org.slf4j..",
+        "io.opentelemetry..",
+        "io.micrometer..",
+        "org.flywaydb..",
+        "com.nimbusds..",
         "java.sql..",
-        "java.net.."
+        "java.net..",
+        "java.io..",
+        "java.nio.."
     };
 
     /**
@@ -146,11 +162,15 @@ class LedgerArchitectureTest {
      * The domain stays framework-free, which is what lets it be tested without Spring and what keeps
      * persistence concerns out of the aggregates. JPA entities belong in the outbound adapter and
      * are mapped; an entity is not an aggregate.
+     *
+     * <p>The {@code shared} kernel is held to the same rule. Every domain depends on {@code Money}, so
+     * a framework type in {@code shared} would reach each of them through a dependency this rule,
+     * scoped to {@code ..domain..} alone, never sees.
      */
     @ArchTest
     static final ArchRule domain_depends_on_no_framework = noClasses()
             .that()
-            .resideInAPackage(ROOT + "..domain..")
+            .resideInAnyPackage(ROOT + "..domain..", SHARED)
             .should()
             .dependOnClassesThat()
             .resideInAnyPackage(FORBIDDEN_FRAMEWORK_PACKAGES)
