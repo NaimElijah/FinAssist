@@ -1,5 +1,5 @@
 import styles from './DateText.module.css';
-import { DISPLAY_LOCALE } from './locale';
+import { DISPLAY_LOCALE } from '../lib/locale';
 
 /** A calendar date as the wire carries it: year, month and day, with no time and no zone. */
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
