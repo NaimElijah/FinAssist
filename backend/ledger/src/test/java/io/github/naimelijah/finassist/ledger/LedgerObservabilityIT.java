@@ -14,6 +14,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -123,16 +125,16 @@ class LedgerObservabilityIT extends PostgresFixture {
     }
 
     /**
-     * Widening the exposure list is the likeliest way to leak configuration, and adding
-     * {@code prometheus} to it is exactly the kind of edit that invites a careless {@code "*"}.
-     * {@code LedgerApplicationIT} makes the same assertion; it is repeated here because this is
-     * the class whose change would break it.
+     * An endpoint outside the exposure list stays unserved in the one context where {@code
+     * prometheus} is exposed, so exposing it opened nothing beside it. {@code LedgerApplicationIT}
+     * makes the same assertion in a context without a Prometheus registry.
      *
-     * <p>{@code /actuator/env} matches no {@code permitAll} rule, so it is denied regardless of
-     * whether a token was sent — 401 with none, 403 with one that simply names no matching route
-     * (ADR-030). Neither answer is Actuator's own 404 any more; the security chain refuses the
-     * request before the dispatcher, let alone Actuator's endpoint mapping, ever sees it. So this
-     * case holds whatever the exposure list says, and the list itself is pinned by the test below.
+     * <p>This is not the guard against widening the list, and cannot be. {@code /actuator/env}
+     * matches no {@code permitAll} rule, so it is denied regardless of whether a token was sent — 401
+     * with none, 403 with one that simply names no matching route (ADR-030). Neither answer is
+     * Actuator's own 404 any more; the security chain refuses the request before the dispatcher, let
+     * alone Actuator's endpoint mapping, ever sees it. So this case holds whatever the exposure list
+     * says, {@code "*"} included; the list itself is pinned by the test below.
      */
     @Test
     void Given_the_prometheus_endpoint_is_exposed_When_an_unexposed_one_is_requested_Then_it_is_still_not_served()
@@ -157,19 +159,55 @@ class LedgerObservabilityIT extends PostgresFixture {
      * from each web discoverer, after the include and exclude filters.
      *
      * <p>Read from the running context rather than from {@code application.yml}, because the context is
-     * what decides: a profile file, an {@code exclude} or a {@code MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_*}
-     * variable changes the answer without changing the file. This class is the home because its
-     * context, through {@link AutoConfigureMetrics}, is one in which all four endpoints exist; without
-     * a Prometheus registry there is no {@code prometheus} endpoint to expose.
+     * what decides: an {@code exclude} beside the {@code include}, or a profile file, changes the
+     * answer without changing that one key. This class is the home because its context, through {@link
+     * AutoConfigureMetrics}, is one in which all four endpoints exist; without a Prometheus registry
+     * there is no {@code prometheus} endpoint to expose.
+     *
+     * <p>The running context also reads the machine, so the test first refuses an environment
+     * variable or a system property that sets the exposure itself. Either outranks {@code
+     * application.yml}: an {@code _INCLUDE} of {@code "*"} would turn the test red with nothing
+     * shipped wrong, and one that names the four would mask a widening in the file. Names are compared
+     * as Spring's relaxed binding reads them, case-insensitive with {@code .} and {@code -} as {@code
+     * _}. Not refused: {@code SPRING_APPLICATION_JSON}, {@code SPRING_CONFIG_*} and an active profile,
+     * which can reach the list only through a document this check does not parse; the ledger ships
+     * no profile file.
      */
     @Test
     void Given_the_shipped_configuration_When_the_web_endpoints_are_resolved_Then_only_the_four_listed_are_exposed() {
+        assertThat(exposureSettings(System.getenv().keySet()))
+                .as("an environment variable sets the web exposure, so this context answers for the machine,"
+                        + " not for the shipped application.yml; unset it to run this test")
+                .isEmpty();
+        assertThat(exposureSettings(System.getProperties().stringPropertyNames()))
+                .as("a system property sets the web exposure, so this context answers for the JVM's"
+                        + " arguments, not for the shipped application.yml; remove it to run this test")
+                .isEmpty();
+
         Set<String> exposed =
                 webEndpoints.stream().map(LedgerObservabilityIT::idOf).collect(Collectors.toSet());
 
         assertThat(exposed)
                 .as("management.endpoints.web.exposure must stay an explicit allow-list, never widened (ADR-019)")
                 .containsExactlyInAnyOrder("health", "info", "metrics", "prometheus");
+    }
+
+    /**
+     * The prefix every name that binds to {@code management.endpoints.web.exposure.*} carries once
+     * normalised as {@link #relaxed} does, the canonical {@code MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_}
+     * variable form.
+     */
+    private static final String EXPOSURE_PREFIX = "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_";
+
+    private static List<String> exposureSettings(Set<String> names) {
+        return names.stream()
+                .filter(name -> relaxed(name).startsWith(EXPOSURE_PREFIX))
+                .sorted()
+                .toList();
+    }
+
+    private static String relaxed(String name) {
+        return name.toUpperCase(Locale.ROOT).replace('.', '_').replace('-', '_');
     }
 
     private static String idOf(PathMappedEndpoint endpoint) {
