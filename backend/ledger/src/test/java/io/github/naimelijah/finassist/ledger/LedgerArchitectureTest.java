@@ -86,10 +86,21 @@ class LedgerArchitectureTest {
      * resource server pulls in; either in the core is persistence or security arriving without a
      * Spring type the entries above would see.
      *
-     * <p>{@code java.sql..}, {@code java.net..}, {@code java.io..} and {@code java.nio..} are the JDK's
-     * own I/O seams: a {@code Connection}, an {@code HttpClient}, a {@code Reader} or a {@code Path} in
-     * the domain or a use case is persistence, transport or file access arriving without a framework,
-     * which the other entries cannot see because it imports none.
+     * <p>{@code org.slf4j..} is not the only logging API on that classpath. {@code
+     * spring-boot-starter-logging} also brings Logback ({@code ch.qos.logback..}), the Log4j 2 API
+     * through {@code log4j-to-slf4j} ({@code org.apache.logging..}), and the bridge for the JDK's own
+     * {@code java.util.logging..}; a {@code Logger} from any of them writes output from the core as
+     * surely as an SLF4J one, so each is listed. {@code com.zaxxer.hikari..} is the connection pool
+     * {@code spring-boot-starter-jdbc} brings: a pool in the core is persistence without a {@code
+     * java.sql} type in sight.
+     *
+     * <p>{@code java.sql..}, {@code java.net..}, {@code java.io..}, {@code java.nio.file..} and {@code
+     * java.nio.channels..} are the JDK's own I/O seams: a {@code Connection}, an {@code HttpClient}, a
+     * {@code Reader}, a {@code Path} or a {@code FileChannel} in the domain or a use case is
+     * persistence, transport or file access arriving without a framework, which the other entries
+     * cannot see because it imports none. The rest of {@code java.nio} is not I/O - a {@code
+     * StandardCharsets} constant or a {@code ByteBuffer} touches nothing outside the process - so it
+     * stays allowed.
      */
     private static final String[] FORBIDDEN_FRAMEWORK_PACKAGES = {
         "org.springframework..",
@@ -100,14 +111,19 @@ class LedgerArchitectureTest {
         "io.swagger..",
         "org.springdoc..",
         "org.slf4j..",
+        "ch.qos.logback..",
+        "org.apache.logging..",
+        "java.util.logging..",
         "io.opentelemetry..",
         "io.micrometer..",
         "org.flywaydb..",
         "com.nimbusds..",
+        "com.zaxxer.hikari..",
         "java.sql..",
         "java.net..",
         "java.io..",
-        "java.nio.."
+        "java.nio.file..",
+        "java.nio.channels.."
     };
 
     /**
