@@ -35,7 +35,7 @@ planning work there:** `backend/ledger/CLAUDE.md`, `backend/gateway/CLAUDE.md`,
 Every target is a thin wrapper in `Makefile` that CI also calls. **`make` is not installed on the
 development machine**, so run the raw command: cross-cutting ones below, each codebase's in its
 file (`make lint`, `make format` and `make audit` run them all; `ops/CLAUDE.md` has identity,
-backups and the smoke check). Keep them in sync with `README.md`'s Development table.
+backups, the smoke and Compose checks). Keep them in sync with `README.md`'s Development table.
 
 - **Set up** — `make setup`: `test -f .env || cp .env.example .env`;
   `./mvnw -B -q dependency:go-offline` in `backend/ledger` and `backend/gateway`;
@@ -47,7 +47,7 @@ backups and the smoke check). Keep them in sync with `README.md`'s Development t
 - **Telemetry** — `make run-monitoring`: `docker compose --profile monitoring up --build`
   (collector, Prometheus, Grafana); `make stop-monitoring` tears the profile down.
 - **Test** — `make test` runs `test-ledger`, `test-gateway`, `test-assistant`, `test-backup`,
-  `test-secret-check` and `test-web`. **Docker must be running for the ledger's and the gateway's
+  `test-secret-check`, `test-compose-check` and `test-web`. **Docker must be running for the Java
   suites**: their `*IT` tests use Testcontainers and fail rather than skip without it (ADR-025).
 - **Clean** — `make clean`: `./mvnw -B -q clean` (ledger, gateway), then delete the assistant's
   caches and coverage files and the web client's `dist/` and `coverage/`; never `.env` or volumes.
@@ -156,9 +156,9 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
   one-shots `auth-smoke` and `secret-check` take neither.** The two `x-` blocks at the top state
   once the policy, `unless-stopped`, and the bound, three 10 MB `json-file` logs (ADR-039, ADR-019).
 - **Every healthcheck probes readiness**: `/actuator/health/readiness` on the ledger and the
-  gateway, `/ready` on the assistant, `/health/ready` on Keycloak's management port. CI's `compose`
-  job fails a long-running service whose restart or logging is not exactly those blocks, a
-  one-shot with either, and any of those four healthchecks that is not readiness (#142).
+  gateway, `/ready` on the assistant, `/health/ready` on Keycloak's management port.
+  `make check-compose` fails a long-running service whose restart or logging is not exactly those
+  blocks, a one-shot with either, and any of those four healthchecks that is not readiness (#142).
 - **`auth-smoke` stays behind `profiles: [smoke]`**: CI validates it (`--profile smoke config`) but
   never runs it, nor `make restore-check` (ADR-034, ADR-038). **`secret-check` has no profile**:
   `db`, `keycloak-db` and `grafana` wait on it, and CI runs it on a published value (ADR-044).

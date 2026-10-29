@@ -15,14 +15,21 @@ SMOKE     := ../../ops/smoke
 BACKUP_TOOL := ../../ops/backup
 # ops/secret_check as seen from $(ASSISTANT), linted and tested the same way (ADR-044).
 SECRET_CHECK := ../../ops/secret_check
+# ops/compose_check as seen from $(ASSISTANT), linted and tested the same way (ADR-049).
+COMPOSE_CHECK := ../../ops/compose_check
+# Compose over .env.example plus a throwaway value for each `:?` variable, never over .env: on a
+# developer machine that holds the owner's secrets, and the resolved file would carry them.
+COMPOSE_CONFIG := docker compose --env-file .env.example --env-file ops/compose_check/placeholders.env
 MVNW      := ./mvnw -B
 UV        := uv
 
 .PHONY: help setup lock run run-monitoring run-identity smoke-auth stop stop-monitoring backup restore restore-check \
-        test test-ledger test-gateway test-assistant test-backup test-secret-check test-web \
+        test test-ledger test-gateway test-assistant test-backup test-secret-check \
+        test-compose-check test-web \
         mutation-ledger lint lint-ledger lint-gateway lint-assistant lint-smoke lint-backup \
-        lint-secret-check lint-web \
-        build-web generate-web-api check-web-api format audit audit-assistant audit-web clean
+        lint-secret-check lint-compose-check lint-web \
+        build-web generate-web-api check-web-api check-compose format audit audit-assistant \
+        audit-web clean
 
 help: ## List available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -70,7 +77,7 @@ stop: ## Stop the stack, keeping volumes
 stop-monitoring: ## Stop the monitoring profile too, keeping volumes
 	docker compose --profile monitoring down
 
-test: test-ledger test-gateway test-assistant test-backup test-secret-check test-web ## Every test, with coverage. CI also gates lint, build and audit
+test: test-ledger test-gateway test-assistant test-backup test-secret-check test-compose-check test-web ## Every test, with coverage. CI also gates lint, build and audit
 
 test-ledger:
 	cd $(LEDGER) && $(MVNW) verify
@@ -89,13 +96,17 @@ test-backup:
 test-secret-check:
 	cd $(ASSISTANT) && $(UV) run pytest -c pyproject.toml $(SECRET_CHECK)/tests
 
+# The Compose conventions check, on crafted resolved files: no Docker (ADR-049).
+test-compose-check:
+	cd $(ASSISTANT) && $(UV) run pytest -c pyproject.toml $(COMPOSE_CHECK)/tests
+
 test-web:
 	cd $(WEB) && npm run test:coverage
 
 mutation-ledger: ## Mutation testing over the ledger domain; a diagnostic, gated on nothing (ADR-017)
 	cd $(LEDGER) && $(MVNW) -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
 
-lint: lint-ledger lint-gateway lint-assistant lint-smoke lint-backup lint-secret-check lint-web ## Format check and static analysis; never rewrites a file
+lint: lint-ledger lint-gateway lint-assistant lint-smoke lint-backup lint-secret-check lint-compose-check lint-web ## Format check and static analysis; never rewrites a file
 
 lint-ledger:
 	cd $(LEDGER) && $(MVNW) spotless:check
@@ -123,6 +134,11 @@ lint-secret-check:
 	cd $(ASSISTANT) && $(UV) run ruff format --check $(SECRET_CHECK)
 	cd $(ASSISTANT) && $(UV) run mypy --strict $(SECRET_CHECK)
 
+lint-compose-check:
+	cd $(ASSISTANT) && $(UV) run ruff check $(COMPOSE_CHECK)
+	cd $(ASSISTANT) && $(UV) run ruff format --check $(COMPOSE_CHECK)
+	cd $(ASSISTANT) && $(UV) run mypy --strict $(COMPOSE_CHECK)
+
 lint-web:
 	cd $(WEB) && npm run lint
 	cd $(WEB) && npm run format:check
@@ -144,11 +160,22 @@ check-web-api: ## Fail if regenerating the web client's contract types changes a
 	cd $(WEB) && git status --porcelain -- src/shared/api/contracts
 	cd $(WEB) && test -z "$$(git status --porcelain -- src/shared/api/contracts)"
 
+# --profile monitoring, or the three monitoring services are interpolated but never validated, and a
+# broken reference among them passes. --profile smoke does the same for ops/smoke/auth_smoke.py's
+# auth-smoke service (Refs #38); running that check stays manual (`make smoke-auth`). `config`
+# starts no container, so this never touches a Compose project (ADR-049).
+check-compose: ## Validate docker-compose.yml under every profile, then its restart, log and readiness conventions; never reads .env
+	$(COMPOSE_CONFIG) --profile monitoring config --quiet
+	$(COMPOSE_CONFIG) --profile smoke config --quiet
+	$(COMPOSE_CONFIG) --profile monitoring --profile smoke config --quiet
+	$(COMPOSE_CONFIG) --profile monitoring --profile smoke config --format json \
+		| $(UV) run ops/compose_check/compose_check.py
+
 format: ## Rewrite sources to match the formatters
 	cd $(LEDGER) && $(MVNW) spotless:apply
 	cd $(GATEWAY) && $(MVNW) spotless:apply
-	cd $(ASSISTANT) && $(UV) run ruff format . $(SMOKE) $(BACKUP_TOOL) $(SECRET_CHECK)
-	cd $(ASSISTANT) && $(UV) run ruff check --fix . $(SMOKE) $(BACKUP_TOOL) $(SECRET_CHECK)
+	cd $(ASSISTANT) && $(UV) run ruff format . $(SMOKE) $(BACKUP_TOOL) $(SECRET_CHECK) $(COMPOSE_CHECK)
+	cd $(ASSISTANT) && $(UV) run ruff check --fix . $(SMOKE) $(BACKUP_TOOL) $(SECRET_CHECK) $(COMPOSE_CHECK)
 	cd $(WEB) && npm run format
 
 audit: audit-assistant audit-web ## Fail on a known vulnerability in a pinned dependency
