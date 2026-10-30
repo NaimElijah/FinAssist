@@ -57,6 +57,18 @@ const proxy: Record<string, ProxyOptions> = {
     [proxyKey(BFF_BACKEND)]: proxyEntry(BFF_BACKEND),
 };
 
+/**
+ * Sent on every response the dev server and `vite preview` answer themselves, the app shell
+ * included, so no other page can frame the app and steer the owner's clicks inside it.
+ *
+ * Only `frame-ancestors`: a policy restricting scripts would break Fast Refresh's inline preamble
+ * in development, and the full policy, for a built bundle, is #165's. A proxied response carries
+ * whatever the gateway sends instead.
+ */
+const FRAMING_REFUSED_HEADERS: Readonly<Record<string, string>> = {
+    'Content-Security-Policy': "frame-ancestors 'none'",
+};
+
 /** The endpoint Vite's error overlay calls to open a file in the owner's editor. */
 const OPEN_IN_EDITOR_PATH = '/__open-in-editor';
 
@@ -107,10 +119,12 @@ export default defineConfig({
         // subdomains and every IP literal are allowed already, and any other Host is refused —
         // that refusal is the DNS-rebinding protection ADR-030 relies on. Do not set this to
         // `true`; that would accept every Host and remove the protection entirely.
+        headers: FRAMING_REFUSED_HEADERS,
         proxy,
     },
     preview: {
         host: LOOPBACK_HOST,
+        headers: FRAMING_REFUSED_HEADERS,
         proxy,
     },
     test: {

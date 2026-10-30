@@ -70,6 +70,13 @@ describe('the dev/preview server', () => {
         expect(viteConfig.preview?.allowedHosts).not.toBe(true);
     });
 
+    it('Given_the_vite_config_When_read_Then_server_and_preview_both_refuse_framing', () => {
+        // A policy holding only frame-ancestors restricts no script, so Fast Refresh's inline
+        // preamble keeps working in development; #165 tracks the full policy.
+        expect(viteConfig.server?.headers?.['Content-Security-Policy']).toBe(FRAME_ANCESTORS_NONE);
+        expect(viteConfig.preview?.headers?.['Content-Security-Policy']).toBe(FRAME_ANCESTORS_NONE);
+    });
+
     it('Given_the_vite_config_When_read_Then_server_and_preview_share_one_proxy_map', () => {
         expect(viteConfig.preview?.proxy).toBe(viteConfig.server?.proxy);
     });
@@ -161,6 +168,9 @@ describe('the dev/preview server', () => {
         expect(bffKey.test('/bff-evil')).toBe(false);
     });
 });
+
+/** The policy both servers send, so no other page can frame the app. */
+const FRAME_ANCESTORS_NONE = "frame-ancestors 'none'";
 
 /** The endpoint Vite mounts to open a file in the owner's editor, from its error overlay. */
 const OPEN_IN_EDITOR = '/__open-in-editor';
@@ -269,6 +279,17 @@ describe('the running dev server', () => {
         });
 
         expect(answer.status).toBe(403);
+    });
+
+    it('Given_the_dev_server_When_the_app_shell_is_served_Then_it_carries_frame_ancestors_none', async () => {
+        const answer = await get(port, '/accounts', {
+            host: `localhost:${String(port)}`,
+            accept: 'text/html',
+        });
+
+        expect(answer.status).toBe(200);
+        expect(answer.headers['content-type']).toContain('text/html');
+        expect(answer.headers['content-security-policy']).toBe(FRAME_ANCESTORS_NONE);
     });
 
     it('Given_a_same_origin_request_without_a_file_When_open_in_editor_is_called_Then_vites_own_middleware_answers_500', async () => {
