@@ -53,6 +53,9 @@ import tools.jackson.databind.node.StringNode;
  *       realm's JWKS.
  *   <li>each client's scope, as Keycloak computes it: full scope off, and only the roles that
  *       client's own tokens need. The file says what was asked for; this says what was built.
+ *   <li>the realm's own {@code admin-cli} entry takes the place of the one Keycloak creates in
+ *       every realm, so a password grant through it is refused, and an offline session is capped at
+ *       the browser session's maximum.
  *   <li>Keycloak honours the owner's pinned {@code id}, which is what makes the {@code sub} in
  *       every journal row survive a re-import (ADR-031, ADR-033).
  *   <li>the realm's sign-in protection as Keycloak holds it after the import: no self-registration,
@@ -547,6 +550,61 @@ class KeycloakRealmIT {
     @Test
     void Given_the_realm_as_imported_When_its_event_listeners_are_read_Then_there_are_none() throws Exception {
         assertMember(importedRealm(), "eventsListeners", JSON.createArrayNode());
+    }
+
+    /**
+     * Keycloak creates its own {@code admin-cli} in every new realm, password grant on. Only a real
+     * import can say whether the realm file's entry replaces that default or is set aside in its
+     * favour, and there must be exactly one client by that name either way.
+     */
+    @Test
+    void Given_the_realm_as_imported_When_admin_cli_is_read_Then_it_is_the_realms_own_entry_with_every_flow_off()
+            throws Exception {
+        JsonNode adminClis = adminGet("/admin/realms/finassist/clients?clientId=admin-cli");
+
+        assertThat(adminClis.size()).as("clients named admin-cli").isEqualTo(1);
+        JsonNode adminCli = adminClis.get(0);
+        assertMember(adminCli, "directAccessGrantsEnabled", BooleanNode.FALSE);
+        assertMember(adminCli, "standardFlowEnabled", BooleanNode.FALSE);
+        assertMember(adminCli, "implicitFlowEnabled", BooleanNode.FALSE);
+        assertMember(adminCli, "serviceAccountsEnabled", BooleanNode.FALSE);
+        assertMember(adminCli, "fullScopeAllowed", BooleanNode.FALSE);
+    }
+
+    /**
+     * The behaviour the switch above stands for. The owner's correct initial password is sent, so
+     * the only ground left for a refusal is the client itself.
+     */
+    @Test
+    void Given_admin_cli_in_the_finassist_realm_When_it_asks_for_a_password_grant_Then_keycloak_refuses_the_client()
+            throws Exception {
+        String body = "grant_type=password&client_id=admin-cli&username=" + OWNER_USERNAME + "&password="
+                + OWNER_INITIAL_PASSWORD;
+        HttpRequest request = HttpRequest.newBuilder(
+                        URI.create(baseUrl() + "/realms/finassist/protocol/openid-connect/token"))
+                .timeout(HTTP_TIMEOUT)
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+
+        HttpResponse<String> response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).as("password grant through admin-cli").isEqualTo(400);
+        assertThat(JSON.readTree(response.body()).path("error").asString()).isEqualTo("unauthorized_client");
+    }
+
+    /**
+     * Read back because Keycloak's default is no absolute expiry at all: a key dropped on import
+     * would leave an offline token renewable for as long as it is used.
+     */
+    @Test
+    void
+            Given_the_realm_as_imported_When_its_offline_session_settings_are_read_Then_they_have_the_browser_sessions_cap()
+                    throws Exception {
+        JsonNode realm = importedRealm();
+
+        assertMember(realm, "offlineSessionMaxLifespanEnabled", BooleanNode.TRUE);
+        assertMember(realm, "offlineSessionMaxLifespan", IntNode.valueOf(36000));
     }
 
     /**

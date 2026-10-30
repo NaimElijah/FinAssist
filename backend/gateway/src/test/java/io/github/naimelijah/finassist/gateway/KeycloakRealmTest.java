@@ -199,6 +199,20 @@ class KeycloakRealmTest {
         assertMember(realm, "revokeRefreshToken", BooleanNode.FALSE);
     }
 
+    /**
+     * No FinAssist client asks for an offline token, but Keycloak issues one to any user holding
+     * {@code offline_access}, which {@code default-roles-finassist} carries, and by default it has
+     * no absolute expiry. Capped at the browser session's own maximum, no offline session outlives
+     * the longest sign-in the gateway allows.
+     */
+    @Test
+    void Given_the_realm_file_When_read_Then_an_offline_session_lives_no_longer_than_a_browser_session() {
+        JsonNode realm = realm();
+
+        assertMember(realm, "offlineSessionMaxLifespanEnabled", BooleanNode.TRUE);
+        assertMember(realm, "offlineSessionMaxLifespan", realm.path("ssoSessionMaxLifespan"));
+    }
+
     @Test
     void Given_the_realm_file_When_read_Then_exactly_the_three_agreed_roles_exist() {
         List<String> roleNames = realm().path("roles")
@@ -243,6 +257,24 @@ class KeycloakRealmTest {
         assertMember(assistant, "standardFlowEnabled", BooleanNode.FALSE);
         assertMember(assistant, "implicitFlowEnabled", BooleanNode.FALSE);
         assertMember(assistant, "directAccessGrantsEnabled", BooleanNode.FALSE);
+    }
+
+    /**
+     * Keycloak creates an {@code admin-cli} client in every realm, with the password grant on.
+     * Nothing signs in to {@code finassist} through it - the operations recipes sign the admin CLI
+     * in to {@code master} - so the realm declares it with every flow off, and {@link
+     * KeycloakRealmIT} proves the import keeps this entry in place of Keycloak's own.
+     */
+    @Test
+    void Given_the_admin_cli_client_When_read_Then_it_permits_no_grant() {
+        JsonNode adminCli = client(realm(), "admin-cli");
+
+        assertMember(adminCli, "publicClient", BooleanNode.TRUE);
+        assertMember(adminCli, "standardFlowEnabled", BooleanNode.FALSE);
+        assertMember(adminCli, "implicitFlowEnabled", BooleanNode.FALSE);
+        assertMember(adminCli, "directAccessGrantsEnabled", BooleanNode.FALSE);
+        assertMember(adminCli, "serviceAccountsEnabled", BooleanNode.FALSE);
+        assertMember(adminCli, "fullScopeAllowed", BooleanNode.FALSE);
     }
 
     @Test
@@ -421,9 +453,10 @@ class KeycloakRealmTest {
 
     /**
      * The one guarantee that matters most in a file this build never encrypts, and this repository
-     * is public. Every client's secret, not only the two clients the realm holds today, must read
-     * as an unresolved placeholder, never a literal; a client with no {@code secret} at all is a
-     * public one, which the flow tests above refuse for both of today's.
+     * is public. Every client's secret, not only the two confidential clients the realm holds
+     * today, must read as an unresolved placeholder, never a literal; a client with no {@code
+     * secret} at all is a public one, which the flow tests above refuse for both FinAssist clients
+     * and allow only for {@code admin-cli}, which permits no grant.
      */
     @Test
     void Given_the_realm_file_When_read_Then_every_client_secret_is_a_bare_placeholder() {
