@@ -452,8 +452,9 @@ poll of its own.
 `/bff/oauth2/authorization/keycloak` on the Vite origin, and the dev proxy forwards it to the
 gateway → `LoginEntryNavigationFilter` refuses, 403 `FORBIDDEN` and before any session exists, a
 browser request whose `Sec-Fetch-Mode` is anything but `navigate` or whose `Sec-Fetch-Dest` is
-anything but `document`, so only the link the web client renders, followed in the browser's own
-window, can start a sign-in → Spring's authorization endpoint, on the
+anything but `document`, so only a top-level navigation of the browser's own window, or a client
+that sends no Fetch Metadata, can start a sign-in; the filter checks no origin (ADR-057) → Spring's
+authorization endpoint, on the
 `ClientRegistration` `KeycloakRegistration` builds by hand, stores the request in the session
 through `PreSignInAuthorizationRequestRepository`, which gives a session created for it an idle
 limit of fifteen minutes rather than thirty, and answers 302 to Keycloak's *public*
