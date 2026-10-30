@@ -67,8 +67,9 @@ From `backend/assistant`:
   root) nor `pyjwt`, and `cryptography` arrives only transitively through the `crypto` extra, so no
   declared dependency name can ever produce it (ADR-030, ADR-032). Standard-library I/O is a set of
   its own, `FORBIDDEN_STANDARD_IO`, since no declared dependency can name it, and a call to the
-  builtin `open` is refused by a rule of its own. Removing a dependency narrows the rule just as
-  silently, so `anthropic` and `pandas`, removed unused (#341), stay named in the explicit set.
+  builtin `open` is refused by a rule of its own. Removing a dependency, or moving it to the `dev`
+  extra, narrows the rule just as silently, so `anthropic` and `pandas`, removed unused, and
+  `httpx`, now a test dependency, stay named in the explicit set (#341).
 - **The router is a factory taking use cases, and never reads `app.state`.** Its handlers are
   `def`, never `async def` — every port behind them is synchronous (ADR-021).
 - **Every route declares exactly one permission dependency, built through the `require` factory

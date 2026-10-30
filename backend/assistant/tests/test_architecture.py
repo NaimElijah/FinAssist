@@ -108,6 +108,9 @@ def _declared_runtime_distributions() -> frozenset[str]:
 # runtime dependencies nothing imported, and removing them dropped them from the derivation.
 # Like sqlalchemy, each is refused before it returns: an LLM vendor's SDK belongs behind an
 # outbound adapter, and a dataframe library computes in binary floats.
+#
+# `httpx` is blind because only the `dev` extra declares it (#341), and the derivation reads the
+# runtime dependencies alone. It is network I/O, so it stays refused whichever extra holds it.
 FORBIDDEN_FRAMEWORKS = _declared_runtime_distributions() | frozenset(
     {
         "opentelemetry",
@@ -118,6 +121,7 @@ FORBIDDEN_FRAMEWORKS = _declared_runtime_distributions() | frozenset(
         "cryptography",
         "anthropic",
         "pandas",
+        "httpx",
     }
 )
 
@@ -907,6 +911,19 @@ def Given_the_undeclared_llm_and_dataframe_libraries_When_listed_Then_both_are_f
     This test fails if either explicit entry is deleted while its dependency stays undeclared.
     """
     assert {"anthropic", "pandas"} <= FORBIDDEN_FRAMEWORKS
+
+
+def Given_the_test_only_http_client_When_listed_Then_it_is_forbidden() -> None:
+    """Pins `httpx` in the forbidden set although only the `dev` extra declares it.
+
+    The derivation reads the runtime dependencies alone, so moving `httpx` to the `dev` extra
+    (#341) dropped it from this rule: an inward module could have opened a network connection
+    through it and the framework rule passed. An HTTP client is network I/O, which belongs behind
+    an outbound adapter whatever extra declares it.
+
+    This test fails if the explicit entry is deleted while `httpx` stays a test dependency.
+    """
+    assert "httpx" in FORBIDDEN_FRAMEWORKS
 
 
 @pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
