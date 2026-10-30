@@ -764,8 +764,8 @@ ledger client behind its own `LedgerPort`.
   ([ADR-045](docs/ADRs/ADR-045-dependabot-triage-and-toolchain-holds.md)). TypeScript is held at
   6.0.3 until `typescript-eslint` supports 7, and `@types/node` follows Node 24, the runtime's
   major. The image tags named directly in `docker-compose.yml` have no Dependabot ecosystem, so
-  they move by hand with the assistant's Dockerfile, as does palantir-java-format in both poms; uv
-  is pinned in the assistant's image but not in CI
+  they move by hand: the two Python one-shots' with the assistant's Dockerfile. palantir-java-format
+  is bumped by hand in both poms too, and uv is pinned in the assistant's image but not in CI
   ([ADR-062](docs/ADRs/ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md)).
 
 </details>
