@@ -20,6 +20,7 @@ import io.github.naimelijah.finassist.gateway.composition.support.BackendContrac
 import io.github.naimelijah.finassist.gateway.composition.support.FakeService;
 import jakarta.servlet.http.Cookie;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -34,10 +35,14 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.http.client.JdkClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.autoconfigure.ClientHttpRequestFactoryBuilderCustomizer;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -54,6 +59,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
  * What the gateway's security chain guarantees, driven through the chain itself (ADR-030).
@@ -140,6 +146,9 @@ class GatewaySecurityTest {
      */
     private static FakeService upstream;
 
+    /** The body {@link #upstream} answers with its {@code 200}, which no gateway answer carries. */
+    private static final String UPSTREAM_BODY = "{}";
+
     /**
      * The registration a real sign-in completes against. {@code oidcLogin()} defaults to one named
      * {@code test}, which {@code TokenRelay} cannot authorize, so a relayed request would end in a
@@ -167,6 +176,27 @@ class GatewaySecurityTest {
         upstream.close();
     }
 
+    /**
+     * Runs the relay's {@code HttpClient} on the calling thread, so that a race in the JDK client
+     * which a streamed empty body can lose is lost many times a run rather than once in a thousand.
+     *
+     * <p>JDK 21's {@code Http1Exchange.sendBodyAsync} subscribes a body publisher before it records
+     * the subscriber, and a zero-byte streamed body can complete in between: a {@code
+     * NullPointerException} the gateway answers 500. On the default executor that interleaving is
+     * rare; on this one it fires on many of the relayed requests sent over a kept-alive connection.
+     * So a relayed request that streams an empty body again fails here, not once in CI. Boot
+     * applies every customizer of this type in turn, so this composes with {@code
+     * GatewayConfiguration}'s HTTP/1.1 pin rather than replacing it.
+     */
+    @TestConfiguration
+    static class SynchronousRelayClient {
+
+        @Bean
+        ClientHttpRequestFactoryBuilderCustomizer<JdkClientHttpRequestFactoryBuilder> relayOnCallingThread() {
+            return builder -> builder.withHttpClientCustomizer(httpClient -> httpClient.executor(Runnable::run));
+        }
+    }
+
     /** Points both relay routes at {@link #upstream}; read by the route beans built at start-up. */
     @DynamicPropertySource
     static void relayProperties(DynamicPropertyRegistry registry) {
@@ -177,6 +207,27 @@ class GatewaySecurityTest {
     /** The {@code Host} every request names, so the allow-list in front of the chain lets it by. */
     private static MockHttpServletRequestBuilder named(MockHttpServletRequestBuilder request) {
         return request.header(HttpHeaders.HOST, ALLOWED_HOST);
+    }
+
+    /**
+     * Delivers a bodiless request the way a servlet container does: with its body stream already
+     * finished.
+     *
+     * <p>Tomcat reports an empty body's stream finished before any read, so the relay sees no body
+     * and sends {@code Content-Length: 0}. MockMvc reports the same stream unfinished until it is
+     * read, so the relay streams an empty body instead — a request no browser can make through
+     * Tomcat, and the one that trips the JDK client's race (see {@link SynchronousRelayClient}).
+     * Reading the stream first lets the relay decide about the body as it does in production.
+     */
+    private static RequestPostProcessor bodyAlreadyRead() {
+        return request -> {
+            try {
+                request.getInputStream().readAllBytes();
+            } catch (IOException unreadable) {
+                throw new UncheckedIOException("the mock request body could not be read", unreadable);
+            }
+            return request;
+        };
     }
 
     /**
@@ -504,11 +555,13 @@ class GatewaySecurityTest {
      * <p>The chain is what is under test. Its refusals are {@code 401} from the entry point and
      * {@code 403} from the access-denied handler, a CSRF refusal included, and {@link #upstream}
      * answers neither, so either status here is the chain's. Being neither is no proof of
-     * passage, though: an exception inside a chain filter answers {@code 500}. So {@link #upstream}
-     * forgets its last request first, and must then have received this operation's method at the
-     * path with the relay prefix stripped, which only a request that crossed the whole chain can
-     * deliver. A route that stopped matching fails here too, as a {@code 404} with nothing
-     * received; {@code GatewayRelayRoutesTest} is where that is pinned on its own.
+     * passage, though: an exception inside a chain filter answers {@code 500}, and so does a relay
+     * that fails after {@link #upstream} has already read the request line and headers. So the
+     * answer must be {@link #upstream}'s own, and {@link #upstream} forgets its last request first
+     * and must then have received this operation's method at the path with the relay prefix
+     * stripped, which only a request that crossed the whole chain can deliver. A route that stopped
+     * matching fails here too, as a {@code 404} with nothing received; {@code
+     * GatewayRelayRoutesTest} is where that is pinned on its own.
      */
     @ParameterizedTest
     @MethodSource("publishedBackendOperations")
@@ -525,7 +578,8 @@ class GatewaySecurityTest {
                                 .clientRegistration(registrations.findByRegistrationId(REGISTRATION_ID))
                                 .idToken(ownerToken(List.of("owner"))))
                         .cookie(csrf)
-                        .header(XSRF_HEADER, csrf.getValue()))
+                        .header(XSRF_HEADER, csrf.getValue())
+                        .with(bodyAlreadyRead()))
                 .andReturn()
                 .getResponse();
 
@@ -533,7 +587,10 @@ class GatewaySecurityTest {
                 .as(
                         "the status %s %s answered, whose body was %s",
                         operation.method(), path, response.getContentAsString())
-                .isNotIn(HttpStatus.UNAUTHORIZED.value(), HttpStatus.FORBIDDEN.value());
+                .isEqualTo(HttpStatus.OK.value());
+        assertThat(response.getContentAsString())
+                .as("the body %s %s answered, which must be upstream's own", operation.method(), path)
+                .isEqualTo(UPSTREAM_BODY);
         FakeService.ReceivedRequest relayed = upstream.lastRequest();
         assertThat(relayed)
                 .as(
