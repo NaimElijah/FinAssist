@@ -62,6 +62,18 @@ class PlannedFlowControllerTest {
     private static final String PLANNED_FLOWS = "/api/v1/planned-flows";
     private static final MediaType PROBLEM_JSON = MediaType.APPLICATION_PROBLEM_JSON;
 
+    /** Every media type a cross-site page can post without a preflight (ADR-030). */
+    private static final List<String> NOT_JSON = List.of(
+            MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+            MediaType.TEXT_PLAIN_VALUE,
+            MediaType.MULTIPART_FORM_DATA_VALUE);
+
+    /** Every write route, under every media type in {@link #NOT_JSON}, so a failure names both. */
+    static Stream<Arguments> plannedFlowWritesInEveryMediaTypeButJson() {
+        return Stream.of("", "/%s/commit", "/%s/realise", "/%s/cancel")
+                .flatMap(route -> NOT_JSON.stream().map(mediaType -> Arguments.of(route, mediaType)));
+    }
+
     private static final LocalDate JANUARY_1 = LocalDate.of(2026, 1, 1);
     private static final LocalDate JANUARY_10 = LocalDate.of(2026, 1, 10);
     private static final LocalDate FEBRUARY_15 = LocalDate.of(2026, 2, 15);
@@ -536,13 +548,20 @@ class PlannedFlowControllerTest {
         verifyNoInteractions(lifecycle);
     }
 
-    /** Every write refuses a form post, which a cross-site page can send without a preflight (ADR-030). */
+    /**
+     * Every write refuses a form, plain text or multipart post, which a cross-site page can send without a
+     * preflight (ADR-030).
+     *
+     * <p>MockMvc never parses a multipart body, so the multipart case here reaches the mapping's refusal
+     * without the parsing a container performs first; {@code LedgerApplicationIT} posts a well-formed
+     * multipart body to the running ledger.
+     */
     @ParameterizedTest
-    @ValueSource(strings = {"", "/%s/commit", "/%s/realise", "/%s/cancel"})
-    void Given_a_form_encoded_body_When_any_planned_flow_write_is_posted_Then_it_is_a_415_problem(String route)
-            throws Exception {
+    @MethodSource("plannedFlowWritesInEveryMediaTypeButJson")
+    void Given_a_body_that_is_not_json_When_any_planned_flow_write_is_posted_Then_it_is_a_415_problem(
+            String route, String mediaType) throws Exception {
         mvc.perform(post(PLANNED_FLOWS + route.formatted(PlanId.generate()))
-                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .contentType(mediaType)
                         .content("on=2026-01-10"))
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(content().contentType(PROBLEM_JSON))

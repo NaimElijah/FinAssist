@@ -31,6 +31,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.tomcat.TomcatWebServer;
 import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -237,6 +238,37 @@ class LedgerApplicationIT extends PostgresFixture {
                 connection.rollback();
             }
         }
+    }
+
+    /**
+     * The slices cannot show this: MockMvc never parses a multipart body. A well-formed one, with a
+     * boundary and a real part, is parsed by the container and then refused by the write's {@code
+     * consumes}, as every body but JSON is (ADR-030).
+     */
+    @Test
+    void Given_a_well_formed_multipart_body_When_posted_to_a_write_Then_it_is_a_415_problem() throws Exception {
+        String boundary = "finassist-boundary";
+        String body = "--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"name\"\r\n\r\n"
+                + "Cash\r\n"
+                + "--" + boundary + "--\r\n";
+
+        HttpResponse<String> response = CLIENT.send(
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/accounts"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
+                        .header(
+                                HttpHeaders.CONTENT_TYPE,
+                                MediaType.MULTIPART_FORM_DATA_VALUE + "; boundary=" + boundary)
+                        .timeout(TIMEOUT)
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(415);
+        assertThat(response.headers().firstValue(HttpHeaders.CONTENT_TYPE))
+                .hasValue(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        assertThat(JsonMapper.shared().readTree(response.body()).path("code").asString())
+                .isEqualTo("UNSUPPORTED_MEDIA_TYPE");
     }
 
     /**

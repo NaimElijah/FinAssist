@@ -31,6 +31,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -182,12 +184,24 @@ class BudgetControllerTest {
                 .andExpect(jsonPath("$.code").value("RULE_VIOLATED"));
     }
 
-    /** A cross-site page can post a form without a preflight, so a write refuses anything but JSON (ADR-030). */
-    @Test
-    void Given_a_form_encoded_body_When_defining_a_budget_Then_it_is_a_415_problem() throws Exception {
-        mvc.perform(post(BUDGETS)
-                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .content("currency=ILS"))
+    /**
+     * A cross-site page can post a form, plain text or multipart without a preflight, so a write refuses
+     * anything but JSON (ADR-030).
+     *
+     * <p>MockMvc never parses a multipart body, so the multipart case here reaches the mapping's refusal
+     * without the parsing a container performs first; {@code LedgerApplicationIT} posts a well-formed
+     * multipart body to the running ledger.
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+                MediaType.TEXT_PLAIN_VALUE,
+                MediaType.MULTIPART_FORM_DATA_VALUE
+            })
+    void Given_a_body_that_is_not_json_When_defining_a_budget_Then_it_is_a_415_problem(String mediaType)
+            throws Exception {
+        mvc.perform(post(BUDGETS).contentType(mediaType).content("currency=ILS"))
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"));
