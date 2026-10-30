@@ -217,12 +217,13 @@ from inside that container. No value is ever typed into a command line or kept i
 None is passed as a process argument either, where any local user's `ps` could read it on a Linux
 Docker host: each one reaches its tool through the environment or standard input.
 
-**A stack that refuses to start on a published secret is fixed the same way.** Before any
-database starts, `secret-check` refuses each secret that a file git does not ignore holds, and
-`docker compose logs secret-check` names them
-([ADR-044](../ADRs/ADR-044-compose-refuses-a-published-secret.md)). Write a new value for each
-into `.env`, then follow [Every secret at once](#every-secret-at-once): the databases start
-again as soon as no secret is published.
+**A stack that refuses to start on a published or a short secret is fixed the same way.** Before
+any database starts, `secret-check` refuses each secret that a file git does not ignore holds, and
+each one shorter than 32 characters, and `docker compose logs secret-check` names them
+([ADR-044](../ADRs/ADR-044-compose-refuses-a-published-secret.md)). Length is the only bound on
+guessing a password that nothing locks out, such as Keycloak's own admin or a database role. Write
+a new value for each into `.env`, then follow [Every secret at once](#every-secret-at-once): the
+databases start again as soon as no secret is published or short.
 
 Before you start:
 
@@ -231,7 +232,8 @@ Before you start:
   refuses, the databases cannot start until `.env` holds new values, so write them first.
   The backup then works anyway, because it reads each database over its own socket, which
   needs no password.
-- **Generate each value with `openssl rand -hex 16`**, which Git Bash carries.
+- **Generate each value with `openssl rand -hex 16`**, which Git Bash carries. It writes 32
+  characters, the least `secret-check` accepts.
 - **`ANTHROPIC_API_KEY` is not rotated here.** Anthropic issues it, so a leaked key is revoked in
   Anthropic's console and replaced by the one it issues next. Nothing in the stack reads it yet.
 - **Run the recipes in Git Bash, or another POSIX shell, after `export MSYS_NO_PATHCONV=1`.**

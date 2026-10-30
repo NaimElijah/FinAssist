@@ -176,8 +176,9 @@ cp .env.example .env        # then set every secret in the table below, before s
 > `ci-only`. Before any database starts, the one-shot `secret-check` service refuses a secret that
 > appears in a file git does not ignore, and `docker compose up` then stops with
 > `service "secret-check" didn't complete successfully: exit 1`.
-> `docker compose logs secret-check` names each variable, never its value. To change one,
-> follow [Rotating a secret](docs/operations/operations.md#rotating-a-secret)
+> It refuses a secret shorter than 32 characters the same way, so generate each with
+> `openssl rand -hex 16`. `docker compose logs secret-check` names each variable, never its value.
+> To change one, follow [Rotating a secret](docs/operations/operations.md#rotating-a-secret)
 > ([ADR-044](docs/ADRs/ADR-044-compose-refuses-a-published-secret.md)).
 
 | Secret | What to put in it |
@@ -186,7 +187,7 @@ cp .env.example .env        # then set every secret in the table below, before s
 | `LEDGER_DB_PASSWORD` | The same value as `POSTGRES_PASSWORD`: the ledger connects as the role Compose creates |
 | `KEYCLOAK_DB_PASSWORD` | Any strong value, for Keycloak's own database, `keycloak-db` |
 | `KEYCLOAK_ADMIN_PASSWORD` | Any strong value, for Keycloak's admin console |
-| `FINASSIST_OWNER_INITIAL_PASSWORD` | The owner's one-time password, used once at [first sign-in](#first-sign-in). It must satisfy the realm's policy: `length(12) and notUsername and notEmail and passwordHistory(3)` |
+| `FINASSIST_OWNER_INITIAL_PASSWORD` | The owner's one-time password, used once at [first sign-in](#first-sign-in). It must satisfy the realm's policy, `length(12) and notUsername and notEmail and passwordHistory(3)`, and hold at least 32 characters, like every secret |
 | `GATEWAY_CLIENT_SECRET` | Any strong value. Keycloak sets the `finassist-gateway` client's secret from it, and the gateway signs in to Keycloak with it |
 | `ASSISTANT_CLIENT_SECRET` | Any strong value. Keycloak sets the `finassist-assistant` client's secret from it |
 | `GRAFANA_ADMIN_PASSWORD` | Any strong value. Only the `monitoring` profile uses it, but Compose interpolates every service, so every `docker compose` command needs it set |
@@ -519,7 +520,7 @@ take each bump in one PR, and Temurin and Python stay on 21 and 3.13 until an AD
 | Gateway | Sign-in, CSRF and sign-out; a real code-plus-PKCE sign-in and token relay against a fake OpenID provider; Keycloak timeouts; the packaged jar starting; each relay route and the security chain held to the committed ledger and assistant contracts; Actuator's exposure pinned to `health`; the realm file, read as data and run in the real Keycloak image | `make test-gateway` |
 | Assistant | Source-parsing architecture rules; FIFO cost basis, grounding, staleness and Money, with Hypothesis; token verification and authorization; the problem shape; the OpenAPI contract | `make test-assistant` |
 | Backup CLI | Redaction, the manifest checks, every restore precondition, a backup's refusals, the command line and the owner-project guard, without Docker | `make test-backup` |
-| Secret check | It reads exactly the files git does not ignore, matches a value literally and only as a whole token, and refuses by variable name, never by value | `make test-secret-check` |
+| Secret check | It reads exactly the files git does not ignore, matches a value literally and only as a whole token, refuses a value shorter than 32 characters, and refuses by variable name, never by value | `make test-secret-check` |
 | Compose check | Each restart, log-bound and readiness rule fails on a crafted resolved file, a missing `x-` block fails, an Actuator-exposure key in the ledger's or the gateway's environment fails, input that is not a resolved file exits 2, the script run as a process exits 0, 1 and 2 as `make check-compose` reads them, and no report quotes a resolved value | `make test-compose-check` |
 | Web | The file-tree architecture rules; the shared primitives; the sign-in gate; the read-only viewer; every screen end to end against a faked `fetch` | `make test-web` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
