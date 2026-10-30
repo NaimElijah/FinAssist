@@ -49,7 +49,7 @@ final class SignInFailureHandler implements AuthenticationFailureHandler {
     /**
      * Every error code a failed sign-in can legitimately carry, and so may be logged as itself: the
      * authorization endpoint's (RFC 6749 §4.1.2.1), the token endpoint's (§5.2), OpenID Connect's
-     * authentication errors (Core §3.1.2.6), and the codes Spring Security 7.1.1 raises itself while
+     * authentication errors (Core §3.1.2.6), and the codes Spring Security 7.1.2 raises itself while
      * completing a sign-in, read from its {@code oauth2-client} sources.
      */
     private static final Set<String> REGISTERED_ERROR_CODES = Set.of(

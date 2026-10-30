@@ -127,7 +127,7 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 
 | Layer | Technology | Version | Why |
 |---|---|---:|---|
-| Ledger | Java + Spring Boot, built by the Maven wrapper | 21 / 4.1.1 / 3.10.0 | Records and sealed types make illegal ledger states unrepresentable; Actuator gives health and readiness without bespoke code; a clone needs only a JDK |
+| Ledger | Java + Spring Boot, built by the Maven wrapper | 21 / 4.1.2 / 3.10.0 | Records and sealed types make illegal ledger states unrepresentable; Actuator gives health and readiness without bespoke code; a clone needs only a JDK |
 | Ledger store | PostgreSQL, Flyway, hand-written SQL over `JdbcClient` | 18.6 | `NUMERIC` for exact money, a schema per context, and a journal the database refuses to rewrite ([ADR-024](docs/ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md)) |
 | Gateway | Spring Cloud Gateway Server Web MVC | 5.0.3 (train 2025.1.3) | OIDC sign-in, tokens kept in the server-side session, and `TokenRelay` to both services ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) |
 | Identity | Keycloak, on its own PostgreSQL | 26.8.1 / 17.11 | Self-hosted OIDC, its realm committed as code with every secret a placeholder ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) |
@@ -141,7 +141,7 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 | Tests | JUnit + Testcontainers, pytest + Hypothesis, Vitest + Testing Library | Boot-managed / 9.1.1 + 6.168.0 / 5.0 + 16.3 | Integration tests against a real PostgreSQL and a real Keycloak image; property tests seeded on both sides |
 | Coverage, mutation | JaCoCo, pytest-cov, coverage-v8; PIT | 0.8.15 / 7.1.0 / 5.0.4; 1.30.0 | Measured and gating nothing; mutation testing answers whether a test would notice ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
 | Format and lint | Spotless + palantir-java-format, ESLint + Prettier | 3.10.4 / 2.97.0, 10.11 / 3.9 | One authoritative formatter per language, checked in CI |
-| Telemetry | OpenTelemetry + Micrometer; Collector, Prometheus, Grafana | 1.45.1 (Python) / Boot 4.1.1 starter; 0.139.0 / v3.7.3 / 12.3.1 | Vendor-neutral: the backend is an environment variable, not a rewrite ([ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
+| Telemetry | OpenTelemetry + Micrometer; Collector, Prometheus, Grafana | 1.45.1 (Python) / Boot 4.1.2 starter; 0.139.0 / v3.7.3 / 12.3.1 | Vendor-neutral: the backend is an environment variable, not a rewrite ([ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 
 Every version above is pinned in `backend/ledger/pom.xml`, `backend/gateway/pom.xml`,
 `.mvn/wrapper/maven-wrapper.properties` in each, `backend/assistant/pyproject.toml`,

@@ -56,7 +56,7 @@ import org.springframework.web.client.RestTemplate;
  *       matcher falling through;
  *   <li><b>{@code dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()}, not {@code
  *       requestMatchers("/error").permitAll()}.</b> {@code AuthorizationFilter}'s {@code
- *       filterErrorDispatch} defaults to {@code true} and Boot 4.1.1 ships no {@code
+ *       filterErrorDispatch} defaults to {@code true} and Boot 4.1.2 ships no {@code
  *       ErrorPageSecurityFilter}, so under deny-by-default a genuine 500 the container forwards to
  *       {@code /error} would itself be answered 403, hiding the real failure behind a status that
  *       means something else. Permitting the dispatcher type rather than the path is tighter: a
@@ -204,7 +204,7 @@ public class LedgerSecurityConfiguration {
      *
      * <p>{@code setAllowEmptyExpiryClaim(false)} is the whole reason {@code exp} is required rather
      * than merely checked when present. {@link JwtTimestampValidator}'s constructor initialises that
-     * flag to {@code true} — confirmed by disassembling the installed 7.1.1 jar — and {@code
+     * flag to {@code true} — confirmed in Spring Security 7.1.2's sources — and {@code
      * NimbusJwtDecoder} installs a no-op {@code JWTClaimsSetVerifier}, so nothing else in the chain
      * would ever notice the claim's absence: a token signed by the realm's key with no expiry at all
      * would be valid forever. ADR-030 requires {@code exp} of both resource servers, and the
@@ -340,7 +340,7 @@ public class LedgerSecurityConfiguration {
      * {@code BearerTokenAuthenticationFilter} instance directly, rather than an {@code
      * HttpSecurity.objectPostProcessor(...)} registered on this same builder — not because no
      * supported path exists, but because the one that does has two hazards this one lacks, both
-     * read from Spring Security 7.1.1's own sources rather than assumed:
+     * read from Spring Security 7.1.2's own sources rather than assumed:
      *
      * <ul>
      *   <li>{@code AbstractConfiguredSecurityBuilder.objectPostProcessor(ObjectPostProcessor)} only

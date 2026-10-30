@@ -149,7 +149,7 @@ class LedgerApplicationIT extends PostgresFixture {
     }
 
     /**
-     * Nothing else in this repository has run springdoc 3.1.1 against Spring Boot 4.1.1
+     * Nothing else in this repository has run springdoc 3.1.1 against Spring Boot 4.1.2
      * (ADR-028); this is the proof that the pairing starts a context and serves a document rather
      * than a claim taken on faith from the release notes.
      */
