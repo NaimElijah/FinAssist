@@ -23,7 +23,9 @@ One directory per tool, none of them a deployable service of this repository's (
   `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON` key, in any
   spelling, nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS`, in the ledger's or the
   gateway's environment, and no `command` or `entrypoint` on either, each of which would reopen
-  the Actuator exposure their code pins and their tests cannot see. It names a service, a key or
+  the Actuator exposure their code pins and their tests cannot see; nor a `LOGGING_LEVEL_*`,
+  `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key, in any spelling, on the gateway,
+  whose Spring Web and Security loggers write credentials below INFO. It names a service, a key or
   a member, never a value. `placeholders.env` beside it holds a throwaway value for each `:?`
   variable, which `make check-compose` exports, so the file resolves without `.env` or the
   shell's secrets (ADR-049). Its tests are in `ops/compose_check/tests/`.
