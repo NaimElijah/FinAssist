@@ -125,12 +125,26 @@ updates:
       hey-api:
         patterns:
           - "@hey-api/*"
+      # react-dom peer-depends on the same react minor, and @types/react-dom on the same
+      # @types/react minor, so a PR bumping one alone fails `npm ci` with ERESOLVE - PR #325 did
+      # (ADR-062).
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
     ignore:
       # typescript-eslint 8.70.0 still declares `typescript: >=4.8.4 <6.1.0`. A bump past that makes
       # `npm ci` fail outright with ERESOLVE - PR #5 proved it, the Web job could not install.
       # Delete this entry the moment typescript-eslint declares support for 7 (ADR-009).
       - dependency-name: "typescript"
         versions: [">=6.1.0"]
+      # The types describe the runtime: .nvmrc, CI's setup-node and package.json's engines all
+      # run Node 24, so @types/node stays on 24.x. Move it, and this entry, with the runtime's
+      # major (ADR-062).
+      - dependency-name: "@types/node"
+        versions: [">=25"]
 
   - package-ecosystem: github-actions
     directory: /
