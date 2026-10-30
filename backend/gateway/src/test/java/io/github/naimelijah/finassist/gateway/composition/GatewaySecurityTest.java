@@ -15,10 +15,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.naimelijah.finassist.gateway.composition.support.BackendContracts;
+import io.github.naimelijah.finassist.gateway.composition.support.BackendContracts.Operation;
+import io.github.naimelijah.finassist.gateway.composition.support.FakeService;
 import jakarta.servlet.http.Cookie;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -33,15 +41,21 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
  * What the gateway's security chain guarantees, driven through the chain itself (ADR-030).
@@ -114,6 +128,36 @@ class GatewaySecurityTest {
     private static final String SUBJECT = "2b9d1f4e-0000-4000-8000-0123456789ab";
     private static final String USERNAME = "owner";
 
+    /**
+     * Each relay prefix the web client calls, and the committed contract of the service behind it.
+     * Spelled out, like every wire value here.
+     */
+    private static final Map<String, String> CONTRACT_BY_RELAY_PREFIX =
+            Map.of("/ledger", "ledger-v1.openapi.json", "/assistant", "assistant-v1.openapi.json");
+
+    /**
+     * Stands in for the ledger and the assistant both, answering {@code 200} to every request. A
+     * relayed call therefore never leaves loopback, and a {@code 401} or {@code 403} can only be the
+     * gateway's own answer, never an upstream's passed through.
+     */
+    private static FakeService upstream;
+
+    /**
+     * The body {@link #upstream} answers with, set rather than left to its default, and distinctive
+     * enough that no gateway answer could carry it: a relayed request must come back with it.
+     */
+    private static final String UPSTREAM_BODY = "{\"answeredBy\":\"upstream\"}";
+
+    /**
+     * The registration a real sign-in completes against. {@code oidcLogin()} defaults to one named
+     * {@code test}, which {@code TokenRelay} cannot authorize, so a relayed request would end in a
+     * 500 before ever reaching {@link #upstream}.
+     */
+    private static final String REGISTRATION_ID = "keycloak";
+
+    @Autowired
+    private ClientRegistrationRepository registrations;
+
     @Autowired
     private MockMvc mvc;
 
@@ -121,9 +165,69 @@ class GatewaySecurityTest {
     @Autowired
     private OAuth2AuthorizedClientRepository authorizedClients;
 
+    @BeforeAll
+    static void startUpstream() throws IOException {
+        upstream = new FakeService();
+        upstream.respondNext(HttpStatus.OK.value(), MediaType.APPLICATION_JSON_VALUE, UPSTREAM_BODY);
+    }
+
+    @AfterAll
+    static void stopUpstream() {
+        upstream.close();
+    }
+
+    /** Points both relay routes at {@link #upstream}; read by the route beans built at start-up. */
+    @DynamicPropertySource
+    static void relayProperties(DynamicPropertyRegistry registry) {
+        registry.add("finassist.relay.ledger-uri", () -> upstream.baseUrl());
+        registry.add("finassist.relay.assistant-uri", () -> upstream.baseUrl());
+    }
+
     /** The {@code Host} every request names, so the allow-list in front of the chain lets it by. */
     private static MockHttpServletRequestBuilder named(MockHttpServletRequestBuilder request) {
         return request.header(HttpHeaders.HOST, ALLOWED_HOST);
+    }
+
+    /**
+     * Delivers a bodiless request the way a servlet container does: with its body stream already
+     * finished.
+     *
+     * <p>Tomcat reports an empty body's stream finished before any read, so the relay sees no body.
+     * MockMvc reports the same stream unfinished until it is read, so the relay streams an empty
+     * body instead, chunked because it has no length: a request no browser can make through Tomcat,
+     * and one that can trip a race in JDK 21's HTTP client, whose {@code NullPointerException} the
+     * gateway answers 500 (#358). Reading the stream first lets the relay decide about the body as
+     * it does in production. It is for bodiless requests only: a body it read would be lost, so one
+     * fails the test rather than reaching upstream empty.
+     */
+    private static RequestPostProcessor bodyAlreadyRead() {
+        return request -> {
+            byte[] body;
+            try {
+                body = request.getInputStream().readAllBytes();
+            } catch (IOException unreadable) {
+                throw new UncheckedIOException("the mock request body could not be read", unreadable);
+            }
+            if (body.length > 0) {
+                throw new IllegalStateException("bodyAlreadyRead() is for bodiless requests; it would have dropped a "
+                        + body.length + "-byte body");
+            }
+            return request;
+        };
+    }
+
+    /**
+     * Signs {@code session} in and returns the CSRF cookie the gateway set for it, which a write
+     * then sends back in the renamed header: the exchange the web client performs.
+     */
+    private Cookie signIn(MockHttpSession session) throws Exception {
+        MvcResult signedIn = mvc.perform(
+                        named(get(ME)).session(session).with(oidcLogin().idToken(ownerToken(List.of("owner")))))
+                .andExpect(status().isOk())
+                .andReturn();
+        Cookie csrf = signedIn.getResponse().getCookie(XSRF_COOKIE);
+        assertThat(csrf).isNotNull();
+        return csrf;
     }
 
     /** A completed sign-in whose ID token carries the claims this gateway reads. */
@@ -292,12 +396,7 @@ class GatewaySecurityTest {
     @Test
     void Given_a_signed_in_session_When_a_method_no_handler_supports_is_used_Then_it_is_405_not_500() throws Exception {
         MockHttpSession session = new MockHttpSession();
-        MvcResult signedIn = mvc.perform(
-                        named(get(ME)).session(session).with(oidcLogin().idToken(ownerToken(List.of("owner")))))
-                .andExpect(status().isOk())
-                .andReturn();
-        Cookie csrf = signedIn.getResponse().getCookie(XSRF_COOKIE);
-        assertThat(csrf).isNotNull();
+        Cookie csrf = signIn(session);
 
         mvc.perform(named(post(ME)).session(session).cookie(csrf).header(XSRF_HEADER, csrf.getValue()))
                 .andExpect(status().isMethodNotAllowed())
@@ -398,12 +497,7 @@ class GatewaySecurityTest {
     void Given_a_signed_in_session_When_an_unrouted_path_is_requested_Then_it_is_denied_403(
             HttpMethod method, String path) throws Exception {
         MockHttpSession session = new MockHttpSession();
-        MvcResult signedIn = mvc.perform(
-                        named(get(ME)).session(session).with(oidcLogin().idToken(ownerToken(List.of("owner")))))
-                .andExpect(status().isOk())
-                .andReturn();
-        Cookie csrf = signedIn.getResponse().getCookie(XSRF_COOKIE);
-        assertThat(csrf).isNotNull();
+        Cookie csrf = signIn(session);
 
         ResultActions result = mvc.perform(named(request(method, path))
                         .session(session)
@@ -434,6 +528,80 @@ class GatewaySecurityTest {
                                 HttpMethod.OPTIONS)
                         .map(method -> Arguments.of(method, path)));
         return Stream.concat(unroutedPaths, unroutedMethods);
+    }
+
+    /**
+     * The chain's half of the relay's contract (#339): every operation the ledger's and the
+     * assistant's committed contracts publish, sent by a signed-in browser with its CSRF token to
+     * the gateway path the web client calls, gets past the chain. The chain names its relay
+     * methods apart from the routes' {@code Method=} predicates, so widening a route for a new
+     * operation without widening the chain would leave that operation refused here, whatever
+     * {@code GatewayRelayRoutesTest} says about the route.
+     *
+     * <p>The chain is what is under test. Its refusals are {@code 401} from the entry point and
+     * {@code 403} from the access-denied handler, a CSRF refusal included, and {@link #upstream}
+     * answers neither, so either status here is the chain's. Being neither is no proof of
+     * passage, though: an exception inside a chain filter answers {@code 500}, and so does a relay
+     * that fails after {@link #upstream} has already read the request line and headers. So the
+     * answer must be {@link #upstream}'s own, and {@link #upstream} forgets its last request first
+     * and must then have received this operation's method at the path with the relay prefix
+     * stripped, which only a request that crossed the whole chain can deliver. A route that stopped
+     * matching fails here too, as a {@code 404} with nothing received; {@code
+     * GatewayRelayRoutesTest} is where that is pinned on its own.
+     */
+    @ParameterizedTest
+    @MethodSource("publishedBackendOperations")
+    void Given_a_signed_in_session_When_a_published_backend_operation_is_relayed_Then_the_chain_lets_it_through(
+            String relayPrefix, Operation operation) throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        Cookie csrf = signIn(session);
+        String path = relayPrefix + operation.concretePath();
+        upstream.forgetLastRequest();
+
+        MockHttpServletResponse response = mvc.perform(named(request(operation.method(), path))
+                        .session(session)
+                        .with(oidcLogin()
+                                .clientRegistration(registrations.findByRegistrationId(REGISTRATION_ID))
+                                .idToken(ownerToken(List.of("owner"))))
+                        .cookie(csrf)
+                        .header(XSRF_HEADER, csrf.getValue())
+                        .with(bodyAlreadyRead()))
+                .andReturn()
+                .getResponse();
+
+        assertThat(response.getStatus())
+                .as(
+                        "the status %s %s answered, whose body was %s",
+                        operation.method(), path, response.getContentAsString())
+                .isEqualTo(HttpStatus.OK.value());
+        assertThat(response.getContentAsString())
+                .as("the body %s %s answered, which must be upstream's own", operation.method(), path)
+                .isEqualTo(UPSTREAM_BODY);
+        FakeService.ReceivedRequest relayed = upstream.lastRequest();
+        assertThat(relayed)
+                .as(
+                        "the request upstream received for %s %s, which the gateway answered %s with %s",
+                        operation.method(), path, response.getStatus(), response.getContentAsString())
+                .isNotNull();
+        assertThat(relayed.hasHeader(HttpHeaders.TRANSFER_ENCODING))
+                .as(
+                        "whether %s %s reached upstream as a streamed body, which a bodiless request"
+                                + " delivered as Tomcat delivers it never is",
+                        operation.method(), path)
+                .isFalse();
+        assertThat(relayed.method())
+                .as("the method upstream received for %s %s", operation.method(), path)
+                .isEqualTo(operation.method().name());
+        assertThat(relayed.path())
+                .as("the path upstream received for %s %s, its relay prefix stripped", operation.method(), path)
+                .isEqualTo(operation.concretePath());
+    }
+
+    private static Stream<Arguments> publishedBackendOperations() {
+        return CONTRACT_BY_RELAY_PREFIX.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .flatMap(relay -> BackendContracts.operations(BackendContracts.read(relay.getValue())).stream()
+                        .map(operation -> Arguments.of(relay.getKey(), operation)));
     }
 
     /**

@@ -9,7 +9,7 @@
  * bug). None of this touches money (ADR-029) - it is calendar arithmetic on year and month
  * integers, nothing more.
  */
-import { DISPLAY_LOCALE } from '@/shared/ui';
+import { DISPLAY_LOCALE } from '@/shared/lib/locale';
 
 /** A budget's period: the first day it covers, and the first day it no longer does (exclusive). */
 export interface BudgetPeriod {

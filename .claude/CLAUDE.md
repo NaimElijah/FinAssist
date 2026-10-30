@@ -22,9 +22,8 @@ Each service owns its permissions and denies by default (ADR-032); the web clien
 controls from a `viewer`. The services log structured JSON and emit OTLP traces (ADR-019).
 
 **Before proposing work**, read `docs/requirements/requirements.md` and the relevant records in
-`docs/ADRs/` (`docs/ADRs/README.md` gives each one's status). The requirements are `TODO` in places
-on purpose: never fill a gap by inferring it from code. `docs/architecture/architecture.md`
-describes the system as built.
+`docs/ADRs/` (status in `docs/ADRs/README.md`). The requirements are `TODO` in places on purpose:
+never infer a gap from code. `docs/architecture/architecture.md` describes the system as built.
 
 **A codebase's own file loads only once a file under it is read or edited, so read it before
 planning work there:** `backend/ledger/CLAUDE.md`, `backend/gateway/CLAUDE.md`,
@@ -35,7 +34,7 @@ planning work there:** `backend/ledger/CLAUDE.md`, `backend/gateway/CLAUDE.md`,
 Every target is a thin wrapper in `Makefile` that CI also calls. **`make` is not installed on the
 development machine**, so run the raw command: cross-cutting ones below, each codebase's in its
 file (`make lint`, `make format` and `make audit` run them all; `ops/CLAUDE.md` has identity,
-backups and the smoke check). Keep them in sync with `README.md`'s Development table.
+backups, the smoke and Compose checks). Keep them in sync with `README.md`'s Development table.
 
 - **Set up** — `make setup`: `test -f .env || cp .env.example .env`;
   `./mvnw -B -q dependency:go-offline` in `backend/ledger` and `backend/gateway`;
@@ -47,13 +46,13 @@ backups and the smoke check). Keep them in sync with `README.md`'s Development t
 - **Telemetry** — `make run-monitoring`: `docker compose --profile monitoring up --build`
   (collector, Prometheus, Grafana); `make stop-monitoring` tears the profile down.
 - **Test** — `make test` runs `test-ledger`, `test-gateway`, `test-assistant`, `test-backup`,
-  `test-secret-check` and `test-web`. **Docker must be running for the ledger's and the gateway's
+  `test-secret-check`, `test-compose-check` and `test-web`. **Docker must be running for the Java
   suites**: their `*IT` tests use Testcontainers and fail rather than skip without it (ADR-025).
 - **Clean** — `make clean`: `./mvnw -B -q clean` (ledger, gateway), then delete the assistant's
   caches and coverage files and the web client's `dist/` and `coverage/`; never `.env` or volumes.
 - **After every endpoint change**, regenerate that service's contract (the command is in its file;
-  its contract test fails the build otherwise), then the web client's types:
-  `make generate-web-api`, which is `cd frontend/web && npm run generate:api`.
+  its contract test fails the build otherwise), then `make generate-web-api` and commit the types;
+  `make check-web-api` passes only on a clean tree (raw forms in `frontend/web/CLAUDE.md`).
 
 ## Layout
 
@@ -75,9 +74,8 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 
 ### Architecture
 
-- **No context may depend on another** — not in Java, Python or the web client. The only common
-  ground is each codebase's own `shared/`; contexts collaborate through a published port and an
-  explicit translation, never an import.
+- **No context may depend on another**, in Java, Python or the web client: contexts share only each
+  codebase's own `shared/` and collaborate through a published port and an explicit translation.
 - **Dependencies point inward** in every context: `LedgerArchitectureTest`,
   `backend/assistant/tests/test_architecture.py`, `frontend/web/tests/architecture.test.ts`.
 - **The architecture is asymmetric on purpose** (ADR-007). Tactical DDD — aggregates, value
@@ -93,7 +91,9 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
   contexts and that nothing may import back. An adapter inside a context is **not** a legal home
   for one: the slice rule has no layer qualifier (ADR-022).
 - **A translation calls the upstream context's in-port, never its repositories**, and converts its
-  exceptions at the boundary: an `AccountNotFoundException` must not reach planning.
+  exceptions at the boundary. Enforced by the ledger's two translation rules, the assistant's one,
+  and `AccountingOpeningPositionsTest` for the exceptions (each codebase's file names them); a
+  translation that drops what the in-port returns is held in review, per `architecture.md`.
 - **Identity is generated inside the service, never accepted on a command.**
 
 ### The domain
@@ -138,8 +138,8 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
   ledger or the gateway (springdoc's `-api` starter alone). `/openapi.json` and the ledger's own
   OpenAPI route stay; the gateway's `/v3/api-docs` is denied by its security chain.
 - **Cite ADR-030, never the Superseded ADR-027**, whose loopback binding, Host allow-lists and
-  JSON-only writes ADR-030 keeps as defence in depth. ADR-027 is named only by the ADR files, a
-  statement of the supersession, and the history note atop `docker-compose.yml`.
+  JSON-only writes live on in ADR-030; only the ADR files, a statement of the supersession, and
+  the history note atop `docker-compose.yml` name it.
 - **Nothing writes output except the logging boundary** — no `print` (ruff `T20`), no
   `console.log` (ESLint `no-console`), no `System.out`. Structured JSON on stdout through
   `adapters/observability.py`, `shared/lib/logger.ts` or Logback's ECS format (ADR-019); redaction
@@ -156,9 +156,9 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
   one-shots `auth-smoke` and `secret-check` take neither.** The two `x-` blocks at the top state
   once the policy, `unless-stopped`, and the bound, three 10 MB `json-file` logs (ADR-039, ADR-019).
 - **Every healthcheck probes readiness**: `/actuator/health/readiness` on the ledger and the
-  gateway, `/ready` on the assistant, `/health/ready` on Keycloak's management port. CI's `compose`
-  job fails a long-running service whose restart or logging is not exactly those blocks, a
-  one-shot with either, and any of those four healthchecks that is not readiness (#142).
+  gateway, `/ready` on the assistant, `/health/ready` on Keycloak's management port.
+  `make check-compose` fails a long-running service whose restart or logging is not exactly those
+  blocks, a one-shot with either, and any of those four healthchecks that is not readiness (#142).
 - **`auth-smoke` stays behind `profiles: [smoke]`**: CI validates it (`--profile smoke config`) but
   never runs it, nor `make restore-check` (ADR-034, ADR-038). **`secret-check` has no profile**:
   `db`, `keycloak-db` and `grafana` wait on it, and CI runs it on a published value (ADR-044).
@@ -170,9 +170,9 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 - **Prove a new architecture rule fails**: introduce a deliberate violation, confirm the build
   breaks, revert. Put it in a deep module, not a package `__init__.py`, where an earlier version of
   these rules was found to be blind. A rule that has never failed is not evidence.
-- **Architecture rules are static**: ArchUnit reads bytecode, the assistant parses sources with
-  `ast`, the web client walks the file tree. Never import the code and inspect `sys.modules` —
-  Python does not import subpackages, so such a rule sees almost nothing.
+- **Architecture rules are static** (ADR-046): ArchUnit reads bytecode, the assistant parses
+  sources with `ast`, the web client walks the file tree. Never import the code and inspect
+  `sys.modules` — Python does not import subpackages, so such a rule sees almost nothing.
 
 ## Working in this repository
 

@@ -7,8 +7,9 @@ import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Keeps every event it is given, in order, and reads them back. The mirror of
- * {@code InMemoryAccountingEvents}, and an outbox in shape if not yet in durability (ADR-023).
+ * A test double that keeps every event it is given, in order, and reads them back. The mirror of
+ * {@code InMemoryAccountingEvents}; the running ledger wires {@code DiscardingPlanningEvents} instead
+ * (ADR-048).
  */
 public class InMemoryPlanningEvents implements PlanningEvents {
 

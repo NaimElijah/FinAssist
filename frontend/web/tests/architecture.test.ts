@@ -23,11 +23,18 @@ const SRC = fileURLToPath(new URL('../src', import.meta.url));
 const FEATURES_DIR = join(SRC, 'features');
 const APP_DIR = join(SRC, 'app');
 
+/**
+ * A TypeScript source file by its extension: `.ts` and `.tsx`, and the `.mts` and `.cts` module
+ * forms, which TypeScript compiles and Vite serves as readily, so a file in either is code a rule
+ * must see.
+ */
+const SOURCE_FILE = /\.[cm]?tsx?$/;
+
 function sourceFilesUnder(dir: string): string[] {
     return readdirSync(dir).flatMap((entry) => {
         const full = join(dir, entry);
         if (statSync(full).isDirectory()) return sourceFilesUnder(full);
-        return /\.tsx?$/.test(entry) ? [full] : [];
+        return SOURCE_FILE.test(entry) ? [full] : [];
     });
 }
 
@@ -235,11 +242,15 @@ function isWithin(dir: string, path: string): boolean {
     return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
-/** Whether a path inside `src/features` is a feature's public entry: its directory or `index`. */
+/**
+ * Whether a path inside `src/features` is a feature's public entry: its directory or its
+ * `index.ts`. Not `index.tsx`: the root-file rule admits only `index.ts`, and the two must agree,
+ * or a feature could hold a second entry this rule accepts and that one refuses.
+ */
 function isFeatureEntry(path: string): boolean {
     const [feature = '', ...rest] = relative(FEATURES_DIR, path).split(sep);
     if (feature === '') return false;
-    return rest.length === 0 || (rest.length === 1 && /^index(\.tsx?)?$/.test(rest[0] ?? ''));
+    return rest.length === 0 || (rest.length === 1 && /^index(\.ts)?$/.test(rest[0] ?? ''));
 }
 
 describe('composition direction', () => {
@@ -339,6 +350,19 @@ function isLayer(name: string): name is Layer {
     return (LAYERS as readonly string[]).includes(name);
 }
 
+/** The only files a feature's root may hold, beside its layer directories. */
+const FEATURE_ENTRY_FILES: readonly string[] = ['index.ts', 'routes.tsx'];
+
+/**
+ * The source files directly in `dir`, by name. Only `SOURCE_FILE`s, as `sourceFilesUnder` reads:
+ * a `README.md` or `.DS_Store` imports nothing, so no rule needs it placed.
+ */
+function sourceFilesIn(dir: string): string[] {
+    return readdirSync(dir).filter(
+        (entry) => SOURCE_FILE.test(entry) && !statSync(join(dir, entry)).isDirectory(),
+    );
+}
+
 /**
  * Where a path inside `src/features` sits: its feature, and its layer or `'root'` for a file
  * directly in the feature's directory. Undefined outside `src/features`.
@@ -385,6 +409,8 @@ function crossLayerImportsOf(feature: string): { count: number; offences: string
 }
 
 const GENERATED_CONTRACTS_DIR = join(SRC, 'shared', 'api', 'contracts');
+const SHARED_UI_DIR = join(SRC, 'shared', 'ui');
+const SHARED_LIB_DIR = join(SRC, 'shared', 'lib');
 
 describe('layers inside a feature', () => {
     it('Given_each_feature_When_its_directories_are_listed_Then_each_is_a_known_layer', () => {
@@ -398,6 +424,31 @@ describe('layers inside a feature', () => {
         );
 
         expect(unknown, `rank each directory in LAYERS (${LAYERS.join(', ')})`).toEqual([]);
+    });
+
+    it('Given_the_features_directory_When_listed_Then_it_holds_no_source_file', () => {
+        // isFeatureEntry reads the first segment under src/features as a feature, so a file there,
+        // such as src/features/helpers.ts, would pass as one's entry: src/app could import it, and
+        // through its re-exports reach past a feature's index. Each file belongs inside a feature.
+        expect(
+            sourceFilesIn(FEATURES_DIR),
+            'src/features holds only feature directories; move each file into a feature',
+        ).toEqual([]);
+    });
+
+    it('Given_each_feature_When_its_root_is_listed_Then_each_file_is_an_entry_file', () => {
+        // The layer rule skips the root's files as importers, since they compose every layer.
+        // Any other file put there would escape it unchecked, so it belongs in a layer instead.
+        const strays = features.flatMap((feature) =>
+            sourceFilesIn(join(FEATURES_DIR, feature))
+                .filter((entry) => !FEATURE_ENTRY_FILES.includes(entry))
+                .map((entry) => `${feature}/${entry}`),
+        );
+
+        expect(
+            strays,
+            `a feature's root holds only ${FEATURE_ENTRY_FILES.join(' and ')}; move the rest into a layer`,
+        ).toEqual([]);
     });
 
     for (const feature of features) {
@@ -449,6 +500,69 @@ describe('layers inside a feature', () => {
         expect(
             offences,
             "a generated contract type is used outside a feature's api/. Map it there instead.",
+        ).toEqual([]);
+    });
+
+    it('Given_the_features_When_their_types_are_read_Then_none_imports_src_shared_ui', () => {
+        // The layer rule ranks only a feature's own layers, so any layer may import src/shared.
+        // src/shared/ui re-exports React components, though, and types/ is the feature's model,
+        // the innermost of the layers that point inward (frontend/web/CLAUDE.md, "A feature's
+        // layers point inward"): it must not depend on presentation. A shared value both need,
+        // such as DISPLAY_LOCALE, lives in src/shared/lib instead.
+        const offences: string[] = [];
+        let importsResolvedInSrc = 0;
+
+        for (const file of sourceFilesUnder(FEATURES_DIR)) {
+            if (featurePlace(file)?.layer !== 'types') continue;
+            for (const specifier of importSpecifiers(file)) {
+                const resolved = resolveInSrc(specifier, file);
+                if (resolved === undefined) continue;
+                importsResolvedInSrc += 1;
+                if (isWithin(SHARED_UI_DIR, resolved)) {
+                    offences.push(`${relative(SRC, file)} -> ${specifier}`);
+                }
+            }
+        }
+
+        // Guards the rule from passing vacuously: a feature's types import one another, so a
+        // scan that resolves no import inside src has stopped resolving specifiers.
+        expect(
+            importsResolvedInSrc,
+            "no import under a feature's types/ resolved inside src",
+        ).toBeGreaterThan(0);
+        expect(
+            offences,
+            "a feature's types/ imports the UI kit. Move what it needs to src/shared/lib.",
+        ).toEqual([]);
+    });
+
+    it('Given_src_shared_lib_When_its_sources_are_read_Then_none_imports_src_shared_ui', () => {
+        // The rule above sends a feature's types/ to src/shared/lib for what it shares with the
+        // UI kit. Were src/shared/lib to import src/shared/ui, even to re-export one value,
+        // types/ would depend on the whole kit again through it, and that rule would be moot.
+        const offences: string[] = [];
+        let importsResolvedInSrc = 0;
+
+        for (const file of sourceFilesUnder(SHARED_LIB_DIR)) {
+            for (const specifier of importSpecifiers(file)) {
+                const resolved = resolveInSrc(specifier, file);
+                if (resolved === undefined) continue;
+                importsResolvedInSrc += 1;
+                if (isWithin(SHARED_UI_DIR, resolved)) {
+                    offences.push(`${relative(SRC, file)} -> ${specifier}`);
+                }
+            }
+        }
+
+        // Guards the rule from passing vacuously: src/shared/lib's tests import the modules they
+        // test, so a scan that resolves no import inside src has stopped resolving specifiers.
+        expect(
+            importsResolvedInSrc,
+            'no import under src/shared/lib resolved inside src',
+        ).toBeGreaterThan(0);
+        expect(
+            offences,
+            'src/shared/lib imports the UI kit. Move the shared value into src/shared/lib.',
         ).toEqual([]);
     });
 });

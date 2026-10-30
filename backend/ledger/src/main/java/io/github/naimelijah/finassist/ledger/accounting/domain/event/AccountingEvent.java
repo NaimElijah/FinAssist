@@ -22,8 +22,8 @@ import java.util.Objects;
  * a new event rather than a default branch quietly dropping one.
  *
  * <p><strong>An event is not the audit record.</strong> ADR-020 makes the append-only journal that, and
- * an in-memory event log dies with its process exactly as a dropped log line does. Nothing here may be
- * cited as evidence of a financial change.
+ * the running ledger keeps no event at all (ADR-048). Nothing here may be cited as evidence of a
+ * financial change.
  */
 public sealed interface AccountingEvent {
 

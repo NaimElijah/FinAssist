@@ -1,6 +1,6 @@
 # ADR-006: PostgreSQL as the ledger's store
 
-- **Status:** Accepted
+- **Status:** Accepted, resolved by [ADR-024](ADR-024-jdbc-persistence-and-append-only-schema.md)
 - **Date:** 2026-08-29
 
 ## Context

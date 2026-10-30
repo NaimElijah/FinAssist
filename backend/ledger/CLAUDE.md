@@ -12,8 +12,8 @@ top-level `shared/` kernel, the `composition/` root, and `LedgerApplication`.
 
 Each context has an inbound HTTP adapter under `/api/v1`, behind `HostAllowListFilter` and
 problem+json error handling. The OpenAPI document is generated from the code and committed at
-`contracts/ledger-v1.openapi.json`, pinned by `LedgerContractIT` (ADR-004). The ledger answers
-Actuator probes and traces its business endpoints (ADR-019).
+`contracts/ledger-v1.openapi.json`, pinned by `LedgerContractIT` (ADR-004, ADR-028). The ledger
+answers Actuator probes and traces its business endpoints (ADR-019).
 
 ## Commands
 
@@ -38,10 +38,28 @@ From `backend/ledger`:
 
 ## Architecture
 
-- **The sixteen ArchUnit rules in `LedgerArchitectureTest` are live.** The
+- **The eighteen ArchUnit rules in `LedgerArchitectureTest` are live.** The
   `archRule.failOnEmptyShould=false` escape hatch was deleted with the first domain class, so a
   rule matching nothing now fails rather than passing quietly. Do not reintroduce it.
-- **The domain imports no framework** — no `org.springframework..`, no `jakarta..`.
+- **The domain, the application layer and `shared` import no framework and no I/O** — no Spring,
+  `jakarta`, `javax`, Jackson, springdoc or swagger; no logging API (`org.slf4j`, `ch.qos.logback`,
+  `org.apache.logging`, `org.apache.commons.logging`, `java.util.logging`), `io.opentelemetry`,
+  `io.micrometer`, `org.flywaydb`, `com.nimbusds` or `com.zaxxer.hikari`; no `java.sql`,
+  `java.net`, `java.io`, `java.nio.file` or `java.nio.channels` (the rest of `java.nio`, such as
+  `StandardCharsets`, is not I/O).
+  `FORBIDDEN_FRAMEWORK_PACKAGES` in `LedgerArchitectureTest` is the list; logging and metrics
+  belong in adapters and `composition`.
+- **A translation reaches the upstream context through its in-ports only.** A `composition` class
+  implementing a consumer's out-port (`AccountingSpendJournal`, `AccountingOpeningPositions`) may
+  name no `application.service` class, no adapter, and no out-port interface it does not implement;
+  `translations_reach_the_upstream_context_only_through_its_in_ports` fails the build otherwise.
+  The `port.out` records it translates into stay allowed. Because a lambda `@Bean` or a helper
+  class implements no out-port, `composition_calls_no_out_port_service_or_adapter` adds that no
+  `composition` class may call, or take a reference to, a method of an out-port interface, an
+  `application.service` class or an adapter: `LedgerConfiguration` constructs them, never calls
+  them. A decorator in `composition` delegates through the in-port it decorates. Converting the
+  upstream's exceptions at the boundary is pinned by `AccountingOpeningPositionsTest`; a
+  translation that drops what the in-port returns is held in review.
 - **There is no entity type at all.** Persistence lives in `adapter/out/persistence` and maps rows
   to aggregates by hand — the strongest form of "an entity is not an aggregate".
 - **The `Money` mapping is duplicated per context on purpose.** The slice rule leaves no legal
@@ -65,8 +83,10 @@ From `backend/ledger`:
   semantics the suites rely on, so they carry no pending-events list. Only `accounting` and
   `planning` raise events — a `Budget` has no lifecycle. Nothing subscribes yet, deliberately
   (ADR-023).
-- **The only in-memory adapters left are the two event publishers.** Nothing subscribes, and an
-  outbox with no consumer is what ADR-020 refused to build ahead of one.
+- **Production keeps no event.** `DiscardingAccountingEvents` and `DiscardingPlanningEvents` accept
+  each event and drop it; the recording `InMemoryAccountingEvents` and `InMemoryPlanningEvents` are
+  test doubles under `src/test`, read by the service tests. The transactional outbox is deferred
+  until the first consumer exists, not refused (ADR-023, ADR-048).
 - **`@Transactional` goes on the adapter, never on an application service** —
   `the_application_layer_depends_on_no_framework` fails the build for the latter. When a use case
   must write across two aggregates, the boundary moves to a decorator in `composition`.
@@ -92,8 +112,11 @@ bounded context (ADR-006, ADR-024).
 - **`spring.flyway.out-of-order` stays `true`; never turn it off.** One history table with a major
   version per context (ADR-024) means the next migration for any context but the highest arrives
   below a version already applied, which Flyway classes `IGNORED` and refuses to start over. Safe
-  because no foreign key crosses a schema; order within a context and checksum validation are
-  untouched. `LedgerUpgradeIT` is what turns red: it rebuilds the history a real database holds
+  between contexts because no foreign key crosses a schema. Within a context it is not safe: with
+  the flag on, a script released below one already applied runs last on an upgraded database and
+  first on a fresh one, so `ReleasedMigrationsTest` fails one that does not carry a higher version
+  than every earlier release in its directory (ADR-047). Checksum validation is untouched.
+  `LedgerUpgradeIT` is what turns red: it rebuilds the history a real database holds
   (`1.1`, `2.1`, `3.1`) from the committed scripts, byte for byte, then starts the ledger's own
   context against it. Extend it when the applied set changes. Never reach for
   `ignoreMigrationPatterns`, which would start the ledger with the column missing (ADR-035).

@@ -9,11 +9,8 @@ import io.github.naimelijah.finassist.ledger.planning.application.port.out.Openi
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.OpeningPositionProvider;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
-import java.util.stream.Stream;
 
 /**
  * Gives planning the balances a projection opens from, by asking accounting.
@@ -26,6 +23,12 @@ import java.util.stream.Stream;
  * {@code IllegalArgumentException} naming the reference planning gave, not as an
  * {@code AccountNotFoundException} carrying an id planning never saw — letting that through would put
  * an accounting type in planning's call stack, which is the leak the boundary exists to prevent.
+ *
+ * <p>It refuses only what needs an accounting value to state: a reference that is not an account
+ * identifier, one that names no account, and an account held in another currency than the scenario,
+ * since FinAssist performs no conversion (ADR-012). An account named twice is planning's own rule,
+ * stated in its own {@link AccountRef}s, so planning's commands refuse it before this is asked
+ * (ADR-051).
  */
 public class AccountingOpeningPositions implements OpeningPositionProvider {
 
@@ -40,17 +43,6 @@ public class AccountingOpeningPositions implements OpeningPositionProvider {
         Objects.requireNonNull(cash, "cash");
         Objects.requireNonNull(invested, "invested");
         Objects.requireNonNull(currency, "currency");
-
-        // Refused rather than deduplicated. Naming an account twice, or on both sides, is a caller
-        // mistake with no sensible reading - an account is cash or it is invested, not both - and
-        // quietly collapsing it would hide the very slip that doubles an opening balance.
-        Set<AccountRef> seen = new LinkedHashSet<>();
-        for (AccountRef ref : Stream.concat(cash.stream(), invested.stream()).toList()) {
-            if (!seen.add(ref)) {
-                throw new IllegalArgumentException(
-                        "Account reference " + ref + " is named more than once; it would be counted twice");
-            }
-        }
 
         return new OpeningPosition(sum(cash, currency), sum(invested, currency));
     }

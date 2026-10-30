@@ -29,6 +29,12 @@ updates:
     groups:
       java-services:
         group-by: dependency-name
+    ignore:
+      # ADR-047 lets a Maven 3.x minor or patch wrapper move by the weekly triage, and holds a Maven
+      # major to an ADR. This is the name Dependabot gives the wrapper (PR #118: "bump
+      # org.apache.maven:apache-maven"). Delete this entry in the change that moves Maven to 4.
+      - dependency-name: "org.apache.maven:apache-maven"
+        versions: [">= 4"]
 
   - package-ecosystem: docker
     directories:

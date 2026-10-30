@@ -72,8 +72,10 @@ spring:
     # arrives below the highest version already applied. Flyway classes such a migration IGNORED
     # and refuses to start (FlywayValidateException, "Detected resolved migration not applied to
     # database"), so left false, accounting and budgeting could never gain another migration at
-    # all. Safe because no foreign key crosses a schema (SchemaBoundariesIT), so order between
-    # contexts carries no meaning; order within a context is unchanged. Never set this to false:
+    # all. Safe between contexts because no foreign key crosses a schema (SchemaBoundariesIT), so
+    # order between contexts carries no meaning. Within a context it would not be safe: a script
+    # released below one already applied would run last on an upgraded database and first on a
+    # fresh one, which ReleasedMigrationsTest fails (ADR-047). Never set this to false:
     # LedgerUpgradeIT rebuilds the real applied history and starts the ledger against it, and is
     # what turns red if it is (ADR-035).
     #
@@ -97,11 +99,11 @@ management:
   endpoints:
     web:
       exposure:
-        # An explicit allow-list, never "*". Since ADR-030 the security chain is the guard that
-        # matters: an endpoint not named here matches no permitAll rule, so LedgerApplicationIT's
-        # /actuator/env case is refused 401 with no token and 403 with a real one, never served.
-        # That holds whatever this list says, so widening it is no longer a way in - but keep it
-        # short anyway, because a second guard should not be the only one.
+        # An explicit allow-list, never "*". LedgerObservabilityIT's exposure test pins the set
+        # Actuator resolves from it to exactly these four, so widening it fails the build. Since
+        # ADR-030 the security chain is a second guard: an endpoint not named here matches no
+        # permitAll rule, so LedgerApplicationIT's /actuator/env case is refused 401 with no token
+        # and 403 with a real one whatever this list says - which is why that case cannot pin it.
         include: health,info,metrics,prometheus
   endpoint:
     health:

@@ -7,14 +7,12 @@ import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Keeps every event it is given, in the order it was given them, and reads them back.
+ * A test double that keeps every event it is given, in the order it was given them, and reads them
+ * back, so a use-case test can assert what a transition raised.
  *
- * <p>Deliberately the shape an outbox has. When persistence lands, ADR-020's append-only obligation
- * becomes a question about which rows are written, not about what this port looks like — which is the
- * whole reason for shipping an unconsumed event log rather than none at all (ADR-023).
- *
- * <p>It grows without bound, which is correct for a development seam and disqualifying for a store.
- * That is one more reason it is not one.
+ * <p>Test code only. The running ledger wires {@code DiscardingAccountingEvents}, which keeps nothing,
+ * because a log nothing reads grows with every write (ADR-048). This one grows without bound too,
+ * which is harmless in a test that lives for one case.
  */
 public class InMemoryAccountingEvents implements AccountingEvents {
 

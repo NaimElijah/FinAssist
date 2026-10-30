@@ -43,23 +43,29 @@ From `frontend/web`:
   `npm run format`. **Audit** — `npm audit --audit-level=high`. `format:check` runs
   `prettier --check .`, which covers this file too.
 - **Regenerate the contract types** — `make generate-web-api`: `npm run generate:api`.
+- **Check the contract types** — `make check-web-api`, which CI's `web` job runs:
+  `npm run generate:api`, then `git status --porcelain -- src/shared/api/contracts`, which must
+  list nothing, untracked files included. It rewrites the types in place, so `make lint` omits it.
 
 ## Build-enforced rules
 
 - **The contract types under `src/shared/api/contracts/` are generated, never hand-written.**
   Regenerate them after any of the three contracts changes — `openapi-ts.config.ts` reads the
-  ledger's, the assistant's and the gateway's. CI fails the `web` job on a diff it did not expect
-  (ADR-029).
+  ledger's, the assistant's and the gateway's. `make check-web-api` fails the `web` job on a diff
+  it did not expect (ADR-029).
 - **TypeScript is pinned to 6.0.3, not 7.x,** because `typescript-eslint` 8 declares
   `typescript: >=4.8.4 <6.1.0` — past that, `npm ci` fails with ERESOLVE. Dependabot is configured
   to ignore `typescript >=6.1.0` so it stops proposing the bump every week. Lift the pin and that
   ignore entry together, once typescript-eslint supports 7.
 - **A feature's layers point inward**: `types`, then `api`, `hooks`, `components`, each importing
-  only those before it; the feature's root (`index.ts`, `routes.tsx`) is imported, from inside
-  the feature, only by tests;
-  and only its `api/` imports a generated contract type. `tests/architecture.test.ts` fails the
-  build otherwise, reading every import form with the TypeScript parser and refusing a computed
-  specifier it cannot resolve.
+  only those before it. A feature's root holds only its entry files, `index.ts` and `routes.tsx`,
+  every other source file sitting in a layer, and `src/features/` itself holds only feature
+  directories; from inside the feature, only tests import the root. Its `types/` imports nothing
+  from the UI kit, `src/shared/ui`, and neither does `src/shared/lib`, so a value both need, such
+  as `DISPLAY_LOCALE`, lives in `src/shared/lib` without bringing the kit along. Only its `api/`
+  imports a generated contract type. `tests/architecture.test.ts` fails the build otherwise,
+  reading every import form with the TypeScript parser and refusing a computed specifier it
+  cannot resolve.
 - **No test file commits a `.skip`, `.todo` or `.only`** on `it`, `test`, `describe` or `suite`:
   ESLint's `no-restricted-syntax` fails `npm run lint`. `it.fails`, `skipIf` and `runIf` stay
   allowed — a test that must fail, and a skip a platform decides.
@@ -106,7 +112,7 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
 - **A chart's scale function is the only place an amount becomes a number**, and only to compute a
   pixel coordinate — `scalePoints` in `features/planning/components/chartScale.ts`. Every figure a
   person reads — labels, axis extremes, tables, title text — is the server's string through
-  `MoneyText` (ADR-029).
+  `MoneyText` (ADR-029, ADR-047).
 - **A form section scoped to one entity is keyed by that entity's id**, so navigating to another
   entity on the same route starts it afresh instead of carrying one entity's inputs or result onto
   the next. `HoldingPage` keys `DisposalSection` and its lookup by `symbol`; a test proves the
@@ -124,8 +130,8 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
   would stay locked. The form's in-flight guard decides that, never the render-time status, which
   lags a tick behind both a resubmit and a settle (#71). Each form has a test that editing a field
   clears its failure, and, for the disposal, its result.
-- **A failed read offers "Try again" only when `isRetryable(error)` holds** — a network failure,
-  or a 5xx other than a 503. The predicate lives in `src/shared/api/retry.ts`, and the query
+- **A failed read offers "Try again" only when `isRetryable(error)` holds** (ADR-056) — a network
+  failure, or a 5xx other than a 503. The predicate lives in `src/shared/api/retry.ts`, and the query
   client's automatic retry imports the same one, so the two never disagree; a 4xx is the server's
   considered answer, shown with nothing to press. Every feature renders a failed read through the
   shared `QueryErrorState` from `src/shared/ui`, which renders its `RetryButton`, never a copy of

@@ -1,6 +1,7 @@
 # ADR-035: Flyway runs out of order, because every context owns a major version
 
-- **Status:** Accepted
+- **Status:** Accepted, corrected by
+  [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md)
 - **Date:** 2026-09-22
 
 ## Context

@@ -34,9 +34,10 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>The caller says which accounts are cash and which are invested, by repeating {@code cash} and {@code
  * invested}; either may be absent, which opens that line at zero. Each value is planning's own opaque
- * {@link AccountRef}, and the composition root turns one that is malformed, unknown or in another
- * currency into an {@link IllegalArgumentException}, answered 422 {@code RULE_VIOLATED} like a horizon
- * that is not a whole number of steps or does not start before it ends.
+ * {@link AccountRef}. One named twice is refused as the command is built, before the scenario is looked
+ * up, and the composition root turns one that is malformed, unknown or in another currency into an
+ * {@link IllegalArgumentException}; each is answered 422 {@code RULE_VIOLATED} like a horizon that is
+ * not a whole number of steps or does not start before it ends.
  *
  * <p>Split from {@link ScenarioController} by the not-found semantics it needs. The scenario is named in
  * the path, so an unknown one is 404 {@code SCENARIO_NOT_FOUND}, from {@link PlanningProblemAdvice}. A

@@ -417,11 +417,13 @@ cd backend/gateway && ./mvnw spring-boot:run
 ```
 
 The everyday commands. CI calls the per-codebase targets behind them (`make test-ledger`,
-`make lint-web` and the rest), so a local run and a CI job cannot drift apart:
+`make lint-web` and the rest), so a local run and a CI job cannot drift apart. The CI steps
+with no target are the `.env` seeding and the published-secret refusal that follows it, which
+starts containers under the default Compose project name ([ADR-049](docs/ADRs/ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md)):
 
 ```bash
 make setup     # .env from the example, Maven and npm dependencies, the assistant's locked venv
-make test      # all five suites; Docker must be running for the ledger's and the gateway's
+make test      # all seven suites; Docker must be running for the ledger's and the gateway's
 make lint      # Spotless, Ruff, mypy, ESLint, Prettier and tsc, in check mode
 make format    # the same formatters, applied
 make audit     # pip-audit and npm audit --audit-level=high
@@ -442,18 +444,21 @@ make audit     # pip-audit and npm audit --audit-level=high
 | Prove a backup restores | `make restore-check BACKUP=<folder>` | `uv run ops/backup/backup.py check <folder>` — only ever as the Compose project `finassist-restore-check` |
 | Restore a backup | `make restore BACKUP=<folder> [DATABASE=ledger\|keycloak]` | `uv run ops/backup/backup.py restore <folder> [--database ledger\|keycloak]`, into empty databases with `ledger` and `keycloak` stopped |
 | Smoke-test authentication (opt-in) | `make smoke-auth` | `docker compose --profile smoke run --rm auth-smoke` — see [Smoke-testing authentication](docs/operations/operations.md#smoke-testing-authentication) |
-| Test everything | `make test` | the six test rows below; all but `test-backup` and `test-secret-check` measure coverage |
+| Test everything | `make test` | the seven test rows below; all but `test-backup`, `test-secret-check` and `test-compose-check` measure coverage |
 | Test the ledger | `make test-ledger` | `cd backend/ledger && ./mvnw -B verify` |
 | Test the gateway | `make test-gateway` | `cd backend/gateway && ./mvnw -B verify` |
 | Test the assistant | `make test-assistant` | `cd backend/assistant && uv run pytest --cov --cov-report=term-missing --cov-report=xml` |
 | Test the backup CLI | `make test-backup` | `cd backend/assistant && uv run pytest -c pyproject.toml ../../ops/backup/tests` |
 | Test the secret check | `make test-secret-check` | `cd backend/assistant && uv run pytest -c pyproject.toml ../../ops/secret_check/tests` |
+| Test the Compose check | `make test-compose-check` | `cd backend/assistant && uv run pytest -c pyproject.toml ../../ops/compose_check/tests` |
 | Test the web client | `make test-web` | `cd frontend/web && npm run test:coverage` |
 | Build the web bundle | `make build-web` | `cd frontend/web && npm run build` |
 | Regenerate the web client's contract types | `make generate-web-api` | `cd frontend/web && npm run generate:api` |
+| Check the web client's contract types are current | `make check-web-api` | `cd frontend/web && npm run generate:api`, then `git status --porcelain -- src/shared/api/contracts`, which must list nothing, untracked files included; CI's `web` job runs it. It rewrites the types in place, so `make lint` leaves it out |
+| Check docker-compose.yml | `make check-compose` | `sh -c 'set -a && . ./ops/compose_check/placeholders.env && set +a && docker compose --env-file .env.example <arguments>'`, a shell of its own each time so the exports never reach yours, with `--profile monitoring`, `--profile smoke` and both, each `config --quiet`; then the same with both profiles and `config --format json`, piped into `uv run --python "$(cat backend/assistant/.python-version)" ops/compose_check/compose_check.py`, the assistant's pinned Python. Never reads `.env`, and each variable `docker-compose.yml` requires through `:?` resolves to its placeholder even when exported in the shell; any other exported variable still outranks `.env.example`. CI's `compose` job runs it |
 | Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
-| Lint and types | `make lint` | `./mvnw -B spotless:check` (ledger and gateway); `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; for the smoke check (`make lint-smoke`), the backup CLI (`make lint-backup`) and the secret check (`make lint-secret-check`), `uv run ruff check`, `ruff format --check` and `mypy --strict` over `../../ops/smoke`, `../../ops/backup` and `../../ops/secret_check` respectively, all from `backend/assistant`; `npm run lint`, `format:check`, `typecheck` |
-| Format | `make format` | `./mvnw -B spotless:apply` (ledger and gateway); `uv run ruff format . ../../ops/smoke ../../ops/backup ../../ops/secret_check`, `uv run ruff check --fix . ../../ops/smoke ../../ops/backup ../../ops/secret_check`; `npm run format` |
+| Lint and types | `make lint` | `./mvnw -B spotless:check` (ledger and gateway); `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; for the smoke check (`make lint-smoke`), the backup CLI (`make lint-backup`), the secret check (`make lint-secret-check`) and the Compose check (`make lint-compose-check`), `uv run ruff check`, `ruff format --check` and `mypy --strict` over `../../ops/smoke`, `../../ops/backup`, `../../ops/secret_check` and `../../ops/compose_check` respectively, all from `backend/assistant`; `npm run lint`, `format:check`, `typecheck` |
+| Format | `make format` | `./mvnw -B spotless:apply` (ledger and gateway); `uv run ruff format . ../../ops/smoke ../../ops/backup ../../ops/secret_check ../../ops/compose_check`, `uv run ruff check --fix . ../../ops/smoke ../../ops/backup ../../ops/secret_check ../../ops/compose_check`; `npm run format` |
 | Audit | `make audit` | `cd backend/assistant && uv run pip-audit`; `cd frontend/web && npm audit --audit-level=high` |
 | Re-lock Python deps | `make lock` | `cd backend/assistant && uv lock` |
 | Regenerate the ledger's OpenAPI contract | — | `cd backend/ledger && ./mvnw -B verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running); on a mismatch, copy `target/contracts/ledger-v1.openapi.json` over `contracts/ledger-v1.openapi.json` |
@@ -465,7 +470,8 @@ make audit     # pip-audit and npm audit --audit-level=high
 </details>
 
 **After every endpoint change**, regenerate that service's contract with the command in the table,
-then the web client's types with `make generate-web-api`; CI fails on either drifting. Editing
+then the web client's types with `make generate-web-api`; CI fails on either drifting, and
+`make check-web-api` runs its check on the types locally. Editing
 `backend/assistant/pyproject.toml`'s dependencies needs `make lock` too, since CI installs with
 `uv sync --locked` and refuses a stale lockfile.
 
@@ -508,11 +514,12 @@ take each bump in one PR, and Temurin and Python stay on 21 and 3.13 until an AD
 
 | Suite | What it proves | Command |
 |---|---|---|
-| Ledger | Sixteen ArchUnit rules; the domain's invariants and properties from a fixed seed; every repository and the append-only journal against a real PostgreSQL; every endpoint's authorization against a named inventory; each controller's validation; the OpenAPI contract | `make test-ledger` |
-| Gateway | Sign-in, CSRF and sign-out; a real code-plus-PKCE sign-in and token relay against a fake OpenID provider; Keycloak timeouts; the packaged jar starting; the realm file, read as data and run in the real Keycloak image | `make test-gateway` |
+| Ledger | Eighteen ArchUnit rules; the domain's invariants and properties from a fixed seed; every repository and the append-only journal against a real PostgreSQL; every endpoint's authorization against a named inventory; each controller's validation; Actuator's exposure pinned to four endpoints; the OpenAPI contract | `make test-ledger` |
+| Gateway | Sign-in, CSRF and sign-out; a real code-plus-PKCE sign-in and token relay against a fake OpenID provider; Keycloak timeouts; the packaged jar starting; each relay route and the security chain held to the committed ledger and assistant contracts; Actuator's exposure pinned to `health`; the realm file, read as data and run in the real Keycloak image | `make test-gateway` |
 | Assistant | Source-parsing architecture rules; FIFO cost basis, grounding, staleness and Money, with Hypothesis; token verification and authorization; the problem shape; the OpenAPI contract | `make test-assistant` |
 | Backup CLI | Redaction, the manifest checks, every restore precondition, a backup's refusals, the command line and the owner-project guard, without Docker | `make test-backup` |
 | Secret check | It reads exactly the files git does not ignore, matches a value literally and only as a whole token, and refuses by variable name, never by value | `make test-secret-check` |
+| Compose check | Each restart, log-bound and readiness rule fails on a crafted resolved file, a missing `x-` block fails, an Actuator-exposure key in the ledger's or the gateway's environment fails, input that is not a resolved file exits 2, the script run as a process exits 0, 1 and 2 as `make check-compose` reads them, and no report quotes a resolved value | `make test-compose-check` |
 | Web | The file-tree architecture rules; the shared primitives; the sign-in gate; the read-only viewer; every screen end to end against a faked `fetch` | `make test-web` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
 
@@ -523,14 +530,17 @@ is in [docs/testing/testing.md](docs/testing/testing.md).
 
 **What CI runs:** five jobs on every push and pull request to `main` and `dev` — the ledger
 (format check, build, tests); the gateway (the same, `KeycloakRealmIT` included); the assistant
-(Ruff, `mypy --strict`, tests and `pip-audit`, plus the smoke check's lint and the backup CLI's and
-the secret check's lint and tests);
-the web client (contract types regenerated with no diff, lint, format check, typecheck, tests,
-production build and `npm audit`); and `docker compose config` across every profile, which also
-fails a service without the shared restart and log policy, or a healthcheck that probes anything
-but readiness. The compose job also runs `secret-check` against a published value, and requires
-it to refuse all eight secrets by name and keep `db` from starting. No CI job starts the rest
-of the Compose stack. The branch rules on `main` and `dev` require a
+(Ruff, `mypy --strict`, tests and `pip-audit`, plus the smoke check's lint and the backup CLI's,
+the secret check's and the Compose check's lint and tests);
+the web client (`make check-web-api`, which regenerates the contract types and fails on any diff,
+then lint, format check, typecheck, tests, production build and `npm audit`); and
+`make check-compose`, which runs `docker compose config` across every profile and fails a service
+without the shared restart and log policy, or a healthcheck that probes anything but readiness.
+The compose job also runs `secret-check` against a published value, and requires it to refuse all
+eight secrets by name and keep `db` from starting; that step, with the `.env` seeding it needs,
+stays inline in `ci.yml` because it starts containers under the default Compose project name
+([ADR-049](docs/ADRs/ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md)). No CI job
+starts the rest of the Compose stack. The branch rules on `main` and `dev` require a
 pull request but no status check, so a green run before merging is practice, not enforcement
 ([#134](https://github.com/NaimElijah/FinAssist/issues/134)).
 
@@ -570,7 +580,7 @@ produces each Java service's executable jar, `npm run build` the web client's st
 |---|---|---|
 | Liveness | `GET /actuator/health/liveness` (ledger and gateway), `GET /health` (assistant) | Live |
 | Readiness | `GET /actuator/health/readiness` (ledger and gateway), `GET /ready` (assistant), Keycloak's `/health/ready` on its management port | Live; every Compose healthcheck probes readiness, never liveness, so `service_healthy` means ready to serve |
-| Metrics | `GET /actuator/metrics`, `GET /actuator/prometheus` (ledger) | Live, scraped by the `monitoring` profile; no domain metric yet |
+| Metrics | `GET /actuator/metrics`, `GET /actuator/prometheus` (ledger) | Live, scraped by the `monitoring` profile; no domain metric yet ([ADR-050](docs/ADRs/ADR-050-no-domain-metric-yet-decided-again.md)) |
 | Traces | OTLP to `$OTEL_EXPORTER_OTLP_ENDPOINT` | Exported only when `OTEL_EXPORT_ENABLED=true`; the services start either way |
 | Logs | JSON on stdout, carrying a W3C trace id | ECS in the ledger and the gateway, structlog in the assistant. Redaction is enforced at the assistant's and the web client's logging boundaries; the ledger and the gateway log no credential at all — a refused token as its reason category alone, a failed sign-in as its OAuth2 error code — and the ledger does not expose `/actuator/env` |
 | Audit trail | The append-only journal | The database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)) |
@@ -622,6 +632,8 @@ ops/                    Infrastructure configuration, not application code
   keycloak/               Dockerfile and finassist-realm.json, the realm imported at start-up
   smoke/                  auth_smoke.py - the opt-in Compose check of the authentication wiring
   backup/                 backup.py - backs up, restores, and proves a restore (ADR-038)
+  secret_check/           secret_check.py - refuses a published secret before a database starts
+  compose_check/          compose_check.py - the Compose conventions check behind make check-compose
   grafana/                dashboards; beside it, the collector and Prometheus configuration
 docs/                   requirements/, architecture/, operations/, testing/, ADRs/
 .github/                CI workflow, Dependabot configuration, and the PR and issue templates
@@ -722,8 +734,10 @@ ledger client behind its own `LedgerPort`.
   earlier ones honestly name nobody, and no endpoint exposes the value yet
   ([#63](https://github.com/NaimElijah/FinAssist/issues/63),
   [ADR-033](docs/ADRs/ADR-033-the-journal-records-who.md)).
-- **Domain events have no subscriber.** They are raised, recorded in an in-memory log and asserted
-  by tests — the cost [ADR-023](docs/ADRs/ADR-023-domain-events-in-the-ledger.md) accepts.
+- **Domain events have no subscriber.** They are raised and asserted by tests, and production
+  discards them; the outbox waits for the first consumer
+  ([ADR-023](docs/ADRs/ADR-023-domain-events-in-the-ledger.md),
+  [ADR-048](docs/ADRs/ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md)).
 - **No cross-currency total is possible**, by design, so there is no single net-worth figure, and
   a projection covers one currency
   ([ADR-012](docs/ADRs/ADR-012-multi-currency-without-conversion.md)).

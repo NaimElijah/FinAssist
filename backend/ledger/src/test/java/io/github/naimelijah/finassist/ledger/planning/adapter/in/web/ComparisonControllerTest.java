@@ -157,6 +157,24 @@ class ComparisonControllerTest {
     }
 
     /**
+     * Planning refuses an account named twice as the command is built, so neither in-port is called, and
+     * the detail is the message the translation gave while it held the rule (ADR-051).
+     */
+    @Test
+    void Given_an_account_named_twice_as_cash_When_compared_Then_it_is_a_422_rule_violated_problem() throws Exception {
+        mvc.perform(firstQuarter(DO_NOTHING.id(), DO_NOTHING.id(), BUY_THE_CAR.id())
+                        .param("cash", CURRENT_ACCOUNT, CURRENT_ACCOUNT))
+                .andExpect(status().is(422))
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail")
+                        .value("Account reference " + CURRENT_ACCOUNT
+                                + " is named more than once; it would be counted twice"))
+                .andExpect(jsonPath("$.code").value("RULE_VIOLATED"));
+
+        verifyNoInteractions(comparer, lister);
+    }
+
+    /**
      * The ids are in the query, so an unknown one is part of what the request asks for and its absence is
      * a refusal, not the 404 a projection's path gives (ADR-028).
      */
