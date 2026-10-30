@@ -384,7 +384,11 @@ wherever an integer field expects one**, before the domain sees it:
 `spring.jackson.deserialization.accept-float-as-int: false` stops Jackson silently truncating
 one. **A JSON number is refused as 400 wherever a text field expects one**, a decimal sent as
 `12.50` included: `StrictTextCoercion`, registered in `composition`, stops Jackson reading the
-number as text that would then pass the decimal pattern.
+number as text that would then pass the decimal pattern. **A date outside the years 1 to 9999 is
+refused as 400 wherever one is read**, in a query parameter or a body member alike:
+`SupportedDates`, registered in `composition`, bounds both Spring MVC's parsing of a query date
+and Jackson's of a body date, so no date beyond ISO 8601's four-digit years reaches the store or
+a projection.
 
 **The probe and observability paths pass the same chain with no token.** The ledger's chain permits
 `/actuator/health/**`, `/actuator/info`, `/actuator/prometheus`, `/actuator/metrics/**`,

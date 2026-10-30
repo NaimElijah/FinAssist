@@ -146,6 +146,11 @@ bounded context (ADR-006, ADR-024).
 - **A JSON number in any text member is a 400**, through `StrictTextCoercion`, proven against the
   running ledger by `AccountingHttpIT`. A `@WebMvcTest` slice that sends a number must `@Import`
   it, since a slice loads no scanned configuration.
+- **A date outside the years 1 to 9999 is a 400**, in a query parameter or a body member, through
+  `SupportedDates`, proven against the running ledger by `AccountingHttpIT`. A slice that sends
+  one must `@Import` it, as it must `StrictTextCoercion`. Its query formatter parses every
+  `LocalDate` as ISO and overrides any `@DateTimeFormat` pattern, so a non-ISO query date needs
+  another way to be bounded.
 - **A fractional or decimal-pointed JSON number in an integer field is a 400**, `1.5` and `1.0`
   alike (`spring.jackson.deserialization.accept-float-as-int: false`).
 - **A web DTO's simple name is unique across every context**

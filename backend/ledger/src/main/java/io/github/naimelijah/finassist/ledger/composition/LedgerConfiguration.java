@@ -83,6 +83,12 @@ public class LedgerConfiguration {
         return new StrictTextCoercion();
     }
 
+    /** Makes a date outside years 1 to 9999, in a query or a body, a malformed request (ADR-028). */
+    @Bean
+    SupportedDates supportedDates() {
+        return new SupportedDates();
+    }
+
     // ---- accounting -------------------------------------------------------------------------
 
     @Bean
