@@ -14,7 +14,9 @@ import tools.jackson.databind.json.JsonMapper;
  * shape (ADR-028, extended by ADR-030).
  *
  * <p>Every code the gateway answers is declared here, in one place: {@link HostAllowListFilter}
- * answers {@code HOST_NOT_ALLOWED}; {@code GatewaySecurityConfiguration}'s entry point answers
+ * answers {@code HOST_NOT_ALLOWED}; {@link ProblemRequestRejectedHandler} answers {@code
+ * MALFORMED_REQUEST} for a URL Spring Security's firewall refuses; {@code
+ * GatewaySecurityConfiguration}'s entry point answers
  * {@code UNAUTHENTICATED}, and its access-denied handler answers both {@code FORBIDDEN} and {@code
  * CSRF_TOKEN_INVALID}, branching on whether the denial was a CSRF failure; {@link
  * LoginEntryNavigationFilter} answers {@code FORBIDDEN} too, with a detail of its own, for a
@@ -56,6 +58,9 @@ final class GatewayProblems {
 
     /** The request's {@code Host} header is missing, malformed or not on the allow-list (ADR-030). */
     static final String HOST_NOT_ALLOWED = "HOST_NOT_ALLOWED";
+
+    /** The request's URL is one the firewall refuses to route, before any filter of the chain runs. */
+    static final String MALFORMED_REQUEST = "MALFORMED_REQUEST";
 
     /** No session and no bearer token accepted here either — the gateway grants nothing on its own. */
     static final String UNAUTHENTICATED = "UNAUTHENTICATED";

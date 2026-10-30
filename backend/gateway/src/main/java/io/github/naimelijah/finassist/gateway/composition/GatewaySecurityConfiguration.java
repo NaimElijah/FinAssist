@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.gateway.composition;
 
+import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.DispatcherType;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,6 +19,9 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.firewall.CompositeRequestRejectedHandler;
+import org.springframework.security.web.firewall.ObservationMarkingRequestRejectedHandler;
+import org.springframework.security.web.firewall.RequestRejectedHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 
 /**
@@ -114,6 +118,21 @@ public class GatewaySecurityConfiguration {
         repository.setHeaderName(CSRF_HEADER_NAME);
         repository.setCookieCustomizer(cookie -> cookie.secure(cookieSecure).sameSite("Lax"));
         return repository;
+    }
+
+    /**
+     * Answers a request Spring Security's firewall refuses as a {@code 400} problem rather than
+     * Boot's error body. {@code WebSecurity} installs a {@link RequestRejectedHandler} bean on the
+     * filter chain proxy in place of its own default; that default also marks the current
+     * observation as failed, so this one keeps doing that before writing the problem.
+     *
+     * @param observations the registry the default handler would have marked the rejection in
+     * @return the handler {@code FilterChainProxy} calls for every rejected request
+     */
+    @Bean
+    RequestRejectedHandler requestRejectedHandler(ObservationRegistry observations) {
+        return new CompositeRequestRejectedHandler(
+                new ObservationMarkingRequestRejectedHandler(observations), new ProblemRequestRejectedHandler());
     }
 
     /**

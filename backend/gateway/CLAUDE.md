@@ -31,9 +31,10 @@ It holds no bounded context: everything is in its `composition/` root. The parts
   (an unknown registration id) with the entry point's plain 401, and logs nothing for it.
 - `KeycloakRegistration` builds the `ClientRegistration` by hand, with the public and backchannel
   URLs split, and the client manager `TokenRelay` uses.
-- `ProblemAuthenticationEntryPoint` (401), `ProblemAccessDeniedHandler` (403), `GatewayProblems`
-  (the problem codes and writer) and `GatewayRelayProblems` (a relay's failures) answer
-  problem+json. `GatewayOpenApiConfiguration` shapes the committed contract.
+- `ProblemAuthenticationEntryPoint` (401), `ProblemAccessDeniedHandler` (403),
+  `ProblemRequestRejectedHandler` (400, a URL the firewall refuses), `GatewayProblems` (the problem
+  codes and writer) and `GatewayRelayProblems` (a relay's failures) answer problem+json.
+  `GatewayOpenApiConfiguration` shapes the committed contract.
 
 The realm file, `ops/keycloak/finassist-realm.json`, is pinned by `KeycloakRealmTest` and
 `KeycloakRealmIT` in this module; its rules are in `ops/CLAUDE.md`.
