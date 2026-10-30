@@ -331,7 +331,10 @@ a published secret (ADR-044); and `ops/compose_check/compose_check.py`, the chec
   `EmptyKeySetIsAnOutage` wraps the key selector Spring builds and raises an outage when no key
   matched and the set is empty. The assistant's `jwks_key_source` builds a `PyJWKClient` whose
   `fetch_data`, the one method that fetches and parses the set and never sees a token, raises every
-  failure as `KeySourceUnavailable`.
+  failure as `KeySourceUnavailable`. It keeps the fetched set for five minutes and caches no signing
+  key apart from it, as the ledger's Nimbus source keeps none, so a key removed from the realm stops
+  verifying once the set expires, and a key source still unreachable past that lifespan is a 503
+  for every token (`test_auth.py`).
 - **Keycloak to `keycloak-db`** — JDBC, to its own PostgreSQL on the Compose network. That
   database publishes no port and shares no role, volume or failure domain with the ledger's `db`
   (ADR-031).

@@ -66,6 +66,7 @@ __all__ = [
     "ALGORITHM",
     "ASSISTANT_AUDIENCE",
     "DEFAULT_LEEWAY",
+    "JWKS_CACHE_LIFESPAN_SECONDS",
     "PRINCIPAL_SCOPE_KEY",
     "PUBLIC_PATHS",
     "REASON_AUDIENCE",
@@ -115,7 +116,9 @@ REQUIRED_CLAIMS: Final[tuple[str, ...]] = ("sub", "iss", "aud", "exp", "iat")
 DEFAULT_LEEWAY: Final = timedelta(seconds=30)
 """Clock-skew allowance either side of ``exp``, ``nbf`` and ``iat`` (ADR-030)."""
 
-_JWKS_CACHE_LIFESPAN_SECONDS: Final = 300
+JWKS_CACHE_LIFESPAN_SECONDS: Final = 300
+"""How long a fetched key set is trusted before it is fetched again, as on the ledger (ADR-037)."""
+
 _JWKS_TIMEOUT_SECONDS: Final = 5
 
 # The fixed reason vocabulary every authentication failure is logged under (ADR-030). A caller
@@ -250,17 +253,21 @@ def jwks_key_source(uri: str) -> KeySource:
         token's own ``iss``, which is always the public issuer a browser signed in against
         (ADR-030) - the two are never the same value, so they are never the same setting.
 
-    The returned key source caches the fetched key set for five minutes and, once fetched, the
-    individual signing key each ``kid`` resolves to, so an ordinary verification fetches nothing
-    over the network. Five seconds bounds the wait on a fetch, so an unreachable JWKS endpoint
-    fails quickly rather than hanging the request that discovered it. A key set that cannot be
-    fetched or used raises :class:`KeySourceUnavailable` through :class:`_KeySetClient`; a failed
-    refresh leaves the last good set cached, because PyJWT caches only a successful fetch.
+    The returned key source caches the fetched key set for :data:`JWKS_CACHE_LIFESPAN_SECONDS`,
+    so an ordinary verification fetches nothing over the network. It caches no signing key apart
+    from that set: PyJWT's per-``kid`` cache never expires, so a key the realm removed would stay
+    trusted until the process restarted, and a verification past the set's lifespan would succeed
+    with the key source down, where the ledger answers 503 (ADR-037). Every lookup therefore reads
+    the set, and a key leaves with it. Five seconds bounds the wait on a fetch, so an unreachable
+    JWKS endpoint fails quickly rather than hanging the request that discovered it. A key set that
+    cannot be fetched or used raises :class:`KeySourceUnavailable` through :class:`_KeySetClient`;
+    a failed refresh leaves the last good set cached until its lifespan ends, because PyJWT caches
+    only a successful fetch.
     """
     client = _KeySetClient(
         uri,
-        cache_keys=True,
-        lifespan=_JWKS_CACHE_LIFESPAN_SECONDS,
+        cache_keys=False,
+        lifespan=JWKS_CACHE_LIFESPAN_SECONDS,
         timeout=_JWKS_TIMEOUT_SECONDS,
     )
     return client.get_signing_key_from_jwt
