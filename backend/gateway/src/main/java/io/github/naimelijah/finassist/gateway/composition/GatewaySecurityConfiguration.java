@@ -46,10 +46,11 @@ import org.springframework.security.web.savedrequest.NullRequestCache;
  * <p>The CSRF cookie and header are renamed from Spring's {@code XSRF-TOKEN} and {@code
  * X-XSRF-TOKEN} because cookies ignore ports: every application on {@code localhost} shares one
  * cookie jar, so the defaults would collide with another local application's (ADR-030). {@code
- * csrf().spa()} installs the single-page-application handler — which resolves the token on every
- * request, so the cookie is written eagerly rather than only where a handler asks for it — and the
- * renamed repository is set afterwards, replacing the one {@code spa()} installed while keeping
- * its handler.
+ * csrf().spa()} is configured first, and both of the parts it installs are then replaced: the
+ * renamed repository replaces its cookie repository, and {@link HeaderOnlyCsrfTokenRequestHandler}
+ * replaces its handler, which would also accept the token as a {@code _csrf} request parameter.
+ * The replacement keeps what {@code spa()} is for — the cookie written eagerly on every request,
+ * and the header compared as the web client sends it.
  *
  * <p>{@link HostAllowListFilter} still runs before all of this, at the highest filter precedence,
  * because a request under a foreign {@code Host} should never reach a security decision at all.
@@ -110,7 +111,8 @@ public class GatewaySecurityConfiguration {
      * Assembles the chain.
      *
      * @param http Boot's pre-configured builder for this application
-     * @param csrfTokenRepository the renamed repository, replacing the one {@code spa()} installs
+     * @param csrfTokenRepository the renamed repository, replacing the one {@code spa()} installs;
+     *     its handler is replaced too, by {@link HeaderOnlyCsrfTokenRequestHandler}
      * @param registrations the {@code keycloak} registration, read by the sign-out handler
      * @param webOrigin where every redirect this chain issues points
      * @param sessionCookieName {@code server.servlet.session.cookie.name}, so the cookie the
@@ -150,7 +152,9 @@ public class GatewaySecurityConfiguration {
                         .authenticated()
                         .anyRequest()
                         .denyAll())
-                .csrf(csrf -> csrf.spa().csrfTokenRepository(csrfTokenRepository))
+                .csrf(csrf -> csrf.spa()
+                        .csrfTokenRepository(csrfTokenRepository)
+                        .csrfTokenRequestHandler(new HeaderOnlyCsrfTokenRequestHandler()))
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(new ProblemAuthenticationEntryPoint())
                         .accessDeniedHandler(new ProblemAccessDeniedHandler()))

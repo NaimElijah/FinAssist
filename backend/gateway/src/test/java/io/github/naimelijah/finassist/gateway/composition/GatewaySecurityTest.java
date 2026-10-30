@@ -21,6 +21,9 @@ import io.github.naimelijah.finassist.gateway.composition.support.FakeService;
 import jakarta.servlet.http.Cookie;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -122,6 +125,9 @@ class GatewaySecurityTest {
 
     private static final String XSRF_COOKIE = "FINASSIST-XSRF-TOKEN";
     private static final String XSRF_HEADER = "X-FINASSIST-XSRF-TOKEN";
+
+    /** Spring's default name for the CSRF request parameter, which the gateway must not read. */
+    private static final String CSRF_PARAMETER = "_csrf";
 
     private static final MediaType PROBLEM_JSON = MediaType.APPLICATION_PROBLEM_JSON;
 
@@ -348,6 +354,87 @@ class GatewaySecurityTest {
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("CSRF_TOKEN_INVALID"));
+    }
+
+    /**
+     * The token is read from the renamed header and nowhere else (ADR-030). Spring's default
+     * handler also reads a {@code _csrf} request parameter, from the query string or a form body,
+     * and either can be put on a request without setting a header. So both places are tried, each
+     * with the cookie's value as it is and as Spring's masking handler writes it — the form its
+     * parameter path would unmask and accept — and every one must be refused before {@code
+     * LogoutFilter} ends the session.
+     */
+    @ParameterizedTest
+    @MethodSource("csrfTokensSentAsAParameter")
+    void
+            Given_a_signed_in_session_When_logout_carries_the_csrf_token_only_as_a_request_parameter_Then_it_is_refused_403_and_the_session_survives(
+                    ParameterPlacement placement, CsrfTokenForm form) throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        Cookie csrf = signIn(session);
+
+        mvc.perform(placement.carrying(named(post(LOGOUT)).session(session).cookie(csrf), form.of(csrf.getValue())))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("CSRF_TOKEN_INVALID"));
+
+        assertThat(session.isInvalid())
+                .as("the session after the refused sign-out")
+                .isFalse();
+        mvc.perform(named(get(ME)).session(session)).andExpect(status().isOk());
+    }
+
+    private static Stream<Arguments> csrfTokensSentAsAParameter() {
+        return Stream.of(ParameterPlacement.values())
+                .flatMap(placement -> Stream.of(CsrfTokenForm.values()).map(form -> Arguments.of(placement, form)));
+    }
+
+    /** Where a request parameter can travel without a header being set. */
+    enum ParameterPlacement {
+        QUERY {
+            @Override
+            MockHttpServletRequestBuilder carrying(MockHttpServletRequestBuilder request, String token) {
+                return request.queryParam(CSRF_PARAMETER, token);
+            }
+        },
+        FORM_BODY {
+            @Override
+            MockHttpServletRequestBuilder carrying(MockHttpServletRequestBuilder request, String token) {
+                return request.contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .content(CSRF_PARAMETER + "=" + URLEncoder.encode(token, StandardCharsets.UTF_8));
+            }
+        };
+
+        abstract MockHttpServletRequestBuilder carrying(MockHttpServletRequestBuilder request, String token);
+    }
+
+    /** The cookie's value as it is, and as Spring's masking handler would write it. */
+    enum CsrfTokenForm {
+        RAW {
+            @Override
+            String of(String cookieValue) {
+                return cookieValue;
+            }
+        },
+        MASKED {
+            @Override
+            String of(String cookieValue) {
+                return masked(cookieValue);
+            }
+        };
+
+        abstract String of(String cookieValue);
+    }
+
+    /**
+     * {@code cookieValue} under an all-zero mask: the mask, then the value itself, base64url-encoded,
+     * which is a value {@code XorCsrfTokenRequestAttributeHandler} unmasks back to the cookie's.
+     * Spelled out here because the point is the format, not whichever mask Spring would pick.
+     */
+    static String masked(String cookieValue) {
+        byte[] token = cookieValue.getBytes(StandardCharsets.UTF_8);
+        byte[] maskThenToken = new byte[token.length * 2];
+        System.arraycopy(token, 0, maskThenToken, token.length, token.length);
+        return Base64.getUrlEncoder().encodeToString(maskThenToken);
     }
 
     /**

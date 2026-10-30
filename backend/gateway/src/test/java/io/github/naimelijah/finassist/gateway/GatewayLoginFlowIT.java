@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -32,6 +33,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -78,6 +81,9 @@ class GatewayLoginFlowIT {
     private static final String SESSION_COOKIE = "FINASSIST_SESSION";
 
     private static final String XSRF_HEADER = "X-FINASSIST-XSRF-TOKEN";
+
+    /** Spring's default name for the CSRF request parameter, which the gateway must not read. */
+    private static final String CSRF_PARAMETER = "_csrf";
 
     /** A relayed write, so a refusal below is refusing the request CSRF exists to stop. */
     private static final String LEDGER_TRANSACTIONS = "/ledger/api/v1/transactions";
@@ -549,6 +555,58 @@ class GatewayLoginFlowIT {
             assertThat(response.body()).contains("CSRF_TOKEN_INVALID");
             assertThat(ledger.lastRequest()).isNull();
         }
+    }
+
+    /**
+     * The token is accepted from the renamed header alone (ADR-030), on the write that matters
+     * most: one relayed to the owner's books with the owner's token attached.
+     *
+     * <p>Spring's default handler also reads a {@code _csrf} request parameter, from the query
+     * string or a form body, and either can be sent without a header. Each is tried with the
+     * cookie's value under an all-zero mask, the form that parameter path would unmask and accept,
+     * and each must be refused before the relay — the ledger receives nothing — while the session
+     * the request rode on stays signed in.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void
+            Given_a_signed_in_session_When_a_relayed_write_carries_the_csrf_token_only_as_a_request_parameter_Then_it_is_refused_403_and_not_relayed(
+                    boolean inFormBody) throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+            String parameter =
+                    CSRF_PARAMETER + "=" + URLEncoder.encode(masked(csrfTokenValue(client)), StandardCharsets.UTF_8);
+            HttpRequest.Builder request = HttpRequest.newBuilder().timeout(TIMEOUT);
+            if (inFormBody) {
+                request.uri(URI.create(gatewayUrl(LEDGER_TRANSACTIONS)))
+                        .header("Content-Type", "application/x-www-form-urlencoded")
+                        .POST(HttpRequest.BodyPublishers.ofString(parameter));
+            } else {
+                request.uri(URI.create(gatewayUrl(LEDGER_TRANSACTIONS + "?" + parameter)))
+                        .POST(HttpRequest.BodyPublishers.noBody());
+            }
+
+            HttpResponse<String> response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+
+            assertThat(response.statusCode()).isEqualTo(403);
+            assertThat(response.body()).contains("CSRF_TOKEN_INVALID");
+            assertThat(ledger.lastRequest()).isNull();
+            assertThat(relay(client, "/bff/me").statusCode())
+                    .as("GET /bff/me after the refused write")
+                    .isEqualTo(200);
+        }
+    }
+
+    /**
+     * {@code cookieValue} under an all-zero mask: the mask, then the value itself, base64url-encoded,
+     * which is a value Spring's {@code XorCsrfTokenRequestAttributeHandler} unmasks back to the
+     * cookie's.
+     */
+    private static String masked(String cookieValue) {
+        byte[] token = cookieValue.getBytes(StandardCharsets.UTF_8);
+        byte[] maskThenToken = new byte[token.length * 2];
+        System.arraycopy(token, 0, maskThenToken, token.length, token.length);
+        return Base64.getUrlEncoder().encodeToString(maskThenToken);
     }
 
     /**

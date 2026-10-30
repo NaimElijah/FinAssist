@@ -16,7 +16,8 @@ It holds no bounded context: everything is in its `composition/` root. The parts
 - `GatewayConfiguration` registers the Host allow-list first. `HostAllowListFilter` is a
   deliberate copy of the ledger's, configured by `GATEWAY_ALLOWED_HOSTS`.
 - `GatewaySecurityConfiguration` is the one security chain: deny by default, 401 never 302, and a
-  renamed CSRF cookie and header.
+  renamed CSRF cookie and header. `HeaderOnlyCsrfTokenRequestHandler` reads the token from that
+  header alone, never from a `_csrf` request parameter, which `csrf().spa()`'s own handler accepts.
 - `BffRoutes` holds every `/bff/` path, in one place. `SessionController` serves `GET /bff/me`,
   `SpaLogoutSuccessHandler` answers `POST /bff/logout`, and `SignInFailureHandler` sends a failed
   sign-in back to `?signin=failed`. `LoginEntryFailureHandler` answers a sign-in that cannot start
