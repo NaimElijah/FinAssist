@@ -9,8 +9,8 @@ Contexts `portfolio/`, `assistance/` and `marketdata/` under `src/finassist_assi
 `domain/`, `application/{port,usecase}/` and `adapters/{inbound,outbound}/` (`marketdata` has
 only `outbound/`), plus `shared/`. The composition root is `src/finassist_assistant/adapters/`:
 `__main__.py`, `app.py`, `wiring.py`, `settings.py`, `observability.py`, `auth.py`
-(`BearerAuthentication`, `RequirePermission`), `hosts.py` (`HostAllowList`), `problems.py`,
-`openapi.py` and `seed.py`.
+(`BearerAuthentication`, `RequirePermission`), `hosts.py` (`HostAllowList`), `body_limit.py`
+(`RequestBodyLimit`), `problems.py`, `openapi.py` and `seed.py`.
 
 Only `portfolio` is served, under `/api/v1`, behind `HostAllowList` and the problem+json handling
 in `adapters/problems.py`. Its OpenAPI document is generated from the code and committed at
@@ -81,8 +81,14 @@ From `backend/assistant`:
 - **`BearerAuthentication` runs inside the correlation middleware, not outside it.** It is added to
   the app before `correlate`, so Starlette's last-added-runs-first rule puts `correlate` outside it
   and a refused request still gets a correlation id and a request-answered line. The order is
-  `HostAllowList` → correlate → auth → routes; `HostAllowList` stays outermost, added last, so a
-  foreign `Host` is refused before authentication is even attempted.
+  `HostAllowList` → correlate → body limit → auth → routes; `HostAllowList` stays outermost, added
+  last, so a foreign `Host` is refused before authentication is even attempted.
+- **No body is buffered past `MAX_REQUEST_BODY_BYTES`** (64 KiB, as on the ledger and the
+  gateway; ADR-058). `RequestBodyLimit` sits outside authentication, because FastAPI reads and
+  parses a body before any dependency runs: a declared `Content-Length` over it is refused 413
+  `CONTENT_TOO_LARGE` before authentication and before the body is read. A chunked body is
+  counted as the route reads it, after authentication, so an unauthenticated one is answered 401
+  unread. Pinned by `tests/test_body_limit.py`.
 - **A key-source outage is told apart where it is raised, never by an exception's message** (the
   root's WARN-versus-ERROR rule, ADR-037). `BearerAuthentication._report_unavailable` logs the
   outage, and failures are mapped only inside `_KeySetClient.fetch_data`, which never sees a

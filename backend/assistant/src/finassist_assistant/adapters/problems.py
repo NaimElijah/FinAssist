@@ -45,6 +45,8 @@ from finassist_assistant.shared import CurrencyMismatchError
 __all__ = [
     "AUTHENTICATION_UNAVAILABLE",
     "BLANK_TYPE",
+    "CONTENT_TOO_LARGE",
+    "CONTENT_TOO_LARGE_DETAIL",
     "CURRENCY_MISMATCH",
     "FORBIDDEN",
     "HOLDING_NOT_FOUND",
@@ -100,6 +102,14 @@ UNAUTHENTICATED: Final = "UNAUTHENTICATED"
 
 FORBIDDEN: Final = "FORBIDDEN"
 """A genuine identity, denied by the permission its role does not hold (ADR-030)."""
+
+CONTENT_TOO_LARGE: Final = "CONTENT_TOO_LARGE"
+"""The request is larger than the service accepts: the ledger's code, and RFC 9110's name for 413.
+
+It is also what ``HTTPStatus(413).name`` spells, so a 413 Starlette raises is coded the same."""
+
+CONTENT_TOO_LARGE_DETAIL: Final = "The request is larger than this service accepts."
+"""The one detail a body over the limit is refused with, whether declared or counted."""
 
 AUTHENTICATION_UNAVAILABLE: Final = "AUTHENTICATION_UNAVAILABLE"
 """The JWKS source could not be reached; nothing here says whether the token would have been
@@ -253,7 +263,8 @@ def _framework_failure(request: Request, exception: HTTPException) -> JSONRespon
     ``UNAUTHENTICATED``, not the reason phrase's own ``UNAUTHORIZED`` - the code names a caller
     with no valid identity, and RFC 6750's use of "unauthorized" for the very same thing has
     confused this exact pair before. Any other 4xx is its standard reason, which for 403, 404,
-    405, 406 and 415 is exactly the ledger's code. A 5xx is withheld like any other.
+    405, 406, 413 and 415 is exactly the ledger's code: ``RequestBodyLimit`` raises a 413 for a
+    body that crosses the limit as it is read. A 5xx is withheld like any other.
     """
     status = HTTPStatus(exception.status_code)
     if status.is_server_error:

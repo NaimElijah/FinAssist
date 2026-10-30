@@ -124,9 +124,12 @@ def portfolio_router(
         "/holdings/{symbol}/disposal",
         # 200, not 201: pricing creates nothing.
         status_code=HTTPStatus.OK,
-        # The permission dependency comes first, so a caller with no permission sending a
-        # non-JSON body is answered 403, never 415 - refusing who may ask before refusing how
-        # they asked. FastAPI evaluates a route's dependencies in this declared order.
+        # FastAPI evaluates a route's dependencies in this declared order, so a caller with no
+        # permission sending a non-JSON body is answered 403, never 415. The body is read and
+        # parsed before any dependency runs, though: a body declared as JSON that does not parse
+        # is answered 400 whoever sent it. One over the size limit is refused 413 by the
+        # composition root's RequestBodyLimit: before authentication when its length is declared,
+        # and as it is read, so after authentication, when it is chunked.
         dependencies=[Depends(require(READ_PORTFOLIO)), Depends(_require_json)],
     )
     def price_disposal(symbol: str, disposal: DisposalRequestModel) -> DispositionModel:
