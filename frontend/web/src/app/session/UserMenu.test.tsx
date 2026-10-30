@@ -67,8 +67,7 @@ function renderUserMenu(session: Session, answer: FetchAnswer) {
 const XSRF_COOKIE = 'FINASSIST-XSRF-TOKEN';
 
 /** What the owner is told when signing out fails and the session is still open. */
-const SIGN_OUT_FAILED =
-    'Sign-out failed. You are still signed in. Try again, or close the browser.';
+const SIGN_OUT_FAILED = 'Sign-out failed. You are still signed in. Try again.';
 
 /** A query read while signed in, which a failed sign-out must leave in the cache. */
 const CACHED_KEY = ['accounts'];

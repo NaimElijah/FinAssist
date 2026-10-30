@@ -8,8 +8,7 @@ import { useSignOut } from './sessionQueries';
 import styles from './UserMenu.module.css';
 
 /** Shown while the last sign-out failed: the session it tried to end is still open. */
-const SIGN_OUT_FAILED =
-    'Sign-out failed. You are still signed in. Try again, or close the browser.';
+const SIGN_OUT_FAILED = 'Sign-out failed. You are still signed in. Try again.';
 
 /**
  * Who is signed in, and the control that signs them out.
