@@ -6,7 +6,7 @@
  * which is a stronger guarantee than invalidating this key alone would be.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 
 import { browserLocation } from './browserLocation';
 import { readSession, signOut as requestSignOut } from './sessionApi';
@@ -27,12 +27,28 @@ export function useSession() {
     return useQuery({ queryKey: sessionKeys.me, queryFn: readSession });
 }
 
-/** Ends the session: a function safe to call twice in a row, and whether that is in flight. */
+/**
+ * Ends the session: a function safe to call twice in a row, whether that is in flight, and why
+ * the last attempt failed.
+ */
 export interface SignOut {
     /** Sends the sign-out request, unless one from an earlier call has not yet settled. */
     readonly signOut: () => void;
     /** A sign-out request is in flight. */
     readonly isPending: boolean;
+    /**
+     * Why the last sign-out failed, while the session it tried to end is still open; `null`
+     * before any attempt, during one, and once one succeeds. An `ApiError` for a refusal such
+     * as 403 `CSRF_TOKEN_INVALID`, a `TypeError` for a network failure, or a `URIError` when a
+     * corrupted CSRF cookie stopped the request before it was sent.
+     */
+    readonly error: Error | null;
+    /**
+     * How many sign-outs have failed since the component mounted. Each failure gives it a new
+     * value, even one following another before anything rendered in between, so a caller can
+     * mount its alert afresh, keyed on it, and have the failure announced again.
+     */
+    readonly failures: number;
 }
 
 /**
@@ -42,7 +58,8 @@ export interface SignOut {
  * The whole cache is cleared, not just the session key, because everything else this app has
  * cached - accounts, budgets, a holding's valuation - was read under the session that just ended,
  * and none of it should still answer a query after the next sign-in, which may be a different
- * person.
+ * person. A failed sign-out clears nothing: the session those reads were made under is still
+ * open, and the caller shows `error` so the owner knows it.
  *
  * @returns see `SignOut`. `signOut` guards against a double press with a `useRef` rather than
  *   this hook's own `isPending`: two clicks can arrive in the same tick, before the pending state
@@ -52,11 +69,15 @@ export interface SignOut {
 export function useSignOut(): SignOut {
     const queryClient = useQueryClient();
     const inFlight = useRef(false);
+    const [failures, setFailures] = useState(0);
     const mutation = useMutation({
         mutationFn: requestSignOut,
         onSuccess: ({ logoutUrl }) => {
             queryClient.clear();
             browserLocation.assign(logoutUrl);
+        },
+        onError: () => {
+            setFailures((count) => count + 1);
         },
         onSettled: () => {
             inFlight.current = false;
@@ -65,6 +86,8 @@ export function useSignOut(): SignOut {
 
     return {
         isPending: mutation.isPending,
+        error: mutation.error,
+        failures,
         signOut: () => {
             if (inFlight.current) {
                 return;

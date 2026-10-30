@@ -340,7 +340,8 @@ gateway, path intact, never straight to a service
 **The whole app is gated on a signed-in session.** Signed out, it shows a sign-in screen whose
 "Sign in with Keycloak" is a plain link to Keycloak's own page; a failed sign-in returns to
 `?signin=failed`, which the screen explains. "Sign out", beside your name, ends the gateway's
-session and Keycloak's own, and clears everything the app had cached. A `viewer` sees a
+session and Keycloak's own, and clears everything the app had cached; if it fails, the app says
+you are still signed in. A `viewer` sees a
 "Read-only" badge and no control that changes data — pricing a disposal, which records nothing,
 stays offered — and the ledger and the assistant enforce the same rule themselves.
 

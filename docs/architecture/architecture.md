@@ -407,7 +407,12 @@ session and answers the URL that also ends Keycloak's → the whole query cache 
 everything in it was read under the session that just ended, and `browserLocation.assign`
 navigates the browser there - after checking the URL parses with an `http:` or `https:` scheme, so
 a tampered or malformed value from the server is refused rather than executed as a `javascript:`
-URL in the page. **Noticing the session end mid-visit.** Every other query and mutation still runs
+URL in the page. A sign-out that fails - a refusal such as 403 `CSRF_TOKEN_INVALID`, a network
+failure, or a corrupted CSRF cookie that stops `sendJson` before it sends - clears nothing, since
+the session is still open, and `UserMenu` shows an alert saying so until the next attempt,
+mounted afresh for each failure so a repeated one is announced again, and moves focus back to
+"Sign out" when the disabled button had dropped it to the page body.
+**Noticing the session end mid-visit.** Every other query and mutation still runs
 its own request without checking the session first, so `queryClient.ts`'s `QueryCache` and
 `MutationCache` both invalidate `sessionKeys.me` when any of them answers 401 - except the session
 check's own 401, which is excluded deliberately: invalidating there would refetch it, which would
