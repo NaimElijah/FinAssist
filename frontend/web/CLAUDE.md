@@ -66,6 +66,17 @@ From `frontend/web`:
   imports a generated contract type. `tests/architecture.test.ts` fails the build otherwise,
   reading every import form with the TypeScript parser and refusing a computed specifier it
   cannot resolve.
+- **No file hands markup to the HTML parser** through `dangerouslySetInnerHTML` or `srcDoc` (as a
+  JSX prop, or `dangerouslySetInnerHTML` as an object property), an `innerHTML` or `outerHTML`
+  assignment or member given to `Object.assign`, a call to `insertAdjacentHTML`,
+  `createContextualFragment`, `setHTMLUnsafe` or `parseFromString`, or `document.write` or
+  `document.writeln` (also as `window.document`), each member or key named directly or by a
+  string or template-literal key: `no-restricted-syntax` fails `npm run lint`. Reading
+  `innerHTML` stays allowed, and so does a `write` on anything but `document`. Not caught: a key
+  computed any other way, `Reflect.set`, and `setAttribute('srcdoc', …)`.
+  `tests/lintRules.test.ts` lints a snippet of each through ESLint's API to prove the rule fires.
+  Test files set that rule again, for the skip rule below, so `RAW_HTML_SINKS` is listed in both
+  blocks.
 - **No test file commits a `.skip`, `.todo` or `.only`** on `it`, `test`, `describe` or `suite`:
   ESLint's `no-restricted-syntax` fails `npm run lint`. `it.fails`, `skipIf` and `runIf` stay
   allowed — a test that must fail, and a skip a platform decides.
