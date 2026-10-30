@@ -24,7 +24,7 @@ append-only history: to change course, add a new record and mark the old one
 | [016](ADR-016-deterministic-per-currency-projection.md) | Deterministic, per-currency projections | Accepted |
 | [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted, its Testcontainers deferral resolved by 025 |
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
-| [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, extended by 030, 039 and 050, corrected by 047 |
+| [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, extended by 030, 039, 050 and 060, corrected by 047 |
 | [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, acted on by 023, extended by 033, its persistence obligation resolved by 024 |
 | [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted, extended by 041 and 055 |
 | [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted, extended by 051, with a bounded exception in 028 |
@@ -36,7 +36,7 @@ append-only history: to change course, add a new record and mark the old one
 | [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030, 056 and 058 |
 | [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056 and 057 |
 | [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, 053, 057 and 058, corrected by 047 |
-| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036, corrected by 047 |
+| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 and 060, corrected by 047 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted, corrected by 047 |
 | [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035 |
 | [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted, extended by 040 |
@@ -65,6 +65,7 @@ append-only history: to change course, add a new record and mark the old one
 | [057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md) | A page on another `localhost` port is treated as hostile | Accepted |
 | [058](ADR-058-each-service-bounds-what-one-request-can-cost.md) | Each service bounds what one request can cost | Accepted |
 | [059](ADR-059-the-assistant-trusts-only-the-key-set-it-last-fetched.md) | The assistant trusts only the key set it last fetched | Accepted |
+| [060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md) | The `finassist` realm and the Keycloak image are configured, not defaulted | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -269,4 +270,16 @@ until a restart, and an outage went unseen for every key already cached. The ass
 key apart from the set, so a key leaves with it, and after a failed fetch it answers an outage for
 15 seconds without fetching again. 037's line that the assistant's per-`kid` cache is untouched
 by a failed refresh no longer holds; 037 keeps its text
+([#340](https://github.com/NaimElijah/FinAssist/issues/340)).
+
+060 extends 031 and 019 on 2026-10-30, because 031 pinned the settings it chose and left every other
+one to Keycloak's default. Four defaults were still in force. The `jboss-logging` listener wrote each
+failed sign-in to the log with the username as typed. The unused `admin-cli` client kept its password
+grant. Offline sessions had no absolute lifetime. Keycloak logged plain text and enabled two deprecated
+features. The realm file and the image now state all of them, and operations.md applies the realm
+settings to an existing realm in place, keeping every user. The owner chose on 2026-10-30 not to
+require a second factor of a viewer, and 060 records that rejection with its triggers. The `master`
+realm and a Host allow-list for Keycloak are
+[#368](https://github.com/NaimElijah/FinAssist/issues/368) and
+[#369](https://github.com/NaimElijah/FinAssist/issues/369)
 ([#340](https://github.com/NaimElijah/FinAssist/issues/340)).
