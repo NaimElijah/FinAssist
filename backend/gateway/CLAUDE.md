@@ -61,6 +61,9 @@ From `backend/gateway`:
 
 - **The Spring Cloud starter takes its version from the `spring-cloud-dependencies` BOM**
   (`spring-cloud.version` in `pom.xml`), never a version of its own.
+- **On every Spring Boot parent bump, read Boot's managed `opentelemetry.version`.** `pom.xml`
+  overrides it to 1.67.0 for GHSA-ccrj-gw8r-854m, and an override lower than Boot's own
+  downgrades it. Delete the property once Boot manages 1.67.0 or later (ADR-062).
 - **A relayed method is named twice, and both must admit every operation in `contracts/`**: the
   routes' `Method=` in `application.yml` and the chain's relay matchers in
   `GatewaySecurityConfiguration`. `GatewayRelayRoutesTest` holds the routes, and

@@ -42,6 +42,12 @@
     <palantir-java-format.version>2.97.0</palantir-java-format.version>
     <jacoco.version>0.8.15</jacoco.version>
     <springdoc.version>3.1.1</springdoc.version>
+    <!-- Overrides the 1.62.0 that Boot 4.1.2 manages, whose W3C tracestate parsing costs
+         quadratic CPU (GHSA-ccrj-gw8r-854m, fixed in 1.67.0). Boot's opentelemetry-bom import
+         reads this property, so every io.opentelemetry artefact moves together. Delete it once
+         the Boot parent manages 1.67.0 or later. On every parent bump, read Boot's managed
+         opentelemetry.version; an override lower than Boot's own downgrades it. -->
+    <opentelemetry.version>1.67.0</opentelemetry.version>
     <!-- Not a literal Spring Cloud Gateway version: the BOM below pins
          spring-cloud-gateway.version to 5.0.3, which is what the starter dependency inherits. -->
     <spring-cloud.version>2025.1.3</spring-cloud.version>
