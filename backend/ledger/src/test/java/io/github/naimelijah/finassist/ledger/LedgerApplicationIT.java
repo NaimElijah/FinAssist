@@ -25,8 +25,13 @@ import javax.sql.DataSource;
 import org.apache.catalina.Context;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.tomcat.TomcatWebServer;
 import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
@@ -55,6 +60,7 @@ import tools.jackson.databind.json.JsonMapper;
  * trade.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ExtendWith(OutputCaptureExtension.class)
 class LedgerApplicationIT extends PostgresFixture {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
@@ -238,6 +244,33 @@ class LedgerApplicationIT extends PostgresFixture {
                 connection.rollback();
             }
         }
+    }
+
+    /**
+     * Nothing in the ledger takes multipart, but Spring MVC parses any request that declares it before a
+     * route is chosen, a {@code GET} included. A {@code multipart/form-data} type naming no boundary cannot
+     * be parsed, which is the client's mistake: it is answered as any other malformed request (ADR-028),
+     * and not logged as a failure of the ledger's.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"GET", "POST"})
+    void Given_a_multipart_request_naming_no_boundary_When_it_reaches_the_ledger_Then_it_is_a_400_and_logs_no_error(
+            String method, CapturedOutput output) throws Exception {
+        HttpResponse<String> response = CLIENT.send(
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/accounts"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
+                        .header(HttpHeaders.CONTENT_TYPE, MediaType.MULTIPART_FORM_DATA_VALUE)
+                        .timeout(TIMEOUT)
+                        .method(method, HttpRequest.BodyPublishers.ofString("x"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.headers().firstValue(HttpHeaders.CONTENT_TYPE))
+                .hasValue(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        assertThat(JsonMapper.shared().readTree(response.body()).path("code").asString())
+                .isEqualTo("MALFORMED_REQUEST");
+        assertThat(output.getOut()).doesNotContain("\"level\":\"ERROR\"");
     }
 
     /**
