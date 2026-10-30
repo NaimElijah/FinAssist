@@ -89,7 +89,7 @@ updates:
       prefix: "chore(deps)"
     ignore:
       # ADR-003 chose Python 3.13, and `.python-version`, which CI tests on, and the Compose
-      # services pinning python:3.13.8 hold it there. A 3.14 image would run code CI never tested
+      # services pinning python:3.13.x hold it there. A 3.14 image would run code CI never tested
       # (#268). Moving to 3.14 is an ADR's to choose, together with those pins; delete this entry
       # in that change. 3.13.x patch releases still arrive.
       - dependency-name: "python"
