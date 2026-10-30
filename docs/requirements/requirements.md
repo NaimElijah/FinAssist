@@ -336,6 +336,12 @@ Stated so they are not re-proposed:
   a trade. It records and analyses.
 - **Not a bank aggregator, for now.** Automatic institution sync is not in scope; see
   [Open questions](#open-questions).
+- **No second factor for a viewer.** A `viewer` signs in with a password alone and is not
+  required to enrol a second factor. TOTP is required of the owner, at first sign-in, and of any
+  user who has enrolled one. The owner chose this on 2026-10-30. Revisit it when FinAssist becomes
+  reachable from beyond the owner's machine
+  ([#61](https://github.com/NaimElijah/FinAssist/issues/61)), or when a viewer is added who does
+  not share the owner's devices.
 
 ## Open questions
 
