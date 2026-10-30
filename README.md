@@ -139,7 +139,7 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 | Contracts | springdoc-openapi (API starter only) | 3.2.0 | Each service's OpenAPI document is generated, then pinned by a test to `contracts/` |
 | Architecture tests | ArchUnit | 1.5.1 | Layering, context isolation, no floating-point money, a one-way composition root |
 | Tests | JUnit + Testcontainers, pytest + Hypothesis, Vitest + Testing Library | Boot-managed / 9.1.1 + 6.168.0 / 5.0 + 16.3 | Integration tests against a real PostgreSQL and a real Keycloak image; property tests seeded on both sides |
-| Coverage, mutation | JaCoCo, pytest-cov, coverage-v8; PIT | 0.8.15 / 7.1.0 / 5.0.4; 1.30.1 | Measured and gating nothing; mutation testing answers whether a test would notice ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
+| Coverage, mutation | JaCoCo, pytest-cov, coverage-v8; PIT | 0.8.16 / 7.1.0 / 5.0.4; 1.30.1 | Measured and gating nothing; mutation testing answers whether a test would notice ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
 | Format and lint | Spotless + palantir-java-format, ESLint + Prettier | 3.10.4 / 2.97.0, 10.11 / 3.9 | One authoritative formatter per language, checked in CI |
 | Telemetry | OpenTelemetry + Micrometer; Collector, Prometheus, Grafana | 1.45.1 (Python) / 1.67.0 (Java, over the Boot 4.1.2 starter); 0.139.0 / v3.7.3 / 12.3.1 | Vendor-neutral: the backend is an environment variable, not a rewrite ([ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 
