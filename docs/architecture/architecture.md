@@ -382,7 +382,11 @@ own statuses (404, 415, 400) through the composition root's fallback, `LedgerPro
 the lowest precedence, which answers everything no context's advice claimed. **A body declared as
 multipart that cannot be parsed, one whose type names no boundary say, is 400
 `MALFORMED_REQUEST`**: Spring MVC parses multipart before it chooses a route, a `GET`'s included,
-and nothing in the ledger takes multipart, so the fallback treats the failure as the request's. **A stored row a
+and nothing in the ledger takes multipart, so the fallback treats the failure as the request's. **A path Spring Security's
+firewall refuses** — an encoded dot segment or percent sign, an empty segment, a path parameter —
+**is 400 `MALFORMED_REQUEST` too**, written by `ProblemRequestRejectedHandler` before any filter of
+the chain runs, with a fixed body that names nothing from the request; the observation is still
+marked failed (`RequestRejectedHandlerTest`). It is a copy of the gateway's handler, kept symmetric as `HostAllowListFilter` is. **A stored row a
 JDBC mapper cannot reconstruct — an unknown enum constant, or an amount `Money` refuses — raises
 `IllegalStateException`, which the fallback answers as a logged 500; only a domain refusal
 reaches 422** — the accepted trade-off ADR-028 records for `IllegalArgumentException`. **A JSON

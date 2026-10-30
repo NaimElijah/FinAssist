@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import io.github.naimelijah.finassist.ledger.composition.LedgerPermissions;
 import io.github.naimelijah.finassist.ledger.composition.LedgerSecurityConfiguration;
 import java.util.List;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.micrometer.observation.autoconfigure.ObservationAutoConfiguration;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.MockMvcBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
@@ -21,6 +23,10 @@ import org.springframework.context.annotation.Import;
  * security at all — every request admitted, every permission moot — which is a false pass, not a
  * fast one. {@code @Import} rather than component scanning is exactly what a slice test is for.
  *
+ * <p>The chain's {@code RequestRejectedHandler} marks the current observation, so the slice also
+ * imports Boot's own {@code ObservationAutoConfiguration}, which the running ledger applies and a slice
+ * does not; the registry is the real auto-configured one, not a stand-in.
+ *
  * <p>The default authentication is deliberately the most permissive role: a slice's own tests
  * assert what the controller answers for a given input, not authorization, which {@code
  * LedgerAuthorizationIT} covers end to end against real tokens. A test that needs to assert a 403
@@ -29,6 +35,7 @@ import org.springframework.context.annotation.Import;
  */
 @TestConfiguration
 @Import(LedgerSecurityConfiguration.class)
+@ImportAutoConfiguration(ObservationAutoConfiguration.class)
 public class WebSliceSecurity {
 
     private static final String OWNER_SUBJECT = "owner-user";

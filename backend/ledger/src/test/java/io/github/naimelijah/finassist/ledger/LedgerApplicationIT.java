@@ -274,6 +274,30 @@ class LedgerApplicationIT extends PostgresFixture {
     }
 
     /**
+     * Spring Security's firewall refuses a path it cannot route safely — an encoded dot segment, an
+     * encoded percent sign, an empty segment, a path parameter — before any filter of the chain runs.
+     * Left to the default handler, the refusal was {@code sendError(400)}, and the container's error
+     * dispatch answered it with Boot's own body: a {@code timestamp} and the caller's {@code path}, with no
+     * {@code code}. Only a real container performs that dispatch, so only an IT can see it. The gateway's
+     * {@code GatewayApplicationIT} pins the same refusal.
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {"/api/v1/%2e%2e/accounts", "/api/v1/accounts%25", "/api//v1/accounts", "/api/v1/accounts;a=b"})
+    void Given_a_path_the_firewall_rejects_When_answered_Then_it_is_a_400_problem_with_a_code(String path)
+            throws Exception {
+        HttpResponse<String> response = get(path);
+
+        assertThat(response.statusCode()).as("the status %s answered", path).isEqualTo(400);
+        assertThat(response.headers().firstValue(HttpHeaders.CONTENT_TYPE))
+                .hasValue(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        assertThat(response.body())
+                .contains("\"code\":\"MALFORMED_REQUEST\"")
+                .doesNotContain("\"timestamp\"")
+                .doesNotContain("\"path\"");
+    }
+
+    /**
      * The slices cannot show this: MockMvc never parses a multipart body. A well-formed one, with a
      * boundary and a real part, is parsed by the container and then refused by the write's {@code
      * consumes}, as every body but JSON is (ADR-030).
