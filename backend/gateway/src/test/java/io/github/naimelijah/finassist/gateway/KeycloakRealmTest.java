@@ -21,6 +21,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.BooleanNode;
 import tools.jackson.databind.node.IntNode;
+import tools.jackson.databind.node.StringNode;
 
 /**
  * Reads {@code ops/keycloak/finassist-realm.json} as data, without starting Keycloak, and pins
@@ -394,6 +395,28 @@ class KeycloakRealmTest {
         JsonNode assistant = client(realm(), "finassist-assistant");
 
         assertThat(audienceMapperValues(assistant)).containsExactly("finassist-ledger");
+    }
+
+    /**
+     * A service's audience belongs in the access tokens issued for it, never in an ID token, which
+     * is meant for the client alone: Keycloak puts only the issuing client in an ID token's
+     * audience unless an audience mapper adds more. Every audience mapper therefore adds its
+     * audience to the access token alone.
+     */
+    @Test
+    void Given_every_audience_mapper_When_read_Then_it_adds_its_audience_to_the_access_token_alone() {
+        List<JsonNode> mappers = realm().path("clients")
+                .valueStream()
+                .flatMap(client -> client.path("protocolMappers").valueStream())
+                .filter(m ->
+                        "oidc-audience-mapper".equals(m.path("protocolMapper").asString()))
+                .toList();
+
+        assertThat(mappers).as("the realm's audience mappers").hasSize(3);
+        assertThat(mappers).allSatisfy(mapper -> {
+            assertMember(mapper.path("config"), "id.token.claim", StringNode.valueOf("false"));
+            assertMember(mapper.path("config"), "access.token.claim", StringNode.valueOf("true"));
+        });
     }
 
     private static List<String> audienceMapperValues(JsonNode client) {
