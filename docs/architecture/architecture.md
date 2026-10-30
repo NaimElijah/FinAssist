@@ -730,9 +730,11 @@ still no bare `token`, so a token count survives.
   log it at ERROR under a message of its own rather than the refusal line's, still carrying the
   category and nothing else (`ProblemAuthenticationEntryPointTest`,
   `LedgerKeySourceOutageIT`, `test_authorization.py`).
-- **Gateway.** It logs a failed sign-in by its OAuth2 error code alone (`SignInFailureHandler`), a
-  refused refresh or an unreachable service as a fixed sentence, and an unexpected relay failure
-  by exception class name (`GatewayRelayProblems`). It never logs a request header, a cookie, a
+- **Gateway.** It logs a failed sign-in by its OAuth2 error code alone (`SignInFailureHandler`), and
+  only a code RFC 6749, OpenID Connect Core or Spring Security defines, any other as `unrecognised`,
+  because the callback's `error` parameter is the sender's own text; a refused refresh or an
+  unreachable service as a fixed sentence, and an unexpected relay failure by exception class name
+  (`GatewayRelayProblems`). It never logs a request header, a cookie, a
   token, a session id or a secret, and it strips the browser's `Authorization`, `Cookie` and
   `X-FINASSIST-XSRF-TOKEN` from every relayed request, so none reaches a service's logs.
 - **Proven by sweeping the captured log**:

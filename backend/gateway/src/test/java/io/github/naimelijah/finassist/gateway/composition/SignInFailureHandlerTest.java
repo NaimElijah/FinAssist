@@ -9,6 +9,8 @@ import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -46,6 +48,15 @@ class SignInFailureHandlerTest {
     private static final String LEAKED_CODE = "3f9c1a7e-code-that-must-never-be-logged";
 
     private static final String ERROR_CODE = "invalid_grant";
+
+    /** Distinctive enough that finding it in the log can only mean the caller's text reached it. */
+    private static final String CALLERS_MARKER = "text-the-caller-chose";
+
+    /** What a callback's {@code error} parameter can carry: free text, a line break and JSON. */
+    private static final String CALLERS_TEXT = CALLERS_MARKER + "\n{\"forged\":\"line\"}";
+
+    /** A registered code in upper case: the same word, but not a code the specifications define. */
+    private static final String NEAR_MISS_CODE = "ACCESS_DENIED";
 
     private final Logger logger = (Logger) LoggerFactory.getLogger(SignInFailureHandler.class);
     private final ListAppender<ILoggingEvent> captured = new ListAppender<>();
@@ -104,6 +115,63 @@ class SignInFailureHandlerTest {
         MockHttpServletResponse response = failWith(refusedExchange());
 
         assertThat(response.getRedirectedUrl()).isEqualTo(WEB_ORIGIN + "/?signin=failed");
+    }
+
+    /**
+     * The callback's {@code error} parameter is whatever its sender put in the query, and Spring
+     * carries it into the {@link OAuth2Error} as the error code. A code is logged only when it is
+     * one the OAuth2 and OpenID Connect specifications or Spring Security define, so a sender can
+     * never choose the text of a gateway log line.
+     */
+    @Test
+    void
+            Given_a_callback_error_that_is_not_a_registered_oauth2_code_When_the_sign_in_fails_Then_the_log_line_carries_none_of_the_callers_text()
+                    throws Exception {
+        failWith(new OAuth2AuthenticationException(new OAuth2Error(CALLERS_TEXT)));
+
+        assertThat(captured.list).hasSize(1);
+        assertThat(captured.list.getFirst().getFormattedMessage())
+                .contains("unrecognised")
+                .doesNotContain(CALLERS_TEXT)
+                .doesNotContain(CALLERS_MARKER);
+    }
+
+    /**
+     * Each family of registered codes is still logged as itself: the authorization endpoint's
+     * (RFC 6749 §4.1.2.1), the token endpoint's (§5.2), OpenID Connect's (Core §3.1.2.6), and the
+     * ones Spring Security raises while completing a sign-in.
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "access_denied",
+                "invalid_client",
+                "login_required",
+                "authorization_request_not_found",
+                "invalid_id_token",
+                "invalid_token_response"
+            })
+    void Given_a_registered_oauth2_error_code_When_the_sign_in_fails_Then_that_code_is_logged(String code)
+            throws Exception {
+        failWith(new OAuth2AuthenticationException(new OAuth2Error(code)));
+
+        assertThat(captured.list).hasSize(1);
+        assertThat(captured.list.getFirst().getFormattedMessage()).endsWith(" " + code);
+    }
+
+    /**
+     * The comparison is exact. A registered code is lower case by definition, so the same word in
+     * another case is not one, and is logged as {@code unrecognised} rather than as sent.
+     */
+    @Test
+    void Given_a_registered_code_in_another_case_When_the_sign_in_fails_Then_it_is_logged_as_unrecognised()
+            throws Exception {
+        failWith(new OAuth2AuthenticationException(new OAuth2Error(NEAR_MISS_CODE)));
+
+        assertThat(captured.list).hasSize(1);
+        assertThat(captured.list.getFirst().getFormattedMessage())
+                .endsWith(" unrecognised")
+                .doesNotContain(NEAR_MISS_CODE);
     }
 
     /**
