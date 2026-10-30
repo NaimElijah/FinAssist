@@ -72,7 +72,16 @@ public final class FakeService implements AutoCloseable {
 
     /** Replaces the response the next request receives. Stays in effect until changed again. */
     public void respondNext(int status, String contentType, String body) {
-        this.nextResponse = new CannedResponse(status, contentType, body.getBytes(StandardCharsets.UTF_8));
+        respondNext(status, contentType, body, Map.of());
+    }
+
+    /**
+     * Replaces the response the next request receives, adding {@code headers} to it: what a
+     * service could answer that the relay must not pass on. Stays in effect until changed again.
+     */
+    public void respondNext(int status, String contentType, String body, Map<String, String> headers) {
+        this.nextResponse =
+                new CannedResponse(status, contentType, body.getBytes(StandardCharsets.UTF_8), Map.copyOf(headers));
     }
 
     /**
@@ -129,6 +138,7 @@ public final class FakeService implements AutoCloseable {
 
         CannedResponse response = this.nextResponse;
         exchange.getResponseHeaders().add("Content-Type", response.contentType());
+        response.headers().forEach(exchange.getResponseHeaders()::add);
         exchange.sendResponseHeaders(response.status(), response.body().length);
         exchange.getResponseBody().write(response.body());
         exchange.close();
@@ -158,9 +168,9 @@ public final class FakeService implements AutoCloseable {
         }
     }
 
-    private record CannedResponse(int status, String contentType, byte[] body) {
+    private record CannedResponse(int status, String contentType, byte[] body, Map<String, String> headers) {
         static CannedResponse ok() {
-            return new CannedResponse(200, "application/json", "{}".getBytes(StandardCharsets.UTF_8));
+            return new CannedResponse(200, "application/json", "{}".getBytes(StandardCharsets.UTF_8), Map.of());
         }
     }
 }

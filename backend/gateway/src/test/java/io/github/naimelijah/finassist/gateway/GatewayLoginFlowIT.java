@@ -8,6 +8,7 @@ import io.github.naimelijah.finassist.gateway.composition.support.FakeService;
 import java.io.IOException;
 import java.net.BindException;
 import java.net.CookieManager;
+import java.net.CookieStore;
 import java.net.HttpCookie;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -25,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.catalina.Context;
@@ -85,6 +87,37 @@ class GatewayLoginFlowIT {
     private static final String SESSION_COOKIE = "FINASSIST_SESSION";
 
     private static final String XSRF_HEADER = "X-FINASSIST-XSRF-TOKEN";
+
+    private static final String CSRF_COOKIE = "FINASSIST-XSRF-TOKEN";
+
+    /** A cookie value only an upstream answer carries, so finding it in the browser names its source. */
+    private static final String UPSTREAM_COOKIE_VALUE = "a-value-an-upstream-set";
+
+    /** A cookie a service could try to plant: one named like the gateway's own CSRF cookie. */
+    private static final String UPSTREAM_SET_COOKIE = CSRF_COOKIE + "=" + UPSTREAM_COOKIE_VALUE + "; Path=/";
+
+    /** A {@code Server} header only an upstream answer carries. */
+    private static final String UPSTREAM_SERVER_HEADER = "FakeUpstream/1.0";
+
+    /**
+     * What a service could answer that the browser must never receive from it: a cookie, every
+     * header both routes strip because it changes the browser's state for the whole origin, and
+     * the service's {@code Server}. Neither the gateway nor its container sets any of these but a
+     * cookie of its own on a plain-HTTP answer, so each must be absent from what the browser
+     * receives.
+     */
+    private static final Map<String, String> UPSTREAM_ONLY_HEADERS = Map.ofEntries(
+            Map.entry("Set-Cookie", UPSTREAM_SET_COOKIE),
+            Map.entry("Server", UPSTREAM_SERVER_HEADER),
+            Map.entry("Clear-Site-Data", "\"cookies\", \"storage\""),
+            Map.entry("Strict-Transport-Security", "max-age=31536000"),
+            Map.entry("Access-Control-Allow-Origin", "*"),
+            Map.entry("Access-Control-Allow-Credentials", "true"),
+            Map.entry("Access-Control-Allow-Methods", "GET, POST, DELETE"),
+            Map.entry("Access-Control-Allow-Headers", "*"),
+            Map.entry("Access-Control-Allow-Private-Network", "true"),
+            Map.entry("Access-Control-Expose-Headers", "*"),
+            Map.entry("Access-Control-Max-Age", "600"));
 
     /** Spring's default name for the CSRF request parameter, which the gateway must not read. */
     private static final String CSRF_PARAMETER = "_csrf";
@@ -935,6 +968,47 @@ class GatewayLoginFlowIT {
             assertThat(assistant.lastRequest().hasHeader("http2-settings"))
                     .as("HTTP2-Settings at the assistant")
                     .isFalse();
+        }
+    }
+
+    /**
+     * A service's answer headers that would change the browser's state for the gateway's whole
+     * origin stop at the gateway, on both routes, and so does its {@code Server}. The browser's
+     * cookies, site data, transport policy and CORS grants for this origin are the gateway's to
+     * set; {@code Server} names the service's own software, which the browser has no use for.
+     *
+     * <p>The CSRF cookie is dropped from the jar first, so the gateway writes a fresh one on the
+     * relayed answer itself. That one must survive: the removal is of what the service answered,
+     * not of every cookie on the response.
+     */
+    @Test
+    void Given_an_upstream_answer_carrying_origin_wide_headers_When_relayed_Then_the_browser_receives_none_of_them()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+            ledger.respondNext(200, "application/json", "{}", UPSTREAM_ONLY_HEADERS);
+            assistant.respondNext(200, "application/json", "{}", UPSTREAM_ONLY_HEADERS);
+
+            for (String path :
+                    List.of("/ledger/api/v1/accounts", "/assistant/api/v1/portfolio/holdings/ACME/position")) {
+                CookieStore jar = ((CookieManager) client.cookieHandler().orElseThrow()).getCookieStore();
+                jar.remove(null, cookieNamed(jar.getCookies(), CSRF_COOKIE));
+
+                HttpResponse<String> response = relay(client, path);
+
+                assertThat(response.statusCode()).as(path).isEqualTo(200);
+                assertThat(response.headers().allValues("set-cookie"))
+                        .as("the Set-Cookie headers %s answered", path)
+                        .noneMatch(header -> header.contains(UPSTREAM_COOKIE_VALUE))
+                        .anyMatch(header -> header.startsWith(CSRF_COOKIE + "="));
+                for (String name : UPSTREAM_ONLY_HEADERS.keySet()) {
+                    if (!name.equals("Set-Cookie")) {
+                        assertThat(response.headers().allValues(name))
+                                .as("the %s headers %s answered", name, path)
+                                .isEmpty();
+                    }
+                }
+            }
         }
     }
 
