@@ -44,7 +44,7 @@
     <jacoco.version>0.8.15</jacoco.version>
     <pitest.version>1.30.0</pitest.version>
     <pitest-junit5.version>1.2.3</pitest-junit5.version>
-    <springdoc.version>3.1.1</springdoc.version>
+    <springdoc.version>3.2.0</springdoc.version>
   </properties>
 
   <dependencies>
