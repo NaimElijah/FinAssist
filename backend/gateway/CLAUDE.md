@@ -87,3 +87,19 @@ From `backend/gateway`:
   `package` wrote with `java -jar` and requires readiness, because every other suite runs on the
   test classpath, which can hold a library the jar lacks. A test-scoped declaration of something
   Boot needs at runtime (`snakeyaml`, #233) fails the build there.
+- **Never lower `org.springframework.web` or `org.springframework.security` to `DEBUG` or `TRACE`**,
+  nor a parent such as `org.springframework` or the root logger, and never turn on Spring Boot's
+  `debug` or `trace` switch (`DEBUG=true`, `TRACE=true`, `--debug`, `--trace`), in any environment
+  that handles a real sign-in: `debug` lowers Boot's `web` logger group, which holds
+  `org.springframework.web`, to `DEBUG`, and `trace` lowers all of `org.springframework` to `TRACE`.
+  "The gateway logs no token" holds at `INFO` only, which is what `GatewayLoginFlowIT`'s log sweep
+  runs at. At `DEBUG`, `DefaultRestClient` writes the token request's form body, so the
+  authorization code and the PKCE verifier of every sign-in reach the log, and by the same line,
+  read from Spring's sources rather than observed, the refresh token of every refresh;
+  `FilterChainProxy` writes the callback's query, `code` and `state` included; and the
+  security-context lines carry the ID token's claims. Under Compose, `make check-compose` refuses
+  `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` and `TRACE` on the gateway
+  service; a native run has no guard. To diagnose a failed sign-in, read `SignInFailureHandler`'s
+  WARN line, which names the OAuth2 error code. Keycloak records no sign-in event
+  (`eventsListeners: []`), so for an account that may be locked out ask its brute-force detector:
+  `kcadm.sh get attack-detection/brute-force/users/<user-id> -r finassist`.
