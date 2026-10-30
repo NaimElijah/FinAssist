@@ -1,7 +1,7 @@
 import { fileURLToPath, URL } from 'node:url';
 
 import react from '@vitejs/plugin-react';
-import type { ProxyOptions } from 'vite';
+import type { Plugin, ProxyOptions } from 'vite';
 // defineConfig comes from vitest/config, not vite: it carries the `test` key's types, which
 // the triple-slash reference used to supply before this file imported from vitest at all.
 import { coverageConfigDefaults, defineConfig } from 'vitest/config';
@@ -57,8 +57,42 @@ const proxy: Record<string, ProxyOptions> = {
     [proxyKey(BFF_BACKEND)]: proxyEntry(BFF_BACKEND),
 };
 
+/** The endpoint Vite's error overlay calls to open a file in the owner's editor. */
+const OPEN_IN_EDITOR_PATH = '/__open-in-editor';
+
+/** The only `Sec-Fetch-Site` value a request from the app's own page carries. */
+const SAME_ORIGIN = 'same-origin';
+
+const FORBIDDEN = 403;
+
+/**
+ * Refuse `/__open-in-editor` with 403 unless the request comes from the app's own page.
+ *
+ * Vite mounts that endpoint after its Host check but checks no origin, and it launches a process
+ * on the owner's machine for whatever file a GET names. The error overlay calls it from the page
+ * itself, so its click-to-open keeps working; any other page, including one on another
+ * `localhost` port, which is same-site but not same-origin, is refused. A `configureServer`
+ * middleware runs before Vite mounts its own, so this one sees the request first. Preview
+ * mounts no such endpoint, so this plugin has no preview hook.
+ */
+function openInEditorSameOriginOnly(): Plugin {
+    return {
+        name: 'finassist:open-in-editor-same-origin-only',
+        configureServer(server) {
+            server.middlewares.use(OPEN_IN_EDITOR_PATH, (request, response, next) => {
+                if (request.headers['sec-fetch-site'] === SAME_ORIGIN) {
+                    next();
+                    return;
+                }
+                response.statusCode = FORBIDDEN;
+                response.end();
+            });
+        },
+    };
+}
+
 export default defineConfig({
-    plugins: [react()],
+    plugins: [react(), openInEditorSameOriginOnly()],
     resolve: {
         // `@/features/portfolio` reads better than a run of `../../..`, and it makes a
         // cross-feature import obvious in review and to the architecture test.

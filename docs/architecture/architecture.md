@@ -216,7 +216,10 @@ a published secret (ADR-044); and `ops/compose_check/compose_check.py`, the chec
   `http://localhost:5173` — `localhost`, not `127.0.0.1`: the gateway's session cookie is keyed
   to the host name `GATEWAY_PUBLIC_URL` names, so opening the other one signs in against a
   different, cookie-less origin. Nothing terminates TLS: the server binds loopback only
-  (ADR-030), so the connection never leaves the machine.
+  (ADR-030), so the connection never leaves the machine. Vite's `/__open-in-editor`, which starts
+  the owner's editor on the file it names, answers only a request from the app's own page,
+  `Sec-Fetch-Site: same-origin`, and refuses any other with 403 (`vite.config.ts`,
+  `tests/devServer.test.ts`).
 - **Web to ledger, through the gateway** — HTTP, for the accounting, budgeting and planning
   screens. **Implemented on both sides for all three.** The ledger serves
   `/api/v1/accounts`, `/api/v1/transactions`,
