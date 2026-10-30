@@ -4,12 +4,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
-import org.springframework.http.converter.json.ProblemDetailJacksonMixin;
 import org.springframework.security.web.firewall.RequestRejectedException;
 import org.springframework.security.web.firewall.RequestRejectedHandler;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Answers a request Spring Security's firewall refuses with {@code 400 MALFORMED_REQUEST}, in the
@@ -32,7 +28,7 @@ final class ProblemRequestRejectedHandler implements RequestRejectedHandler {
     private static final String DETAIL = "The request's URL is not one the ledger accepts.";
 
     /** Serialised once: nothing in it varies by request. */
-    private static final byte[] BODY = problem();
+    private static final byte[] BODY = Problems.write(HttpStatus.BAD_REQUEST, DETAIL, Problems.MALFORMED_REQUEST);
 
     /**
      * @param request the refused request
@@ -43,19 +39,6 @@ final class ProblemRequestRejectedHandler implements RequestRejectedHandler {
     @Override
     public void handle(HttpServletRequest request, HttpServletResponse response, RequestRejectedException rejection)
             throws IOException {
-        response.setStatus(HttpStatus.BAD_REQUEST.value());
-        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        response.setContentLength(BODY.length);
-        response.getOutputStream().write(BODY);
-    }
-
-    private static byte[] problem() {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, DETAIL);
-        problem.setType(Problems.BLANK_TYPE);
-        problem.setProperty(Problems.CODE_MEMBER, Problems.MALFORMED_REQUEST);
-        return JsonMapper.builder()
-                .addMixIn(ProblemDetail.class, ProblemDetailJacksonMixin.class)
-                .build()
-                .writeValueAsBytes(problem);
+        Problems.send(response, HttpStatus.BAD_REQUEST, BODY);
     }
 }

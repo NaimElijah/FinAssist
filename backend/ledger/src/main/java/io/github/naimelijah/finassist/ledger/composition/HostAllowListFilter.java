@@ -16,11 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
-import org.springframework.http.converter.json.ProblemDetailJacksonMixin;
 import org.springframework.web.filter.OncePerRequestFilter;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Refuses every request whose {@code Host} header does not name a host on the allow-list (ADR-030).
@@ -65,12 +61,9 @@ public class HostAllowListFilter extends OncePerRequestFilter {
 
     private static final String REFUSAL_DETAIL = "The request's Host header does not name a host this ledger serves.";
 
-    /**
-     * Serialised once, because nothing in it varies. The mix-in is the one Spring MVC's JSON converter
-     * applies to a {@link ProblemDetail}, so this refusal has the same shape as every problem the
-     * dispatcher answers: extension members at the top level, absent members omitted.
-     */
-    private static final byte[] REFUSAL = refusal();
+    /** Serialised once, because nothing in it varies. */
+    private static final byte[] REFUSAL =
+            Problems.write(HttpStatus.FORBIDDEN, REFUSAL_DETAIL, Problems.HOST_NOT_ALLOWED);
 
     private final Set<String> allowedHosts;
 
@@ -105,10 +98,7 @@ public class HostAllowListFilter extends OncePerRequestFilter {
             return;
         }
         LOG.warn("Refused a request whose Host header names no host on the allow-list");
-        response.setStatus(HttpStatus.FORBIDDEN.value());
-        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        response.setContentLength(REFUSAL.length);
-        response.getOutputStream().write(REFUSAL);
+        Problems.send(response, HttpStatus.FORBIDDEN, REFUSAL);
     }
 
     private static Optional<String> hostnameOf(String header) {
@@ -130,15 +120,5 @@ public class HostAllowListFilter extends OncePerRequestFilter {
 
     private static String normalised(String host) {
         return host.toLowerCase(Locale.ROOT);
-    }
-
-    private static byte[] refusal() {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, REFUSAL_DETAIL);
-        problem.setType(Problems.BLANK_TYPE);
-        problem.setProperty(Problems.CODE_MEMBER, Problems.HOST_NOT_ALLOWED);
-        return JsonMapper.builder()
-                .addMixIn(ProblemDetail.class, ProblemDetailJacksonMixin.class)
-                .build()
-                .writeValueAsBytes(problem);
     }
 }

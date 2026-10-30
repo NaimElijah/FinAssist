@@ -17,11 +17,7 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
-import org.springframework.http.converter.json.ProblemDetailJacksonMixin;
 import org.springframework.web.filter.OncePerRequestFilter;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Refuses every request whose body is larger than {@value #MAX_REQUEST_BODY_BYTES} bytes, before anything
@@ -60,7 +56,8 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
             "The request body is larger than the " + MAX_REQUEST_BODY_BYTES + " bytes this ledger accepts.";
 
     /** Serialised once, because nothing in it varies, as {@link HostAllowListFilter} serialises its own. */
-    private static final byte[] REFUSAL = refusal();
+    private static final byte[] REFUSAL =
+            Problems.write(HttpStatus.CONTENT_TOO_LARGE, REFUSAL_DETAIL, Problems.CONTENT_TOO_LARGE);
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -90,20 +87,7 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
 
     private static void refuse(HttpServletResponse response) throws IOException {
         LOG.warn("Refused a request whose body is larger than {} bytes", MAX_REQUEST_BODY_BYTES);
-        response.setStatus(HttpStatus.CONTENT_TOO_LARGE.value());
-        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        response.setContentLength(REFUSAL.length);
-        response.getOutputStream().write(REFUSAL);
-    }
-
-    private static byte[] refusal() {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONTENT_TOO_LARGE, REFUSAL_DETAIL);
-        problem.setType(Problems.BLANK_TYPE);
-        problem.setProperty(Problems.CODE_MEMBER, Problems.CONTENT_TOO_LARGE);
-        return JsonMapper.builder()
-                .addMixIn(ProblemDetail.class, ProblemDetailJacksonMixin.class)
-                .build()
-                .writeValueAsBytes(problem);
+        Problems.send(response, HttpStatus.CONTENT_TOO_LARGE, REFUSAL);
     }
 
     /**
