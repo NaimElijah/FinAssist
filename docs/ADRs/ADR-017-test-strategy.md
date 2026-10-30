@@ -1,6 +1,7 @@
 # ADR-017: Coverage is measured and never gated; test strength is measured by mutation
 
-- **Status:** Accepted, its Testcontainers deferral resolved by
+- **Status:** Accepted, extended by
+  [ADR-062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md), its Testcontainers deferral resolved by
   [ADR-025](ADR-025-integration-tests-on-testcontainers.md)
 - **Date:** 2026-08-30
 

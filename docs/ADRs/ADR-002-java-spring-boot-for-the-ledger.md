@@ -1,7 +1,8 @@
 # ADR-002: Java 21 and Spring Boot for the ledger service
 
 - **Status:** Accepted, its Java 21 line held by
-  [ADR-045](ADR-045-dependabot-triage-and-toolchain-holds.md), corrected by
+  [ADR-045](ADR-045-dependabot-triage-and-toolchain-holds.md), extended by
+  [ADR-062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md), corrected by
   [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md)
 - **Date:** 2026-08-29
 

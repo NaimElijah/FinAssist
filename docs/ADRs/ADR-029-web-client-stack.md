@@ -2,8 +2,9 @@
 
 - **Status:** Accepted, extended by [ADR-030](ADR-030-oidc-authentication-through-a-bff-gateway.md),
   [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md),
-  [ADR-056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md) and
-  [ADR-057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md)
+  [ADR-056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md),
+  [ADR-057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md) and
+  [ADR-062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md)
 - **Date:** 2026-09-14
 
 Extends [ADR-009](ADR-009-react-vite-spa-for-the-web-client.md), which chose a React 19 and Vite 8
