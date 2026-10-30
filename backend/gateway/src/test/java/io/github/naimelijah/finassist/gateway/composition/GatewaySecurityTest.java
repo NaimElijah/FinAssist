@@ -193,14 +193,20 @@ class GatewaySecurityTest {
      * body instead, chunked because it has no length: a request no browser can make through Tomcat,
      * and one that can trip a race in JDK 21's HTTP client, whose {@code NullPointerException} the
      * gateway answers 500 (#358). Reading the stream first lets the relay decide about the body as
-     * it does in production.
+     * it does in production. It is for bodiless requests only: a body it read would be lost, so one
+     * fails the test rather than reaching upstream empty.
      */
     private static RequestPostProcessor bodyAlreadyRead() {
         return request -> {
+            byte[] body;
             try {
-                request.getInputStream().readAllBytes();
+                body = request.getInputStream().readAllBytes();
             } catch (IOException unreadable) {
                 throw new UncheckedIOException("the mock request body could not be read", unreadable);
+            }
+            if (body.length > 0) {
+                throw new IllegalStateException("bodyAlreadyRead() is for bodiless requests; it would have dropped a "
+                        + body.length + "-byte body");
             }
             return request;
         };
