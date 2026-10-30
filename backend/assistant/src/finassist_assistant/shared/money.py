@@ -44,6 +44,18 @@ def _precision_for(value: Decimal) -> int:
     return len(digits) + max(int(exponent), 0) + 1
 
 
+def _widest(precision: int) -> Context:
+    """A context of ``precision`` significant digits over the widest exponent range the module
+    allows.
+
+    Python's default context stops the exponent near 1E+1000000 and 1E-1000000, and past either
+    an operation raises ``decimal.InvalidOperation`` or ``decimal.Overflow``, neither of which is
+    the ``ValueError`` this module promises, where Java's ``BigDecimal`` simply succeeds. Every
+    context this module computes in is built here, so no operation inherits that limit.
+    """
+    return Context(prec=precision, Emin=MIN_EMIN, Emax=MAX_EMAX)
+
+
 def _exact(precision: int) -> Context:
     """A context of ``precision`` significant digits that refuses to round.
 
@@ -56,11 +68,11 @@ def _exact(precision: int) -> Context:
     constructor's own precision check into ``decimal.Inexact`` instead of the ``ValueError`` this
     module promises.
 
-    The exponent range is the widest the module allows. The default stops near 1E-1000000, and
-    below it an exact result would be rounded as subnormal, which the trap turns into
-    ``decimal.Inexact`` where the constructor would have refused the amount with ``ValueError``.
+    The exponent range is :func:`_widest`'s. Under the default, an exact result below 1E-1000000
+    would be rounded as subnormal, which the trap turns into ``decimal.Inexact`` where the
+    constructor would have refused the amount with ``ValueError``.
     """
-    context = Context(prec=precision, Emin=MIN_EMIN, Emax=MAX_EMAX)
+    context = _widest(precision)
     context.traps[Inexact] = True
     return context
 
@@ -106,12 +118,12 @@ class Money:
             raise ValueError(f"Amount must be finite but was {self.amount}")
 
         exponent = Decimal(1).scaleb(-self.currency.minor_units)
-        # The context precision is widened to fit this particular value. Python's default of 28
-        # significant digits makes quantize raise InvalidOperation - an ArithmeticError, not a
+        # The context precision is widened to fit this particular value, and its exponent range
+        # to the widest. Python's default of 28 significant digits, and its exponent limit near a
+        # million, each make quantize raise InvalidOperation - an ArithmeticError, not a
         # ValueError - for a large amount, while Java's BigDecimal has no such limit and simply
         # succeeds. That divergence would have escaped every caller catching ValueError.
-        with localcontext() as context:
-            context.prec = _precision_for(self.amount) + self.currency.minor_units
+        with localcontext(_widest(_precision_for(self.amount) + self.currency.minor_units)):
             normalised = self.amount.quantize(exponent, rounding=ROUND_DOWN)
         if normalised != self.amount:
             raise ValueError(
@@ -179,16 +191,17 @@ class Money:
         :raises ValueError: if the multiplier is not finite
         """
         _require_finite_multiplier(multiplier)
-        with localcontext() as context:
-            # Sized to this particular product, for the reason __post_init__ is sized to its
-            # particular value. A fixed precision raises decimal.InvalidOperation - an
-            # ArithmeticError, not the ValueError this module's contract promises - once the
-            # product outgrows it, while Java's timesRounded uses unbounded BigDecimal and
-            # succeeds. An exact product needs at most the significant digits of both operands,
-            # plus the zeros their positive exponents imply, plus the minor units.
-            context.prec = (
-                _precision_for(self.amount) + _precision_for(multiplier) + self.currency.minor_units
-            )
+        # Sized to this particular product, for the reason __post_init__ is sized to its
+        # particular value. A fixed precision raises decimal.InvalidOperation - an
+        # ArithmeticError, not the ValueError this module's contract promises - once the
+        # product outgrows it, and the default exponent range raises decimal.Overflow, while
+        # Java's timesRounded uses unbounded BigDecimal and succeeds. An exact product needs at
+        # most the significant digits of both operands, plus the zeros their positive exponents
+        # imply, plus the minor units.
+        precision = (
+            _precision_for(self.amount) + _precision_for(multiplier) + self.currency.minor_units
+        )
+        with localcontext(_widest(precision)):
             product = self.amount * multiplier
             rounded = product.quantize(
                 Decimal(1).scaleb(-self.currency.minor_units), rounding=ROUND_HALF_UP
