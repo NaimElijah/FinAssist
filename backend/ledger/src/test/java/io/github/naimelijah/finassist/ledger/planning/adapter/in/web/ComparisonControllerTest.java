@@ -30,6 +30,7 @@ import io.github.naimelijah.finassist.ledger.planning.domain.plan.Recurrence;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
 import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -279,6 +280,65 @@ class ComparisonControllerTest {
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
                 .andExpect(jsonPath("$.errors[0].field").value("scenario"));
+
+        verifyNoInteractions(comparer, lister);
+    }
+
+    /** Each scenario is a projection of its own, so the list is bounded as the horizon is. */
+    @Test
+    void Given_more_scenarios_than_the_maximum_When_compared_Then_it_is_a_400_problem_naming_the_scenario_parameter()
+            throws Exception {
+        ScenarioId[] tooMany = new ScenarioId[ComparisonController.MAXIMUM_SCENARIOS + 1];
+        for (int index = 0; index < tooMany.length; index++) {
+            tooMany[index] = ScenarioId.generate();
+        }
+
+        mvc.perform(firstQuarter(tooMany[0], tooMany))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("scenario"));
+
+        verifyNoInteractions(comparer, lister);
+    }
+
+    @Test
+    void Given_exactly_the_maximum_number_of_scenarios_When_compared_Then_it_is_answered_200_with_each_of_them()
+            throws Exception {
+        List<Scenario> most = new ArrayList<>();
+        for (int index = 0; index < ComparisonController.MAXIMUM_SCENARIOS; index++) {
+            most.add(Scenario.baseline("Strategy " + index, Currency.ILS, GrowthAssumption.none()));
+        }
+        ScenarioId[] ids = most.stream().map(Scenario::id).toArray(ScenarioId[]::new);
+        when(comparer.compare(any())).thenReturn(comparisonOf(most.toArray(Scenario[]::new)));
+        when(lister.all()).thenReturn(most);
+
+        mvc.perform(firstQuarter(ids[0], ids))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scenarios.length()").value(ComparisonController.MAXIMUM_SCENARIOS));
+    }
+
+    @Test
+    void Given_a_horizon_one_day_beyond_the_maximum_span_When_compared_Then_it_is_a_422_and_nothing_is_projected()
+            throws Exception {
+        LocalDate from = LocalDate.of(2026, 1, 1);
+
+        mvc.perform(get(COMPARISONS)
+                        .param(
+                                "scenario",
+                                DO_NOTHING.id().toString(),
+                                BUY_THE_CAR.id().toString())
+                        .param("baseline", DO_NOTHING.id().toString())
+                        .param("from", from.toString())
+                        .param(
+                                "to",
+                                from.plusYears(Horizon.MAXIMUM_SPAN_YEARS)
+                                        .plusDays(1)
+                                        .toString())
+                        .param("step", "WEEKLY"))
+                .andExpect(status().is(422))
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("RULE_VIOLATED"));
 
         verifyNoInteractions(comparer, lister);
     }

@@ -1555,7 +1555,7 @@
                 "format": "uuid",
                 "type": "string"
               },
-              "maxItems": 2147483647,
+              "maxItems": 10,
               "minItems": 2,
               "type": "array"
             }

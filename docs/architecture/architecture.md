@@ -548,7 +548,11 @@ a 422 `RULE_VIOLATED` shows its detail in an `ErrorState` that takes focus and o
 since a second attempt would get the same answer; a network failure, or a 5xx other than a 503,
 offers one.
 
-**Projecting a strategy, ledger.** `ProjectScenarioCommand`, carrying the `AccountRef`s the caller
+**Projecting a strategy, ledger.** The controller builds the `Horizon` first, which refuses a span
+over `Horizon.MAXIMUM_SPAN_YEARS`, 100 years, as 422 `RULE_VIOLATED` before any step is counted;
+a comparison also refuses more than `Comparison.MAXIMUM_SCENARIOS`, ten, as 400, before the
+`Comparison` constructor would refuse them itself →
+`ProjectScenarioCommand`, carrying the `AccountRef`s the caller
 considers cash and invested, refuses in its constructor an account named twice, on one side or
 across both: `AccountSelection.requireEachNamedOnce`, shared with `CompareScenariosCommand`. It is
 planning's own invariant, stated in planning's own `AccountRef`s ([ADR-051](../ADRs/ADR-051-what-a-translation-may-decide.md)).

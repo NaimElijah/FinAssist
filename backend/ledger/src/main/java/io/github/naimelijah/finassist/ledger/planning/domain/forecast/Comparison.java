@@ -36,6 +36,9 @@ public record Comparison(Map<String, Projection> projections) {
 
     private static final int MINIMUM_SCENARIOS = 2;
 
+    /** The most projections one comparison holds: each is a projection computed and held in full. */
+    public static final int MAXIMUM_SCENARIOS = 10;
+
     public Comparison {
         Objects.requireNonNull(projections, "projections");
 
@@ -70,6 +73,10 @@ public record Comparison(Map<String, Projection> projections) {
             throw new IllegalArgumentException("A comparison needs at least " + MINIMUM_SCENARIOS
                     + " projections but was given " + ordered.size()
                     + "; compare a scenario against the do-nothing baseline");
+        }
+        if (ordered.size() > MAXIMUM_SCENARIOS) {
+            throw new IllegalArgumentException(
+                    "A comparison holds at most " + MAXIMUM_SCENARIOS + " projections but was given " + ordered.size());
         }
         projections = Collections.unmodifiableMap(ordered);
     }

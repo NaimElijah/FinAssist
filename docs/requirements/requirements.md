@@ -155,13 +155,14 @@ are never summed ([ADR-015](../ADRs/ADR-015-planning-as-a-sixth-bounded-context.
   the invested line** — nothing in FinAssist decides that, and inventing a rule for it would
   bury a policy nobody chose
   ([#11](https://github.com/NaimElijah/FinAssist/issues/11)). Reachable over HTTP as `GET
-  /api/v1/scenarios/{id}/projection`; `PlanningHttpIT`
+  /api/v1/scenarios/{id}/projection`; `PlanningHttpIT`. A horizon spans at most 100 years, and
+  a longer one is refused rather than computed
 - See the first **step boundary** at which the projected cash balance is negative, or that none
   is. `Projection.firstShortfall`, `ProjectionTest`. A dip that opens and closes inside a single
   step is not reported — a large payment covered by a salary later the same month looks
   untroubled at a monthly cadence. Projecting at a finer cadence narrows the window; nothing
   closes it.
-- Compare two or more strategies over one horizon and read how far each diverges from a chosen
+- Compare two to ten strategies over one horizon and read how far each diverges from a chosen
   baseline, step by step and at the end. `Comparison`, `ComparisonTest`. Reachable over HTTP as
   `GET /api/v1/scenario-comparisons`; `PlanningHttpIT`
   ([#12](https://github.com/NaimElijah/FinAssist/issues/12))
@@ -290,6 +291,8 @@ where enforcement is partial, or rests on a convention rather than a test, its s
 | A projection is derived from its strategy and opening balance, never stored | `Projection.of`; no settable point; `ProjectionTest`; `LedgerArchitectureTest.derived_quantities_are_never_stored`; `SchemaBoundariesIT.Given_the_migrated_schema_When_its_columns_are_read_Then_none_stores_a_derived_quantity` | **Enforced** |
 | A projection covers one currency, and its horizon is a whole number of steps | `Projection.of`; `BalancePoint`; `ProjectionTest` | **Enforced** |
 | A comparison refuses strategies in different currencies, horizons or step cadences | `Comparison.of`; `ComparisonTest` | **Enforced** |
+| A horizon spans at most 100 years, checked as it is built, before any step is counted; a longer one is a rule violation | `Horizon` constructor, `Horizon.MAXIMUM_SPAN_YEARS`; `HorizonTest`; `ProjectionControllerTest.Given_a_horizon_one_day_beyond_the_maximum_span_When_projected_Then_it_is_a_422_and_nothing_is_projected` and `Given_a_horizon_of_exactly_the_maximum_span_When_projected_Then_it_is_answered_200_with_every_point`; `ComparisonControllerTest.Given_a_horizon_one_day_beyond_the_maximum_span_When_compared_Then_it_is_a_422_and_nothing_is_projected` | **Enforced** |
+| A comparison holds at most ten strategies; over HTTP, naming more is a malformed request | `Comparison` constructor, `Comparison.MAXIMUM_SCENARIOS`; `ComparisonTest.Given_more_projections_than_the_maximum_When_compared_Then_it_is_refused`; `ComparisonController.MAXIMUM_SCENARIOS`; `ComparisonControllerTest.Given_more_scenarios_than_the_maximum_When_compared_Then_it_is_a_400_problem_naming_the_scenario_parameter` and `Given_exactly_the_maximum_number_of_scenarios_When_compared_Then_it_is_answered_200_with_each_of_them` | **Enforced** |
 | A strategy cannot list the same planned flow twice | `Scenario` constructor; `ScenarioTest` | **Enforced** |
 | Two strategies in one comparison cannot share a name | `Comparison` constructor; `ComparisonTest` | **Enforced** |
 | A recurrence that would end before it begins is refused, not answered with nothing | `Recurrence.Until`; `PlannedFlow` constructor; `RecurrenceTest` | **Enforced** |
