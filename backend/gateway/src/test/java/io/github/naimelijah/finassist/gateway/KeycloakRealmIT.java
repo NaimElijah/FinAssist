@@ -661,6 +661,29 @@ class KeycloakRealmIT {
         assertThat(roles(token)).containsExactly("owner");
     }
 
+    /**
+     * Keycloak 26.8 enables two deprecated features by default, the Twitter broker and the first
+     * identity-brokering API, which FinAssist uses neither of. The Dockerfile disables them at
+     * {@code kc.sh build}, the only point an optimized image takes a feature switch, so this reads
+     * the switches back from the image it built. A deprecated feature a later Keycloak enables by
+     * default fails this too, until the Dockerfile decides it.
+     */
+    @Test
+    void Given_the_built_image_When_its_features_are_read_Then_no_deprecated_feature_is_enabled() throws Exception {
+        List<JsonNode> features =
+                adminGet("/admin/serverinfo").path("features").valueStream().toList();
+
+        assertThat(features)
+                .as("the twitter broker, read as Keycloak reports it")
+                .anySatisfy(feature -> {
+                    assertThat(feature.path("name").asString()).isEqualTo("TWITTER_BROKER");
+                    assertMember(feature, "deprecated", BooleanNode.TRUE);
+                });
+        assertThat(features)
+                .filteredOn(feature -> feature.path("deprecated").asBoolean(false))
+                .allSatisfy(feature -> assertMember(feature, "enabled", BooleanNode.FALSE));
+    }
+
     /** The claim is a bare JSON array of role names, not Keycloak's nested {@code realm_access} shape (ADR-032). */
     private static List<String> roles(JsonNode payload) {
         return payload.path("roles").valueStream().map(JsonNode::asString).toList();
