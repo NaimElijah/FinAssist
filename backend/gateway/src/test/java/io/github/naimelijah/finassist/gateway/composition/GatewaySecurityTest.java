@@ -20,6 +20,7 @@ import io.github.naimelijah.finassist.gateway.composition.support.BackendContrac
 import io.github.naimelijah.finassist.gateway.composition.support.FakeService;
 import jakarta.servlet.http.Cookie;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -54,6 +55,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
  * What the gateway's security chain guarantees, driven through the chain itself (ADR-030).
@@ -141,6 +143,12 @@ class GatewaySecurityTest {
     private static FakeService upstream;
 
     /**
+     * The body {@link #upstream} answers with, set rather than left to its default, and distinctive
+     * enough that no gateway answer could carry it: a relayed request must come back with it.
+     */
+    private static final String UPSTREAM_BODY = "{\"answeredBy\":\"upstream\"}";
+
+    /**
      * The registration a real sign-in completes against. {@code oidcLogin()} defaults to one named
      * {@code test}, which {@code TokenRelay} cannot authorize, so a relayed request would end in a
      * 500 before ever reaching {@link #upstream}.
@@ -160,6 +168,7 @@ class GatewaySecurityTest {
     @BeforeAll
     static void startUpstream() throws IOException {
         upstream = new FakeService();
+        upstream.respondNext(HttpStatus.OK.value(), MediaType.APPLICATION_JSON_VALUE, UPSTREAM_BODY);
     }
 
     @AfterAll
@@ -177,6 +186,34 @@ class GatewaySecurityTest {
     /** The {@code Host} every request names, so the allow-list in front of the chain lets it by. */
     private static MockHttpServletRequestBuilder named(MockHttpServletRequestBuilder request) {
         return request.header(HttpHeaders.HOST, ALLOWED_HOST);
+    }
+
+    /**
+     * Delivers a bodiless request the way a servlet container does: with its body stream already
+     * finished.
+     *
+     * <p>Tomcat reports an empty body's stream finished before any read, so the relay sees no body.
+     * MockMvc reports the same stream unfinished until it is read, so the relay streams an empty
+     * body instead, chunked because it has no length: a request no browser can make through Tomcat,
+     * and one that can trip a race in JDK 21's HTTP client, whose {@code NullPointerException} the
+     * gateway answers 500 (#358). Reading the stream first lets the relay decide about the body as
+     * it does in production. It is for bodiless requests only: a body it read would be lost, so one
+     * fails the test rather than reaching upstream empty.
+     */
+    private static RequestPostProcessor bodyAlreadyRead() {
+        return request -> {
+            byte[] body;
+            try {
+                body = request.getInputStream().readAllBytes();
+            } catch (IOException unreadable) {
+                throw new UncheckedIOException("the mock request body could not be read", unreadable);
+            }
+            if (body.length > 0) {
+                throw new IllegalStateException("bodyAlreadyRead() is for bodiless requests; it would have dropped a "
+                        + body.length + "-byte body");
+            }
+            return request;
+        };
     }
 
     /**
@@ -504,11 +541,13 @@ class GatewaySecurityTest {
      * <p>The chain is what is under test. Its refusals are {@code 401} from the entry point and
      * {@code 403} from the access-denied handler, a CSRF refusal included, and {@link #upstream}
      * answers neither, so either status here is the chain's. Being neither is no proof of
-     * passage, though: an exception inside a chain filter answers {@code 500}. So {@link #upstream}
-     * forgets its last request first, and must then have received this operation's method at the
-     * path with the relay prefix stripped, which only a request that crossed the whole chain can
-     * deliver. A route that stopped matching fails here too, as a {@code 404} with nothing
-     * received; {@code GatewayRelayRoutesTest} is where that is pinned on its own.
+     * passage, though: an exception inside a chain filter answers {@code 500}, and so does a relay
+     * that fails after {@link #upstream} has already read the request line and headers. So the
+     * answer must be {@link #upstream}'s own, and {@link #upstream} forgets its last request first
+     * and must then have received this operation's method at the path with the relay prefix
+     * stripped, which only a request that crossed the whole chain can deliver. A route that stopped
+     * matching fails here too, as a {@code 404} with nothing received; {@code
+     * GatewayRelayRoutesTest} is where that is pinned on its own.
      */
     @ParameterizedTest
     @MethodSource("publishedBackendOperations")
@@ -525,7 +564,8 @@ class GatewaySecurityTest {
                                 .clientRegistration(registrations.findByRegistrationId(REGISTRATION_ID))
                                 .idToken(ownerToken(List.of("owner"))))
                         .cookie(csrf)
-                        .header(XSRF_HEADER, csrf.getValue()))
+                        .header(XSRF_HEADER, csrf.getValue())
+                        .with(bodyAlreadyRead()))
                 .andReturn()
                 .getResponse();
 
@@ -533,13 +573,22 @@ class GatewaySecurityTest {
                 .as(
                         "the status %s %s answered, whose body was %s",
                         operation.method(), path, response.getContentAsString())
-                .isNotIn(HttpStatus.UNAUTHORIZED.value(), HttpStatus.FORBIDDEN.value());
+                .isEqualTo(HttpStatus.OK.value());
+        assertThat(response.getContentAsString())
+                .as("the body %s %s answered, which must be upstream's own", operation.method(), path)
+                .isEqualTo(UPSTREAM_BODY);
         FakeService.ReceivedRequest relayed = upstream.lastRequest();
         assertThat(relayed)
                 .as(
                         "the request upstream received for %s %s, which the gateway answered %s with %s",
                         operation.method(), path, response.getStatus(), response.getContentAsString())
                 .isNotNull();
+        assertThat(relayed.hasHeader(HttpHeaders.TRANSFER_ENCODING))
+                .as(
+                        "whether %s %s reached upstream as a streamed body, which a bodiless request"
+                                + " delivered as Tomcat delivers it never is",
+                        operation.method(), path)
+                .isFalse();
         assertThat(relayed.method())
                 .as("the method upstream received for %s %s", operation.method(), path)
                 .isEqualTo(operation.method().name());
