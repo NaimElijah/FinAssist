@@ -199,6 +199,14 @@ history; write the commit message well and this file writes itself.
 
 ### Changed
 
+- **Unused dependencies are gone, and the rest are current and justified.** The assistant drops
+  `anthropic` and `pandas`, which nothing imported, runs plain `uvicorn` rather than
+  `uvicorn[standard]`, and keeps `httpx` for its tests only; all three stay on the architecture
+  test's forbidden list. Spring Cloud 2025.1.4, springdoc 3.2.0, ArchUnit 1.5.1, PIT 1.30.1,
+  JaCoCo 0.8.16, palantir-java-format 2.103.0, Temurin 21.0.13, React 19.3.1, ESLint 10.13, Vitest
+  5.0.5, ruff 0.17.3, mypy 2.4.1 and Python 3.13.18 land; `@types/node` follows Node 24, and
+  Dependabot moves the React packages together. ADR-062 records why each kept dependency stays and
+  when to revisit it ([#341](https://github.com/NaimElijah/FinAssist/issues/341)).
 - **Production discards domain events.** The ledger raised every event into an in-memory list that
   nothing read and nothing truncated, so it grew with every write. `DiscardingAccountingEvents`
   and `DiscardingPlanningEvents` now accept each event and keep none, and the recording logs are
@@ -566,6 +574,14 @@ history; write the commit message well and this file writes itself.
 
 ### Security
 
+- **Every direct dependency was vetted, and the Java services move past their advisories.**
+  Scan 4 of 12 in M0 ([#341](https://github.com/NaimElijah/FinAssist/issues/341)) checked each
+  direct dependency of the four manifests for need, maintenance, licence, advisories, footprint and
+  provenance; none carries a licence that conflicts with `LICENSE`. Spring Boot 4.1.2 (with Spring
+  Security 7.1.2, which the owner approved) brings Tomcat 11.0.27 and Jackson 2.21.7 / 3.1.7, and an
+  `opentelemetry.version` override takes OpenTelemetry to 1.67.0 (GHSA-ccrj-gw8r-854m) until Boot
+  manages it. OSV finds no advisory left in either service's resolved tree
+  ([ADR-062](docs/ADRs/ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md)).
 - **The whole system was audited for security, and what the audit found is fixed or filed.**
   Scan 3 of 12 in M0 ([#340](https://github.com/NaimElijah/FinAssist/issues/340)):
   - The gateway accepts the CSRF token from its header only, starts a sign-in only from a

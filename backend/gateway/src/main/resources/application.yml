@@ -62,7 +62,7 @@ finassist:
 springdoc:
   api-docs:
     # Serving the document is a deliberate choice, not springdoc's default, matching the ledger
-    # (ADR-028's pattern). Left unset, springdoc 3.1.1 serves it anyway and warns at every
+    # (ADR-028's pattern). Left unset, springdoc 3.2.0 serves it anyway and warns at every
     # start-up that the endpoint "is enabled by default"; set, that warning is gone. The switch
     # only controls whether the endpoint exists; GatewayContractIT never calls it over HTTP, and
     # the security chain still denies it (GatewayOpenApiConfiguration explains why).
@@ -85,7 +85,7 @@ spring:
     gateway:
       server:
         webmvc:
-          # Spring Cloud Gateway *Server Web MVC* 5.0.3 - the servlet-stack flavour, not the
+          # Spring Cloud Gateway *Server Web MVC* 5.0.4 - the servlet-stack flavour, not the
           # reactive one most examples online describe. Its property path, predicates and
           # filters were confirmed against the installed jar's sources before use: `Path=` and
           # `Method=` (org.springframework.cloud.gateway.server.mvc.predicate.GatewayRequestPredicates),
@@ -115,7 +115,7 @@ spring:
                 # gateway's rather than a library's choice of `set` over `add`.
                 - RemoveRequestHeader=Authorization
                 # The hop-by-hop filter Spring Cloud Gateway runs on every relay strips Upgrade and
-                # Connection but not HTTP2-Settings (its removal set omits it, read from the 5.0.3
+                # Connection but not HTTP2-Settings (its removal set omits it, read from the 5.0.4
                 # sources), so a browser-supplied one would reach the service as sent. Nothing
                 # upstream acts on it alone, and nothing upstream is given the chance to (#98).
                 - RemoveRequestHeader=HTTP2-Settings
@@ -127,7 +127,7 @@ spring:
                 # would name the service's software. Only what the service answered is removed: a
                 # cookie the gateway itself writes on the same response, such as a fresh CSRF
                 # cookie, is set on the servlet response directly.
-                # RemoveResponseHeader= is FilterFunctions.removeResponseHeader, a @Shortcut in 5.0.3.
+                # RemoveResponseHeader= is FilterFunctions.removeResponseHeader, a @Shortcut in 5.0.4.
                 - RemoveResponseHeader=Set-Cookie
                 - RemoveResponseHeader=Server
                 - RemoveResponseHeader=Clear-Site-Data

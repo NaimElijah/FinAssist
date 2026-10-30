@@ -57,7 +57,7 @@ services:
   # it again, and anything that starts a database does too: `run`, `--wait` and the restore check.
   secret-check:
     # The exact tag auth-smoke and backend/assistant/Dockerfile use; the script is standard library.
-    image: python:3.13.8-slim-trixie
+    image: python:3.13.18-slim-trixie
     # nobody:nogroup, and no network at all: it reads its environment and the files below, and
     # talks to nothing.
     user: "65534:65534"
@@ -395,7 +395,7 @@ services:
     profiles: [smoke]
     # The exact tag backend/assistant/Dockerfile already builds from, so it is proven to exist
     # and the two stay pinned to the same Debian trixie generation of Python 3.13.
-    image: python:3.13.8-slim-trixie
+    image: python:3.13.18-slim-trixie
     # nobody:nogroup. The script needs no privilege, and this container holds a client secret,
     # so it runs as a user that owns nothing, as the three application images already drop to a
     # system user of their own.

@@ -121,7 +121,7 @@ def _mapping(value: object, what: str) -> Mapping[str, object]:
 
 def _canonical(key: str) -> str:
     # Spring Boot's relaxed binding reads one property under many names: `_`, `__`, `.` or brackets
-    # between its parts, a `-` inside a part, any case. Spring Boot 4.1.1's Binder, over a
+    # between its parts, a `-` inside a part, any case. Spring Boot 4.1.2's Binder, over a
     # system-environment source, bound `logging.level[root]`, `logging[level][root]`,
     # `logging.lev-el.root`, `LOGGING__LEVEL_ROOT` and `de-bug` alike. So a key is compared on its
     # letters and digits alone, which can refuse a name that binds nothing but never misses one.

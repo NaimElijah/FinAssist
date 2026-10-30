@@ -119,16 +119,15 @@ public record PlannedFlow(
      */
     public PlannedFlow cancel(LocalDate cancelledOn, String reason) {
         Objects.requireNonNull(cancelledOn, "cancelledOn");
-        PlanState next =
-                switch (state) {
-                    case PlanState.Planned planned -> planned.cancel(cancelledOn, reason);
-                    case PlanState.Committed committed -> {
-                        requireNotBefore(cancelledOn, committed.committedOn(), "cancelled", "committed");
-                        yield committed.cancel(cancelledOn, reason);
-                    }
-                    case PlanState.Realised ignored -> throw new IllegalPlanTransitionException(state, "cancel");
-                    case PlanState.Cancelled ignored -> throw new IllegalPlanTransitionException(state, "cancel");
-                };
+        PlanState next = switch (state) {
+            case PlanState.Planned planned -> planned.cancel(cancelledOn, reason);
+            case PlanState.Committed committed -> {
+                requireNotBefore(cancelledOn, committed.committedOn(), "cancelled", "committed");
+                yield committed.cancel(cancelledOn, reason);
+            }
+            case PlanState.Realised ignored -> throw new IllegalPlanTransitionException(state, "cancel");
+            case PlanState.Cancelled ignored -> throw new IllegalPlanTransitionException(state, "cancel");
+        };
         return withState(next);
     }
 

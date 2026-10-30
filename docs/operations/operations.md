@@ -76,7 +76,7 @@ It gets no positive answer from the assistant. Every token it can obtain carries
 audience, so it can only show that the assistant refuses one; a token for the assistant needs an
 interactive sign-in.
 
-Standard library only, so it runs unmodified in the pinned `python:3.13.8-slim-trixie` image
+Standard library only, so it runs unmodified in the pinned `python:3.13.18-slim-trixie` image
 with no install step. It runs as an unprivileged user and never prints a token.
 
 Run it after `make run` reports every service healthy:

@@ -263,7 +263,7 @@ def Given_both_spring_services_reopening_actuator_When_checked_Then_each_key_is_
     ]
 
 
-# Each binds as its dotted form under Spring Boot 4.1.1's Binder, from a system-environment source.
+# Each binds as its dotted form under Spring Boot 4.1.2's Binder, from a system-environment source.
 @pytest.mark.parametrize(
     "key",
     [
@@ -401,7 +401,7 @@ def Given_the_gateway_service_sets_springs_debug_or_trace_switch_When_checked_Th
     assert lines == [f"gateway: its environment must not set {key}"]
 
 
-# Each binds as `logging.level.*` under Spring Boot 4.1.1's Binder, from a system environment.
+# Each binds as `logging.level.*` under Spring Boot 4.1.2's Binder, from a system environment.
 @pytest.mark.parametrize(
     "key",
     [

@@ -19,7 +19,7 @@ would publish it.
 
 The report names a variable, never its value or its length, and never the file that holds it: in
 a public repository, naming the file is as good as naming the value. Standard library only, so it
-runs unmodified in the pinned `python:3.13.8-slim-trixie` image, as `ops/smoke/auth_smoke.py` does.
+runs unmodified in the pinned `python:3.13.18-slim-trixie` image, as `ops/smoke/auth_smoke.py` does.
 """
 
 from __future__ import annotations

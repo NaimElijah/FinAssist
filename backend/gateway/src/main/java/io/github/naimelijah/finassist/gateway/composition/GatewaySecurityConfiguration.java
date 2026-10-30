@@ -217,7 +217,7 @@ public class GatewaySecurityConfiguration {
      * LoginEntryFailureHandler}, which says what the answer is and why).
      *
      * <p>Three things rule out configuring it instead of correcting the built filter, each read
-     * from Spring Security 7.1.1's own sources rather than assumed:
+     * from Spring Security 7.1.2's own sources rather than assumed:
      *
      * <ul>
      *   <li>{@code oauth2Login().failureHandler(..)} reaches the login filter alone. {@code

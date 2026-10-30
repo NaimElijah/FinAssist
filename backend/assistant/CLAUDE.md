@@ -67,7 +67,9 @@ From `backend/assistant`:
   root) nor `pyjwt`, and `cryptography` arrives only transitively through the `crypto` extra, so no
   declared dependency name can ever produce it (ADR-030, ADR-032). Standard-library I/O is a set of
   its own, `FORBIDDEN_STANDARD_IO`, since no declared dependency can name it, and a call to the
-  builtin `open` is refused by a rule of its own.
+  builtin `open` is refused by a rule of its own. Removing a dependency, or moving it to the `dev`
+  extra, narrows the rule just as silently, so `anthropic` and `pandas`, removed unused, and
+  `httpx`, now a test dependency, stay named in the explicit set (#341).
 - **The router is a factory taking use cases, and never reads `app.state`.** Its handlers are
   `def`, never `async def` — every port behind them is synchronous (ADR-021).
 - **Every route declares exactly one permission dependency, built through the `require` factory
@@ -109,6 +111,8 @@ From `backend/assistant`:
   `h11_max_incomplete_event_size=MAX_HEADER_BLOCK_BYTES` (16 KiB), because `httptools` buffers a
   header block of any size; `proxy_headers=False`, so no `X-Forwarded-*` rewrites the client address
   or scheme; `server_header=False`; and `ws="none"`. Pinned by `tests/test_observability.py`.
+  `pyproject.toml` declares plain `uvicorn`: `[standard]` would install httptools, uvloop,
+  websockets, watchfiles and pyyaml, none of which those settings use.
 - **A registered secret is scrubbed from every logged value** (`adapters/observability.py`). A
   value that is not text, a number, a boolean, `None` or a container is scrubbed as its text, so a
   secret inside an exception or an object's representation does not reach the output.

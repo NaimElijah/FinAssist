@@ -16,9 +16,10 @@ from finassist_assistant.adapters.settings import Settings
 HTTP_IMPLEMENTATION: Final = "h11"
 """uvicorn's pure-Python HTTP/1.1 implementation, chosen for its header bound.
 
-uvicorn otherwise picks ``httptools`` whenever it is installed, as ``uvicorn[standard]`` installs
-it, and ``httptools`` buffers a header block of any size. The throughput it would add does not
-matter to a single owner.
+uvicorn otherwise picks ``httptools`` whenever it is installed, and ``httptools`` buffers a
+header block of any size. Plain ``uvicorn`` is declared, so it is not installed today, but
+``uvicorn[standard]`` or any other package could bring it back. The throughput it would add does
+not matter to a single owner.
 """
 
 MAX_HEADER_BLOCK_BYTES: Final = 16 * 1024

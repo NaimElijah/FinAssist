@@ -12,7 +12,7 @@ running stack: the service names and ports, the issuer, JWKS URI, Host allow-lis
 URLs it hands each service, and whether Keycloak, reached over the backchannel, still puts the
 public issuer in a token (ADR-031: two addresses, one issuer).
 
-Standard library only, so it runs unmodified from the pinned `python:3.13.8-slim-trixie` image
+Standard library only, so it runs unmodified from the pinned `python:3.13.18-slim-trixie` image
 with no `pip install` step (the same tag `backend/assistant/Dockerfile` already builds from).
 
 Exits non-zero on the first failed check, naming which one failed and why. Never prints a

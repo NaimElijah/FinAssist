@@ -7,8 +7,8 @@ append-only history: to change course, add a new record and mark the old one
 | ADR | Decision | Status |
 |---|---|---|
 | [001](ADR-001-polyglot-java-python-split.md) | Split into a Java ledger and a Python assistant | Accepted, extended by 030, corrected by 047 |
-| [002](ADR-002-java-spring-boot-for-the-ledger.md) | Java 21 and Spring Boot for the ledger | Accepted, its Java 21 line held by 045, corrected by 047 |
-| [003](ADR-003-python-fastapi-for-assistant-and-analysis.md) | Python 3.13 and FastAPI for the assistant | Accepted, extended by 046, its Python 3.13 line held by 045 |
+| [002](ADR-002-java-spring-boot-for-the-ledger.md) | Java 21 and Spring Boot for the ledger | Accepted, its Java 21 line held by 045, extended by 062, corrected by 047 |
+| [003](ADR-003-python-fastapi-for-assistant-and-analysis.md) | Python 3.13 and FastAPI for the assistant | Accepted, extended by 046 and 062, its Python 3.13 line held by 045 |
 | [004](ADR-004-http-openapi-service-contract.md) | HTTP with a versioned OpenAPI document as the contract | Accepted |
 | [005](ADR-005-docker-compose-as-the-run-mechanism.md) | Compose is the mechanism, the Makefile the interface | Accepted, extended by 049 and 054, corrected by 047 |
 | [006](ADR-006-postgresql-for-the-ledger-store.md) | PostgreSQL as the ledger's store | Accepted, resolved by 024 |
@@ -22,7 +22,7 @@ append-only history: to change course, add a new record and mark the old one
 | [014](ADR-014-grounded-answers-require-citations.md) | An answer stating a figure must cite the ledger | Accepted |
 | [015](ADR-015-planning-as-a-sixth-bounded-context.md) | `planning` as a sixth bounded context, in the ledger | Accepted |
 | [016](ADR-016-deterministic-per-currency-projection.md) | Deterministic, per-currency projections | Accepted |
-| [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted, its Testcontainers deferral resolved by 025 |
+| [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted, extended by 062, its Testcontainers deferral resolved by 025 |
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
 | [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, extended by 030, 039, 050 and 060, corrected by 047 |
 | [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, acted on by 023, extended by 033, its persistence obligation resolved by 024 |
@@ -34,7 +34,7 @@ append-only history: to change course, add a new record and mark the old one
 | [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted, extended by 030 |
 | [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
 | [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030, 056 and 058 |
-| [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056 and 057 |
+| [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056, 057 and 062 |
 | [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, 053, 057 and 058, corrected by 047 |
 | [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 and 060, corrected by 047 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted, corrected by 047 |
@@ -50,7 +50,7 @@ append-only history: to change course, add a new record and mark the old one
 | [042](ADR-042-agent-instructions-per-codebase.md) | Agent instructions split per codebase, one `CLAUDE.md` beside each | Accepted |
 | [043](ADR-043-github-secret-scanning-and-dependabot-alerts.md) | GitHub's own secret scanning, push protection and Dependabot alerts; no scanner in CI | Accepted, extended by 044 |
 | [044](ADR-044-compose-refuses-a-published-secret.md) | Compose refuses to start on a secret that a file in the repository holds | Accepted, extended by 061 |
-| [045](ADR-045-dependabot-triage-and-toolchain-holds.md) | Dependabot's updates are triaged weekly, the Java pair moves together, and the toolchain lines move only by ADR | Accepted, extended by 047 |
+| [045](ADR-045-dependabot-triage-and-toolchain-holds.md) | Dependabot's updates are triaged weekly, the Java pair moves together, and the toolchain lines move only by ADR | Accepted, extended by 047 and 062 |
 | [046](ADR-046-architecture-rules-read-the-code-never-load-it.md) | Architecture rules read the code and never load it | Accepted |
 | [047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) | Twelve passages of Accepted records reconciled with the system as built | Accepted |
 | [048](ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md) | Domain events stay in-process until a consumer exists, and production keeps no event log | Accepted |
@@ -67,6 +67,7 @@ append-only history: to change course, add a new record and mark the old one
 | [059](ADR-059-the-assistant-trusts-only-the-key-set-it-last-fetched.md) | The assistant trusts only the key set it last fetched | Accepted |
 | [060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md) | The `finassist` realm and the Keycloak image are configured, not defaulted | Accepted |
 | [061](ADR-061-the-stack-refuses-a-configuration-that-weakens-a-credential.md) | The stack refuses a configuration that weakens a credential | Accepted |
+| [062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md) | Every kept third-party dependency is justified, and each has a revisit trigger | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -293,3 +294,14 @@ refuses a log level, a log group, a logging configuration or Spring Boot's `DEBU
 on the gateway, because DEBUG on Spring Web or Security writes the authorization code and its PKCE
 verifier. An owner whose `.env` holds a shorter value rotates it before the stack starts
 ([#340](https://github.com/NaimElijah/FinAssist/issues/340)).
+
+062 extends 045, 029, 003, 002 and 017 on 2026-10-30, because the rule that every third-party
+dependency is justified had a record for the dependencies an earlier ADR chose and none for the
+rest. Four tables now give every direct dependency of the Java services, the assistant and the web
+client that no record covered its reason, its licence and the event that reopens it, and a section
+states the licence position against the proprietary `LICENSE`. `anthropic` and `pandas` leave the
+assistant because nothing imports them, `uvicorn[standard]` becomes `uvicorn`, and `httpx` moves to
+the dev extra. No Maven lockfile is adopted: Boot's parent version is the Java services' lock. Both
+Java services override OpenTelemetry to 1.67.0 for GHSA-ccrj-gw8r-854m, until Boot manages it.
+Dependabot groups the React packages and holds `@types/node` on Node's major
+([#341](https://github.com/NaimElijah/FinAssist/issues/341)).
