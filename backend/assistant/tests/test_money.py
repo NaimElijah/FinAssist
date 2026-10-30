@@ -93,6 +93,30 @@ def Given_a_very_large_amount_When_constructed_Then_it_is_accepted() -> None:
     assert Money(Decimal("1E+30"), Currency.USD).amount == Decimal("1E+30")
 
 
+@pytest.mark.parametrize(
+    "amount",
+    ["1E+1000000", "1" + "0" * 1_000_001],
+    ids=["exponent-past-a-million", "million-and-two-digits"],
+)
+def Given_an_amount_past_a_million_integer_digits_When_constructed_Then_it_is_accepted(
+    amount: str,
+) -> None:
+    # Java's BigDecimal holds any such amount. Python's default context stops the exponent at
+    # 999999, and quantize then raised decimal.InvalidOperation - an ArithmeticError, not the
+    # ValueError this module promises, so it was answered 500 rather than refused.
+    money = Money(Decimal(amount), Currency.USD)
+
+    assert money.amount == Decimal(amount)
+
+
+def Given_a_product_past_a_million_integer_digits_When_times_rounded_Then_it_is_accepted() -> None:
+    # The same default exponent limit, reached by the product rather than the amount, raised
+    # decimal.Overflow, which is no ValueError either.
+    product = Money.of("1.00", Currency.USD).times_rounded(Decimal("1E+1000000"))
+
+    assert product.amount == Decimal("1E+1000000")
+
+
 def Given_a_fractional_multiplier_When_times_rounded_Then_it_rounds_half_up() -> None:
     assert Money.of("12.33", Currency.USD).times_rounded(Decimal("1.5")) == Money.of(
         "18.50", Currency.USD

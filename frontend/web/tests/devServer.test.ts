@@ -6,14 +6,20 @@
  * assistant and the gateway's own `/bff` endpoints - through one origin to the gateway, per
  * ADR-026 (one origin via proxy) and ADR-030 (BFF gateway, loopback bind, Host allow-list).
  */
-import type { ProxyOptions } from 'vite';
-import { describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
+import http, { type IncomingHttpHeaders, type OutgoingHttpHeaders } from 'node:http';
+import path from 'node:path';
+import { fileURLToPath, URL } from 'node:url';
+
+import { createServer, type ProxyOptions, type ViteDevServer } from 'vite';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
     ASSISTANT_BACKEND,
     BFF_BACKEND,
     GATEWAY_TARGET,
     LEDGER_BACKEND,
+    LOOPBACK_HOST,
 } from '../src/shared/api/backends';
 import viteConfig from '../vite.config';
 
@@ -62,6 +68,24 @@ describe('the dev/preview server', () => {
         // literals (ADR-030's DNS-rebinding control); `true` would remove that protection.
         expect(viteConfig.server?.allowedHosts).not.toBe(true);
         expect(viteConfig.preview?.allowedHosts).not.toBe(true);
+    });
+
+    it('Given_the_vite_config_When_read_Then_server_and_preview_both_refuse_framing', () => {
+        // A policy holding only frame-ancestors restricts no script, so Fast Refresh's inline
+        // preamble keeps working in development; #165 tracks the full policy.
+        expect(viteConfig.server?.headers?.['Content-Security-Policy']).toBe(FRAME_ANCESTORS_NONE);
+        expect(viteConfig.preview?.headers?.['Content-Security-Policy']).toBe(FRAME_ANCESTORS_NONE);
+    });
+
+    it('Given_the_vite_config_When_read_Then_cors_is_off_and_fs_is_left_strict', () => {
+        // The app is same-origin and needs no CORS. Vite's default would answer any localhost
+        // origin, and the CSRF defence counts on no other origin reading what this one serves.
+        expect(viteConfig.server?.cors).toBe(false);
+        expect(viteConfig.preview?.cors).toBe(false);
+        // Left unset, `fs.strict` is true and `fs.allow` is this workspace alone, which is what
+        // keeps the repository root's `.env` out of what the dev server will serve.
+        expect(viteConfig.server?.fs?.strict).toBeUndefined();
+        expect(viteConfig.server?.fs?.allow).toBeUndefined();
     });
 
     it('Given_the_vite_config_When_read_Then_server_and_preview_share_one_proxy_map', () => {
@@ -153,5 +177,187 @@ describe('the dev/preview server', () => {
 
         expect(bffKey.test('/bffx')).toBe(false);
         expect(bffKey.test('/bff-evil')).toBe(false);
+    });
+});
+
+/** The policy both servers send, so no other page can frame the app. */
+const FRAME_ANCESTORS_NONE = "frame-ancestors 'none'";
+
+/** A page on another `localhost` port: same-site with the app, but never same-origin. */
+const OTHER_LOCALHOST_ORIGIN = 'http://localhost:3000';
+
+/**
+ * Files at the repository root, outside the workspace the dev server serves, each committed and
+ * holding no secret, so asking for one can leak nothing even if the guard failed.
+ *
+ * `docker-compose.yml` matches no `fs.deny` pattern, so only `fs.allow` refuses it: it is the
+ * probe that notices a widened allow-list. `.env.example` shares the owner's real `.env`'s name
+ * pattern, which `fs.deny` refuses wherever it sits, so it notices a narrowed deny-list instead.
+ */
+const COMPOSE_FILE = fileURLToPath(new URL('../../../docker-compose.yml', import.meta.url));
+const ENV_EXAMPLE = fileURLToPath(new URL('../../../.env.example', import.meta.url));
+
+/** The dev server's `/@fs/` URL for an absolute file path. */
+function fsUrlFor(file: string): string {
+    return `/@fs/${file.replaceAll(path.sep, '/').replace(/^\//, '')}`;
+}
+
+/** The endpoint Vite mounts to open a file in the owner's editor, from its error overlay. */
+const OPEN_IN_EDITOR = '/__open-in-editor';
+
+/** The directory holding this suite's Vite config, which a dev server started here serves. */
+const WEB_ROOT = fileURLToPath(new URL('..', import.meta.url));
+
+/**
+ * Starting a dev server loads the config, its plugins and the app's index, which takes seconds,
+ * more on a loaded CI runner, so it runs once under a budget of its own rather than Vitest's
+ * default hook timeout.
+ */
+const SERVER_START_TIMEOUT_MS = 60_000;
+
+/**
+ * A path that names nothing on disk, so a request reaching Vite's own middleware can never
+ * launch an editor: launch-editor returns before spawning anything for a path that does not
+ * exist. Each test re-checks that before sending it.
+ */
+const ABSENT_FILE = path.join(WEB_ROOT, 'no-such-directory-for-dev-server-tests', 'absent.txt');
+
+/** The open-in-editor request for `file`, as the overlay builds it. */
+function openInEditorPathFor(file: string): string {
+    return `${OPEN_IN_EDITOR}?file=${encodeURIComponent(file)}`;
+}
+
+/** One answer from the dev server: its status and its headers. */
+interface Answer {
+    readonly status: number;
+    readonly headers: IncomingHttpHeaders;
+}
+
+/**
+ * Send one GET to the dev server over `node:http`, which, unlike `fetch`, sends the `Host` and
+ * `Sec-Fetch-*` headers exactly as given, the way a browser would set them.
+ */
+function get(port: number, requestPath: string, headers: OutgoingHttpHeaders): Promise<Answer> {
+    return new Promise((resolve, reject) => {
+        const request = http.get(
+            { host: LOOPBACK_HOST, port, path: requestPath, headers },
+            (response) => {
+                response.resume();
+                response.on('end', () => {
+                    resolve({ status: response.statusCode ?? 0, headers: response.headers });
+                });
+            },
+        );
+        request.on('error', reject);
+    });
+}
+
+/** The port a listening dev server was given, after asking for port 0. */
+function portOf(server: ViteDevServer): number {
+    const address = server.httpServer?.address();
+    if (address === null || address === undefined || typeof address === 'string') {
+        throw new Error('the dev server is not listening on a TCP port');
+    }
+    return address.port;
+}
+
+describe('the running dev server', () => {
+    let server: ViteDevServer;
+    let port: number;
+
+    beforeAll(async () => {
+        // The real config file, so every plugin and server option under test is the one
+        // `npm run dev` starts with. Port 0 takes a free port; discovery is off because no
+        // test here requests a module, and scanning the app's imports would only slow it down.
+        server = await createServer({
+            configFile: fileURLToPath(new URL('../vite.config.ts', import.meta.url)),
+            root: WEB_ROOT,
+            logLevel: 'silent',
+            clearScreen: false,
+            server: { port: 0, strictPort: true },
+            optimizeDeps: { noDiscovery: true },
+        });
+        await server.listen();
+        port = portOf(server);
+    }, SERVER_START_TIMEOUT_MS);
+
+    afterAll(async () => {
+        await server.close();
+    });
+
+    it.each(['cross-site', 'same-site', 'none'])(
+        'Given_a_request_whose_sec_fetch_site_is_%s_When_open_in_editor_is_called_Then_the_dev_server_refuses_it_403',
+        async (fetchSite) => {
+            expect(existsSync(ABSENT_FILE)).toBe(false);
+
+            const answer = await get(port, openInEditorPathFor(ABSENT_FILE), {
+                host: `localhost:${String(port)}`,
+                'sec-fetch-site': fetchSite,
+            });
+
+            expect(answer.status).toBe(403);
+        },
+    );
+
+    it('Given_a_request_without_sec_fetch_site_When_open_in_editor_is_called_Then_the_dev_server_refuses_it_403', async () => {
+        // Every browser the overlay runs in sends the header, so its absence means a client that
+        // is not that overlay.
+        expect(existsSync(ABSENT_FILE)).toBe(false);
+
+        const answer = await get(port, openInEditorPathFor(ABSENT_FILE), {
+            host: `localhost:${String(port)}`,
+        });
+
+        expect(answer.status).toBe(403);
+    });
+
+    it('Given_the_dev_server_When_the_app_shell_is_served_Then_it_carries_frame_ancestors_none', async () => {
+        const answer = await get(port, '/accounts', {
+            host: `localhost:${String(port)}`,
+            accept: 'text/html',
+        });
+
+        expect(answer.status).toBe(200);
+        expect(answer.headers['content-type']).toContain('text/html');
+        expect(answer.headers['content-security-policy']).toBe(FRAME_ANCESTORS_NONE);
+    });
+
+    it('Given_a_request_from_another_localhost_origin_When_a_source_module_is_served_Then_no_cors_header_allows_it', async () => {
+        const answer = await get(port, '/src/shared/api/backends.ts', {
+            host: `localhost:${String(port)}`,
+            origin: OTHER_LOCALHOST_ORIGIN,
+        });
+
+        expect(answer.status).toBe(200);
+        expect(answer.headers['access-control-allow-origin']).toBeUndefined();
+    });
+
+    it.each([
+        ['docker-compose.yml', COMPOSE_FILE],
+        ['.env.example', ENV_EXAMPLE],
+    ])(
+        'Given_the_repository_roots_%s_When_requested_through_fs_Then_the_dev_server_refuses_it_403',
+        async (_name, file) => {
+            expect(existsSync(file)).toBe(true);
+
+            const answer = await get(port, fsUrlFor(file), {
+                host: `localhost:${String(port)}`,
+                'sec-fetch-site': 'same-origin',
+            });
+
+            expect(answer.status).toBe(403);
+        },
+    );
+
+    it('Given_a_same_origin_request_without_a_file_When_open_in_editor_is_called_Then_vites_own_middleware_answers_500', async () => {
+        // Vite's error overlay calls the endpoint from the page itself, so a same-origin request
+        // must still reach launch-editor's middleware; without a `file` it answers 500 and opens
+        // nothing, which proves the guard let it through without launching an editor.
+        const answer = await get(port, OPEN_IN_EDITOR, {
+            host: `localhost:${String(port)}`,
+            'sec-fetch-site': 'same-origin',
+        });
+
+        expect(answer.status).toBe(500);
     });
 });

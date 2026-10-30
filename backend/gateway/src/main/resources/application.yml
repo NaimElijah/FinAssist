@@ -90,7 +90,8 @@ spring:
           # filters were confirmed against the installed jar's sources before use: `Path=` and
           # `Method=` (org.springframework.cloud.gateway.server.mvc.predicate.GatewayRequestPredicates),
           # `StripPrefix=` and `RemoveRequestHeader=`
-          # (org.springframework.cloud.gateway.server.mvc.filter.BeforeFilterFunctions), and
+          # (org.springframework.cloud.gateway.server.mvc.filter.BeforeFilterFunctions),
+          # `RemoveResponseHeader=` (org.springframework.cloud.gateway.server.mvc.filter.FilterFunctions), and
           # `TokenRelay=` (org.springframework.cloud.gateway.server.mvc.filter.TokenRelayFilterFunctions),
           # registered under this exact prefix
           # (org.springframework.cloud.gateway.server.mvc.config.GatewayMvcProperties.PREFIX).
@@ -118,6 +119,26 @@ spring:
                 # sources), so a browser-supplied one would reach the service as sent. Nothing
                 # upstream acts on it alone, and nothing upstream is given the chance to (#98).
                 - RemoveRequestHeader=HTTP2-Settings
+                # The service's own answer headers that the browser must never receive. The relay
+                # copies every upstream response header but the hop-by-hop ones, and each of these
+                # changes the browser's state for this whole origin, which is the gateway's alone
+                # to set: a cookie, an order to clear site data, HSTS, or a CORS grant. Each CORS
+                # header is named on its own, because the filter removes one name at a time. Server
+                # would name the service's software. Only what the service answered is removed: a
+                # cookie the gateway itself writes on the same response, such as a fresh CSRF
+                # cookie, is set on the servlet response directly.
+                # RemoveResponseHeader= is FilterFunctions.removeResponseHeader, a @Shortcut in 5.0.3.
+                - RemoveResponseHeader=Set-Cookie
+                - RemoveResponseHeader=Server
+                - RemoveResponseHeader=Clear-Site-Data
+                - RemoveResponseHeader=Strict-Transport-Security
+                - RemoveResponseHeader=Access-Control-Allow-Origin
+                - RemoveResponseHeader=Access-Control-Allow-Credentials
+                - RemoveResponseHeader=Access-Control-Allow-Methods
+                - RemoveResponseHeader=Access-Control-Allow-Headers
+                - RemoveResponseHeader=Access-Control-Allow-Private-Network
+                - RemoveResponseHeader=Access-Control-Expose-Headers
+                - RemoveResponseHeader=Access-Control-Max-Age
                 # No client-registration id: TokenRelayFilterFunctions reads it from the
                 # signed-in OAuth2AuthenticationToken, which is the only kind of principal that
                 # ever reaches this route - the security chain requires authentication first.
@@ -133,6 +154,17 @@ spring:
                 - RemoveRequestHeader=X-FINASSIST-XSRF-TOKEN
                 - RemoveRequestHeader=Authorization
                 - RemoveRequestHeader=HTTP2-Settings
+                - RemoveResponseHeader=Set-Cookie
+                - RemoveResponseHeader=Server
+                - RemoveResponseHeader=Clear-Site-Data
+                - RemoveResponseHeader=Strict-Transport-Security
+                - RemoveResponseHeader=Access-Control-Allow-Origin
+                - RemoveResponseHeader=Access-Control-Allow-Credentials
+                - RemoveResponseHeader=Access-Control-Allow-Methods
+                - RemoveResponseHeader=Access-Control-Allow-Headers
+                - RemoveResponseHeader=Access-Control-Allow-Private-Network
+                - RemoveResponseHeader=Access-Control-Expose-Headers
+                - RemoveResponseHeader=Access-Control-Max-Age
                 - TokenRelay=
   http:
     clients:

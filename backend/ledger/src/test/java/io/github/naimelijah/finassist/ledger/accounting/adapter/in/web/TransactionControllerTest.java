@@ -67,6 +67,18 @@ class TransactionControllerTest {
     private static final String TRANSACTIONS = "/api/v1/transactions";
     private static final MediaType PROBLEM_JSON = MediaType.APPLICATION_PROBLEM_JSON;
 
+    /** Every media type a cross-site page can post without a preflight (ADR-030). */
+    private static final List<String> NOT_JSON = List.of(
+            MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+            MediaType.TEXT_PLAIN_VALUE,
+            MediaType.MULTIPART_FORM_DATA_VALUE);
+
+    /** Every write route, under every media type in {@link #NOT_JSON}, so a failure names both. */
+    static Stream<Arguments> transactionWritesInEveryMediaTypeButJson() {
+        return Stream.of("", "/%s/clear", "/%s/reconcile", "/%s/void")
+                .flatMap(route -> NOT_JSON.stream().map(mediaType -> Arguments.of(route, mediaType)));
+    }
+
     private static final LocalDate MARCH_1 = LocalDate.of(2026, 3, 1);
     private static final LocalDate MARCH_3 = LocalDate.of(2026, 3, 3);
     private static final LocalDate MARCH_5 = LocalDate.of(2026, 3, 5);
@@ -452,13 +464,20 @@ class TransactionControllerTest {
         verifyNoInteractions(lifecycle);
     }
 
-    /** Every write refuses a form post, which a cross-site page can send without a preflight (ADR-030). */
+    /**
+     * Every write refuses a form, plain text or multipart post, which a cross-site page can send without a
+     * preflight (ADR-030).
+     *
+     * <p>MockMvc never parses a multipart body, so the multipart case here reaches the mapping's refusal
+     * without the parsing a container performs first; {@code LedgerApplicationIT} posts a well-formed
+     * multipart body to the running ledger.
+     */
     @ParameterizedTest
-    @ValueSource(strings = {"", "/%s/clear", "/%s/reconcile", "/%s/void"})
-    void Given_a_form_encoded_body_When_any_transaction_write_is_posted_Then_it_is_a_415_problem(String route)
-            throws Exception {
+    @MethodSource("transactionWritesInEveryMediaTypeButJson")
+    void Given_a_body_that_is_not_json_When_any_transaction_write_is_posted_Then_it_is_a_415_problem(
+            String route, String mediaType) throws Exception {
         mvc.perform(post(TRANSACTIONS + route.formatted(TransactionId.generate()))
-                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .contentType(mediaType)
                         .content("on=2026-03-05"))
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(content().contentType(PROBLEM_JSON))

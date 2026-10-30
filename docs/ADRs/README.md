@@ -24,7 +24,7 @@ append-only history: to change course, add a new record and mark the old one
 | [016](ADR-016-deterministic-per-currency-projection.md) | Deterministic, per-currency projections | Accepted |
 | [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted, its Testcontainers deferral resolved by 025 |
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
-| [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, extended by 030, 039 and 050, corrected by 047 |
+| [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, extended by 030, 039, 050 and 060, corrected by 047 |
 | [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, acted on by 023, extended by 033, its persistence obligation resolved by 024 |
 | [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted, extended by 041 and 055 |
 | [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted, extended by 051, with a bounded exception in 028 |
@@ -33,28 +33,28 @@ append-only history: to change course, add a new record and mark the old one
 | [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted, extended by 047 |
 | [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted, extended by 030 |
 | [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
-| [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030 and 056 |
-| [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047 and 056 |
-| [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037 and 053, corrected by 047 |
-| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036, corrected by 047 |
+| [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030, 056 and 058 |
+| [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056 and 057 |
+| [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, 053, 057 and 058, corrected by 047 |
+| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 and 060, corrected by 047 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted, corrected by 047 |
 | [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035 |
 | [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted, extended by 040 |
 | [035](ADR-035-flyway-runs-out-of-order.md) | Flyway runs out of order, because every context owns a major version | Accepted, corrected by 047 |
 | [036](ADR-036-least-privilege-keycloak-client-scoping.md) | Deny each Keycloak client the realm's full scope | Accepted |
-| [037](ADR-037-an-unusable-key-set-is-an-outage.md) | A key set that cannot be read, or holds no key, is an outage, on both services | Accepted |
+| [037](ADR-037-an-unusable-key-set-is-an-outage.md) | A key set that cannot be read, or holds no key, is an outage, on both services | Accepted, extended by 059 |
 | [038](ADR-038-back-up-each-database-as-a-logical-dump.md) | Back up each database as its own logical dump, on demand, proven by an isolated restore check | Accepted |
 | [039](ADR-039-compose-restarts-services-and-bounds-their-logs.md) | Compose restarts a crashed service, and keeps at most 30 MB of each container's logs | Accepted, extended by 044 |
 | [040](ADR-040-the-smoke-check-trigger-fired.md) | ADR-034's first trigger fired: the smoke check stays manual, and CI starts the packaged gateway | Accepted |
 | [041](ADR-041-consume-fifo-orders-its-own-lots.md) | `consume_fifo` orders its own lots, oldest first | Accepted |
 | [042](ADR-042-agent-instructions-per-codebase.md) | Agent instructions split per codebase, one `CLAUDE.md` beside each | Accepted |
 | [043](ADR-043-github-secret-scanning-and-dependabot-alerts.md) | GitHub's own secret scanning, push protection and Dependabot alerts; no scanner in CI | Accepted, extended by 044 |
-| [044](ADR-044-compose-refuses-a-published-secret.md) | Compose refuses to start on a secret that a file in the repository holds | Accepted |
+| [044](ADR-044-compose-refuses-a-published-secret.md) | Compose refuses to start on a secret that a file in the repository holds | Accepted, extended by 061 |
 | [045](ADR-045-dependabot-triage-and-toolchain-holds.md) | Dependabot's updates are triaged weekly, the Java pair moves together, and the toolchain lines move only by ADR | Accepted, extended by 047 |
 | [046](ADR-046-architecture-rules-read-the-code-never-load-it.md) | Architecture rules read the code and never load it | Accepted |
 | [047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) | Twelve passages of Accepted records reconciled with the system as built | Accepted |
 | [048](ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md) | Domain events stay in-process until a consumer exists, and production keeps no event log | Accepted |
-| [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted |
+| [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted, extended by 061 |
 | [050](ADR-050-no-domain-metric-yet-decided-again.md) | No domain metric yet, decided again, with new triggers | Accepted |
 | [051](ADR-051-what-a-translation-may-decide.md) | What a translation may decide: choosing records stays in `composition`, a rule in the downstream's own words moves into it | Accepted |
 | [052](ADR-052-ops-holds-operator-code-one-directory-per-tool.md) | `ops/` holds operator code, one directory per tool | Accepted |
@@ -62,6 +62,11 @@ append-only history: to change course, add a new record and mark the old one
 | [054](ADR-054-each-service-ships-as-a-two-stage-image-run-as-a-non-root-user.md) | Each service ships as a two-stage image, built from source and run as a non-root user | Accepted |
 | [055](ADR-055-the-assistants-development-seed-lives-in-its-composition-root.md) | The assistant's development seed lives in its composition root, and is off by default | Accepted |
 | [056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md) | The web client retries a failed read once, and never a write | Accepted |
+| [057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md) | A page on another `localhost` port is treated as hostile | Accepted |
+| [058](ADR-058-each-service-bounds-what-one-request-can-cost.md) | Each service bounds what one request can cost | Accepted |
+| [059](ADR-059-the-assistant-trusts-only-the-key-set-it-last-fetched.md) | The assistant trusts only the key set it last fetched | Accepted |
+| [060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md) | The `finassist` realm and the Keycloak image are configured, not defaulted | Accepted |
+| [061](ADR-061-the-stack-refuses-a-configuration-that-weakens-a-credential.md) | The stack refuses a configuration that weakens a credential | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -238,3 +243,53 @@ and it is never a data source. It goes when a ledger client and a quote feed exi
 neither states. A failed read is retried once, on a network failure or a 5xx other than 503; a
 write is never retried; and a 401 from anything but the session check ends the session
 ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
+
+057 extends 030 and 029 on 2026-10-30, because cookies ignore ports, so a page served from any other
+`localhost` port is same-site with the app, shares its cookie jar and rides its `Lax` cookies.
+ADR-030 used the fact to rename the cookies and no record drew the rest of its consequences. The
+gateway now takes the CSRF token from its header alone, starts a sign-in only from a top-level
+navigation and refuses any other with 403, lets a started sign-in's session idle 15 minutes, strips
+an upstream's cookie, site-data, HSTS and CORS headers, and logs only a registered OAuth2 code. The
+dev and preview servers refuse framing and CORS, `/__open-in-editor` answers only the app's own
+page, and the lint rule refuses raw-HTML sinks
+([#340](https://github.com/NaimElijah/FinAssist/issues/340)).
+
+058 extends 028 and 030 on 2026-10-30, because authentication decides who may ask and nothing decided
+how much a request may cost, and the services paid that cost before they checked a permission. A
+body over 64 KiB is now a 413 `CONTENT_TOO_LARGE` on the ledger, the gateway and the assistant: the
+first two before Spring Security, the assistant before authentication when the length is declared.
+The ledger bounds a horizon at 100 years, a comparison at 10 scenarios and every date to the years
+1 to 9999, and answers an unparseable multipart body and a firewall rejection 400. The assistant
+serves through `h11` with a 16 KiB header bound, trusts no forwarded header and upgrades no
+WebSocket, and its `Money` accepts what Java's `BigDecimal` does
+([#340](https://github.com/NaimElijah/FinAssist/issues/340)).
+
+059 extends 037 on 2026-10-30, because 037 made an unusable key set an outage on both services and
+left open how long a key already seen stays trusted. The ledger keeps only the fetched set; the
+assistant also kept every key it had resolved, for ever, so a key the realm removed kept verifying
+until a restart, and an outage went unseen for every key already cached. The assistant now caches no
+key apart from the set, so a key leaves with it, and after a failed fetch it answers an outage for
+15 seconds without fetching again. 037's line that the assistant's per-`kid` cache is untouched
+by a failed refresh no longer holds; 037 keeps its text
+([#340](https://github.com/NaimElijah/FinAssist/issues/340)).
+
+060 extends 031 and 019 on 2026-10-30, because 031 pinned the settings it chose and left every other
+one to Keycloak's default. Four defaults were still in force. The `jboss-logging` listener wrote each
+failed sign-in to the log with the username as typed. The unused `admin-cli` client kept its password
+grant. Offline sessions had no absolute lifetime. Keycloak logged plain text and enabled two deprecated
+features. The realm file and the image now state all of them, and operations.md applies the realm
+settings to an existing realm in place, keeping every user. The owner chose on 2026-10-30 not to
+require a second factor of a viewer, and 060 records that rejection with its triggers. The `master`
+realm and a Host allow-list for Keycloak are
+[#368](https://github.com/NaimElijah/FinAssist/issues/368) and
+[#369](https://github.com/NaimElijah/FinAssist/issues/369)
+([#340](https://github.com/NaimElijah/FinAssist/issues/340)).
+
+061 extends 044 and 049 on 2026-10-30. 044 refuses a secret the repository publishes and accepts any
+other, a one-character password included; 049 names the keys `make check-compose` refuses and has no
+rule for a log level. `secret-check` now also refuses any of its eight secrets shorter than 32
+characters, what `openssl rand -hex 16` writes, as the owner chose on 2026-10-30. `make check-compose`
+refuses a log level, a log group, a logging configuration or Spring Boot's `DEBUG` or `TRACE` switch
+on the gateway, because DEBUG on Spring Web or Security writes the authorization code and its PKCE
+verifier. An owner whose `.env` holds a shorter value rotates it before the stack starts
+([#340](https://github.com/NaimElijah/FinAssist/issues/340)).

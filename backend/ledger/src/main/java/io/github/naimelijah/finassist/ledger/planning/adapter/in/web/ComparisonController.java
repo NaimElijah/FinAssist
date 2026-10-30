@@ -46,9 +46,10 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Three refusals are the adapter's own, before anything is projected:
  *
  * <ul>
- *   <li>fewer than {@value #MINIMUM_SCENARIOS} scenarios is 400 naming the {@code scenario} parameter. A
- *       comparison of one is malformed on its face, as a transaction of one entry is in accounting, so it
- *       is checked here as well as by the domain;
+ *   <li>fewer than {@value #MINIMUM_SCENARIOS} scenarios, or more than {@value #MAXIMUM_SCENARIOS}, is
+ *       400 naming the {@code scenario} parameter. A comparison of one is malformed on its face, as a
+ *       transaction of one entry is in accounting, so it is checked here as well as by the domain; the
+ *       maximum bounds the work, since each scenario is projected in full;
  *   <li>a baseline that is not among the scenarios is 422 {@code RULE_VIOLATED}: the request is well-formed
  *       and asks for a divergence from something it did not compare.
  *   <li>a blank {@code scenario} value is 400 naming the parameter as well. Spring converts it to a null
@@ -73,6 +74,9 @@ public class ComparisonController {
     /** A comparison needs something to compare against; {@code Comparison} refuses fewer too. */
     static final int MINIMUM_SCENARIOS = 2;
 
+    /** {@code Comparison}'s own maximum, checked here too so that more is a 400 before anything is projected. */
+    static final int MAXIMUM_SCENARIOS = Comparison.MAXIMUM_SCENARIOS;
+
     private static final Logger LOG = LoggerFactory.getLogger(ComparisonController.class);
 
     private final CompareScenariosUseCase comparer;
@@ -90,7 +94,7 @@ public class ComparisonController {
      */
     @GetMapping
     public ComparisonResponse compareScenarios(
-            @RequestParam @Size(min = MINIMUM_SCENARIOS) List<@NotNull UUID> scenario,
+            @RequestParam @Size(min = MINIMUM_SCENARIOS, max = MAXIMUM_SCENARIOS) List<@NotNull UUID> scenario,
             @RequestParam UUID baseline,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,

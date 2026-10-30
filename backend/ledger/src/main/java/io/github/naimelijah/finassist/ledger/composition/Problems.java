@@ -1,6 +1,13 @@
 package io.github.naimelijah.finassist.ledger.composition;
 
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.net.URI;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.converter.json.ProblemDetailJacksonMixin;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The extension members and stable codes of the RFC 9457 problems the composition root answers
@@ -68,7 +75,11 @@ final class Problems {
     /** A conflict the framework raised, where no context's advice named a more specific code. */
     static final String CONFLICT = "CONFLICT";
 
-    /** The request is larger than the server accepts. */
+    /**
+     * The request is larger than the server accepts: a body over {@link
+     * RequestBodyLimitFilter#MAX_REQUEST_BODY_BYTES}, or a 413 Spring MVC raised itself. The gateway and
+     * the assistant answer the same code for the same limit.
+     */
     static final String CONTENT_TOO_LARGE = "CONTENT_TOO_LARGE";
 
     /** Well-formed, and refused by a rule the request broke, whether the domain's or the adapter's. */
@@ -89,5 +100,47 @@ final class Problems {
     /** The JWKS source could not be reached; nothing here says whether the token would have been valid (ADR-030). */
     static final String AUTHENTICATION_UNAVAILABLE = "AUTHENTICATION_UNAVAILABLE";
 
+    /**
+     * Built once, because nothing about the serialisation varies. The mix-in is the one Spring MVC's own
+     * JSON converter applies to a {@link ProblemDetail}, so a body written here has the same shape as every
+     * problem the dispatcher answers: extension members at the top level, absent members omitted.
+     */
+    private static final JsonMapper JSON = JsonMapper.builder()
+            .addMixIn(ProblemDetail.class, ProblemDetailJacksonMixin.class)
+            .build();
+
     private Problems() {}
+
+    /**
+     * Serialises a problem with the given status, detail and code as RFC 9457 problem+json bytes, for a
+     * writer that answers before the dispatcher and so before any controller advice could. The gateway's
+     * {@code GatewayProblems.write} is its counterpart.
+     *
+     * @param status the HTTP status the problem answers with
+     * @param detail prose for a person, which must name nothing the caller sent
+     * @param code the stable code a client branches on, one of this class's constants
+     * @return the serialised body, ready for {@link #send}
+     */
+    static byte[] write(HttpStatus status, String detail, String code) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
+        problem.setType(BLANK_TYPE);
+        problem.setProperty(CODE_MEMBER, code);
+        return JSON.writeValueAsBytes(problem);
+    }
+
+    /**
+     * Writes an already serialised problem as the whole response: its status, the {@code
+     * application/problem+json} content type, its length and its body.
+     *
+     * @param response the response to write, which nothing later in the chain may then write to
+     * @param status the HTTP status, which must be the one {@code body} was built with
+     * @param body the bytes from {@link #write}
+     * @throws IOException if the response cannot be written
+     */
+    static void send(HttpServletResponse response, HttpStatus status, byte[] body) throws IOException {
+        response.setStatus(status.value());
+        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        response.setContentLength(body.length);
+        response.getOutputStream().write(body);
+    }
 }

@@ -112,7 +112,8 @@ the file, or to `GATEWAY_CLIENT_SECRET`, `ASSISTANT_CLIENT_SECRET` or
 `FINASSIST_OWNER_INITIAL_PASSWORD` in `.env`, changes nothing in Keycloak until the realm is
 imported again. There are two ways to do that. **To change a secret, do neither:**
 [rotate it in place](#rotating-a-secret), which keeps every user. A re-import is for a change to
-the realm file itself.
+the realm file itself, unless `kcadm.sh` can make it in place, which keeps every user too
+([below](#applying-a-realm-setting-in-place)).
 
 **Both delete every user in the `finassist` realm**: the owner's password and TOTP enrolment, and
 every viewer added by hand. Take `make backup` first: restoring its `keycloak.dump` is the only
@@ -161,6 +162,38 @@ and Keycloak imports the literal, unresolved `${VAR}` text as the credential rat
 to start or leaving it blank — for the owner's initial password, that means a publicly known
 value, not a missing one.
 
+### Applying a realm setting in place
+
+A setting `kcadm.sh` can change needs no re-import, and keeps every user. A realm imported
+before the realm file configured no event listener, capped offline sessions and turned off
+`admin-cli`'s password grant still holds Keycloak's defaults for all three. Keycloak's JSON
+console log and its disabled deprecated features live in `docker-compose.yml` and the image, not
+in the realm, so rebuilding Keycloak applies those two. Take `make backup` first. Then, in Git
+Bash after `export MSYS_NO_PATHCONV=1` (see [Rotating a secret](#rotating-a-secret)), run:
+
+```bash
+docker compose up -d --build --wait keycloak   # the new image and environment; the realm's import is skipped
+```
+
+Sign the admin CLI in, as in [Signing in the admin CLI](#signing-in-the-admin-cli). Then apply the
+three settings, read them back, and remove the CLI's stored tokens:
+
+```bash
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; k update realms/finassist -s "eventsListeners=[]" -s offlineSessionMaxLifespanEnabled=true -s offlineSessionMaxLifespan=36000 && id=$(k get clients -r finassist -q clientId=admin-cli --fields id --format csv --noquotes) && k update "clients/$id" -r finassist -s directAccessGrantsEnabled=false -s standardFlowEnabled=false -s implicitFlowEnabled=false -s serviceAccountsEnabled=false -s fullScopeAllowed=false'
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; k get realms/finassist --fields eventsListeners,offlineSessionMaxLifespanEnabled,offlineSessionMaxLifespan && k get clients -r finassist -q clientId=admin-cli --fields clientId,directAccessGrantsEnabled,standardFlowEnabled,implicitFlowEnabled,serviceAccountsEnabled,fullScopeAllowed'
+docker compose exec -T keycloak rm /tmp/kcadm.config
+```
+
+Each `-s` sets one member and leaves the rest as they are. `36000` is the realm's
+`ssoSessionMaxLifespan`, ten hours, so no offline session outlives a browser session. The read-back
+shows `"eventsListeners" : [ ]`, `"offlineSessionMaxLifespanEnabled" : true`,
+`"offlineSessionMaxLifespan" : 36000`, and `false` for each of `admin-cli`'s
+`directAccessGrantsEnabled`, `standardFlowEnabled`, `implicitFlowEnabled`, `serviceAccountsEnabled`
+and `fullScopeAllowed`, as the realm file sets them. These commands change the `finassist` realm
+only, never `master`.
+Removing `/tmp/kcadm.config` deletes the CLI's stored tokens; it does not end the admin's session on
+the server.
+
 ## Rotating a secret
 
 **A secret is changed where it is stored, then the service that reads it is restarted — never by
@@ -184,12 +217,13 @@ from inside that container. No value is ever typed into a command line or kept i
 None is passed as a process argument either, where any local user's `ps` could read it on a Linux
 Docker host: each one reaches its tool through the environment or standard input.
 
-**A stack that refuses to start on a published secret is fixed the same way.** Before any
-database starts, `secret-check` refuses each secret that a file git does not ignore holds, and
-`docker compose logs secret-check` names them
-([ADR-044](../ADRs/ADR-044-compose-refuses-a-published-secret.md)). Write a new value for each
-into `.env`, then follow [Every secret at once](#every-secret-at-once): the databases start
-again as soon as no secret is published.
+**A stack that refuses to start on a published or a short secret is fixed the same way.** Before any
+database starts, `secret-check` refuses each secret that a file git does not ignore holds, and each
+one shorter than 32 characters, and `docker compose logs secret-check` names them
+([ADR-044](../ADRs/ADR-044-compose-refuses-a-published-secret.md)). Length is the only bound on
+guessing a password that no account lockout protects. Write a new value for each into `.env`, then
+follow [Every secret at once](#every-secret-at-once): the databases start again as soon as no secret
+is published or short.
 
 Before you start:
 
@@ -198,7 +232,8 @@ Before you start:
   refuses, the databases cannot start until `.env` holds new values, so write them first.
   The backup then works anyway, because it reads each database over its own socket, which
   needs no password.
-- **Generate each value with `openssl rand -hex 16`**, which Git Bash carries.
+- **Generate each value with `openssl rand -hex 16`**, which Git Bash carries. It writes 32
+  characters, the least `secret-check` accepts.
 - **`ANTHROPIC_API_KEY` is not rotated here.** Anthropic issues it, so a leaked key is revoked in
   Anthropic's console and replaced by the one it issues next. Nothing in the stack reads it yet.
 - **Run the recipes in Git Bash, or another POSIX shell, after `export MSYS_NO_PATHCONV=1`.**
@@ -239,9 +274,10 @@ docker compose up -d --wait keycloak
 ### Signing in the admin CLI
 
 The Keycloak recipes run `kcadm.sh`, Keycloak's admin CLI, inside the `keycloak` container. Sign
-it in once for each container. It keeps a master-realm admin session in `/tmp/kcadm.config` until
-the container is recreated, so remove it once the recipe is done:
-`docker compose exec -T keycloak rm /tmp/kcadm.config`. When the admin's password is still the
+it in once for each container. It keeps the tokens of a master-realm admin session in
+`/tmp/kcadm.config` until the container is recreated, so remove them once the recipe is done:
+`docker compose exec -T keycloak rm /tmp/kcadm.config`. That deletes the CLI's stored tokens; it
+does not end the admin's session on the server. When the admin's password is still the
 `KEYCLOAK_ADMIN_PASSWORD` in `.env`, the container already holds it:
 
 ```bash
@@ -349,7 +385,7 @@ To replace every secret in one pass, run the recipes above in this order. That i
 1. Note the current `KEYCLOAK_ADMIN_PASSWORD`, which step 6 needs. Then write a new value for each
    secret above into `.env`.
 2. `docker compose up -d --wait db keycloak-db`. `secret-check` runs first, and passes now that no
-   secret is published.
+   secret is published or short.
 3. `make backup`.
 4. Both `\password` commands.
 5. `docker compose up -d --wait keycloak`.

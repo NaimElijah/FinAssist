@@ -263,6 +263,28 @@ def Given_both_spring_services_reopening_actuator_When_checked_Then_each_key_is_
     ]
 
 
+# Each binds as its dotted form under Spring Boot 4.1.1's Binder, from a system-environment source.
+@pytest.mark.parametrize(
+    "key",
+    [
+        "management.endpoints.web.exposure[include]",
+        "management[endpoints][web][exposure][include]",
+        "spring.config[import]",
+    ],
+)
+@pytest.mark.parametrize("service", ["ledger", "gateway"])
+def Given_a_spring_service_reopening_actuator_in_bracketed_form_When_checked_Then_it_is_refused(
+    service: str, key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["environment"][key] = SECRET
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: its environment must not set {key}"]
+
+
 def Given_a_management_key_on_a_service_without_spring_When_checked_Then_it_passes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -307,6 +329,144 @@ def Given_a_spring_service_with_no_environment_When_checked_Then_it_passes(
 ) -> None:
     resolved = _conforming()
     del resolved["services"]["gateway"]["environment"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_PASSED
+    assert lines == [PASSED]
+
+
+# --- The gateway's log levels, set in application.yml, never lowered by Compose ------------------
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_WEB",
+        "LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY",
+        "LOGGING_LEVEL_ROOT",
+        "logging.level.org.springframework.web",
+        "logging_level_root",
+    ],
+)
+def Given_the_gateway_service_sets_a_logging_level_When_checked_Then_compose_check_refuses_it(
+    key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["gateway"]["environment"][key] = "DEBUG"
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"gateway: its environment must not set {key}"]
+
+
+@pytest.mark.parametrize("key", ["LOGGING_GROUP_WEB", "logging.group.web"])
+def Given_the_gateway_service_sets_a_logging_group_When_checked_Then_compose_check_refuses_it(
+    key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["gateway"]["environment"][key] = "org.springframework.security"
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"gateway: its environment must not set {key}"]
+
+
+@pytest.mark.parametrize("key", ["LOGGING_CONFIG", "logging.config"])
+def Given_the_gateway_service_sets_a_logging_config_When_checked_Then_compose_check_refuses_it(
+    key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["gateway"]["environment"][key] = f"/tmp/{SECRET}.xml"
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"gateway: its environment must not set {key}"]
+
+
+@pytest.mark.parametrize("value", ["true", ""], ids=["true", "empty"])
+@pytest.mark.parametrize("key", ["DEBUG", "debug", "TRACE", "trace"])
+def Given_the_gateway_service_sets_springs_debug_or_trace_switch_When_checked_Then_it_is_refused(
+    key: str, value: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["gateway"]["environment"][key] = value
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"gateway: its environment must not set {key}"]
+
+
+# Each binds as `logging.level.*` under Spring Boot 4.1.1's Binder, from a system environment.
+@pytest.mark.parametrize(
+    "key",
+    [
+        "logging.level[org.springframework.web]",
+        "logging[level][root]",
+        "logging_level[root]",
+        "logging.lev-el.root",
+        "LOGGING__LEVEL_ROOT",
+    ],
+)
+def Given_a_gateway_logging_level_in_another_spelling_When_checked_Then_compose_check_refuses_it(
+    key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["gateway"]["environment"][key] = "DEBUG"
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"gateway: its environment must not set {key}"]
+
+
+@pytest.mark.parametrize("key", ["logging.group[web]", "logging[group][web]"])
+def Given_a_gateway_logging_group_in_bracketed_form_When_checked_Then_compose_check_refuses_it(
+    key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["gateway"]["environment"][key] = "org.springframework.security"
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"gateway: its environment must not set {key}"]
+
+
+@pytest.mark.parametrize("key", ["logging[config]", "de-bug"])
+def Given_a_gateway_logging_config_or_switch_respelled_When_checked_Then_compose_check_refuses_it(
+    key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["gateway"]["environment"][key] = "true"
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"gateway: its environment must not set {key}"]
+
+
+def Given_the_gateway_service_sets_a_logging_key_that_lowers_no_level_When_checked_Then_it_passes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["gateway"]["environment"]["LOGGING_STRUCTURED_FORMAT_CONSOLE"] = "ecs"
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_PASSED
+    assert lines == [PASSED]
+
+
+def Given_a_logging_level_on_a_service_without_spring_When_checked_Then_it_passes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["db"]["environment"]["LOGGING_LEVEL_ROOT"] = "DEBUG"
 
     status, lines = _check(resolved, capsys)
 

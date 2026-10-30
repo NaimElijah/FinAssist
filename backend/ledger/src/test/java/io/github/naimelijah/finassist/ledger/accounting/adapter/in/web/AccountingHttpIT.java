@@ -13,6 +13,8 @@ import java.time.Duration;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpHeaders;
@@ -269,6 +271,73 @@ class AccountingHttpIT extends PostgresFixture {
 
         assertProblem(response, 400, "MALFORMED_REQUEST");
         assertThat(ok(get(ACCOUNTS + "/" + cash + "/transactions")).size()).isZero();
+    }
+
+    /**
+     * A query date is bounded to years 1 to 9999 by the shared converter the composition root registers,
+     * before any query reaches the store, whose own range is far wider than any date the ledger means.
+     * A sign is sent as {@code %2B}: a bare {@code +} in a query decodes to a space.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"%2B10000-01-01", "%2B5874898-01-01", "%2B999999999-12-31"})
+    void Given_a_query_date_after_year_9999_When_transactions_are_listed_Then_it_is_a_400_malformed_request(String to)
+            throws Exception {
+        assertProblem(get(TRANSACTIONS + "?from=2026-01-01&to=" + to), 400, "MALFORMED_REQUEST");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0000-12-31", "-0001-01-01"})
+    void Given_a_query_date_before_year_1_When_transactions_are_listed_Then_it_is_a_400_malformed_request(String from)
+            throws Exception {
+        assertProblem(get(TRANSACTIONS + "?from=" + from + "&to=2026-01-01"), 400, "MALFORMED_REQUEST");
+    }
+
+    @Test
+    void Given_a_body_date_after_year_9999_When_recorded_Then_it_is_a_400_malformed_request_and_nothing_is_recorded()
+            throws Exception {
+        String cash = open("Cash", "ASSET");
+        String groceries = open("Groceries", "EXPENSE");
+
+        HttpResponse<String> response =
+                post(TRANSACTIONS, recordRequest("+10000-01-01", "Groceries", groceries, "12.50", cash, "-12.50"));
+
+        assertProblem(response, 400, "MALFORMED_REQUEST");
+        assertThat(ok(get(ACCOUNTS + "/" + cash + "/transactions")).size()).isZero();
+    }
+
+    /** A body date is bounded by its own mechanism, Jackson's, so its lower bound is checked as well. */
+    @Test
+    void Given_a_body_date_before_year_1_When_recorded_Then_it_is_a_400_malformed_request_and_nothing_is_recorded()
+            throws Exception {
+        String cash = open("Cash", "ASSET");
+        String groceries = open("Groceries", "EXPENSE");
+
+        HttpResponse<String> response =
+                post(TRANSACTIONS, recordRequest("0000-12-31", "Groceries", groceries, "12.50", cash, "-12.50"));
+
+        assertProblem(response, 400, "MALFORMED_REQUEST");
+        assertThat(ok(get(ACCOUNTS + "/" + cash + "/transactions")).size()).isZero();
+    }
+
+    /** The bounds themselves are dates the ledger serves, in a query and in a body alike. */
+    @Test
+    void Given_dates_in_years_1_and_9999_When_recorded_and_listed_Then_both_are_accepted() throws Exception {
+        String cash = open("Cash", "ASSET");
+        String groceries = open("Groceries", "EXPENSE");
+
+        String first = record("0001-01-01", "First", groceries, "1.00", cash, "-1.00");
+        String last = record("9999-12-31", "Last", groceries, "2.00", cash, "-2.00");
+
+        JsonNode period = ok(get(TRANSACTIONS + "?from=0001-01-01&to=9999-12-31"));
+        JsonNode forCash = ok(get(ACCOUNTS + "/" + cash + "/transactions"));
+
+        assertThat(period.valueStream()
+                        .map(transaction -> transaction.path("id").asString()))
+                .as("to is exclusive, so the last day of 9999 is outside the period")
+                .containsExactly(first);
+        assertThat(forCash.valueStream()
+                        .map(transaction -> transaction.path("id").asString()))
+                .containsExactly(first, last);
     }
 
     /** Opens an ILS account through the API and returns the id the ledger generated for it. */

@@ -9,7 +9,9 @@ script's standard input (ADR-049). Every long-running service must take the rest
 log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, the one-shot services
 must take neither, and four healthchecks must probe readiness (#142, ADR-039). Neither the ledger
 nor the gateway may set, in its environment, a key that reopens the Actuator exposure their code
-pins, nor a `command` or `entrypoint`, whose arguments would reach Spring as properties.
+pins, nor a `command` or `entrypoint`, whose arguments would reach Spring as properties; nor may the
+gateway set a log level, a log group, a logging configuration or Spring Boot's `debug` or `trace`
+switch, since below INFO it logs credentials.
 
 It reads the resolved file, not its text, so an alias that stops resolving fails as surely as a
 service that never took one, and a block copied in with other values fails too.
@@ -24,6 +26,7 @@ the part that is not a mapping. Standard library only; run it with `uv run`, as
 from __future__ import annotations
 
 import json
+import re
 import sys
 from collections.abc import Mapping
 from typing import BinaryIO, Final
@@ -54,6 +57,14 @@ SPRING_CONFIG_PREFIX: Final = "SPRING_CONFIG_"
 # reads from one of these, or an argument a Compose command appends, outranks application.yml too.
 JVM_OPTION_VARIABLES: Final = frozenset({"JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS"})
 COMMAND_LINE_MEMBERS: Final = ("command", "entrypoint")
+# DEBUG on the gateway's Spring Web or Security loggers writes the authorization code, its PKCE
+# verifier and a refresh grant's form body: so its levels stay as application.yml sets them.
+LEVEL_PINNED_SERVICES: Final = frozenset({"gateway"})
+LOGGING_LEVEL_PREFIXES: Final = ("LOGGING_LEVEL_", "LOGGING_GROUP_")
+LOGGING_CONFIG: Final = "LOGGING_CONFIG"
+# Spring Boot's LoggingApplicationListener lowers the `web` group to DEBUG for `debug`, and all of
+# `org.springframework` to TRACE for `trace`, set to anything but `false`, even the empty string.
+SPRING_LOG_SWITCHES: Final = frozenset({"DEBUG", "TRACE"})
 PASSED: Final = "Every service follows the Compose conventions"
 
 
@@ -87,6 +98,7 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
                 f"{name}: its environment must not set {key}"
                 for key in sorted(environment)
                 if _reopens_actuator(key)
+                or (name in LEVEL_PINNED_SERVICES and _lowers_log_level(key))
             )
             found.extend(
                 f"{name}: must not set {member}, which reaches Spring as an argument"
@@ -107,11 +119,28 @@ def _mapping(value: object, what: str) -> Mapping[str, object]:
     return value
 
 
+def _canonical(key: str) -> str:
+    # Spring Boot's relaxed binding reads one property under many names: `_`, `__`, `.` or brackets
+    # between its parts, a `-` inside a part, any case. Spring Boot 4.1.1's Binder, over a
+    # system-environment source, bound `logging.level[root]`, `logging[level][root]`,
+    # `logging.lev-el.root`, `LOGGING__LEVEL_ROOT` and `de-bug` alike. So a key is compared on its
+    # letters and digits alone, which can refuse a name that binds nothing but never misses one.
+    return re.sub("[^A-Z0-9]", "", key.upper())
+
+
 def _reopens_actuator(key: str) -> bool:
-    # Spring Boot binds a variable named in the dotted form as well; case is ignored for safety.
-    canonical = key.upper().replace(".", "_").replace("-", "_")
-    return canonical.startswith((ACTUATOR_WEB_PREFIX, SPRING_CONFIG_PREFIX)) or (
-        canonical == SPRING_APPLICATION_JSON or key in JVM_OPTION_VARIABLES
+    canonical = _canonical(key)
+    return canonical.startswith(
+        (_canonical(ACTUATOR_WEB_PREFIX), _canonical(SPRING_CONFIG_PREFIX))
+    ) or (canonical == _canonical(SPRING_APPLICATION_JSON) or key in JVM_OPTION_VARIABLES)
+
+
+def _lowers_log_level(key: str) -> bool:
+    canonical = _canonical(key)
+    return (
+        canonical.startswith(tuple(_canonical(prefix) for prefix in LOGGING_LEVEL_PREFIXES))
+        or canonical == _canonical(LOGGING_CONFIG)
+        or canonical in {_canonical(switch) for switch in SPRING_LOG_SWITCHES}
     )
 
 

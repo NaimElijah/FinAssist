@@ -40,6 +40,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -245,6 +247,39 @@ class LedgerProblemHandlerTest {
     }
 
     /**
+     * A body declaring multipart that cannot be parsed is the request's fault, so it is malformed, and its
+     * message, which names the parser's internals, is neither served nor logged at ERROR.
+     */
+    @Test
+    void Given_a_multipart_body_that_cannot_be_parsed_When_handled_Then_it_is_a_400_problem_logged_at_no_level()
+            throws Exception {
+        String body;
+        List<ILoggingEvent> events;
+        try (RecordedEvents recorded = RecordedEvents.of(LedgerProblemHandler.class)) {
+            body = mvc.perform(get("/unparseable-multipart"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().contentType(PROBLEM_JSON))
+                    .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+            events = recorded.events();
+        }
+
+        assertThat(body).doesNotContain(MARKER);
+        assertThat(events).as("events the handler logged").isEmpty();
+    }
+
+    /** The narrower multipart failure keeps Spring MVC's own status and the ledger's code for it. */
+    @Test
+    void Given_a_multipart_upload_over_its_limit_When_handled_Then_it_is_still_a_413_problem() throws Exception {
+        mvc.perform(get("/upload-too-large"))
+                .andExpect(status().is(413))
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("CONTENT_TOO_LARGE"));
+    }
+
+    /**
      * Statuses outside ADR-028's table. The two the framework can still raise, 409 and 413, carry codes of
      * their own. Every other status, 4xx or 5xx, is an internal error: the ledger never means to send one,
      * and an {@code HttpStatus} constant's name is no stable code, since Spring renames them.
@@ -347,6 +382,16 @@ class LedgerProblemHandlerTest {
         @GetMapping("/internal-failure")
         void internalFailure() {
             throw new IllegalStateException(MARKER);
+        }
+
+        @GetMapping("/unparseable-multipart")
+        void unparseableMultipart() {
+            throw new MultipartException(MARKER);
+        }
+
+        @GetMapping("/upload-too-large")
+        void uploadTooLarge() {
+            throw new MaxUploadSizeExceededException(1);
         }
 
         @GetMapping("/status/{value}")

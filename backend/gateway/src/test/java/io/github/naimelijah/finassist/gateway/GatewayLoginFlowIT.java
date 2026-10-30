@@ -6,8 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.naimelijah.finassist.gateway.composition.support.FakeOpenIdProvider;
 import io.github.naimelijah.finassist.gateway.composition.support.FakeService;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.BindException;
 import java.net.CookieManager;
+import java.net.CookieStore;
 import java.net.HttpCookie;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -23,20 +25,28 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.apache.catalina.Context;
+import org.apache.catalina.Session;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.tomcat.TomcatWebServer;
+import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
 import org.springframework.cloud.gateway.server.mvc.config.GatewayMvcProperties;
 import org.springframework.cloud.gateway.server.mvc.config.RouteProperties;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -79,6 +89,55 @@ class GatewayLoginFlowIT {
 
     private static final String XSRF_HEADER = "X-FINASSIST-XSRF-TOKEN";
 
+    private static final String CSRF_COOKIE = "FINASSIST-XSRF-TOKEN";
+
+    /** A cookie value only an upstream answer carries, so finding it in the browser names its source. */
+    private static final String UPSTREAM_COOKIE_VALUE = "a-value-an-upstream-set";
+
+    /** A cookie a service could try to plant: one named like the gateway's own CSRF cookie. */
+    private static final String UPSTREAM_SET_COOKIE = CSRF_COOKIE + "=" + UPSTREAM_COOKIE_VALUE + "; Path=/";
+
+    /** A {@code Server} header only an upstream answer carries. */
+    private static final String UPSTREAM_SERVER_HEADER = "FakeUpstream/1.0";
+
+    /**
+     * What a service could answer that the browser must never receive from it: a cookie, every
+     * header both routes strip because it changes the browser's state for the whole origin, and
+     * the service's {@code Server}. Neither the gateway nor its container sets any of these but a
+     * cookie of its own on a plain-HTTP answer, so each must be absent from what the browser
+     * receives.
+     */
+    private static final Map<String, String> UPSTREAM_ONLY_HEADERS = Map.ofEntries(
+            Map.entry("Set-Cookie", UPSTREAM_SET_COOKIE),
+            Map.entry("Server", UPSTREAM_SERVER_HEADER),
+            Map.entry("Clear-Site-Data", "\"cookies\", \"storage\""),
+            Map.entry("Strict-Transport-Security", "max-age=31536000"),
+            Map.entry("Access-Control-Allow-Origin", "*"),
+            Map.entry("Access-Control-Allow-Credentials", "true"),
+            Map.entry("Access-Control-Allow-Methods", "GET, POST, DELETE"),
+            Map.entry("Access-Control-Allow-Headers", "*"),
+            Map.entry("Access-Control-Allow-Private-Network", "true"),
+            Map.entry("Access-Control-Expose-Headers", "*"),
+            Map.entry("Access-Control-Max-Age", "600"));
+
+    /**
+     * The largest body the gateway relays: 64 KiB, the limit the ledger and the assistant apply
+     * too. Spelled here rather than borrowed from {@code RequestBodyLimitFilter}, as every wire
+     * value is.
+     */
+    private static final int BODY_LIMIT_BYTES = 64 * 1024;
+
+    /** The chunk size a hand-written chunked body is sent in. */
+    private static final int CHUNK_BYTES = 8 * 1024;
+
+    private static final String CRLF = "\r\n";
+
+    /** The smallest JSON body, padded to a size by {@link #paddedBody}. */
+    private static final String EMPTY_OBJECT = "{}";
+
+    /** Spring's default name for the CSRF request parameter, which the gateway must not read. */
+    private static final String CSRF_PARAMETER = "_csrf";
+
     /** A relayed write, so a refusal below is refusing the request CSRF exists to stop. */
     private static final String LEDGER_TRANSACTIONS = "/ledger/api/v1/transactions";
 
@@ -109,6 +168,19 @@ class GatewayLoginFlowIT {
      */
     static final String CLIENT_SECRET = "a-test-client-secret";
 
+    /**
+     * ADR-030's idle timeout for a signed-in session, {@code server.servlet.session.timeout},
+     * spelled here rather than read from the configuration the assertion is about.
+     */
+    private static final Duration SIGNED_IN_IDLE_LIMIT = Duration.ofMinutes(30);
+
+    /**
+     * The same half hour written as a bare number, as {@code SERVER_SERVLET_SESSION_TIMEOUT=1800}
+     * would write it; Boot reads a bare session timeout as seconds. Not private, because a nested
+     * context's annotation names it.
+     */
+    static final int BARE_SECONDS_SESSION_TIMEOUT = 1800;
+
     /** A secret the fake provider was not built with, for the context that must be refused. */
     static final String WRONG_CLIENT_SECRET = "not-the-providers-client-secret";
 
@@ -138,6 +210,10 @@ class GatewayLoginFlowIT {
     /** The relay routes as the running gateway bound them from {@code application.yml}. */
     @Autowired
     private GatewayMvcProperties routes;
+
+    /** The running server, whose Tomcat holds the sessions a sign-in creates. */
+    @Autowired
+    private ServletWebServerApplicationContext context;
 
     @BeforeAll
     static void startFakes() throws Exception {
@@ -381,6 +457,59 @@ class GatewayLoginFlowIT {
     }
 
     /**
+     * A session starts with a short idle limit, because until the callback it holds only a started
+     * sign-in ({@code GatewayApplicationIT} holds that half). A completed sign-in must give it back
+     * ADR-030's half hour, or the owner would be signed out after a few idle minutes. Read from
+     * the session Tomcat's own manager holds, under the id the rotated cookie names, because that
+     * is what expiry acts on.
+     */
+    @Test
+    void Given_a_completed_sign_in_When_its_session_is_read_Then_its_idle_limit_is_the_configured_thirty_minutes()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+
+            Session session = webApps().getFirst().getManager().findSession(sessionCookieValue(client));
+
+            assertThat(session).as("the signed-in session Tomcat holds").isNotNull();
+            assertThat(session.getMaxInactiveInterval())
+                    .as("the signed-in session's idle limit, in seconds")
+                    .isEqualTo((int) SIGNED_IN_IDLE_LIMIT.toSeconds());
+        }
+    }
+
+    /**
+     * The short limit is for a session the login entry creates, never for one it finds. A
+     * signed-in session that asks for the login entry again keeps ADR-030's half hour, so starting
+     * a sign-in again cannot shorten it. Read from Tomcat's own session manager, as above.
+     */
+    @Test
+    void Given_a_signed_in_session_When_it_requests_the_login_entry_again_Then_its_idle_limit_stays_thirty_minutes()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+            String signedIn = sessionCookieValue(client);
+
+            HttpResponse<Void> entry = getFollowingNothing(client, gatewayUrl("/bff/oauth2/authorization/keycloak"));
+            assertThat(entry.statusCode()).isEqualTo(302);
+
+            Session session = webApps().getFirst().getManager().findSession(signedIn);
+            assertThat(session).as("the signed-in session Tomcat holds").isNotNull();
+            assertThat(session.getMaxInactiveInterval())
+                    .as("the signed-in session's idle limit after the login entry, in seconds")
+                    .isEqualTo((int) SIGNED_IN_IDLE_LIMIT.toSeconds());
+        }
+    }
+
+    /** The web applications the running Tomcat holds, as the container itself sees them. */
+    private List<Context> webApps() {
+        TomcatWebServer server = (TomcatWebServer) context.getWebServer();
+        return Arrays.stream(server.getTomcat().getHost().findChildren())
+                .map(Context.class::cast)
+                .toList();
+    }
+
+    /**
      * "The browser holds two cookies and no token", after a real sign-in rather than MockMvc's
      * {@code oidcLogin()}, which skips the callback's login filter and success handler and so
      * cannot see a cookie either of them adds. The jar is read whole, because the claim is "these
@@ -549,6 +678,171 @@ class GatewayLoginFlowIT {
             assertThat(response.body()).contains("CSRF_TOKEN_INVALID");
             assertThat(ledger.lastRequest()).isNull();
         }
+    }
+
+    /**
+     * The token is accepted from the renamed header alone (ADR-030), on the write that matters
+     * most: one relayed to the owner's books with the owner's token attached.
+     *
+     * <p>Spring's default handler also reads a {@code _csrf} request parameter, from the query
+     * string or a form body, and either can be sent without a header. Each is tried with the
+     * cookie's value under an all-zero mask, the form that parameter path would unmask and accept,
+     * and each must be refused before the relay — the ledger receives nothing — while the session
+     * the request rode on stays signed in.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void
+            Given_a_signed_in_session_When_a_relayed_write_carries_the_csrf_token_only_as_a_request_parameter_Then_it_is_refused_403_and_not_relayed(
+                    boolean inFormBody) throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+            String parameter =
+                    CSRF_PARAMETER + "=" + URLEncoder.encode(masked(csrfTokenValue(client)), StandardCharsets.UTF_8);
+            HttpRequest.Builder request = HttpRequest.newBuilder().timeout(TIMEOUT);
+            if (inFormBody) {
+                request.uri(URI.create(gatewayUrl(LEDGER_TRANSACTIONS)))
+                        .header("Content-Type", "application/x-www-form-urlencoded")
+                        .POST(HttpRequest.BodyPublishers.ofString(parameter));
+            } else {
+                request.uri(URI.create(gatewayUrl(LEDGER_TRANSACTIONS + "?" + parameter)))
+                        .POST(HttpRequest.BodyPublishers.noBody());
+            }
+
+            HttpResponse<String> response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+
+            assertThat(response.statusCode()).isEqualTo(403);
+            assertThat(response.body()).contains("CSRF_TOKEN_INVALID");
+            assertThat(ledger.lastRequest()).isNull();
+            assertThat(relay(client, "/bff/me").statusCode())
+                    .as("GET /bff/me after the refused write")
+                    .isEqualTo(200);
+        }
+    }
+
+    /**
+     * {@code cookieValue} under an all-zero mask: the mask, then the value itself, base64url-encoded,
+     * which is a value Spring's {@code XorCsrfTokenRequestAttributeHandler} unmasks back to the
+     * cookie's.
+     */
+    private static String masked(String cookieValue) {
+        byte[] token = cookieValue.getBytes(StandardCharsets.UTF_8);
+        byte[] maskThenToken = new byte[token.length * 2];
+        System.arraycopy(token, 0, maskThenToken, token.length, token.length);
+        return Base64.getUrlEncoder().encodeToString(maskThenToken);
+    }
+
+    /**
+     * The gateway refuses a request body over {@link #BODY_LIMIT_BYTES} itself, with the 413 {@code
+     * CONTENT_TOO_LARGE} problem the ledger and the assistant answer for the same limit, before the
+     * security chain or the relay reads it. A relayed body is otherwise streamed on as it arrives,
+     * so the refusal would come from the service part-way through that stream. Each case is a
+     * signed-in write carrying its CSRF token, so only the size decides the outcome.
+     */
+    @Test
+    void
+            Given_a_signed_in_session_When_a_relayed_write_declares_a_body_over_the_limit_Then_it_is_refused_413_and_not_relayed()
+                    throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+
+            HttpResponse<String> response = postJson(client, LEDGER_TRANSACTIONS, paddedBody(BODY_LIMIT_BYTES + 1));
+
+            assertThat(response.statusCode()).isEqualTo(413);
+            assertThat(response.headers().firstValue("content-type")).contains("application/problem+json");
+            assertThat(response.body()).contains("\"code\":\"CONTENT_TOO_LARGE\"");
+            assertThat(ledger.lastRequest()).isNull();
+        }
+    }
+
+    /** The same limit for a body of undeclared length, sent chunked, which is counted as it is read. */
+    @Test
+    void
+            Given_a_signed_in_session_When_a_relayed_write_sends_a_chunked_body_over_the_limit_Then_it_is_refused_413_and_not_relayed()
+                    throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+
+            String response = postChunked(client, LEDGER_TRANSACTIONS, paddedBody(BODY_LIMIT_BYTES + 1));
+
+            assertThat(response).startsWith("HTTP/1.1 413").contains("\"code\":\"CONTENT_TOO_LARGE\"");
+            assertThat(ledger.lastRequest()).isNull();
+        }
+    }
+
+    /**
+     * A body of exactly the limit is relayed whole, whether its length is declared or it arrives
+     * chunked: the bytes the gateway reads while counting are the ones the service then receives.
+     */
+    @Test
+    void Given_a_signed_in_session_When_a_relayed_write_carries_a_body_of_exactly_the_limit_Then_it_is_relayed_whole()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+
+            HttpResponse<String> declared = postJson(client, LEDGER_TRANSACTIONS, paddedBody(BODY_LIMIT_BYTES));
+            assertThat(declared.statusCode()).as("the declared body's status").isEqualTo(200);
+            assertThat(ledger.lastRequest().bodyLength())
+                    .as("the bytes of the declared body the ledger received")
+                    .isEqualTo(BODY_LIMIT_BYTES);
+
+            ledger.forgetLastRequest();
+            String chunked = postChunked(client, LEDGER_TRANSACTIONS, paddedBody(BODY_LIMIT_BYTES));
+            assertThat(chunked).as("the chunked body's answer").startsWith("HTTP/1.1 200");
+            assertThat(ledger.lastRequest().bodyLength())
+                    .as("the bytes of the chunked body the ledger received")
+                    .isEqualTo(BODY_LIMIT_BYTES);
+        }
+    }
+
+    /** A signed-in JSON {@code POST} of {@code body} with the CSRF token, its length declared. */
+    private HttpResponse<String> postJson(HttpClient client, String path, String body) throws Exception {
+        return client.send(
+                HttpRequest.newBuilder(URI.create(gatewayUrl(path)))
+                        .timeout(TIMEOUT)
+                        .header(XSRF_HEADER, csrfTokenValue(client))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    /**
+     * The same {@code POST}, sent as {@value #CHUNK_BYTES}-byte chunks with no declared length and
+     * written by hand over a socket, because the JDK's {@link HttpClient} chooses its own framing.
+     * It carries the client's session and CSRF cookies and the CSRF header; the raw response is
+     * returned.
+     */
+    private String postChunked(HttpClient client, String path, String body) throws IOException {
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        String csrfToken = csrfTokenValue(client);
+        String cookies = SESSION_COOKIE + "=" + sessionCookieValue(client) + "; " + CSRF_COOKIE + "=" + csrfToken;
+        try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), port)) {
+            socket.setSoTimeout((int) TIMEOUT.toMillis());
+            OutputStream out = socket.getOutputStream();
+            out.write(("POST " + path + " HTTP/1.1" + CRLF
+                            + "Host: localhost" + CRLF
+                            + "Cookie: " + cookies + CRLF
+                            + XSRF_HEADER + ": " + csrfToken + CRLF
+                            + "Content-Type: application/json" + CRLF
+                            + "Transfer-Encoding: chunked" + CRLF
+                            + "Connection: close" + CRLF + CRLF)
+                    .getBytes(StandardCharsets.US_ASCII));
+            for (int offset = 0; offset < bytes.length; offset += CHUNK_BYTES) {
+                int length = Math.min(CHUNK_BYTES, bytes.length - offset);
+                out.write((Integer.toHexString(length) + CRLF).getBytes(StandardCharsets.US_ASCII));
+                out.write(bytes, offset, length);
+                out.write(CRLF.getBytes(StandardCharsets.US_ASCII));
+            }
+            out.write(("0" + CRLF + CRLF).getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+            return new String(socket.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    /** A JSON object, padded with the whitespace JSON allows after a value, to exactly {@code bytes} bytes. */
+    private static String paddedBody(int bytes) {
+        return EMPTY_OBJECT + " ".repeat(bytes - EMPTY_OBJECT.length());
     }
 
     /**
@@ -803,6 +1097,47 @@ class GatewayLoginFlowIT {
             assertThat(assistant.lastRequest().hasHeader("http2-settings"))
                     .as("HTTP2-Settings at the assistant")
                     .isFalse();
+        }
+    }
+
+    /**
+     * A service's answer headers that would change the browser's state for the gateway's whole
+     * origin stop at the gateway, on both routes, and so does its {@code Server}. The browser's
+     * cookies, site data, transport policy and CORS grants for this origin are the gateway's to
+     * set; {@code Server} names the service's own software, which the browser has no use for.
+     *
+     * <p>The CSRF cookie is dropped from the jar first, so the gateway writes a fresh one on the
+     * relayed answer itself. That one must survive: the removal is of what the service answered,
+     * not of every cookie on the response.
+     */
+    @Test
+    void Given_an_upstream_answer_carrying_origin_wide_headers_When_relayed_Then_the_browser_receives_none_of_them()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+            ledger.respondNext(200, "application/json", "{}", UPSTREAM_ONLY_HEADERS);
+            assistant.respondNext(200, "application/json", "{}", UPSTREAM_ONLY_HEADERS);
+
+            for (String path :
+                    List.of("/ledger/api/v1/accounts", "/assistant/api/v1/portfolio/holdings/ACME/position")) {
+                CookieStore jar = ((CookieManager) client.cookieHandler().orElseThrow()).getCookieStore();
+                jar.remove(null, cookieNamed(jar.getCookies(), CSRF_COOKIE));
+
+                HttpResponse<String> response = relay(client, path);
+
+                assertThat(response.statusCode()).as(path).isEqualTo(200);
+                assertThat(response.headers().allValues("set-cookie"))
+                        .as("the Set-Cookie headers %s answered", path)
+                        .noneMatch(header -> header.contains(UPSTREAM_COOKIE_VALUE))
+                        .anyMatch(header -> header.startsWith(CSRF_COOKIE + "="));
+                for (String name : UPSTREAM_ONLY_HEADERS.keySet()) {
+                    if (!name.equals("Set-Cookie")) {
+                        assertThat(response.headers().allValues(name))
+                                .as("the %s headers %s answered", name, path)
+                                .isEmpty();
+                    }
+                }
+            }
         }
     }
 
@@ -1081,6 +1416,76 @@ class GatewayLoginFlowIT {
                         .as("the provider authenticated the gateway's client")
                         .isFalse();
                 assertSignInFailed(callback);
+            }
+        }
+    }
+
+    /**
+     * {@code server.servlet.session.timeout} written as a bare number, which Boot reads as seconds.
+     * A completed sign-in must give the session back the same limit every new session gets, here
+     * {@value GatewayLoginFlowIT#BARE_SECONDS_SESSION_TIMEOUT} seconds, however the property is
+     * written: the success handler must not read the property its own way, in a unit of its own.
+     */
+    @Nested
+    @SpringBootTest(
+            webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+            properties = {
+                "finassist.oidc.client-secret=" + CLIENT_SECRET,
+                "finassist.web.public-url=http://localhost:5173",
+                "finassist.http.allowed-hosts=localhost,127.0.0.1",
+                "finassist.http.cookie-secure=false",
+                "server.servlet.session.timeout=" + BARE_SECONDS_SESSION_TIMEOUT
+            })
+    class BareSecondsSessionTimeout {
+
+        @LocalServerPort
+        private int bareSecondsPort;
+
+        @Autowired
+        private ServletWebServerApplicationContext bareSecondsContext;
+
+        @DynamicPropertySource
+        static void oidcProperties(DynamicPropertyRegistry registry) {
+            registry.add("finassist.oidc.public-url", idp::baseUrl);
+            registry.add("finassist.oidc.internal-url", idp::baseUrl);
+            registry.add("finassist.relay.ledger-uri", ledger::baseUrl);
+            registry.add("finassist.relay.assistant-uri", assistant::baseUrl);
+        }
+
+        @Test
+        void Given_a_session_timeout_in_bare_seconds_When_a_sign_in_completes_Then_its_idle_limit_is_that_many_seconds()
+                throws Exception {
+            try (HttpClient client = newClient()) {
+                URI authorizeUri = URI.create(getFollowingNothing(
+                                client, "http://localhost:" + bareSecondsPort + "/bff/oauth2/authorization/keycloak")
+                        .headers()
+                        .firstValue("Location")
+                        .orElseThrow());
+                URI codeRedirect = URI.create(getFollowingNothing(client, authorizeUri.toString())
+                        .headers()
+                        .firstValue("Location")
+                        .orElseThrow());
+                HttpResponse<Void> callback = getFollowingNothing(
+                        client,
+                        new URI(
+                                        "http",
+                                        null,
+                                        "localhost",
+                                        bareSecondsPort,
+                                        codeRedirect.getPath(),
+                                        codeRedirect.getQuery(),
+                                        null)
+                                .toString());
+                assertThat(callback.headers().firstValue("Location")).hasValue(WEB_ORIGIN + "/");
+
+                TomcatWebServer server = (TomcatWebServer) bareSecondsContext.getWebServer();
+                Context web = (Context) server.getTomcat().getHost().findChildren()[0];
+                Session session = web.getManager().findSession(sessionCookieValue(client));
+
+                assertThat(session).as("the signed-in session Tomcat holds").isNotNull();
+                assertThat(session.getMaxInactiveInterval())
+                        .as("the signed-in session's idle limit, in seconds")
+                        .isEqualTo(BARE_SECONDS_SESSION_TIMEOUT);
             }
         }
     }

@@ -21,6 +21,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.BooleanNode;
 import tools.jackson.databind.node.IntNode;
+import tools.jackson.databind.node.StringNode;
 
 /**
  * Reads {@code ops/keycloak/finassist-realm.json} as data, without starting Keycloak, and pins
@@ -175,6 +176,15 @@ class KeycloakRealmTest {
                 .isEqualTo("length(12) and notUsername and notEmail and passwordHistory(3)");
     }
 
+    /**
+     * Left unset, the realm takes Keycloak's {@code jboss-logging} listener, which writes sign-in
+     * events, the username included, to the container log. Empty, no sign-in event reaches the log.
+     */
+    @Test
+    void Given_the_realm_file_When_read_Then_no_event_listener_writes_sign_ins_to_the_log() {
+        assertMember(realm(), "eventsListeners", JSON.createArrayNode());
+    }
+
     @Test
     void Given_the_realm_file_When_read_Then_ssl_is_required_externally_only() {
         assertThat(realm().path("sslRequired").asString()).isEqualTo("external");
@@ -188,6 +198,20 @@ class KeycloakRealmTest {
         assertMember(realm, "ssoSessionIdleTimeout", IntNode.valueOf(1800));
         assertMember(realm, "ssoSessionMaxLifespan", IntNode.valueOf(36000));
         assertMember(realm, "revokeRefreshToken", BooleanNode.FALSE);
+    }
+
+    /**
+     * No FinAssist client asks for an offline token, but Keycloak issues one to any user holding
+     * {@code offline_access}, which {@code default-roles-finassist} carries, and by default it has
+     * no absolute expiry. Capped at the browser session's own maximum, no offline session outlives
+     * the longest sign-in the gateway allows.
+     */
+    @Test
+    void Given_the_realm_file_When_read_Then_an_offline_session_lives_no_longer_than_a_browser_session() {
+        JsonNode realm = realm();
+
+        assertMember(realm, "offlineSessionMaxLifespanEnabled", BooleanNode.TRUE);
+        assertMember(realm, "offlineSessionMaxLifespan", realm.path("ssoSessionMaxLifespan"));
     }
 
     @Test
@@ -234,6 +258,24 @@ class KeycloakRealmTest {
         assertMember(assistant, "standardFlowEnabled", BooleanNode.FALSE);
         assertMember(assistant, "implicitFlowEnabled", BooleanNode.FALSE);
         assertMember(assistant, "directAccessGrantsEnabled", BooleanNode.FALSE);
+    }
+
+    /**
+     * Keycloak creates an {@code admin-cli} client in every realm, with the password grant on.
+     * Nothing signs in to {@code finassist} through it - the operations recipes sign the admin CLI
+     * in to {@code master} - so the realm declares it with every flow off, and {@link
+     * KeycloakRealmIT} proves the import keeps this entry in place of Keycloak's own.
+     */
+    @Test
+    void Given_the_admin_cli_client_When_read_Then_it_permits_no_grant() {
+        JsonNode adminCli = client(realm(), "admin-cli");
+
+        assertMember(adminCli, "publicClient", BooleanNode.TRUE);
+        assertMember(adminCli, "standardFlowEnabled", BooleanNode.FALSE);
+        assertMember(adminCli, "implicitFlowEnabled", BooleanNode.FALSE);
+        assertMember(adminCli, "directAccessGrantsEnabled", BooleanNode.FALSE);
+        assertMember(adminCli, "serviceAccountsEnabled", BooleanNode.FALSE);
+        assertMember(adminCli, "fullScopeAllowed", BooleanNode.FALSE);
     }
 
     @Test
@@ -355,6 +397,28 @@ class KeycloakRealmTest {
         assertThat(audienceMapperValues(assistant)).containsExactly("finassist-ledger");
     }
 
+    /**
+     * A service's audience belongs in the access tokens issued for it, never in an ID token, which
+     * is meant for the client alone: Keycloak puts only the issuing client in an ID token's
+     * audience unless an audience mapper adds more. Every audience mapper therefore adds its
+     * audience to the access token alone.
+     */
+    @Test
+    void Given_every_audience_mapper_When_read_Then_it_adds_its_audience_to_the_access_token_alone() {
+        List<JsonNode> mappers = realm().path("clients")
+                .valueStream()
+                .flatMap(client -> client.path("protocolMappers").valueStream())
+                .filter(m ->
+                        "oidc-audience-mapper".equals(m.path("protocolMapper").asString()))
+                .toList();
+
+        assertThat(mappers).as("the realm's audience mappers").hasSize(3);
+        assertThat(mappers).allSatisfy(mapper -> {
+            assertMember(mapper.path("config"), "id.token.claim", StringNode.valueOf("false"));
+            assertMember(mapper.path("config"), "access.token.claim", StringNode.valueOf("true"));
+        });
+    }
+
     private static List<String> audienceMapperValues(JsonNode client) {
         return client.path("protocolMappers")
                 .valueStream()
@@ -412,9 +476,10 @@ class KeycloakRealmTest {
 
     /**
      * The one guarantee that matters most in a file this build never encrypts, and this repository
-     * is public. Every client's secret, not only the two clients the realm holds today, must read
-     * as an unresolved placeholder, never a literal; a client with no {@code secret} at all is a
-     * public one, which the flow tests above refuse for both of today's.
+     * is public. Every client's secret, not only the two confidential clients the realm holds
+     * today, must read as an unresolved placeholder, never a literal; a client with no {@code
+     * secret} at all is a public one, which the flow tests above refuse for both FinAssist clients
+     * and allow only for {@code admin-cli}, which permits no grant.
      */
     @Test
     void Given_the_realm_file_When_read_Then_every_client_secret_is_a_bare_placeholder() {
@@ -582,6 +647,17 @@ class KeycloakRealmTest {
         assertThat(keycloakServiceEnvironmentKeys())
                 .as("environment the keycloak service is given in %s", COMPOSE_FILE)
                 .containsAll(named);
+    }
+
+    /**
+     * Every service writes JSON on stdout (ADR-019). Keycloak's console default is plain text, and
+     * the option is read at start-up, so it lives on the Compose service rather than in the image.
+     */
+    @Test
+    void Given_the_keycloak_service_When_its_environment_is_read_Then_its_console_log_is_json() {
+        assertThat(keycloakServiceEnvironment().get("KC_LOG_CONSOLE_OUTPUT"))
+                .as("KC_LOG_CONSOLE_OUTPUT on the %s service in %s", KEYCLOAK_SERVICE, COMPOSE_FILE)
+                .isEqualTo("json");
     }
 
     /**

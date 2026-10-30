@@ -18,9 +18,10 @@ import pytest
 import secret_check
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-# Fixture values only: none is, or may ever be, a real secret.
-PUBLISHED = "Fixture-only-7Qv2Lk9Xw4"
-FRESH = "Fixture-only-3Hn8Tc5Rm1"
+# Fixture values only: none is, or may ever be, a real secret. Each is at least MIN_SECRET_LENGTH
+# characters, so a case about where a value appears is never refused for its length instead.
+PUBLISHED = "Fixture-only-7Qv2Lk9Xw4-long-enough-to-pass"
+FRESH = "Fixture-only-3Hn8Tc5Rm1-long-enough-to-pass"
 # Root reads every directory whatever its mode, so an unreadable one cannot be staged as root.
 if sys.platform == "win32":
     POSIX_PERMISSIONS_BIND = False
@@ -69,7 +70,7 @@ def Given_a_secret_a_committed_file_holds_When_checked_Then_it_is_refused_by_nam
     status, output = _run(root, _environment(POSTGRES_PASSWORD=PUBLISHED), capsys)
 
     assert status == secret_check.EXIT_REFUSED
-    assert "POSTGRES_PASSWORD" in output
+    assert "REFUSED: POSTGRES_PASSWORD appears" in output
     assert secret_check.ROTATION_GUIDE in output
     assert PUBLISHED not in output
     assert "ci.yml" not in output
@@ -97,8 +98,8 @@ def Given_two_variables_sharing_a_published_value_When_checked_Then_both_are_nam
     status, output = _run(root, environment, capsys)
 
     assert status == secret_check.EXIT_REFUSED
-    assert "POSTGRES_PASSWORD" in output
-    assert "LEDGER_DB_PASSWORD" in output
+    assert "REFUSED: POSTGRES_PASSWORD appears" in output
+    assert "REFUSED: LEDGER_DB_PASSWORD appears" in output
     assert "KEYCLOAK_DB_PASSWORD" not in output
 
 
@@ -114,8 +115,8 @@ def Given_a_value_only_inside_a_longer_token_When_checked_Then_it_passes(
 
 # Read as a pattern, `.` takes any character, `y+` a run of them, and `(Lk9)` a group: so the
 # literal text would not match it, and the near miss below would.
-METACHARACTER_SECRET = "Fixture.only+7Qv2(Lk9)"
-NEAR_MISS = "FixtureXonlyyy7Qv2Lk9"
+METACHARACTER_SECRET = "Fixture.only+7Qv2(Lk9)-long-enough-to-pass"
+NEAR_MISS = "FixtureXonlyyy7Qv2Lk9-long-enough-to-pass"
 
 
 def Given_a_secret_holding_regex_metacharacters_When_checked_Then_its_literal_text_is_refused(
@@ -126,7 +127,7 @@ def Given_a_secret_holding_regex_metacharacters_When_checked_Then_its_literal_te
     status, output = _run(root, _environment(GATEWAY_CLIENT_SECRET=METACHARACTER_SECRET), capsys)
 
     assert status == secret_check.EXIT_REFUSED
-    assert "GATEWAY_CLIENT_SECRET" in output
+    assert "REFUSED: GATEWAY_CLIENT_SECRET appears" in output
 
 
 def Given_a_secret_holding_regex_metacharacters_When_only_a_near_miss_is_held_Then_it_passes(
@@ -142,13 +143,13 @@ def Given_a_secret_holding_regex_metacharacters_When_only_a_near_miss_is_held_Th
 def Given_a_non_ascii_secret_When_a_utf8_file_holds_it_Then_it_is_refused(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    secret = "Fixture-only-Ünïcødé-שלום"
+    secret = "Fixture-only-Ünïcødé-שלום-long-enough-to-pass"
     root = _clone(tmp_path, {"docs/notes.md": f"password: {secret}\n".encode()})
 
     status, output = _run(root, _environment(KEYCLOAK_ADMIN_PASSWORD=secret), capsys)
 
     assert status == secret_check.EXIT_REFUSED
-    assert "KEYCLOAK_ADMIN_PASSWORD" in output
+    assert "REFUSED: KEYCLOAK_ADMIN_PASSWORD appears" in output
     assert secret not in output
 
 
@@ -163,6 +164,94 @@ def Given_an_unset_or_empty_secret_When_checked_Then_it_is_skipped_rather_than_m
 
     assert status == secret_check.EXIT_PASSED
     assert f"{len(secret_check.SECRET_VARIABLES) - 2} secrets" in output
+
+
+# --- How long a secret must be -------------------------------------------------------------------
+
+
+def _of_length(length: int) -> str:
+    """A fixture value of exactly `length` characters, held by no file in any clone here."""
+    return ("Fixture-only-length-" + "x" * length)[:length]
+
+
+@pytest.mark.parametrize("name", secret_check.SECRET_VARIABLES)
+def Given_a_secret_one_character_short_of_the_minimum_When_checked_Then_it_is_refused_by_name_alone(
+    name: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"README.md": b"text\n"})
+    short = _of_length(secret_check.MIN_SECRET_LENGTH - 1)
+
+    status, output = _run(root, _environment(**{name: short}), capsys)
+
+    assert status == secret_check.EXIT_REFUSED
+    refusals = [line for line in output.splitlines() if "REFUSED" in line]
+    assert refusals == [
+        f"secret-check REFUSED: {name} is shorter than the "
+        f"{secret_check.MIN_SECRET_LENGTH} characters every secret needs"
+    ]
+    assert secret_check.ROTATION_GUIDE in output
+    assert short not in output
+    assert str(secret_check.MIN_SECRET_LENGTH - 1) not in output
+
+
+@pytest.mark.parametrize("name", secret_check.SECRET_VARIABLES)
+def Given_a_secret_of_exactly_the_minimum_length_When_checked_Then_it_passes(
+    name: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"README.md": b"text\n"})
+
+    status, _ = _run(
+        root, _environment(**{name: _of_length(secret_check.MIN_SECRET_LENGTH)}), capsys
+    )
+
+    assert status == secret_check.EXIT_PASSED
+
+
+# Two bytes each in UTF-8, so a value of these is twice as many bytes as characters.
+MULTI_BYTE_CHARACTER = "é"
+
+
+def Given_a_secret_of_the_minimum_length_in_multi_byte_characters_When_checked_Then_it_passes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"README.md": b"text\n"})
+    secret = MULTI_BYTE_CHARACTER * secret_check.MIN_SECRET_LENGTH
+
+    status, _ = _run(root, _environment(KEYCLOAK_ADMIN_PASSWORD=secret), capsys)
+
+    assert status == secret_check.EXIT_PASSED
+
+
+def Given_a_secret_one_multi_byte_character_short_When_checked_Then_its_bytes_do_not_count(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"README.md": b"text\n"})
+    secret = MULTI_BYTE_CHARACTER * (secret_check.MIN_SECRET_LENGTH - 1)
+    assert len(secret.encode()) >= secret_check.MIN_SECRET_LENGTH
+
+    status, output = _run(root, _environment(KEYCLOAK_ADMIN_PASSWORD=secret), capsys)
+
+    assert status == secret_check.EXIT_REFUSED
+    assert "REFUSED: KEYCLOAK_ADMIN_PASSWORD is shorter" in output
+
+
+def Given_the_minimum_length_When_read_Then_it_is_what_openssl_rand_hex_16_writes() -> None:
+    # 16 random bytes, two hex digits each: the generator docs/operations/operations.md documents.
+    assert secret_check.MIN_SECRET_LENGTH == 32
+
+
+def Given_a_short_secret_a_committed_file_also_holds_When_checked_Then_both_refusals_are_named(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    short = _of_length(secret_check.MIN_SECRET_LENGTH - 1)
+    root = _clone(tmp_path, {".env.example": f"POSTGRES_PASSWORD={short}\n".encode()})
+
+    status, output = _run(root, _environment(POSTGRES_PASSWORD=short), capsys)
+
+    assert status == secret_check.EXIT_REFUSED
+    assert "REFUSED: POSTGRES_PASSWORD appears" in output
+    assert "REFUSED: POSTGRES_PASSWORD is shorter" in output
+    assert short not in output
 
 
 # --- Which files count ---------------------------------------------------------------------------
@@ -200,9 +289,10 @@ def Given_a_secret_in_the_committed_env_example_When_checked_Then_it_is_refused(
 ) -> None:
     root = _clone(tmp_path, {".env.example": f"POSTGRES_PASSWORD={PUBLISHED}\n".encode()})
 
-    status, _ = _run(root, _environment(POSTGRES_PASSWORD=PUBLISHED), capsys)
+    status, output = _run(root, _environment(POSTGRES_PASSWORD=PUBLISHED), capsys)
 
     assert status == secret_check.EXIT_REFUSED
+    assert "REFUSED: POSTGRES_PASSWORD appears" in output
 
 
 def Given_a_secret_inside_git_metadata_When_checked_Then_it_is_not_read(

@@ -10,6 +10,8 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 import { log } from '@/shared/lib/logger';
 
+import { failureFields } from './failureFields';
+
 interface Props {
     readonly children: ReactNode;
     /** Rendered in place of the failed subtree. Defaults to a plain, unstyled message. */
@@ -29,7 +31,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
     override componentDidCatch(error: Error, info: ErrorInfo): void {
         log.error('render failed', {
-            reason: error.message,
+            // Never `error.message` alone: an `ApiError`'s message is a problem's detail.
+            ...failureFields(error),
             // The component stack is what makes this actionable; the message alone rarely says
             // which subtree threw.
             componentStack: info.componentStack,

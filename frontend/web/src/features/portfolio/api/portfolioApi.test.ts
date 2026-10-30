@@ -262,6 +262,15 @@ describe('priceDisposal', () => {
         });
     }
 
+    it('Given_a_dot_dot_symbol_When_a_disposal_is_priced_Then_no_request_is_sent', async () => {
+        // `holdings/../disposal` would resolve to a different route, one level up.
+        const stub = stubFetch(jsonResponse(WIRE_DISPOSITION));
+
+        await expect(priceDisposal('..', INPUT)).rejects.toThrow(RangeError);
+
+        expect(stub).not.toHaveBeenCalled();
+    });
+
     it('Given_more_units_than_are_held_When_priced_Then_it_rejects_with_the_INSUFFICIENT_HOLDING_problem', async () => {
         stubFetch(problemResponse({ status: 422, code: 'INSUFFICIENT_HOLDING' }, 422));
 

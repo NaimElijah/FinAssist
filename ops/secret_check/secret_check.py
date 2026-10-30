@@ -9,15 +9,17 @@ wait on (ADR-044). PostgreSQL applies a password only when it first initialises 
 a check made any later, such as in the ledger's start-up, would come after a published value was
 already in the store.
 
+It also refuses a secret shorter than `MIN_SECRET_LENGTH` characters.
+
 It reads each secret from its own environment and walks the clone it is given, mounted read-only.
 It searches every file that git would not ignore for each value, as a whole token. "Ignored" means
 what git decides from the `.gitignore` files and `.git/info/exclude`, so `.env`, the backups and
 every build output are never read. A file not yet committed is read, because the next `git add .`
 would publish it.
 
-The report names a variable, never its value, and never the file that holds it: in a public
-repository, naming the file is as good as naming the value. Standard library only, so it runs
-unmodified in the pinned `python:3.13.8-slim-trixie` image, as `ops/smoke/auth_smoke.py` does.
+The report names a variable, never its value or its length, and never the file that holds it: in
+a public repository, naming the file is as good as naming the value. Standard library only, so it
+runs unmodified in the pinned `python:3.13.8-slim-trixie` image, as `ops/smoke/auth_smoke.py` does.
 """
 
 from __future__ import annotations
@@ -43,6 +45,9 @@ SECRET_VARIABLES: Final = (
     "ASSISTANT_CLIENT_SECRET",
     "GRAFANA_ADMIN_PASSWORD",
 )
+# What `openssl rand -hex 16`, the generator docs/operations/operations.md documents, writes. Length
+# is the only bound on guessing a secret that no account lockout protects.
+MIN_SECRET_LENGTH: Final = 32
 # The scan root must hold this, or it is not the repository and nothing was searched.
 ANCHOR_FILE: Final = "docker-compose.yml"
 ROTATION_GUIDE: Final = "docs/operations/operations.md#rotating-a-secret"
@@ -72,11 +77,13 @@ class Verdict:
     """What one check found.
 
     :param published: the variables whose value a searched file holds, in `SECRET_VARIABLES` order.
+    :param short: the variables whose value is shorter than `MIN_SECRET_LENGTH`, in the same order.
     :param checked: how many variables had a value to look for; an unset or empty one has none.
     :param files: how many files were searched.
     """
 
     published: tuple[str, ...]
+    short: tuple[str, ...]
     checked: int
     files: int
 
@@ -240,7 +247,8 @@ def _token(value: str) -> re.Pattern[bytes]:
 
 
 def check(root: Path, environment: Mapping[str, str]) -> Verdict:
-    """Searches every file under `root` that git would not ignore for each secret in `environment`.
+    """Searches every file under `root` that git would not ignore for each secret in `environment`,
+    and measures each one against `MIN_SECRET_LENGTH`.
 
     :param root: the repository's root, which must hold `ANCHOR_FILE`.
     :param environment: where each of `SECRET_VARIABLES` is read from; an unset or empty one is
@@ -252,16 +260,18 @@ def check(root: Path, environment: Mapping[str, str]) -> Verdict:
         raise SecretCheckError(
             f"{root} holds no {ANCHOR_FILE}, so it is not the repository; nothing was searched"
         )
-    tokens = {
-        name: _token(value) for name in SECRET_VARIABLES if (value := environment.get(name, ""))
-    }
+    values = {name: value for name in SECRET_VARIABLES if (value := environment.get(name, ""))}
+    tokens = {name: _token(value) for name, value in values.items()}
     files = list(scanned_files(root))
     found: set[str] = set()
     with ThreadPoolExecutor(max_workers=READ_WORKERS) as pool:
         for content in pool.map(lambda relative: _content(root, relative), files):
             found.update(name for name, token in tokens.items() if token.search(content))
     return Verdict(
-        tuple(name for name in SECRET_VARIABLES if name in found), len(tokens), len(files)
+        published=tuple(name for name in SECRET_VARIABLES if name in found),
+        short=tuple(name for name, value in values.items() if len(value) < MIN_SECRET_LENGTH),
+        checked=len(tokens),
+        files=len(files),
     )
 
 
@@ -281,9 +291,10 @@ def _report(line: str) -> None:
 def main(argv: Sequence[str], environment: Mapping[str, str]) -> int:
     """Checks the clone named by the only argument against the secrets in `environment`.
 
-    :return: `EXIT_PASSED` when no secret appears in a file git does not ignore, `EXIT_REFUSED`
-        when one does, and `EXIT_MISCONFIGURED` when the clone could not be searched. Compose
-        starts nothing that waits on this unless it is `EXIT_PASSED`.
+    :return: `EXIT_PASSED` when no secret appears in a file git does not ignore and none is shorter
+        than `MIN_SECRET_LENGTH`, `EXIT_REFUSED` when one does or is, and `EXIT_MISCONFIGURED`
+        when the clone could not be searched. Compose starts nothing that waits on this unless it
+        is `EXIT_PASSED`.
     """
     if len(argv) != 1:
         _report("secret-check FAILED: give the repository's root as the only argument")
@@ -299,11 +310,16 @@ def main(argv: Sequence[str], environment: Mapping[str, str]) -> int:
         # refuses to start.
         _report(f"secret-check FAILED: {type(error).__name__}")
         return EXIT_MISCONFIGURED
-    if verdict.published:
+    if verdict.published or verdict.short:
         for name in verdict.published:
             _report(
                 f"secret-check REFUSED: {name} appears in a file git does not ignore, so the "
                 "repository publishes it, or will once that file is committed"
+            )
+        for name in verdict.short:
+            _report(
+                f"secret-check REFUSED: {name} is shorter than the {MIN_SECRET_LENGTH} characters "
+                "every secret needs"
             )
         _report(
             "secret-check: nothing that waits on this check starts until each one is changed. "
@@ -312,7 +328,8 @@ def main(argv: Sequence[str], environment: Mapping[str, str]) -> int:
         return EXIT_REFUSED
     _report(
         f"secret-check passed: none of the {verdict.checked} secrets set appears in the "
-        f"{verdict.files} files git does not ignore"
+        f"{verdict.files} files git does not ignore, and each holds at least {MIN_SECRET_LENGTH} "
+        "characters"
     )
     return EXIT_PASSED
 

@@ -22,10 +22,13 @@ from typing import Any
 
 import jwt
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.routing import APIRoute, RouteContext, iter_route_contexts
 from fastapi.testclient import TestClient
 from starlette.requests import Request
+from starlette.responses import PlainTextResponse
+from starlette.status import WS_1008_POLICY_VIOLATION
+from starlette.websockets import WebSocketDisconnect
 
 from finassist_assistant.adapters.app import CORRELATION_ID_HEADER, create_app
 from finassist_assistant.adapters.auth import (
@@ -54,6 +57,9 @@ _ROUTES = [
     ("POST", DISPOSAL_URL, DISPOSAL_BODY),
 ]
 _ROUTE_IDS = ["position", "valuation", "disposal"]
+
+_STREAM_PATH = "/api/v1/stream"
+_PLAIN_PATH = "/api/v1/plain"
 
 _INVALID_TOKEN_CHALLENGE = 'Bearer error="invalid_token"'
 _INSUFFICIENT_SCOPE_CHALLENGE = 'Bearer error="insufficient_scope"'
@@ -316,9 +322,12 @@ def Given_no_permission_and_a_form_body_When_a_disposal_is_priced_Then_403_comes
 # --- coverage: a route or a role table that drifts fails the build ------------------------
 
 
-def _api_routes(app: FastAPI) -> list[RouteContext]:
-    """Every route *app* actually answers to, minus the public ones ``BearerAuthentication``
-    never asks a permission of at all (ADR-030).
+def _routes(app: FastAPI) -> list[RouteContext]:
+    """Every route *app* actually answers to, of every type, minus the public ones
+    ``BearerAuthentication`` never asks a permission of at all (ADR-030).
+
+    Every type, not only ``APIRoute``: a WebSocket route or a plain Starlette route declares no
+    dependency, so a check that looked only at ``APIRoute`` would never see one.
 
     ``app.routes`` alone is not enough: FastAPI 0.141.1 mounts a router ``include_router`` brings
     in behind an internal wrapper (``_IncludedRouter``) rather than flattening its routes onto
@@ -330,27 +339,53 @@ def _api_routes(app: FastAPI) -> list[RouteContext]:
     ``create_app`` is covered automatically, exactly like ``portfolio_router`` is today.
     """
     return [
-        context
-        for context in iter_route_contexts(app.routes)
-        if isinstance(context.original_route, APIRoute) and context.path not in PUBLIC_PATHS
+        context for context in iter_route_contexts(app.routes) if context.path not in PUBLIC_PATHS
     ]
+
+
+def _unguarded(app: FastAPI) -> list[str | None]:
+    """The path of every route in :func:`_routes` that declares not exactly one permission.
+
+    Only an ``APIRoute`` can declare a dependency, so a route of any other type is unguarded
+    whatever it does.
+    """
+    unguarded = []
+    for route in _routes(app):
+        permission_dependencies = [
+            dependency.dependency
+            for dependency in getattr(route, "dependencies", [])
+            if isinstance(dependency.dependency, RequirePermission)
+        ]
+        if not isinstance(route.original_route, APIRoute) or len(permission_dependencies) != 1:
+            unguarded.append(route.path)
+    return unguarded
 
 
 def Given_the_assembled_app_When_routes_are_inspected_Then_each_declares_one_permission(
     app: FastAPI,
 ) -> None:
     """Proven to fail: dropping the permission dependency from one route in ``router.py`` turns
-    this red, confirmed by hand and reverted before this file was committed."""
-    routes = _api_routes(app)
+    this red, confirmed by hand and reverted before this file was committed. The test below
+    proves it fails for a route of another type."""
+    assert _routes(app), "no route to check, so this test would pass vacuously"
+    assert _unguarded(app) == []
 
-    assert routes, "no route to check, so this test would pass vacuously"
-    for route in routes:
-        permission_dependencies = [
-            dependency.dependency
-            for dependency in route.dependencies
-            if isinstance(dependency.dependency, RequirePermission)
-        ]
-        assert len(permission_dependencies) == 1, route.path
+
+def Given_a_websocket_route_and_a_plain_route_When_inspected_Then_both_are_found_unguarded(
+    app: FastAPI,
+) -> None:
+    """Neither can declare a permission dependency, so the coverage check must refuse both."""
+
+    async def stream(websocket: WebSocket) -> None:
+        await websocket.close()
+
+    async def plain(_request: Request) -> PlainTextResponse:
+        return PlainTextResponse("served")
+
+    app.add_api_websocket_route(_STREAM_PATH, stream)
+    app.add_route(_PLAIN_PATH, plain)
+
+    assert _unguarded(app) == [_STREAM_PATH, _PLAIN_PATH]
 
 
 def Given_the_public_paths_When_compared_Then_they_are_exactly_health_ready_and_openapi() -> None:
@@ -411,3 +446,33 @@ def Given_an_unknown_role_When_permissions_are_granted_Then_nothing_is_granted()
 
 def Given_no_roles_When_permissions_are_granted_Then_nothing_is_granted() -> None:
     assert _granted_permissions(Principal(subject="x")) == frozenset()
+
+
+# --- WebSocket: no upgrade is served until one is designed ------------------------------------
+
+
+@pytest.mark.parametrize("path", [_STREAM_PATH, "/health"], ids=["route", "public-path"])
+@pytest.mark.parametrize("with_token", [False, True], ids=["no-token", "owner-token"])
+def Given_a_websocket_upgrade_When_any_path_is_requested_Then_it_is_refused_before_routing(
+    app: FastAPI, owner_headers: dict[str, str], path: str, with_token: bool
+) -> None:
+    """Deny by default covers every scope, not only HTTP: a WebSocket route added later would
+    otherwise be served to any caller, with no token, and no permission check would see it."""
+    reached: list[str] = []
+
+    async def stream(websocket: WebSocket) -> None:
+        reached.append(websocket.url.path)
+        await websocket.accept()
+        await websocket.close()
+
+    app.add_api_websocket_route(_STREAM_PATH, stream)
+
+    with (
+        TestClient(app, headers=owner_headers if with_token else {}) as client,
+        pytest.raises(WebSocketDisconnect) as refused,
+        client.websocket_connect(path),
+    ):
+        pass
+
+    assert refused.value.code == WS_1008_POLICY_VIOLATION
+    assert reached == []

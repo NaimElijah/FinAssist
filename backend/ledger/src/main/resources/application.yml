@@ -55,11 +55,22 @@ spring:
 
   datasource:
     # Defaults serve the native run: a ledger on the host reaching the Compose database through its
-    # published port on localhost. The Compose ledger overrides them with the service name, db. No
-    # password default — an unset one should fail to connect, not silently try an empty string.
+    # published port on localhost. The Compose ledger overrides them with the service name, db. The
+    # password's empty default reaches pgjdbc as no password at all, and pgjdbc then refuses
+    # PostgreSQL's SCRAM challenge, so an unset LEDGER_DB_PASSWORD fails start-up at Flyway's
+    # first connection. Dropping the default would not fail sooner: Boot's binder keeps an
+    # unresolved placeholder as its literal text, which would then be sent as the password.
     url: ${LEDGER_DB_URL:jdbc:postgresql://localhost:5432/finassist}
     username: ${LEDGER_DB_USERNAME:finassist}
     password: ${LEDGER_DB_PASSWORD:}
+    hikari:
+      data-source-properties:
+        # pgjdbc appends the server's Detail line to an exception's message by default, and for a
+        # CHECK or NOT NULL violation that line quotes the failing row: a description, an amount,
+        # who recorded it. Every 5xx is logged with its exception, so the detail stays off the
+        # message, whatever URL is in use; the error and the constraint's name remain
+        # (LedgerApplicationIT).
+        logServerErrorDetail: false
 
   flyway:
     # Locations are left at the default, classpath:db/migration, which Flyway scans recursively.

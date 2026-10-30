@@ -4,11 +4,23 @@
 import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiError } from '@/shared/api/client';
 import { type LogRecord, setLogSink } from '@/shared/lib/logger';
 import { ErrorBoundary } from './ErrorBoundary';
 
 function Exploding(): never {
     throw new Error('component blew up');
+}
+
+/** A problem's detail, which can carry the owner's own words and must never be logged. */
+const OWNERS_OWN_WORDS = 'No account named "Joint savings with Dana"';
+
+function ExplodingWithApiError(): never {
+    throw new ApiError(404, '/ledger/api/v1/accounts/a-1/balance', OWNERS_OWN_WORDS, {
+        status: 404,
+        code: 'ACCOUNT_NOT_FOUND',
+        detail: OWNERS_OWN_WORDS,
+    });
 }
 
 describe('ErrorBoundary', () => {
@@ -69,5 +81,22 @@ describe('ErrorBoundary', () => {
         const failures = written.filter((record) => record.event === 'render failed');
         expect(failures).toHaveLength(1);
         expect(failures[0]).toMatchObject({ level: 'error', reason: 'component blew up' });
+    });
+
+    it('Given_a_child_that_throws_an_ApiError_When_rendered_Then_the_log_carries_its_code_and_never_its_detail', () => {
+        render(
+            <ErrorBoundary>
+                <ExplodingWithApiError />
+            </ErrorBoundary>,
+        );
+
+        const failures = written.filter((record) => record.event === 'render failed');
+        expect(failures).toHaveLength(1);
+        expect(failures[0]).toMatchObject({
+            level: 'error',
+            status: 404,
+            code: 'ACCOUNT_NOT_FOUND',
+        });
+        expect(JSON.stringify(written)).not.toContain(OWNERS_OWN_WORDS);
     });
 });

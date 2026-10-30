@@ -1,7 +1,8 @@
 # ADR-028: HTTP wire conventions, for both services
 
-- **Status:** Accepted, extended by [ADR-030](ADR-030-oidc-authentication-through-a-bff-gateway.md)
-  and [ADR-056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md)
+- **Status:** Accepted, extended by [ADR-030](ADR-030-oidc-authentication-through-a-bff-gateway.md),
+  [ADR-056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md) and
+  [ADR-058](ADR-058-each-service-bounds-what-one-request-can-cost.md)
 - **Date:** 2026-09-14
 
 ## Context

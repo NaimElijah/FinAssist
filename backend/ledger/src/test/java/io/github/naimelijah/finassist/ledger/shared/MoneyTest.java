@@ -4,7 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * The Money contract.
@@ -102,6 +106,34 @@ class MoneyTest {
         // reason and is fixed alongside.
         assertThat(Money.of("1E+30", Currency.USD).amount())
                 .isEqualTo(new BigDecimal("1000000000000000000000000000000.00"));
+    }
+
+    /**
+     * The mirror of {@code Given_an_amount_past_a_million_integer_digits_When_constructed_Then_it_is_accepted}:
+     * once as an exponent past a million, once as a million and two digits written out. Python's default
+     * context stops the exponent there; {@code BigDecimal} has no such limit, so this side always passed.
+     * The written-out amount is built from its digits rather than parsed from text, because {@code
+     * BigDecimal} parses a million digits in time that grows with the square of their number.
+     */
+    @ParameterizedTest
+    @MethodSource("amountsPastAMillionIntegerDigits")
+    void Given_an_amount_past_a_million_integer_digits_When_constructed_Then_it_is_accepted(BigDecimal amount) {
+        Money money = new Money(amount, Currency.USD);
+
+        assertThat(money.amount()).isEqualByComparingTo(amount);
+        assertThat(money.amount().scale()).isEqualTo(Currency.USD.minorUnits());
+    }
+
+    static Stream<BigDecimal> amountsPastAMillionIntegerDigits() {
+        return Stream.of(new BigDecimal("1E+1000000"), new BigDecimal(BigInteger.TEN.pow(1_000_001)));
+    }
+
+    /** The mirror of {@code Given_a_product_past_a_million_integer_digits_When_times_rounded_Then_it_is_accepted}. */
+    @Test
+    void Given_a_product_past_a_million_integer_digits_When_times_rounded_Then_it_is_accepted() {
+        Money product = Money.of("1.00", Currency.USD).timesRounded(new BigDecimal("1E+1000000"));
+
+        assertThat(product.amount()).isEqualByComparingTo(new BigDecimal("1E+1000000"));
     }
 
     @Test

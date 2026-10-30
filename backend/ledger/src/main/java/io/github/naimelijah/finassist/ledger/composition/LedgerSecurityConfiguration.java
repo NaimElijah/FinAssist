@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.composition;
 
+import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.DispatcherType;
 import java.time.Clock;
 import java.time.Duration;
@@ -31,6 +32,9 @@ import org.springframework.security.oauth2.server.resource.web.authentication.Be
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationEntryPointFailureHandler;
+import org.springframework.security.web.firewall.CompositeRequestRejectedHandler;
+import org.springframework.security.web.firewall.ObservationMarkingRequestRejectedHandler;
+import org.springframework.security.web.firewall.RequestRejectedHandler;
 import org.springframework.web.client.RestTemplate;
 
 /**
@@ -120,6 +124,21 @@ public class LedgerSecurityConfiguration {
     @Bean
     Clock clock() {
         return Clock.systemUTC();
+    }
+
+    /**
+     * Answers a request Spring Security's firewall refuses as a {@code 400} problem rather than Boot's
+     * error body, as the gateway does. {@code WebSecurity} installs a {@link RequestRejectedHandler} bean
+     * on the filter chain proxy in place of its own default; that default also marks the current
+     * observation as failed, so this one keeps doing that before writing the problem.
+     *
+     * @param observations the registry the default handler would have marked the rejection in
+     * @return the handler {@code FilterChainProxy} calls for every rejected request
+     */
+    @Bean
+    RequestRejectedHandler requestRejectedHandler(ObservationRegistry observations) {
+        return new CompositeRequestRejectedHandler(
+                new ObservationMarkingRequestRejectedHandler(observations), new ProblemRequestRejectedHandler());
     }
 
     /**

@@ -192,6 +192,15 @@ describe('defineBudget', () => {
 });
 
 describe('reviewBudget', () => {
+    it('Given_a_dot_dot_id_When_its_review_is_read_Then_no_request_is_sent', async () => {
+        // `budgets/../review` would resolve to a different route, one level up.
+        const stub = stubFetch(jsonResponse({}));
+
+        await expect(reviewBudget('..')).rejects.toThrow(RangeError);
+
+        expect(stub).not.toHaveBeenCalled();
+    });
+
     it('Given_a_wire_review_When_read_Then_it_requests_the_review_and_maps_every_member_with_unbudgeted_as_an_array', async () => {
         const stub = stubFetch(
             jsonResponse({

@@ -1,5 +1,6 @@
 .menu {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-3);
 }
@@ -18,4 +19,20 @@
     background: var(--color-surface-raised);
     color: var(--color-on-chrome);
     font-size: var(--font-size-sm);
+}
+
+/* Drawn as ErrorState draws a failure, a tinted panel with the text colour, rather than as red
+   text: in the light theme --color-negative has too little contrast against the header's
+   --color-chrome. A line of its own, so on a narrow screen it wraps below the name and the button
+   instead of squeezing into a column beside them and pushing the header sideways (WCAG 1.4.10). */
+.failure {
+    flex: 1 1 100%;
+    margin: 0;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-negative);
+    border-radius: var(--radius-control);
+    background: var(--color-negative-tint);
+    color: var(--color-text);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-strong);
 }

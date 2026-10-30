@@ -248,6 +248,50 @@ class ProjectionControllerTest {
         verifyNoInteractions(projector);
     }
 
+    /**
+     * The horizon is built, and refused, before the in-port is called: nothing is projected for a span the
+     * ledger will not compute (ADR-028).
+     */
+    @Test
+    void Given_a_horizon_one_day_beyond_the_maximum_span_When_projected_Then_it_is_a_422_and_nothing_is_projected()
+            throws Exception {
+        LocalDate from = LocalDate.of(2026, 1, 1);
+        LocalDate oneDayTooFar = from.plusYears(Horizon.MAXIMUM_SPAN_YEARS).plusDays(1);
+
+        mvc.perform(get(PROJECTION, SCENARIO)
+                        .param("from", from.toString())
+                        .param("to", oneDayTooFar.toString())
+                        .param("step", "WEEKLY"))
+                .andExpect(status().is(422))
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("RULE_VIOLATED"));
+
+        verifyNoInteractions(projector);
+    }
+
+    @Test
+    void Given_a_horizon_of_exactly_the_maximum_span_When_projected_Then_it_is_answered_200_with_every_point()
+            throws Exception {
+        LocalDate from = LocalDate.of(2026, 1, 1);
+        Horizon widest = new Horizon(from, from.plusYears(Horizon.MAXIMUM_SPAN_YEARS));
+        Projection projected = Projection.of(
+                Scenario.baseline("Do nothing", Currency.ILS, GrowthAssumption.none()),
+                widest,
+                Cadence.YEARLY,
+                ils("20000.00"),
+                ils("1000.00"));
+        when(projector.project(new ProjectScenarioCommand(SCENARIO, widest, Cadence.YEARLY, List.of(), List.of())))
+                .thenReturn(projected);
+
+        mvc.perform(get(PROJECTION, SCENARIO)
+                        .param("from", widest.from().toString())
+                        .param("to", widest.to().toString())
+                        .param("step", "YEARLY"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.points.length()").value(Horizon.MAXIMUM_SPAN_YEARS + 1))
+                .andExpect(jsonPath("$.horizon.to").value(widest.to().toString()));
+    }
+
     @ParameterizedTest
     @ValueSource(
             strings = {

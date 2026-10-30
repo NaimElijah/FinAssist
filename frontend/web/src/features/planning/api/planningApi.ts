@@ -27,6 +27,7 @@ import type {
     ScenarioResponse,
 } from '@/shared/api/contracts/ledger/types.gen';
 import { decimalString } from '@/shared/api/decimal';
+import { pathSegment } from '@/shared/api/pathSegment';
 import { log } from '@/shared/lib/logger';
 
 import type { ComparedScenario, Comparison, ComparisonParams } from '../types/comparison';
@@ -47,7 +48,7 @@ const SCENARIO_COMPARISONS_URL = `${LEDGER_API}/scenario-comparisons`;
 
 /** The URL of one planned flow's lifecycle action, with the id encoded as a single path segment. */
 function flowActionUrl(flowId: string, action: string): string {
-    return `${PLANNED_FLOWS_URL}/${encodeURIComponent(flowId)}/${action}`;
+    return `${PLANNED_FLOWS_URL}/${pathSegment(flowId)}/${action}`;
 }
 
 /**
@@ -409,6 +410,8 @@ export async function planFlow(input: PlanFlowInput): Promise<PlannedFlow> {
  *   the flow is not `PLANNED`, 422 `RULE_VIOLATED`.
  * @throws ApiBodyError - when the response carries no JSON body, or anything `listPlannedFlows`
  *   refuses.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function commitFlow(flowId: string, on: string): Promise<PlannedFlow> {
     const url = flowActionUrl(flowId, 'commit');
@@ -427,6 +430,8 @@ export async function commitFlow(flowId: string, on: string): Promise<PlannedFlo
  *   the flow is not `COMMITTED`, 422 `RULE_VIOLATED`.
  * @throws ApiBodyError - when the response carries no JSON body, or anything `listPlannedFlows`
  *   refuses.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function realiseFlow(flowId: string, on: string): Promise<PlannedFlow> {
     const url = flowActionUrl(flowId, 'realise');
@@ -446,6 +451,8 @@ export async function realiseFlow(flowId: string, on: string): Promise<PlannedFl
  *   the flow is already `REALISED` or `CANCELLED`, 422 `RULE_VIOLATED`.
  * @throws ApiBodyError - when the response carries no JSON body, or anything `listPlannedFlows`
  *   refuses.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function cancelFlow(flowId: string, on: string, reason: string): Promise<PlannedFlow> {
     const url = flowActionUrl(flowId, 'cancel');
@@ -498,30 +505,33 @@ export async function defineScenario(input: DefineScenarioInput): Promise<Scenar
  * @param params - the scenario, the horizon, the step, and the account refs opening each line.
  * @returns the projection, every amount the string the ledger sent.
  * @throws ApiError - on a non-2xx response: 404 `SCENARIO_NOT_FOUND`, 422 `RULE_VIOLATED` for a
- *   horizon that is not whole steps or does not start before it ends, or an account ref that is
- *   unknown or in another currency.
+ *   horizon that is not whole steps, does not start before it ends or spans more than 100 years,
+ *   or an account ref that is unknown or in another currency.
  * @throws ApiBodyError - when the response carries no JSON body, no points, a step or currency
  *   the contract does not name, or an amount that is not a decimal string.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function projectScenario(params: ProjectionParams): Promise<Projection> {
     const query = new URLSearchParams();
     appendSettings(query, params);
-    const url = `${SCENARIOS_URL}/${encodeURIComponent(params.scenarioId)}/projection?${query.toString()}`;
+    const url = `${SCENARIOS_URL}/${pathSegment(params.scenarioId)}/projection?${query.toString()}`;
     const wire = await requestJson<ProjectionResponse>(url);
     return toProjection(wire, url);
 }
 
 /**
- * Compare two or more scenarios over one horizon, one step and one opening position, measuring
+ * Compare two to ten scenarios over one horizon, one step and one opening position, measuring
  * each from a baseline. Side-effect free: nothing is recorded (ADR-016).
  *
  * @param params - the scenario ids in the order to list them, the baseline among them, the
  *   horizon, the step, and the account refs opening each line.
  * @returns the comparison, its scenarios in the order requested, every amount - divergences
  *   included - the signed string the ledger sent.
- * @throws ApiError - on a non-2xx response: 400 when fewer than two scenarios are named, 422
- *   `UNKNOWN_SCENARIO` for an id naming no scenario, and 422 `RULE_VIOLATED` for a baseline not
- *   among them, scenarios in different currencies, or a horizon or account ref it refuses.
+ * @throws ApiError - on a non-2xx response: 400 when fewer than two or more than ten scenarios
+ *   are named, 422 `UNKNOWN_SCENARIO` for an id naming no scenario, and 422 `RULE_VIOLATED` for a
+ *   baseline not among them, scenarios in different currencies, a horizon spanning more than 100
+ *   years, or another horizon or account ref it refuses.
  * @throws ApiBodyError - when the response carries no JSON body, a baseline that is none of its
  *   scenarios, a step or currency the contract does not name, or an amount that is not a decimal
  *   string.

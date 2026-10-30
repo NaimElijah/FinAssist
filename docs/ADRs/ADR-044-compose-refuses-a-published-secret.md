@@ -1,6 +1,7 @@
 # ADR-044: Compose refuses to start on a secret that a file in the repository holds
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-061](ADR-061-the-stack-refuses-a-configuration-that-weakens-a-credential.md)
 - **Date:** 2026-10-18
 
 ## Context

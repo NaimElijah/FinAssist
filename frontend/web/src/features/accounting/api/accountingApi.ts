@@ -22,6 +22,7 @@ import type {
     VoidRequest,
 } from '@/shared/api/contracts/ledger/types.gen';
 import { decimalString } from '@/shared/api/decimal';
+import { pathSegment } from '@/shared/api/pathSegment';
 import { log } from '@/shared/lib/logger';
 
 import {
@@ -49,12 +50,12 @@ const TRANSACTIONS_URL = `${LEDGER_API}/transactions`;
 
 /** The URL of one account's sub-resource, with the id encoded as a single path segment. */
 function accountUrl(accountId: string, subResource: string): string {
-    return `${ACCOUNTS_URL}/${encodeURIComponent(accountId)}/${subResource}`;
+    return `${ACCOUNTS_URL}/${pathSegment(accountId)}/${subResource}`;
 }
 
 /** The URL of one transaction's lifecycle action, with the id encoded as a single path segment. */
 function transactionUrl(transactionId: string, action: string): string {
-    return `${TRANSACTIONS_URL}/${encodeURIComponent(transactionId)}/${action}`;
+    return `${TRANSACTIONS_URL}/${pathSegment(transactionId)}/${action}`;
 }
 
 /**
@@ -206,6 +207,8 @@ export async function openAccount(input: OpenAccountInput): Promise<Account> {
  * @throws ApiError - on a non-2xx response: 404 `ACCOUNT_NOT_FOUND` for an unknown account.
  * @throws ApiBodyError - when the response carries no JSON body, or the balance has an amount or
  *   currency the contract does not allow.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function getBalance(accountId: string): Promise<Money> {
     const url = accountUrl(accountId, 'balance');
@@ -225,6 +228,8 @@ export async function getBalance(accountId: string): Promise<Money> {
  * @throws ApiBodyError - when the response carries no JSON body, a state lacks a member its status
  *   always carries or has a status the contract does not name, or an entry has an amount or
  *   currency the contract does not allow.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function listAccountTransactions(accountId: string): Promise<Transaction[]> {
     const url = accountUrl(accountId, 'transactions');
@@ -269,6 +274,8 @@ export async function recordTransaction(input: RecordTransactionInput): Promise<
  * @throws ApiError - on a non-2xx response: 404, 409 `ILLEGAL_TRANSITION` when the transaction is
  *   not `PENDING`, 422 for a date before the transaction occurred.
  * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function clearTransaction(transactionId: string, on: string): Promise<Transaction> {
     const url = transactionUrl(transactionId, 'clear');
@@ -287,6 +294,8 @@ export async function clearTransaction(transactionId: string, on: string): Promi
  * @throws ApiError - on a non-2xx response: 404, 409 `ILLEGAL_TRANSITION` when the transaction is
  *   not `CLEARED`, 422 for a date before it cleared.
  * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function reconcileTransaction(
     transactionId: string,
@@ -309,6 +318,8 @@ export async function reconcileTransaction(
  * @throws ApiError - on a non-2xx response: 404, 409 `ILLEGAL_TRANSITION` when the transaction is
  *   already `RECONCILED` or `VOIDED`, 422 for a date before it occurred.
  * @throws ApiBodyError - when the response carries no JSON body.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function voidTransaction(
     transactionId: string,
