@@ -48,7 +48,7 @@ final class LoginEntryFailureHandler implements AuthenticationFailureHandler {
     private static final Logger LOG = LoggerFactory.getLogger(LoginEntryFailureHandler.class);
 
     /**
-     * The cause that means "no such registration", named as text because Spring Security 7.1.1
+     * The cause that means "no such registration", named as text because Spring Security 7.1.2
      * declares {@code InvalidClientRegistrationIdException} package-private — it cannot be imported
      * and {@code instanceof} cannot see it. Matching a class name is brittle by nature, so it is
      * made self-reporting instead of trusted: were Spring to rename or move it, this handler would

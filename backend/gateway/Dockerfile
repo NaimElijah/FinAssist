@@ -1,11 +1,12 @@
 # Both stages pin the same Ubuntu Noble generation of Eclipse Temurin 21 as the ledger's
 # Dockerfile, verified with `docker manifest inspect` before this file was committed (CI's
-# setup-java uses "21"; the development machine runs 21.0.9).
+# setup-java uses "21"; the development machine runs 21.0.9, an earlier update of the
+# same line).
 
 # --- Build -----------------------------------------------------------------------------------
 # The wrapper and pom.xml are copied first so `dependency:go-offline` is cached across source
 # changes; only editing pom.xml busts this layer.
-FROM eclipse-temurin:21.0.9_10-jdk-noble AS build
+FROM eclipse-temurin:21.0.13_9-jdk-noble AS build
 WORKDIR /build
 
 COPY mvnw pom.xml ./
@@ -18,7 +19,7 @@ COPY src/ src/
 RUN ./mvnw -B package -DskipTests
 
 # --- Runtime -----------------------------------------------------------------------------------
-FROM eclipse-temurin:21.0.9_10-jre-noble
+FROM eclipse-temurin:21.0.13_9-jre-noble
 RUN groupadd --system gateway && useradd --system --gid gateway --no-create-home gateway
 WORKDIR /app
 # The narrower glob matters: spring-boot-maven-plugin repackages the artifact in place and

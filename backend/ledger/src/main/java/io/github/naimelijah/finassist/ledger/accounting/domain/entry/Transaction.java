@@ -123,16 +123,15 @@ public record Transaction(
      */
     public Transaction markVoided(LocalDate voidedOn, String reason) {
         requireNotBefore(voidedOn, occurredOn, "voided", "occurred");
-        TransactionState next =
-                switch (state) {
-                    case TransactionState.Pending pending -> pending.markVoided(voidedOn, reason);
-                    case TransactionState.Cleared cleared -> {
-                        requireNotBefore(voidedOn, cleared.clearedOn(), "voided", "cleared");
-                        yield cleared.markVoided(voidedOn, reason);
-                    }
-                    case TransactionState.Reconciled ignored -> throw new IllegalTransitionException(state, "void");
-                    case TransactionState.Voided ignored -> throw new IllegalTransitionException(state, "void");
-                };
+        TransactionState next = switch (state) {
+            case TransactionState.Pending pending -> pending.markVoided(voidedOn, reason);
+            case TransactionState.Cleared cleared -> {
+                requireNotBefore(voidedOn, cleared.clearedOn(), "voided", "cleared");
+                yield cleared.markVoided(voidedOn, reason);
+            }
+            case TransactionState.Reconciled ignored -> throw new IllegalTransitionException(state, "void");
+            case TransactionState.Voided ignored -> throw new IllegalTransitionException(state, "void");
+        };
         return withState(next);
     }
 

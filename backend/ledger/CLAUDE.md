@@ -211,3 +211,9 @@ bounded context (ADR-006, ADR-024).
   reads the compiled test classes and fails the build for a slice that omits the import.
 - **The packaged jar has no start-up check yet** (#234; ADR-040); the gateway's
   `GatewayPackagedJarIT` is the model.
+
+## Dependencies
+
+- **On every Spring Boot parent bump, read Boot's managed `opentelemetry.version`.** `pom.xml`
+  overrides it to 1.67.0 for GHSA-ccrj-gw8r-854m, and an override lower than Boot's own
+  downgrades it. Delete the property once Boot manages 1.67.0 or later (ADR-062).

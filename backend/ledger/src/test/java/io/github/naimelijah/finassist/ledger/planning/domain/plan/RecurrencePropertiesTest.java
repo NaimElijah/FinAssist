@@ -39,12 +39,11 @@ class RecurrencePropertiesTest {
             LocalDate to = from.plusDays(random.nextInt(1, 800));
             Cadence cadence = cadences[random.nextInt(cadences.length)];
             int interval = random.nextInt(1, 4);
-            Recurrence recurrence =
-                    switch (random.nextInt(3)) {
-                        case 0 -> new Recurrence.Once();
-                        case 1 -> new Recurrence.Times(cadence, interval, random.nextInt(1, 12));
-                        default -> new Recurrence.Until(cadence, interval, start.plusDays(random.nextInt(1, 900)));
-                    };
+            Recurrence recurrence = switch (random.nextInt(3)) {
+                case 0 -> new Recurrence.Once();
+                case 1 -> new Recurrence.Times(cadence, interval, random.nextInt(1, 12));
+                default -> new Recurrence.Until(cadence, interval, start.plusDays(random.nextInt(1, 900)));
+            };
             return Arguments.of(recurrence, start, from, to);
         });
     }
