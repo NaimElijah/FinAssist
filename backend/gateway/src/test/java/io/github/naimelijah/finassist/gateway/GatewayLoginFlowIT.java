@@ -27,6 +27,8 @@ import java.util.Base64;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.apache.catalina.Context;
+import org.apache.catalina.Session;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -40,6 +42,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.tomcat.TomcatWebServer;
+import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
 import org.springframework.cloud.gateway.server.mvc.config.GatewayMvcProperties;
 import org.springframework.cloud.gateway.server.mvc.config.RouteProperties;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -115,6 +119,19 @@ class GatewayLoginFlowIT {
      */
     static final String CLIENT_SECRET = "a-test-client-secret";
 
+    /**
+     * ADR-030's idle timeout for a signed-in session, {@code server.servlet.session.timeout},
+     * spelled here rather than read from the configuration the assertion is about.
+     */
+    private static final Duration SIGNED_IN_IDLE_LIMIT = Duration.ofMinutes(30);
+
+    /**
+     * The same half hour written as a bare number, as {@code SERVER_SERVLET_SESSION_TIMEOUT=1800}
+     * would write it; Boot reads a bare session timeout as seconds. Not private, because a nested
+     * context's annotation names it.
+     */
+    static final int BARE_SECONDS_SESSION_TIMEOUT = 1800;
+
     /** A secret the fake provider was not built with, for the context that must be refused. */
     static final String WRONG_CLIENT_SECRET = "not-the-providers-client-secret";
 
@@ -144,6 +161,10 @@ class GatewayLoginFlowIT {
     /** The relay routes as the running gateway bound them from {@code application.yml}. */
     @Autowired
     private GatewayMvcProperties routes;
+
+    /** The running server, whose Tomcat holds the sessions a sign-in creates. */
+    @Autowired
+    private ServletWebServerApplicationContext context;
 
     @BeforeAll
     static void startFakes() throws Exception {
@@ -384,6 +405,59 @@ class GatewayLoginFlowIT {
         try (HttpClient client = newClient()) {
             signIn(client);
         }
+    }
+
+    /**
+     * A session starts with a short idle limit, because until the callback it holds only a started
+     * sign-in ({@code GatewayApplicationIT} holds that half). A completed sign-in must give it back
+     * ADR-030's half hour, or the owner would be signed out after a few idle minutes. Read from
+     * the session Tomcat's own manager holds, under the id the rotated cookie names, because that
+     * is what expiry acts on.
+     */
+    @Test
+    void Given_a_completed_sign_in_When_its_session_is_read_Then_its_idle_limit_is_the_configured_thirty_minutes()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+
+            Session session = webApps().getFirst().getManager().findSession(sessionCookieValue(client));
+
+            assertThat(session).as("the signed-in session Tomcat holds").isNotNull();
+            assertThat(session.getMaxInactiveInterval())
+                    .as("the signed-in session's idle limit, in seconds")
+                    .isEqualTo((int) SIGNED_IN_IDLE_LIMIT.toSeconds());
+        }
+    }
+
+    /**
+     * The short limit is for a session the login entry creates, never for one it finds. A
+     * signed-in session that asks for the login entry again keeps ADR-030's half hour, so starting
+     * a sign-in again cannot shorten it. Read from Tomcat's own session manager, as above.
+     */
+    @Test
+    void Given_a_signed_in_session_When_it_requests_the_login_entry_again_Then_its_idle_limit_stays_thirty_minutes()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+            String signedIn = sessionCookieValue(client);
+
+            HttpResponse<Void> entry = getFollowingNothing(client, gatewayUrl("/bff/oauth2/authorization/keycloak"));
+            assertThat(entry.statusCode()).isEqualTo(302);
+
+            Session session = webApps().getFirst().getManager().findSession(signedIn);
+            assertThat(session).as("the signed-in session Tomcat holds").isNotNull();
+            assertThat(session.getMaxInactiveInterval())
+                    .as("the signed-in session's idle limit after the login entry, in seconds")
+                    .isEqualTo((int) SIGNED_IN_IDLE_LIMIT.toSeconds());
+        }
+    }
+
+    /** The web applications the running Tomcat holds, as the container itself sees them. */
+    private List<Context> webApps() {
+        TomcatWebServer server = (TomcatWebServer) context.getWebServer();
+        return Arrays.stream(server.getTomcat().getHost().findChildren())
+                .map(Context.class::cast)
+                .toList();
     }
 
     /**
@@ -1139,6 +1213,76 @@ class GatewayLoginFlowIT {
                         .as("the provider authenticated the gateway's client")
                         .isFalse();
                 assertSignInFailed(callback);
+            }
+        }
+    }
+
+    /**
+     * {@code server.servlet.session.timeout} written as a bare number, which Boot reads as seconds.
+     * A completed sign-in must give the session back the same limit every new session gets, here
+     * {@value GatewayLoginFlowIT#BARE_SECONDS_SESSION_TIMEOUT} seconds, however the property is
+     * written: the success handler must not read the property its own way, in a unit of its own.
+     */
+    @Nested
+    @SpringBootTest(
+            webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+            properties = {
+                "finassist.oidc.client-secret=" + CLIENT_SECRET,
+                "finassist.web.public-url=http://localhost:5173",
+                "finassist.http.allowed-hosts=localhost,127.0.0.1",
+                "finassist.http.cookie-secure=false",
+                "server.servlet.session.timeout=" + BARE_SECONDS_SESSION_TIMEOUT
+            })
+    class BareSecondsSessionTimeout {
+
+        @LocalServerPort
+        private int bareSecondsPort;
+
+        @Autowired
+        private ServletWebServerApplicationContext bareSecondsContext;
+
+        @DynamicPropertySource
+        static void oidcProperties(DynamicPropertyRegistry registry) {
+            registry.add("finassist.oidc.public-url", idp::baseUrl);
+            registry.add("finassist.oidc.internal-url", idp::baseUrl);
+            registry.add("finassist.relay.ledger-uri", ledger::baseUrl);
+            registry.add("finassist.relay.assistant-uri", assistant::baseUrl);
+        }
+
+        @Test
+        void Given_a_session_timeout_in_bare_seconds_When_a_sign_in_completes_Then_its_idle_limit_is_that_many_seconds()
+                throws Exception {
+            try (HttpClient client = newClient()) {
+                URI authorizeUri = URI.create(getFollowingNothing(
+                                client, "http://localhost:" + bareSecondsPort + "/bff/oauth2/authorization/keycloak")
+                        .headers()
+                        .firstValue("Location")
+                        .orElseThrow());
+                URI codeRedirect = URI.create(getFollowingNothing(client, authorizeUri.toString())
+                        .headers()
+                        .firstValue("Location")
+                        .orElseThrow());
+                HttpResponse<Void> callback = getFollowingNothing(
+                        client,
+                        new URI(
+                                        "http",
+                                        null,
+                                        "localhost",
+                                        bareSecondsPort,
+                                        codeRedirect.getPath(),
+                                        codeRedirect.getQuery(),
+                                        null)
+                                .toString());
+                assertThat(callback.headers().firstValue("Location")).hasValue(WEB_ORIGIN + "/");
+
+                TomcatWebServer server = (TomcatWebServer) bareSecondsContext.getWebServer();
+                Context web = (Context) server.getTomcat().getHost().findChildren()[0];
+                Session session = web.getManager().findSession(sessionCookieValue(client));
+
+                assertThat(session).as("the signed-in session Tomcat holds").isNotNull();
+                assertThat(session.getMaxInactiveInterval())
+                        .as("the signed-in session's idle limit, in seconds")
+                        .isEqualTo(BARE_SECONDS_SESSION_TIMEOUT);
             }
         }
     }

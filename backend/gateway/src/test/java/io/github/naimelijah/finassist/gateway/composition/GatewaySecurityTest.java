@@ -129,6 +129,15 @@ class GatewaySecurityTest {
     /** Spring's default name for the CSRF request parameter, which the gateway must not read. */
     private static final String CSRF_PARAMETER = "_csrf";
 
+    /** The Fetch Metadata headers a browser sends with every request, and their values for a fetch. */
+    private static final String SEC_FETCH_MODE = "Sec-Fetch-Mode";
+
+    private static final String SEC_FETCH_DEST = "Sec-Fetch-Dest";
+
+    private static final String CORS = "cors";
+
+    private static final String EMPTY = "empty";
+
     private static final MediaType PROBLEM_JSON = MediaType.APPLICATION_PROBLEM_JSON;
 
     private static final String SUBJECT = "2b9d1f4e-0000-4000-8000-0123456789ab";
@@ -689,6 +698,35 @@ class GatewaySecurityTest {
                 .sorted(Map.Entry.comparingByKey())
                 .flatMap(relay -> BackendContracts.operations(BackendContracts.read(relay.getValue())).stream()
                         .map(operation -> Arguments.of(relay.getKey(), operation)));
+    }
+
+    /**
+     * {@code LoginEntryNavigationFilter} looks at Fetch Metadata on the login entry and nowhere
+     * else. The web client reads {@code /bff/me} and the relay with {@code fetch}, which the browser
+     * marks {@code Sec-Fetch-Mode: cors} and {@code Sec-Fetch-Dest: empty}, so a filter that looked
+     * at those headers on any other path would refuse every call the web client makes.
+     */
+    @Test
+    void Given_a_signed_in_session_When_a_cors_fetch_reads_bff_me_or_a_relay_Then_it_is_answered_200()
+            throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        signIn(session);
+
+        mvc.perform(named(get(ME)).session(session).header(SEC_FETCH_MODE, CORS).header(SEC_FETCH_DEST, EMPTY))
+                .andExpect(status().isOk());
+        MockHttpServletResponse relayed = mvc.perform(named(get(LEDGER_ACCOUNTS))
+                        .session(session)
+                        .header(SEC_FETCH_MODE, CORS)
+                        .header(SEC_FETCH_DEST, EMPTY)
+                        .with(oidcLogin()
+                                .clientRegistration(registrations.findByRegistrationId(REGISTRATION_ID))
+                                .idToken(ownerToken(List.of("owner"))))
+                        .with(bodyAlreadyRead()))
+                .andReturn()
+                .getResponse();
+
+        assertThat(relayed.getStatus()).as("the relayed fetch's status").isEqualTo(HttpStatus.OK.value());
+        assertThat(relayed.getContentAsString()).as("the relayed fetch's body").isEqualTo(UPSTREAM_BODY);
     }
 
     /**

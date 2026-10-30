@@ -16,7 +16,9 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>Every code the gateway answers is declared here, in one place: {@link HostAllowListFilter}
  * answers {@code HOST_NOT_ALLOWED}; {@code GatewaySecurityConfiguration}'s entry point answers
  * {@code UNAUTHENTICATED}, and its access-denied handler answers both {@code FORBIDDEN} and {@code
- * CSRF_TOKEN_INVALID}, branching on whether the denial was a CSRF failure — its sign-in failure
+ * CSRF_TOKEN_INVALID}, branching on whether the denial was a CSRF failure; {@link
+ * LoginEntryNavigationFilter} answers {@code FORBIDDEN} too, with a detail of its own, for a
+ * browser request to the login entry that is not a top-level navigation. The sign-in failure
  * handler answers neither, since a failed sign-in redirects the browser rather than answering a
  * problem, while {@link LoginEntryFailureHandler}, which refuses a login entry naming a
  * registration that does not exist, answers {@code UNAUTHENTICATED} through that same entry point
@@ -58,7 +60,10 @@ final class GatewayProblems {
     /** No session and no bearer token accepted here either — the gateway grants nothing on its own. */
     static final String UNAUTHENTICATED = "UNAUTHENTICATED";
 
-    /** A session exists, but not for a role this request needs. */
+    /**
+     * A refusal no credential would change: a session that exists but may not make this request,
+     * or a browser request to the public login entry that is not a top-level navigation.
+     */
     static final String FORBIDDEN = "FORBIDDEN";
 
     /** A write arrived with a missing or wrong CSRF token. */

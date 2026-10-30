@@ -18,6 +18,11 @@ It holds no bounded context: everything is in its `composition/` root. The parts
 - `GatewaySecurityConfiguration` is the one security chain: deny by default, 401 never 302, and a
   renamed CSRF cookie and header. `HeaderOnlyCsrfTokenRequestHandler` reads the token from that
   header alone, never from a `_csrf` request parameter, which `csrf().spa()`'s own handler accepts.
+- The public login entry creates a session, so `LoginEntryNavigationFilter` refuses, 403
+  `FORBIDDEN`, a browser request that is not a top-level navigation (`Sec-Fetch-Mode` other than
+  `navigate`, or `Sec-Fetch-Dest` other than `document`, whichever is sent) before one exists, and
+  `PreSignInAuthorizationRequestRepository` gives the session it does create a fifteen-minute
+  idle limit, which the sign-in success handler lifts back to `server.servlet.session.timeout`.
 - `BffRoutes` holds every `/bff/` path, in one place. `SessionController` serves `GET /bff/me`,
   `SpaLogoutSuccessHandler` answers `POST /bff/logout`, and `SignInFailureHandler` sends a failed
   sign-in back to `?signin=failed`. `LoginEntryFailureHandler` answers a sign-in that cannot start

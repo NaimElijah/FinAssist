@@ -15,14 +15,16 @@ import org.springframework.security.web.csrf.CsrfException;
  * <p>Two codes, because a client can do something about one of them and nothing about the other:
  * {@code CSRF_TOKEN_INVALID} means "read the {@code FINASSIST-XSRF-TOKEN} cookie and send it back
  * in the {@code X-FINASSIST-XSRF-TOKEN} header", while {@code FORBIDDEN} means the session exists
- * and still may not do this. {@code CsrfFilter} hands its {@code MissingCsrfTokenException} and
+ * and still may not do this, a refusal no credential would change. {@code CsrfFilter} hands its {@code MissingCsrfTokenException} and
  * {@code InvalidCsrfTokenException} — both {@link CsrfException} — straight to this handler rather
  * than throwing them up the chain, so both arrive here and the distinction can be made by type.
  *
  * <p>An <em>unauthenticated</em> request never reaches this handler: {@code
  * ExceptionTranslationFilter} sends an anonymous principal to {@link
  * ProblemAuthenticationEntryPoint} instead, which is why a denied path answers {@code 401} before
- * sign-in and {@code 403} after it.
+ * sign-in and {@code 403} after it. {@link LoginEntryNavigationFilter} answers the same {@code
+ * FORBIDDEN} code without coming here, with a detail of its own, because it refuses a request to
+ * the public login entry before any session exists.
  *
  * <p>Neither body names the path, the token or the session. Nothing is logged: a client that
  * forgot the header will retry with it, and the gateway holds a token for every signed-in user, so

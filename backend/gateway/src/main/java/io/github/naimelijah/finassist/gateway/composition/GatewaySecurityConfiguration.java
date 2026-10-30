@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.gateway.composition;
 
 import jakarta.servlet.DispatcherType;
+import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,6 +14,7 @@ import org.springframework.security.oauth2.client.endpoint.OAuth2AuthorizationCo
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
@@ -51,6 +53,13 @@ import org.springframework.security.web.savedrequest.NullRequestCache;
  * replaces its handler, which would also accept the token as a {@code _csrf} request parameter.
  * The replacement keeps what {@code spa()} is for — the cookie written eagerly on every request,
  * and the header compared as the web client sends it.
+ *
+ * <p>The login entry is public and creates a session, so two parts bound what it can be made to
+ * hold: {@link LoginEntryNavigationFilter} refuses, {@code 403}, a browser request whose Fetch
+ * Metadata does not name a top-level navigation ({@code Sec-Fetch-Mode: navigate}, {@code
+ * Sec-Fetch-Dest: document}) before any session exists, and {@link
+ * PreSignInAuthorizationRequestRepository} gives the session it does create a short idle limit,
+ * which the sign-in success handler lifts back to the configured one.
  *
  * <p>{@link HostAllowListFilter} still runs before all of this, at the highest filter precedence,
  * because a request under a foreign {@code Host} should never reach a security decision at all.
@@ -160,7 +169,8 @@ public class GatewaySecurityConfiguration {
                         .accessDeniedHandler(new ProblemAccessDeniedHandler()))
                 .requestCache(cache -> cache.requestCache(new NullRequestCache()))
                 .oauth2Login(login -> login.loginPage(BffRoutes.LOGIN_ENTRY)
-                        .authorizationEndpoint(endpoint -> endpoint.baseUri(BffRoutes.AUTHORIZATION_BASE))
+                        .authorizationEndpoint(endpoint -> endpoint.baseUri(BffRoutes.AUTHORIZATION_BASE)
+                                .authorizationRequestRepository(new PreSignInAuthorizationRequestRepository()))
                         .redirectionEndpoint(endpoint -> endpoint.baseUri(BffRoutes.CALLBACK_PATTERN))
                         .tokenEndpoint(endpoint -> endpoint.accessTokenResponseClient(tokenResponseClient))
                         .successHandler(signInSuccessHandler(webOrigin))
@@ -175,6 +185,7 @@ public class GatewaySecurityConfiguration {
                 // describes and nothing here would authorise.
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
+                .addFilterBefore(new LoginEntryNavigationFilter(), OAuth2AuthorizationRequestRedirectFilter.class)
                 .build();
         stopAnsweringAnUnknownLoginEntryWithA500(chain);
         return chain;
@@ -221,10 +232,23 @@ public class GatewaySecurityConfiguration {
      * A completed sign-in always lands on the web client's root, never on wherever the browser
      * happened to be going: {@code alwaysUseDefaultTargetUrl} is what makes that unconditional,
      * and with a {@link NullRequestCache} there is nothing saved to go back to anyway.
+     *
+     * <p>It first gives the session back the idle limit every new session gets. The session was
+     * created to hold the authorization request, with {@link
+     * PreSignInAuthorizationRequestRepository#PRE_SIGN_IN_IDLE_LIMIT}, and the sign-in rotates its
+     * id but keeps that limit, so without this the owner would be signed out after a few idle
+     * minutes rather than ADR-030's half hour. The limit is read from the servlet context, where
+     * Boot has already applied {@code server.servlet.session.timeout} in its own unit, seconds for a
+     * bare number, and rounded as the container rounds it, rather than converted again here.
      */
-    private static SimpleUrlAuthenticationSuccessHandler signInSuccessHandler(Origin webOrigin) {
-        SimpleUrlAuthenticationSuccessHandler handler = new SimpleUrlAuthenticationSuccessHandler(webOrigin.root());
-        handler.setAlwaysUseDefaultTargetUrl(true);
-        return handler;
+    private static AuthenticationSuccessHandler signInSuccessHandler(Origin webOrigin) {
+        SimpleUrlAuthenticationSuccessHandler redirect = new SimpleUrlAuthenticationSuccessHandler(webOrigin.root());
+        redirect.setAlwaysUseDefaultTargetUrl(true);
+        return (request, response, authentication) -> {
+            Duration containerIdleLimit =
+                    Duration.ofMinutes(request.getServletContext().getSessionTimeout());
+            request.getSession().setMaxInactiveInterval(Math.toIntExact(containerIdleLimit.toSeconds()));
+            redirect.onAuthenticationSuccess(request, response, authentication);
+        };
     }
 }

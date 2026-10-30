@@ -20,10 +20,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.stream.Stream;
 import org.apache.catalina.Context;
+import org.apache.catalina.Session;
 import org.apache.tomcat.util.descriptor.web.FilterMap;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.endpoint.ExposableEndpoint;
 import org.springframework.boot.actuate.endpoint.web.PathMappedEndpoint;
@@ -93,6 +96,29 @@ class GatewayApplicationIT {
     /** ADR-030's idle timeout, {@code server.servlet.session.timeout}, spelled here for the same reason. */
     private static final Duration SHIPPED_SESSION_TIMEOUT = Duration.ofMinutes(30);
 
+    /**
+     * How long a session holding only a started sign-in may sit idle, spelled here for the same
+     * reason: long enough for a first sign-in at Keycloak, half a signed-in session's.
+     */
+    private static final Duration PRE_SIGN_IN_IDLE_LIMIT = Duration.ofMinutes(15);
+
+    /** The Fetch Metadata header a browser sends to say what kind of request it is making. */
+    private static final String SEC_FETCH_MODE = "Sec-Fetch-Mode";
+
+    /** The {@link #SEC_FETCH_MODE} of a navigation, the only mode that may start a sign-in. */
+    private static final String NAVIGATE = "navigate";
+
+    /** The Fetch Metadata header naming the requesting page's relation to this origin. */
+    private static final String SEC_FETCH_SITE = "Sec-Fetch-Site";
+
+    private static final String CROSS_SITE = "cross-site";
+
+    /** The Fetch Metadata header a browser sends to say where the answer will be used. */
+    private static final String SEC_FETCH_DEST = "Sec-Fetch-Dest";
+
+    /** The {@link #SEC_FETCH_DEST} of the browser's own window, the only one a sign-in may open in. */
+    private static final String DOCUMENT = "document";
+
     /** The one Actuator endpoint ADR-030 lets the gateway serve over HTTP, spelled here for the same reason. */
     private static final String HEALTH_ENDPOINT = "health";
 
@@ -147,13 +173,18 @@ class GatewayApplicationIT {
         CLIENT.close();
     }
 
-    private HttpResponse<String> get(String path) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder()
+    /**
+     * A {@code GET} of {@code path}, carrying any headers given as name, value, name, value.
+     */
+    private HttpResponse<String> get(String path, String... headers) throws IOException, InterruptedException {
+        HttpRequest.Builder request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + path))
                 .timeout(TIMEOUT)
-                .GET()
-                .build();
-        return CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+                .GET();
+        if (headers.length > 0) {
+            request.headers(headers);
+        }
+        return CLIENT.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     /**
@@ -381,6 +412,77 @@ class GatewayApplicationIT {
                 .contains("HttpOnly")
                 .contains("SameSite=Lax")
                 .doesNotContain("Secure");
+    }
+
+    /**
+     * A sign-in starts only from a top-level navigation, which is how the web client reaches the
+     * login entry: a link the browser follows in its own window, marked {@code Sec-Fetch-Mode:
+     * navigate} and {@code Sec-Fetch-Dest: document}. A request a page makes for an image, a script
+     * or a {@code fetch} names another mode, and a navigation into a frame names another
+     * destination. The login entry creates a session for each request it accepts, so each of these
+     * is refused before any session exists, 403 {@code FORBIDDEN} rather than 401: the endpoint is
+     * public, so no credential would change the answer. A client that sends neither header, as
+     * every other test here does, is not refused: only a browser sends them.
+     */
+    @ParameterizedTest
+    @CsvSource({"no-cors, image", "cors, empty", "same-origin, empty", "navigate, iframe", "navigate, embed"})
+    void
+            Given_a_browser_request_that_is_not_a_top_level_navigation_When_it_reaches_the_login_entry_Then_it_is_refused_403_and_no_session_is_created(
+                    String fetchMode, String fetchDest) throws Exception {
+        HttpResponse<String> response =
+                get(LOGIN_ENTRY, SEC_FETCH_MODE, fetchMode, SEC_FETCH_DEST, fetchDest, SEC_FETCH_SITE, CROSS_SITE);
+
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.headers().firstValue("content-type")).contains("application/problem+json");
+        assertThat(response.body())
+                .contains("\"code\":\"FORBIDDEN\"")
+                .contains("A sign-in starts only from a top-level navigation.")
+                .doesNotContain("session");
+        assertThat(response.headers().firstValue("location")).isEmpty();
+        assertThat(response.headers().allValues("set-cookie"))
+                .as("the cookies the refusal set")
+                .noneMatch(header -> header.startsWith(SESSION_COOKIE + "="));
+    }
+
+    /** The navigation the web client makes is still sent on to Keycloak. */
+    @Test
+    void Given_a_top_level_navigation_When_it_reaches_the_login_entry_Then_it_is_redirected_to_keycloak()
+            throws Exception {
+        HttpResponse<String> response =
+                get(LOGIN_ENTRY, SEC_FETCH_MODE, NAVIGATE, SEC_FETCH_DEST, DOCUMENT, SEC_FETCH_SITE, "same-origin");
+
+        assertThat(response.statusCode()).isEqualTo(302);
+        assertThat(setCookie(response, SESSION_COOKIE)).isNotBlank();
+    }
+
+    /**
+     * A session the login entry creates holds nothing but the authorization request, and it lives
+     * only as long as a sign-in needs, rather than ADR-030's half hour: a sign-in started and never
+     * finished does not hold memory for thirty minutes. Read from the session Tomcat's own manager
+     * holds, under the id the cookie names, because that is what expiry acts on. A completed
+     * sign-in restores the half hour, which {@code GatewayLoginFlowIT} holds.
+     */
+    @Test
+    void
+            Given_a_sign_in_started_and_never_finished_When_its_session_is_read_Then_its_idle_limit_is_the_pre_sign_in_limit()
+                    throws Exception {
+        HttpResponse<String> response = get(LOGIN_ENTRY);
+        assertThat(response.statusCode()).isEqualTo(302);
+
+        Session session = sessionNamedBy(response);
+
+        assertThat(session.getMaxInactiveInterval())
+                .as("the started sign-in's idle limit, in seconds")
+                .isEqualTo((int) PRE_SIGN_IN_IDLE_LIMIT.toSeconds());
+    }
+
+    /** The session Tomcat holds under the id the response's session cookie names. */
+    private Session sessionNamedBy(HttpResponse<String> response) throws IOException {
+        String cookie = setCookie(response, SESSION_COOKIE);
+        String id = cookie.substring(SESSION_COOKIE.length() + 1, cookie.indexOf(';'));
+        Session session = webApps().getFirst().getManager().findSession(id);
+        assertThat(session).as("the session Tomcat holds under the cookie's id").isNotNull();
+        return session;
     }
 
     /**
