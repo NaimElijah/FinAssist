@@ -385,7 +385,7 @@ To replace every secret in one pass, run the recipes above in this order. That i
 1. Note the current `KEYCLOAK_ADMIN_PASSWORD`, which step 6 needs. Then write a new value for each
    secret above into `.env`.
 2. `docker compose up -d --wait db keycloak-db`. `secret-check` runs first, and passes now that no
-   secret is published.
+   secret is published or short.
 3. `make backup`.
 4. Both `\password` commands.
 5. `docker compose up -d --wait keycloak`.

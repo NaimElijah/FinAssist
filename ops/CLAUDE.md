@@ -120,13 +120,14 @@ From the repository root unless stated:
 
 - **The realm imports only into an empty `keycloak-db-data` volume.** Edit `finassist-realm.json`,
   or a secret it takes from `.env`, and nothing changes for an existing volume until the realm is
-  imported again. `docs/operations/operations.md`'s "Changing the realm or its secrets" gives
-  both recipes — a re-import with `kc.sh import --override true`, or a recreated
-  `keycloak-db-data` — and both delete the realm's users. A setting `kcadm.sh` can change, and a
-  changed secret, take neither, and keep every user: its "Applying a realm setting in place" sets
-  the one on the running realm, and its "Rotating a secret" changes each secret in place, `.env`
-  first. A locked-out owner or a lost admin password is restored with `kcadm.sh` or `kc.sh
-  bootstrap-admin`, never by recreating `keycloak-db-data`.
+  imported again. `docs/operations/operations.md`'s "Changing the realm or its secrets" gives both
+  recipes — a re-import with `kc.sh import --override true`, or a recreated `keycloak-db-data` — and
+  both delete the realm's users. A setting `kcadm.sh` can change, and a changed secret, take
+  neither, and keep every user: its "Applying a realm setting in place" applies a changed setting to
+  the running realm (its worked example is the event listeners, the offline-session cap and
+  `admin-cli`'s flows), and its "Rotating a secret" changes each secret in place, `.env` first. A
+  locked-out owner or a lost admin password is restored with `kcadm.sh` or `kc.sh bootstrap-admin`,
+  never by recreating `keycloak-db-data`.
 - **Every secret and credential in the realm is a `${VAR}` placeholder**, pinned by
   `KeycloakRealmTest`. `KeycloakRealmIT` imports the file into a real Keycloak and reads back the
   sign-in protection, the owner's id and required actions, and each client's scope and audience;
@@ -137,3 +138,17 @@ From the repository root unless stated:
   role in the realm reaches the `roles` claim. `KeycloakRealmTest` pins the file, and
   `KeycloakRealmIT` reads the scope back from a running Keycloak through its admin API, because the
   gateway's client permits no grant this build can mint a token with.
+- **The realm and the image state what Keycloak would otherwise default** (ADR-060). The file sets
+  `"eventsListeners": []`, so no listener writes sign-ins to the log; `KeycloakRealmTest` and
+  `KeycloakRealmIT` read it back. It declares `admin-cli` explicitly, a public client with every
+  flow off (`standardFlowEnabled`, `implicitFlowEnabled`, `directAccessGrantsEnabled`,
+  `serviceAccountsEnabled`) and `fullScopeAllowed: false`, so Keycloak's default entry, which
+  permits the password grant, is not the one in force. It caps offline sessions at 36,000 s
+  (`offlineSessionMaxLifespanEnabled`, equal to `ssoSessionMaxLifespan`), so none outlives a
+  browser session.
+- **Keycloak logs JSON, and builds without its deprecated features.** `docker-compose.yml` sets
+  `KC_LOG_CONSOLE_OUTPUT=json`, as every other service writes JSON (ADR-019), pinned by
+  `KeycloakRealmTest`. `ops/keycloak/Dockerfile` sets `KC_FEATURES_DISABLED`
+  (`twitter-broker,identity-brokering-api`) at `kc.sh build`, which freezes the feature set, so
+  changing it means rebuilding the image; `KeycloakRealmIT` reads every deprecated feature back from
+  the built image as disabled.

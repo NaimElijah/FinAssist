@@ -34,9 +34,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * is, because the container never reads past the length a request declares.
  *
  * <p>A refusal is 413 with an RFC 9457 problem whose {@code code} is {@code CONTENT_TOO_LARGE}: the code
- * the ledger answers for any 413, and the one the assistant answers for the same limit (ADR-028). The
- * filter writes that body itself, because it runs before the dispatcher and so before any controller
- * advice could, and logs each refusal once at WARN.
+ * the ledger answers for any 413, and the one the gateway and the assistant answer for the same limit
+ * (ADR-028, ADR-058). The filter writes that body itself, because it runs before the dispatcher and
+ * so before any controller advice could, and logs each refusal once at WARN.
  *
  * <p>{@link LedgerConfiguration} registers it after the Host allow-list ({@link HostAllowListFilter}) and
  * the request observation, and ahead of every filter that could read a body, Spring Security's and the
@@ -44,7 +44,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 public class RequestBodyLimitFilter extends OncePerRequestFilter {
 
-    /** The largest request body the ledger reads: 64 KiB, the limit the assistant applies too. */
+    /** The largest request body the ledger reads: 64 KiB, the limit the gateway and the assistant apply too. */
     public static final int MAX_REQUEST_BODY_BYTES = 64 * 1024;
 
     /** What {@link HttpServletRequest#getContentLengthLong()} answers when a request declares no length. */

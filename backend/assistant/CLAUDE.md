@@ -98,6 +98,26 @@ From `backend/assistant`:
   outage, and failures are mapped only inside `_KeySetClient.fetch_data`, which never sees a
   token. Pinned by `tests/test_authorization.py`. `tests/test_auth.py` serves the assistant the
   same key-set bodies that `LedgerJwksBodyTest` serves the ledger: keep the two in step.
+- **The key source trusts only the set it last fetched** (ADR-059). `_KeySetClient` is built with
+  `cache_keys=False` and a 300 s set lifespan (`JWKS_CACHE_LIFESPAN_SECONDS`), so a key the realm
+  removed stops verifying once the set is refetched, and an outage past the lifespan is a 503, as
+  on the ledger. After a failed fetch, `JWKS_FETCH_BACKOFF_SECONDS` (15 s) answers every lookup as
+  an outage without fetching, so a stalled fetch does not hold PyJWT's lock request after request.
+  Do not turn `cache_keys` on or shorten the backoff below the 5 s fetch timeout. Pinned by the
+  key-set tests in `tests/test_auth.py`.
+- **uvicorn runs `h11`, bounded and quiet** (`adapters/__main__.py`, ADR-058): `http="h11"` with
+  `h11_max_incomplete_event_size=MAX_HEADER_BLOCK_BYTES` (16 KiB), because `httptools` buffers a
+  header block of any size; `proxy_headers=False`, so no `X-Forwarded-*` rewrites the client address
+  or scheme; `server_header=False`; and `ws="none"`. Pinned by `tests/test_observability.py`.
+- **A registered secret is scrubbed from every logged value** (`adapters/observability.py`). A
+  value that is not text, a number, a boolean, `None` or a container is scrubbed as its text, so a
+  secret inside an exception or an object's representation does not reach the output.
+  `redact_secrets` stays after `format_exc_info` in `_processors`, so a traceback is scrubbed too.
+  Pinned by `tests/test_observability.py`.
+- **`Money` computes over the widest exponent range** (`_widest` in `shared/money.py`), so an
+  amount past a million integer digits is accepted and a result is never rounded as subnormal, as
+  `BigDecimal` accepts it. Build every context there; none inherits Python's default limit.
+  Pinned by `tests/test_money.py`.
 - **The problem handlers live in the composition root**, `adapters/problems.py` — the one package
   allowed to see every context's exceptions. The ledger maps them per context, a `*ProblemAdvice`
   in each, and keeps only a fallback, `LedgerProblemHandler`, in `composition`; only `portfolio` is
