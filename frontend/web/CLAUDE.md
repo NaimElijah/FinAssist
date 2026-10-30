@@ -23,7 +23,7 @@ the gateway. Each feature maps the generated wire types onto its own types in it
 - **Planning.** `PlannedFlowsPage` plans flows and moves each through its lifecycle.
   `ScenariosPage` defines scenarios. `ProjectionPage` (`/planning/projection`) charts a scenario's
   projection, with its first shortfall, against the cash and invested accounts the owner chooses.
-  `ComparisonPage` (`/planning/compare`) compares two or more scenarios against a baseline in
+  `ComparisonPage` (`/planning/compare`) compares two to ten scenarios against a baseline in
   tables. Planning's account choices come from accounting through `PlanningAccountsBridge` in
   `src/app`, the web client's one cross-feature translation.
 - **Portfolio** (ADR-026, extended by ADR-030). `PortfolioPage` looks a holding up by symbol.

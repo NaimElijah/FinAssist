@@ -505,8 +505,8 @@ export async function defineScenario(input: DefineScenarioInput): Promise<Scenar
  * @param params - the scenario, the horizon, the step, and the account refs opening each line.
  * @returns the projection, every amount the string the ledger sent.
  * @throws ApiError - on a non-2xx response: 404 `SCENARIO_NOT_FOUND`, 422 `RULE_VIOLATED` for a
- *   horizon that is not whole steps or does not start before it ends, or an account ref that is
- *   unknown or in another currency.
+ *   horizon that is not whole steps, does not start before it ends or spans more than 100 years,
+ *   or an account ref that is unknown or in another currency.
  * @throws ApiBodyError - when the response carries no JSON body, no points, a step or currency
  *   the contract does not name, or an amount that is not a decimal string.
  * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
@@ -521,16 +521,17 @@ export async function projectScenario(params: ProjectionParams): Promise<Project
 }
 
 /**
- * Compare two or more scenarios over one horizon, one step and one opening position, measuring
+ * Compare two to ten scenarios over one horizon, one step and one opening position, measuring
  * each from a baseline. Side-effect free: nothing is recorded (ADR-016).
  *
  * @param params - the scenario ids in the order to list them, the baseline among them, the
  *   horizon, the step, and the account refs opening each line.
  * @returns the comparison, its scenarios in the order requested, every amount - divergences
  *   included - the signed string the ledger sent.
- * @throws ApiError - on a non-2xx response: 400 when fewer than two scenarios are named, 422
- *   `UNKNOWN_SCENARIO` for an id naming no scenario, and 422 `RULE_VIOLATED` for a baseline not
- *   among them, scenarios in different currencies, or a horizon or account ref it refuses.
+ * @throws ApiError - on a non-2xx response: 400 when fewer than two or more than ten scenarios
+ *   are named, 422 `UNKNOWN_SCENARIO` for an id naming no scenario, and 422 `RULE_VIOLATED` for a
+ *   baseline not among them, scenarios in different currencies, a horizon spanning more than 100
+ *   years, or another horizon or account ref it refuses.
  * @throws ApiBodyError - when the response carries no JSON body, a baseline that is none of its
  *   scenarios, a step or currency the contract does not name, or an amount that is not a decimal
  *   string.
