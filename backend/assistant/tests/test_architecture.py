@@ -96,15 +96,29 @@ def _declared_runtime_distributions() -> frozenset[str]:
 # worth reaching for, and an inward module importing it passed this rule until it was listed.
 #
 # `jwt` is blind the same way `opentelemetry` is: the distribution is declared as
-# `PyJWT[crypto]==2.14.0` (ADR-032), and the derivation strips the extra and the version pin
-# but never lowercases, producing the literal `PyJWT` - while code imports `jwt`, matching
-# neither that nor `pyjwt`.
+# `PyJWT[crypto]` (ADR-032), and the derivation strips the extra and the version pin but never
+# lowercases, producing the literal `PyJWT` - while code imports `jwt`, matching neither that
+# nor `pyjwt`.
 #
 # `cryptography` is blind for the `pydantic_core` reason, only worse: it is never declared at
 # all. It arrives transitively, through the `crypto` extra on `PyJWT[crypto]`, so no declared
 # runtime dependency's name is ever `cryptography` and the derivation can never produce it.
+#
+# `anthropic` and `pandas` are blind because they are no longer declared (#341): both were
+# runtime dependencies nothing imported, and removing them dropped them from the derivation.
+# Like sqlalchemy, each is refused before it returns: an LLM vendor's SDK belongs behind an
+# outbound adapter, and a dataframe library computes in binary floats.
 FORBIDDEN_FRAMEWORKS = _declared_runtime_distributions() | frozenset(
-    {"opentelemetry", "pydantic_core", "starlette", "sqlalchemy", "jwt", "cryptography"}
+    {
+        "opentelemetry",
+        "pydantic_core",
+        "starlette",
+        "sqlalchemy",
+        "jwt",
+        "cryptography",
+        "anthropic",
+        "pandas",
+    }
 )
 
 # Standard-library modules no inward layer may import, because each is I/O however it arrives:
@@ -842,12 +856,12 @@ def Given_the_opentelemetry_packages_When_derived_Then_the_derivation_alone_woul
 def Given_the_pyjwt_distribution_When_derived_Then_the_derivation_alone_would_miss_it() -> None:
     """Pins why `jwt` is listed explicitly rather than left to the derivation.
 
-    The distribution is declared as `PyJWT[crypto]==2.14.0` (ADR-032). The derivation splits
-    off the `[crypto]` extra and the version pin but never lowercases, so it produces the
-    literal `PyJWT` - and the code imports `jwt`, matching neither that nor `pyjwt`. Before this
-    entry existed an inward module could import PyJWT under its real import root and the
-    framework rule passed - verified by removing the entry and watching a planted `import jwt`
-    in `portfolio/domain` go green.
+    The distribution is declared as `PyJWT[crypto]` (ADR-032). The derivation splits off the
+    `[crypto]` extra and the version pin but never lowercases, so it produces the literal
+    `PyJWT` - and the code imports `jwt`, matching neither that nor `pyjwt`. Before this entry
+    existed an inward module could import PyJWT under its real import root and the framework
+    rule passed - verified by removing the entry and watching a planted `import jwt` in
+    `portfolio/domain` go green.
 
     This test fails if someone deletes the explicit entry believing the derivation covers it.
     """
@@ -879,6 +893,20 @@ def Given_the_cryptography_package_When_derived_Then_it_is_unreachable() -> None
         "the derivation covers it before relying on the explicit entry below"
     )
     assert "cryptography" in FORBIDDEN_FRAMEWORKS
+
+
+def Given_the_undeclared_llm_and_dataframe_libraries_When_listed_Then_both_are_forbidden() -> None:
+    """Pins why `anthropic` and `pandas` are listed explicitly: neither is declared any more.
+
+    Both were runtime dependencies that nothing imported, and were removed (#341). The
+    derivation reads only what `pyproject.toml` declares, so removing them dropped both names
+    from this rule without a sound: an inward module could have imported either and the
+    framework rule passed. An LLM vendor's SDK belongs behind an outbound adapter, and a
+    dataframe library computes in binary floats, so neither may reach an inward layer.
+
+    This test fails if either explicit entry is deleted while its dependency stays undeclared.
+    """
+    assert {"anthropic", "pandas"} <= FORBIDDEN_FRAMEWORKS
 
 
 @pytest.mark.parametrize("path", INWARD_FILES, ids=_relative_id)
