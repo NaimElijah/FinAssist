@@ -119,12 +119,20 @@ export default defineConfig({
         // subdomains and every IP literal are allowed already, and any other Host is refused —
         // that refusal is the DNS-rebinding protection ADR-030 relies on. Do not set this to
         // `true`; that would accept every Host and remove the protection entirely.
+        // `fs.strict` and `fs.allow` are left at their defaults too: strict, and this workspace
+        // alone, which keeps the repository root's `.env` out of what the dev server serves.
         headers: FRAMING_REFUSED_HEADERS,
+        // No CORS. The app calls only its own origin, and Vite's default would answer every
+        // `localhost` origin on any port, letting another local page read whatever this server
+        // serves; the CSRF defence counts on no other origin being answered.
+        cors: false,
         proxy,
     },
     preview: {
         host: LOOPBACK_HOST,
         headers: FRAMING_REFUSED_HEADERS,
+        // Off for the same reason as the dev server's.
+        cors: false,
         proxy,
     },
     test: {

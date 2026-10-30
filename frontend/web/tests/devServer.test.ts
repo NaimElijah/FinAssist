@@ -77,6 +77,17 @@ describe('the dev/preview server', () => {
         expect(viteConfig.preview?.headers?.['Content-Security-Policy']).toBe(FRAME_ANCESTORS_NONE);
     });
 
+    it('Given_the_vite_config_When_read_Then_cors_is_off_and_fs_is_left_strict', () => {
+        // The app is same-origin and needs no CORS. Vite's default would answer any localhost
+        // origin, and the CSRF defence counts on no other origin reading what this one serves.
+        expect(viteConfig.server?.cors).toBe(false);
+        expect(viteConfig.preview?.cors).toBe(false);
+        // Left unset, `fs.strict` is true and `fs.allow` is this workspace alone, which is what
+        // keeps the repository root's `.env` out of what the dev server will serve.
+        expect(viteConfig.server?.fs?.strict).toBeUndefined();
+        expect(viteConfig.server?.fs?.allow).toBeUndefined();
+    });
+
     it('Given_the_vite_config_When_read_Then_server_and_preview_share_one_proxy_map', () => {
         expect(viteConfig.preview?.proxy).toBe(viteConfig.server?.proxy);
     });
@@ -171,6 +182,25 @@ describe('the dev/preview server', () => {
 
 /** The policy both servers send, so no other page can frame the app. */
 const FRAME_ANCESTORS_NONE = "frame-ancestors 'none'";
+
+/** A page on another `localhost` port: same-site with the app, but never same-origin. */
+const OTHER_LOCALHOST_ORIGIN = 'http://localhost:3000';
+
+/**
+ * Files at the repository root, outside the workspace the dev server serves, each committed and
+ * holding no secret, so asking for one can leak nothing even if the guard failed.
+ *
+ * `docker-compose.yml` matches no `fs.deny` pattern, so only `fs.allow` refuses it: it is the
+ * probe that notices a widened allow-list. `.env.example` shares the owner's real `.env`'s name
+ * pattern, which `fs.deny` refuses wherever it sits, so it notices a narrowed deny-list instead.
+ */
+const COMPOSE_FILE = fileURLToPath(new URL('../../../docker-compose.yml', import.meta.url));
+const ENV_EXAMPLE = fileURLToPath(new URL('../../../.env.example', import.meta.url));
+
+/** The dev server's `/@fs/` URL for an absolute file path. */
+function fsUrlFor(file: string): string {
+    return `/@fs/${file.replaceAll(path.sep, '/').replace(/^\//, '')}`;
+}
 
 /** The endpoint Vite mounts to open a file in the owner's editor, from its error overlay. */
 const OPEN_IN_EDITOR = '/__open-in-editor';
@@ -291,6 +321,33 @@ describe('the running dev server', () => {
         expect(answer.headers['content-type']).toContain('text/html');
         expect(answer.headers['content-security-policy']).toBe(FRAME_ANCESTORS_NONE);
     });
+
+    it('Given_a_request_from_another_localhost_origin_When_a_source_module_is_served_Then_no_cors_header_allows_it', async () => {
+        const answer = await get(port, '/src/shared/api/backends.ts', {
+            host: `localhost:${String(port)}`,
+            origin: OTHER_LOCALHOST_ORIGIN,
+        });
+
+        expect(answer.status).toBe(200);
+        expect(answer.headers['access-control-allow-origin']).toBeUndefined();
+    });
+
+    it.each([
+        ['docker-compose.yml', COMPOSE_FILE],
+        ['.env.example', ENV_EXAMPLE],
+    ])(
+        'Given_the_repository_roots_%s_When_requested_through_fs_Then_the_dev_server_refuses_it_403',
+        async (_name, file) => {
+            expect(existsSync(file)).toBe(true);
+
+            const answer = await get(port, fsUrlFor(file), {
+                host: `localhost:${String(port)}`,
+                'sec-fetch-site': 'same-origin',
+            });
+
+            expect(answer.status).toBe(403);
+        },
+    );
 
     it('Given_a_same_origin_request_without_a_file_When_open_in_editor_is_called_Then_vites_own_middleware_answers_500', async () => {
         // Vite's error overlay calls the endpoint from the page itself, so a same-origin request

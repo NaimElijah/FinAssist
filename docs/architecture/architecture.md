@@ -222,7 +222,9 @@ a published secret (ADR-044); and `ops/compose_check/compose_check.py`, the chec
   `tests/devServer.test.ts`). The dev server and `vite preview` send
   `Content-Security-Policy: frame-ancestors 'none'` on what they answer themselves, the app shell
   included, so no page can frame the app; that is the whole policy, and the full one is
-  [#165](https://github.com/NaimElijah/FinAssist/issues/165).
+  [#165](https://github.com/NaimElijah/FinAssist/issues/165). Both turn CORS off, so no other
+  origin, another `localhost` port included, may read what they serve, and leave `fs.strict` and
+  `fs.allow` at Vite's defaults, which serve `frontend/web` alone.
 - **Web to ledger, through the gateway** — HTTP, for the accounting, budgeting and planning
   screens. **Implemented on both sides for all three.** The ledger serves
   `/api/v1/accounts`, `/api/v1/transactions`,
