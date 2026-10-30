@@ -13,6 +13,7 @@ import socket
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, NamedTuple, NoReturn
 
@@ -546,6 +547,65 @@ def Given_a_secret_named_field_When_logged_Then_its_value_never_reaches_the_outp
     record = _last_record(capsys.readouterr().out)
     assert record["api_key"] == REDACTED
     assert record["password"] == REDACTED
+
+
+class _CarriesItInItsRepr:
+    """An object that shows the secret only when rendered, as a client or a response may."""
+
+    def __repr__(self) -> str:
+        return f"<client key={SECRET}>"
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        ConnectionError(f"refused calling https://api.anthropic.com?key={SECRET}"),
+        f"key={SECRET}".encode(),
+        _CarriesItInItsRepr(),
+    ],
+    ids=["exception", "bytes", "object-with-a-repr"],
+)
+def Given_a_registered_secret_inside_a_non_string_field_When_rendered_Then_it_is_scrubbed(
+    settings: Settings, capsys: pytest.CaptureFixture[str], field: object
+) -> None:
+    """The renderer turns any other value into text after redaction has run, so a secret inside
+    one would reach the output unscrubbed. An outbound client logging its exception as a field is
+    the likely first carrier."""
+    configure_logging(settings)
+
+    structlog.get_logger("test").warning("outbound call failed", error=field)
+
+    written = capsys.readouterr().out
+    assert SECRET not in written
+    assert REDACTED in _last_record(written)["error"]
+
+
+@pytest.mark.parametrize("field", [True, None, 1.5], ids=["bool", "none", "float"])
+def Given_a_boolean_none_or_float_field_When_rendered_Then_it_keeps_its_json_type(
+    settings: Settings, capsys: pytest.CaptureFixture[str], field: object
+) -> None:
+    configure_logging(settings)
+
+    structlog.get_logger("test").info("measured", value=field)
+
+    value = _last_record(capsys.readouterr().out)["value"]
+    assert value == field
+    assert type(value) is type(field)
+
+
+def Given_a_decimal_field_When_rendered_Then_it_is_its_text_scrubbed(
+    settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Through ``str``, so ``12.50``, not ``Decimal('12.50')``, and scrubbed like any text."""
+    configure_logging(settings)
+    digits = "9876543210"
+    register_secret(digits)
+
+    structlog.get_logger("test").info("measured", plain=Decimal("12.50"), holding=Decimal(digits))
+
+    record = _last_record(capsys.readouterr().out)
+    assert record["plain"] == "12.50"
+    assert record["holding"] == REDACTED
 
 
 def Given_a_log_event_When_written_Then_it_is_one_json_object_per_line(

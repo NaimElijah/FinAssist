@@ -767,7 +767,9 @@ through a processor that removes secret-named keys, so a new call site inherits 
 the requirements mean by "redacted at the logging boundary, not at each call site". The key
 fragments include the credential names authentication brought — `authorization`, `cookie`,
 `csrf`, `xsrf`, `session`, `bearer` and `jwt`, on both the assistant and the web client — and
-still no bare `token`, so a token count survives.
+still no bare `token`, so a token count survives. On the assistant, a registered secret value is
+scrubbed from every field, not only a string: an exception, `bytes` or any other object is written
+as its own scrubbed text, because the renderer would otherwise turn it into text after redaction.
 
 **An authentication failure is logged as a reason, never as the credential.**
 

@@ -190,9 +190,17 @@ def _scrub(value: str) -> str:
 
 
 def _redact_value(value: Any, depth: int = 0) -> Any:
-    """Redact recursively, so a secret nested in a payload is not missed."""
+    """Redact recursively, so a secret nested in a payload is not missed.
+
+    A value that is not text, a number, a boolean, ``None`` or a container is scrubbed as its text.
+    The renderer would otherwise turn it into text itself, after this has run, so a secret inside
+    an exception, ``bytes`` or an object's representation would reach the output unscrubbed.
+    """
     if depth >= _MAX_REDACTION_DEPTH:
         return REDACTED
+    if value is None or isinstance(value, int | float):
+        # bool is an int, so it is kept as it is too.
+        return value
     if isinstance(value, str):
         return _scrub(value)
     if isinstance(value, dict):
@@ -203,7 +211,7 @@ def _redact_value(value: Any, depth: int = 0) -> Any:
     if isinstance(value, (list, tuple)):
         rebuilt = [_redact_value(item, depth + 1) for item in value]
         return tuple(rebuilt) if isinstance(value, tuple) else rebuilt
-    return value
+    return _scrub(str(value))
 
 
 def redact_secrets(
