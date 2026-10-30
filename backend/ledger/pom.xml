@@ -146,7 +146,9 @@
       <artifactId>spring-boot-starter-security-test</artifactId>
       <scope>test</scope>
     </dependency>
-    <!-- InMemorySpanExporter, so a test can assert a span was recorded without a collector. -->
+    <!-- @AutoConfigureTracing and @AutoConfigureMetrics, which turn back on the tracing and
+         metrics export Boot turns off in tests: LedgerObservabilityIT uses both, and
+         LedgerAuthorizationIT uses @AutoConfigureMetrics for /actuator/prometheus. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-opentelemetry-test</artifactId>
