@@ -49,12 +49,12 @@ append-only history: to change course, add a new record and mark the old one
 | [041](ADR-041-consume-fifo-orders-its-own-lots.md) | `consume_fifo` orders its own lots, oldest first | Accepted |
 | [042](ADR-042-agent-instructions-per-codebase.md) | Agent instructions split per codebase, one `CLAUDE.md` beside each | Accepted |
 | [043](ADR-043-github-secret-scanning-and-dependabot-alerts.md) | GitHub's own secret scanning, push protection and Dependabot alerts; no scanner in CI | Accepted, extended by 044 |
-| [044](ADR-044-compose-refuses-a-published-secret.md) | Compose refuses to start on a secret that a file in the repository holds | Accepted |
+| [044](ADR-044-compose-refuses-a-published-secret.md) | Compose refuses to start on a secret that a file in the repository holds | Accepted, extended by 061 |
 | [045](ADR-045-dependabot-triage-and-toolchain-holds.md) | Dependabot's updates are triaged weekly, the Java pair moves together, and the toolchain lines move only by ADR | Accepted, extended by 047 |
 | [046](ADR-046-architecture-rules-read-the-code-never-load-it.md) | Architecture rules read the code and never load it | Accepted |
 | [047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) | Twelve passages of Accepted records reconciled with the system as built | Accepted |
 | [048](ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md) | Domain events stay in-process until a consumer exists, and production keeps no event log | Accepted |
-| [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted |
+| [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted, extended by 061 |
 | [050](ADR-050-no-domain-metric-yet-decided-again.md) | No domain metric yet, decided again, with new triggers | Accepted |
 | [051](ADR-051-what-a-translation-may-decide.md) | What a translation may decide: choosing records stays in `composition`, a rule in the downstream's own words moves into it | Accepted |
 | [052](ADR-052-ops-holds-operator-code-one-directory-per-tool.md) | `ops/` holds operator code, one directory per tool | Accepted |
@@ -66,6 +66,7 @@ append-only history: to change course, add a new record and mark the old one
 | [058](ADR-058-each-service-bounds-what-one-request-can-cost.md) | Each service bounds what one request can cost | Accepted |
 | [059](ADR-059-the-assistant-trusts-only-the-key-set-it-last-fetched.md) | The assistant trusts only the key set it last fetched | Accepted |
 | [060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md) | The `finassist` realm and the Keycloak image are configured, not defaulted | Accepted |
+| [061](ADR-061-the-stack-refuses-a-configuration-that-weakens-a-credential.md) | The stack refuses a configuration that weakens a credential | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -282,4 +283,13 @@ require a second factor of a viewer, and 060 records that rejection with its tri
 realm and a Host allow-list for Keycloak are
 [#368](https://github.com/NaimElijah/FinAssist/issues/368) and
 [#369](https://github.com/NaimElijah/FinAssist/issues/369)
+([#340](https://github.com/NaimElijah/FinAssist/issues/340)).
+
+061 extends 044 and 049 on 2026-10-30. 044 refuses a secret the repository publishes and accepts any
+other, a one-character password included; 049 names the keys `make check-compose` refuses and has no
+rule for a log level. `secret-check` now also refuses any of its eight secrets shorter than 32
+characters, what `openssl rand -hex 16` writes, as the owner chose on 2026-10-30. `make check-compose`
+refuses a log level, a log group, a logging configuration or Spring Boot's `DEBUG` or `TRACE` switch
+on the gateway, because DEBUG on Spring Web or Security writes the authorization code and its PKCE
+verifier. An owner whose `.env` holds a shorter value rotates it before the stack starts
 ([#340](https://github.com/NaimElijah/FinAssist/issues/340)).
