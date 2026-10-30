@@ -650,6 +650,17 @@ class KeycloakRealmTest {
     }
 
     /**
+     * Every service writes JSON on stdout (ADR-019). Keycloak's console default is plain text, and
+     * the option is read at start-up, so it lives on the Compose service rather than in the image.
+     */
+    @Test
+    void Given_the_keycloak_service_When_its_environment_is_read_Then_its_console_log_is_json() {
+        assertThat(keycloakServiceEnvironment().get("KC_LOG_CONSOLE_OUTPUT"))
+                .as("KC_LOG_CONSOLE_OUTPUT on the %s service in %s", KEYCLOAK_SERVICE, COMPOSE_FILE)
+                .isEqualTo("json");
+    }
+
+    /**
      * The half of "no secret is ever a literal" that lives in {@code docker-compose.yml}. Keycloak
      * imports an unset variable as its own placeholder text, so a secret's variable must be
      * required where Compose resolves it: {@code ${VAR:?message}}, which refuses to start the
