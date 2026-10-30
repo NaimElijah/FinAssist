@@ -143,7 +143,7 @@ Justified by earlier records, and not repeated here:
 | `uvicorn`, plain | The ASGI server (ADR-003). It runs `h11` with WebSockets off (ADR-058), so the `[standard]` extra's five packages were never reached | BSD-3-Clause | A WebSocket route is added, or `uvloop` is wanted with a measured gain |
 | `pydantic-settings` | Typed, validated environment settings in `adapters/settings.py`; `os.environ` gives unvalidated strings. It is Pydantic's own settings loader (ADR-003) | MIT | The settings stop being Pydantic models |
 | `httpx` (dev extra) | Starlette's `TestClient` and the client of the real-server tests. The standard library's `urllib` is not a test client for an ASGI app. No release since 2024-12-06 | BSD-3-Clause | Starlette drops the `httpx` fallback, or the ledger client lands and an ADR chooses `httpx` or `httpx2` |
-| `pytest` | The runner for the assistant and for the four operator tools under `ops/`, which run on the assistant's toolchain (ADR-052) | MIT | It is archived |
+| `pytest` | The runner for the assistant and for the operator tools' suites under `ops/`, which run on the assistant's toolchain (ADR-052) | MIT | It is archived |
 | `hypothesis` | Property tests of the `Money` and portfolio cores, derandomised in `tests/conftest.py` (ADR-017); the standard library has no such tool | MPL-2.0 | Its licence changes, or the tests ship in an artefact |
 | `ruff`, `mypy` | The linter and formatter, and the strict type checker, that ADR-003 chose; they also check the operator tools | MIT | Either is archived or replaced |
 | `pip-audit` | The assistant's CI dependency audit, `make audit-assistant` | Apache-2.0 | No release by 2027-03, or OSV-Scanner replaces it everywhere ([#66](https://github.com/NaimElijah/FinAssist/issues/66)) |
