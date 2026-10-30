@@ -762,8 +762,11 @@ ledger client behind its own `LedgerPort`.
 - **Some versions are held, and some are bumped by hand.** Temurin stays on 21 and Python on 3.13
   until an ADR moves them, so Dependabot ignores their next lines
   ([ADR-045](docs/ADRs/ADR-045-dependabot-triage-and-toolchain-holds.md)). TypeScript is held at
-  6.0.3 until `typescript-eslint` supports 7, the image tags named directly in `docker-compose.yml`
-  have no Dependabot ecosystem, and uv is pinned in the assistant's image but not in CI.
+  6.0.3 until `typescript-eslint` supports 7, and `@types/node` follows Node 24, the runtime's
+  major. The image tags named directly in `docker-compose.yml` have no Dependabot ecosystem, so
+  they move by hand with the assistant's Dockerfile, as does palantir-java-format in both poms; uv
+  is pinned in the assistant's image but not in CI
+  ([ADR-062](docs/ADRs/ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md)).
 
 </details>
 
