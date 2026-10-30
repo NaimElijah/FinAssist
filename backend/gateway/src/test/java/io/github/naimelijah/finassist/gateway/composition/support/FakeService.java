@@ -44,6 +44,12 @@ public final class FakeService implements AutoCloseable {
      */
     private static final Duration STALL_LIMIT = Duration.ofMinutes(2);
 
+    /**
+     * The body length a request is recorded with until its body is read, so that a request whose
+     * headers arrived is recorded even if its body never does.
+     */
+    public static final int BODY_NOT_READ = -1;
+
     private final HttpServer server;
     private final AtomicReference<ReceivedRequest> lastRequest = new AtomicReference<>();
     private volatile CannedResponse nextResponse = CannedResponse.ok();
@@ -132,9 +138,11 @@ public final class FakeService implements AutoCloseable {
         }
         Map<String, List<String>> headers = new LinkedHashMap<>();
         exchange.getRequestHeaders().forEach((name, values) -> headers.put(name.toLowerCase(Locale.ROOT), values));
-        lastRequest.set(new ReceivedRequest(
-                exchange.getRequestMethod(), exchange.getRequestURI().getRawPath(), Map.copyOf(headers)));
-        exchange.getRequestBody().readAllBytes();
+        String method = exchange.getRequestMethod();
+        String path = exchange.getRequestURI().getRawPath();
+        lastRequest.set(new ReceivedRequest(method, path, Map.copyOf(headers), BODY_NOT_READ));
+        int bodyLength = exchange.getRequestBody().readAllBytes().length;
+        lastRequest.set(new ReceivedRequest(method, path, Map.copyOf(headers), bodyLength));
 
         CannedResponse response = this.nextResponse;
         exchange.getResponseHeaders().add("Content-Type", response.contentType());
@@ -153,8 +161,12 @@ public final class FakeService implements AutoCloseable {
         }
     }
 
-    /** What this service actually received: the path with any prefix already stripped, and the headers that survived the relay. */
-    public record ReceivedRequest(String method, String path, Map<String, List<String>> headers) {
+    /**
+     * What this service actually received: the path with any prefix already stripped, the headers
+     * that survived the relay, and how many body bytes arrived, {@value FakeService#BODY_NOT_READ}
+     * until the body has been read.
+     */
+    public record ReceivedRequest(String method, String path, Map<String, List<String>> headers, int bodyLength) {
 
         /** Case-insensitive presence check, matching HTTP's own header semantics. */
         public boolean hasHeader(String name) {

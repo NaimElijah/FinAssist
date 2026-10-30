@@ -5,14 +5,16 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.http.client.JdkClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.autoconfigure.ClientHttpRequestFactoryBuilderCustomizer;
+import org.springframework.boot.servlet.filter.OrderedFormContentFilter;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 
 /**
- * Registers what wraps everything else the gateway does: the Host allow-list, ahead of the
- * security chain, every route and every relay; and the HTTP version every outbound call speaks.
+ * Registers what wraps everything else the gateway does: the Host allow-list and the request-body
+ * limit, ahead of the security chain, every route and every relay; and the HTTP version every
+ * outbound call speaks.
  *
  * <p>Mirrors the ledger's {@code LedgerConfiguration}. The gateway has no bounded context of its
  * own — it holds no domain and restates no DTO of the services it relays to (ADR-026) — so every
@@ -40,6 +42,21 @@ public class GatewayConfiguration {
         FilterRegistrationBean<HostAllowListFilter> registration =
                 new FilterRegistrationBean<>(new HostAllowListFilter(allowedHosts));
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
+    }
+
+    /**
+     * The request-body limit, registered just ahead of the form-content filter, the first filter in
+     * the chain that can read a body; Spring Security, Spring Cloud Gateway's form filter and the
+     * relay run later still. That places it after the Host allow-list and after Spring MVC's
+     * request observation, so a refusal is traced and counted like any other answer, exactly as on
+     * the ledger. {@code GatewayApplicationIT} reads the order from the running server.
+     */
+    @Bean
+    FilterRegistrationBean<RequestBodyLimitFilter> requestBodyLimitFilter() {
+        FilterRegistrationBean<RequestBodyLimitFilter> registration =
+                new FilterRegistrationBean<>(new RequestBodyLimitFilter());
+        registration.setOrder(OrderedFormContentFilter.DEFAULT_ORDER - 1);
         return registration;
     }
 

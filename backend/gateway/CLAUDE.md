@@ -16,7 +16,10 @@ answers Actuator probes.
 It holds no bounded context: everything is in its `composition/` root. The parts to know:
 
 - `GatewayConfiguration` registers the Host allow-list first. `HostAllowListFilter` is a
-  deliberate copy of the ledger's, configured by `GATEWAY_ALLOWED_HOSTS`.
+  deliberate copy of the ledger's, configured by `GATEWAY_ALLOWED_HOSTS`. `RequestBodyLimitFilter`,
+  registered after the Host allow-list and the request observation, is a copy of the ledger's too:
+  a body over 64 KiB, declared or chunked, is refused 413 `CONTENT_TOO_LARGE` before the security
+  chain or the relay reads it.
 - `GatewaySecurityConfiguration` is the one security chain: deny by default, 401 never 302, and a
   renamed CSRF cookie and header. `HeaderOnlyCsrfTokenRequestHandler` reads the token from that
   header alone, never from a `_csrf` request parameter, which `csrf().spa()`'s own handler accepts.

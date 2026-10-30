@@ -3,6 +3,7 @@ package io.github.naimelijah.finassist.gateway;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.naimelijah.finassist.gateway.composition.HostAllowListFilter;
+import io.github.naimelijah.finassist.gateway.composition.RequestBodyLimitFilter;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -74,6 +75,27 @@ class GatewayApplicationIT {
 
     /** The name Spring Boot registers the security chain under, and the one Tomcat knows it by. */
     private static final String SECURITY_FILTER_NAME = "springSecurityFilterChain";
+
+    /** The names Boot registers its request observation and its form-content filter under. */
+    private static final String OBSERVATION_FILTER_NAME = "webMvcObservationFilter";
+
+    private static final String FORM_CONTENT_FILTER_NAME = "formContentFilter";
+
+    /** The name Spring Cloud Gateway Server MVC registers its form filter under, which reads a form body. */
+    private static final String GATEWAY_FORM_FILTER_NAME = "formFilter";
+
+    /**
+     * The largest request body the gateway reads: 64 KiB, the limit the ledger and the assistant
+     * apply too. Spelled here rather than borrowed from {@code RequestBodyLimitFilter}, as every
+     * wire value is.
+     */
+    private static final int BODY_LIMIT_BYTES = 64 * 1024;
+
+    /** The smallest JSON body, padded to a size with the whitespace JSON allows after a value. */
+    private static final String EMPTY_OBJECT = "{}";
+
+    /** A relayed write: refused without a session, so only the body limit could answer it 413. */
+    private static final String LEDGER_WRITE = "/ledger/api/v1/transactions";
 
     private static final String SESSION_COOKIE = "FINASSIST_SESSION";
 
@@ -370,6 +392,64 @@ class GatewayApplicationIT {
         assertThat(names.subList(1, names.size()))
                 .withFailMessage("springSecurityFilterChain must run, and must run after the Host allow-list")
                 .contains(SECURITY_FILTER_NAME);
+    }
+
+    /**
+     * Read from the running server, not from the registration's order: the body limit must run
+     * after the Host allow-list, which refuses a foreign request before anything else sees it
+     * (ADR-030), after Spring MVC's request observation, so that a refusal is traced and counted,
+     * and before every filter that could read a body, Spring Security's, the form-content filter's
+     * and Spring Cloud Gateway's form filter's included, and so before the relay.
+     */
+    @Test
+    void
+            Given_the_running_gateway_When_its_filter_chain_is_read_Then_the_body_limit_runs_after_the_host_allow_list_and_before_any_body_reader() {
+        List<Context> webApps = webApps();
+        List<String> names = webApps.stream()
+                .flatMap(web -> Arrays.stream(web.findFilterMaps()).map(FilterMap::getFilterName))
+                .toList();
+        List<String> classes = webApps.stream()
+                .flatMap(web -> Arrays.stream(web.findFilterMaps())
+                        .map(map -> web.findFilterDef(map.getFilterName()).getFilterClass()))
+                .toList();
+
+        int hostAllowList = classes.indexOf(HostAllowListFilter.class.getName());
+        int observation = names.indexOf(OBSERVATION_FILTER_NAME);
+        int bodyLimit = classes.indexOf(RequestBodyLimitFilter.class.getName());
+        assertThat(observation)
+                .as("the observation filter's position in %s", names)
+                .isNotNegative();
+        assertThat(bodyLimit)
+                .as("the body limit's position, after the Host allow-list and the observation, in %s", names)
+                .isGreaterThan(hostAllowList)
+                .isGreaterThan(observation);
+        assertThat(names.subList(0, bodyLimit))
+                .as("filters ahead of the body limit")
+                .doesNotContain(SECURITY_FILTER_NAME, FORM_CONTENT_FILTER_NAME, GATEWAY_FORM_FILTER_NAME);
+    }
+
+    /**
+     * The body limit runs before the security chain, shown by what it answers rather than by
+     * where it is registered: a write with no session and no CSRF token, whose declared length is
+     * one byte over the limit, is refused 413 {@code CONTENT_TOO_LARGE}. Had the chain seen it
+     * first, the answer would have been its own 401 or 403.
+     */
+    @Test
+    void Given_no_session_When_a_write_declares_a_body_over_the_limit_Then_it_is_refused_413_before_security()
+            throws Exception {
+        String body = EMPTY_OBJECT + " ".repeat(BODY_LIMIT_BYTES + 1 - EMPTY_OBJECT.length());
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + port + LEDGER_WRITE))
+                .timeout(TIMEOUT)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+
+        HttpResponse<String> response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(413);
+        assertThat(response.headers().firstValue("content-type")).contains("application/problem+json");
+        assertThat(response.body()).contains("\"code\":\"CONTENT_TOO_LARGE\"");
     }
 
     /** The web applications the running Tomcat holds, as the container itself sees them. */

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.naimelijah.finassist.gateway.composition.support.FakeOpenIdProvider;
 import io.github.naimelijah.finassist.gateway.composition.support.FakeService;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.BindException;
 import java.net.CookieManager;
 import java.net.CookieStore;
@@ -118,6 +119,21 @@ class GatewayLoginFlowIT {
             Map.entry("Access-Control-Allow-Private-Network", "true"),
             Map.entry("Access-Control-Expose-Headers", "*"),
             Map.entry("Access-Control-Max-Age", "600"));
+
+    /**
+     * The largest body the gateway relays: 64 KiB, the limit the ledger and the assistant apply
+     * too. Spelled here rather than borrowed from {@code RequestBodyLimitFilter}, as every wire
+     * value is.
+     */
+    private static final int BODY_LIMIT_BYTES = 64 * 1024;
+
+    /** The chunk size a hand-written chunked body is sent in. */
+    private static final int CHUNK_BYTES = 8 * 1024;
+
+    private static final String CRLF = "\r\n";
+
+    /** The smallest JSON body, padded to a size by {@link #paddedBody}. */
+    private static final String EMPTY_OBJECT = "{}";
 
     /** Spring's default name for the CSRF request parameter, which the gateway must not read. */
     private static final String CSRF_PARAMETER = "_csrf";
@@ -714,6 +730,119 @@ class GatewayLoginFlowIT {
         byte[] maskThenToken = new byte[token.length * 2];
         System.arraycopy(token, 0, maskThenToken, token.length, token.length);
         return Base64.getUrlEncoder().encodeToString(maskThenToken);
+    }
+
+    /**
+     * The gateway refuses a request body over {@link #BODY_LIMIT_BYTES} itself, with the 413 {@code
+     * CONTENT_TOO_LARGE} problem the ledger and the assistant answer for the same limit, before the
+     * security chain or the relay reads it. A relayed body is otherwise streamed on as it arrives,
+     * so the refusal would come from the service part-way through that stream. Each case is a
+     * signed-in write carrying its CSRF token, so only the size decides the outcome.
+     */
+    @Test
+    void
+            Given_a_signed_in_session_When_a_relayed_write_declares_a_body_over_the_limit_Then_it_is_refused_413_and_not_relayed()
+                    throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+
+            HttpResponse<String> response = postJson(client, LEDGER_TRANSACTIONS, paddedBody(BODY_LIMIT_BYTES + 1));
+
+            assertThat(response.statusCode()).isEqualTo(413);
+            assertThat(response.headers().firstValue("content-type")).contains("application/problem+json");
+            assertThat(response.body()).contains("\"code\":\"CONTENT_TOO_LARGE\"");
+            assertThat(ledger.lastRequest()).isNull();
+        }
+    }
+
+    /** The same limit for a body of undeclared length, sent chunked, which is counted as it is read. */
+    @Test
+    void
+            Given_a_signed_in_session_When_a_relayed_write_sends_a_chunked_body_over_the_limit_Then_it_is_refused_413_and_not_relayed()
+                    throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+
+            String response = postChunked(client, LEDGER_TRANSACTIONS, paddedBody(BODY_LIMIT_BYTES + 1));
+
+            assertThat(response).startsWith("HTTP/1.1 413").contains("\"code\":\"CONTENT_TOO_LARGE\"");
+            assertThat(ledger.lastRequest()).isNull();
+        }
+    }
+
+    /**
+     * A body of exactly the limit is relayed whole, whether its length is declared or it arrives
+     * chunked: the bytes the gateway reads while counting are the ones the service then receives.
+     */
+    @Test
+    void Given_a_signed_in_session_When_a_relayed_write_carries_a_body_of_exactly_the_limit_Then_it_is_relayed_whole()
+            throws Exception {
+        try (HttpClient client = newClient()) {
+            signIn(client);
+
+            HttpResponse<String> declared = postJson(client, LEDGER_TRANSACTIONS, paddedBody(BODY_LIMIT_BYTES));
+            assertThat(declared.statusCode()).as("the declared body's status").isEqualTo(200);
+            assertThat(ledger.lastRequest().bodyLength())
+                    .as("the bytes of the declared body the ledger received")
+                    .isEqualTo(BODY_LIMIT_BYTES);
+
+            ledger.forgetLastRequest();
+            String chunked = postChunked(client, LEDGER_TRANSACTIONS, paddedBody(BODY_LIMIT_BYTES));
+            assertThat(chunked).as("the chunked body's answer").startsWith("HTTP/1.1 200");
+            assertThat(ledger.lastRequest().bodyLength())
+                    .as("the bytes of the chunked body the ledger received")
+                    .isEqualTo(BODY_LIMIT_BYTES);
+        }
+    }
+
+    /** A signed-in JSON {@code POST} of {@code body} with the CSRF token, its length declared. */
+    private HttpResponse<String> postJson(HttpClient client, String path, String body) throws Exception {
+        return client.send(
+                HttpRequest.newBuilder(URI.create(gatewayUrl(path)))
+                        .timeout(TIMEOUT)
+                        .header(XSRF_HEADER, csrfTokenValue(client))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    /**
+     * The same {@code POST}, sent as {@value #CHUNK_BYTES}-byte chunks with no declared length and
+     * written by hand over a socket, because the JDK's {@link HttpClient} chooses its own framing.
+     * It carries the client's session and CSRF cookies and the CSRF header; the raw response is
+     * returned.
+     */
+    private String postChunked(HttpClient client, String path, String body) throws IOException {
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        String csrfToken = csrfTokenValue(client);
+        String cookies = SESSION_COOKIE + "=" + sessionCookieValue(client) + "; " + CSRF_COOKIE + "=" + csrfToken;
+        try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), port)) {
+            socket.setSoTimeout((int) TIMEOUT.toMillis());
+            OutputStream out = socket.getOutputStream();
+            out.write(("POST " + path + " HTTP/1.1" + CRLF
+                            + "Host: localhost" + CRLF
+                            + "Cookie: " + cookies + CRLF
+                            + XSRF_HEADER + ": " + csrfToken + CRLF
+                            + "Content-Type: application/json" + CRLF
+                            + "Transfer-Encoding: chunked" + CRLF
+                            + "Connection: close" + CRLF + CRLF)
+                    .getBytes(StandardCharsets.US_ASCII));
+            for (int offset = 0; offset < bytes.length; offset += CHUNK_BYTES) {
+                int length = Math.min(CHUNK_BYTES, bytes.length - offset);
+                out.write((Integer.toHexString(length) + CRLF).getBytes(StandardCharsets.US_ASCII));
+                out.write(bytes, offset, length);
+                out.write(CRLF.getBytes(StandardCharsets.US_ASCII));
+            }
+            out.write(("0" + CRLF + CRLF).getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+            return new String(socket.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    /** A JSON object, padded with the whitespace JSON allows after a value, to exactly {@code bytes} bytes. */
+    private static String paddedBody(int bytes) {
+        return EMPTY_OBJECT + " ".repeat(bytes - EMPTY_OBJECT.length());
     }
 
     /**

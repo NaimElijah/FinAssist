@@ -15,7 +15,8 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>Every code the gateway answers is declared here, in one place: {@link HostAllowListFilter}
  * answers {@code HOST_NOT_ALLOWED}; {@link ProblemRequestRejectedHandler} answers {@code
- * MALFORMED_REQUEST} for a URL Spring Security's firewall refuses; {@code
+ * MALFORMED_REQUEST} for a URL Spring Security's firewall refuses; {@link RequestBodyLimitFilter}
+ * answers {@code CONTENT_TOO_LARGE} for a body over its limit; {@code
  * GatewaySecurityConfiguration}'s entry point answers
  * {@code UNAUTHENTICATED}, and its access-denied handler answers both {@code FORBIDDEN} and {@code
  * CSRF_TOKEN_INVALID}, branching on whether the denial was a CSRF failure; {@link
@@ -58,6 +59,9 @@ final class GatewayProblems {
 
     /** The request's {@code Host} header is missing, malformed or not on the allow-list (ADR-030). */
     static final String HOST_NOT_ALLOWED = "HOST_NOT_ALLOWED";
+
+    /** The request's body is larger than {@link RequestBodyLimitFilter#MAX_REQUEST_BODY_BYTES}. */
+    static final String CONTENT_TOO_LARGE = "CONTENT_TOO_LARGE";
 
     /** The request's URL is one the firewall refuses to route, before any filter of the chain runs. */
     static final String MALFORMED_REQUEST = "MALFORMED_REQUEST";
