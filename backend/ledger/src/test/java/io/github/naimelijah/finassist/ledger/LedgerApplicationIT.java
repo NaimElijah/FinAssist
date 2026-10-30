@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.naimelijah.finassist.ledger.composition.HostAllowListFilter;
 import java.io.BufferedReader;
@@ -14,9 +15,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import javax.sql.DataSource;
 import org.apache.catalina.Context;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -39,8 +44,9 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>It asserts the wiring and the edge rather than any business behaviour: that the context loads
  * with every context's domain on the classpath, that {@code application.yml} parses, that the three
  * probes the file configures are exposed, that springdoc serves an OpenAPI document (ADR-028), that a
- * foreign {@code Host} is refused by a filter that runs first (ADR-030), and that an unknown route is
- * answered as a problem (ADR-028).
+ * foreign {@code Host} is refused by a filter that runs first (ADR-030), that an unknown route is
+ * answered as a problem (ADR-028), and that the data source keeps the database's error detail out of an
+ * exception's message.
  *
  * <p>Uses the JDK's {@link HttpClient} rather than {@code TestRestTemplate}, which Spring Boot 4
  * moved out of {@code spring-boot-starter-test} into a separate {@code spring-boot-resttestclient}
@@ -57,6 +63,9 @@ class LedgerApplicationIT extends PostgresFixture {
 
     @Autowired
     private ServletWebServerApplicationContext context;
+
+    @Autowired
+    private DataSource dataSource;
 
     /**
      * One client for the class, closed afterwards. {@link HttpClient} owns a selector thread and
@@ -200,6 +209,34 @@ class LedgerApplicationIT extends PostgresFixture {
         assertThat(springSecurityIndex)
                 .as("springSecurityFilterChain must be registered")
                 .isGreaterThan(0);
+    }
+
+    /**
+     * pgjdbc appends the server's {@code Detail} line to an exception's message unless {@code
+     * logServerErrorDetail} is off, and for a {@code CHECK} or {@code NOT NULL} violation that line quotes
+     * the whole failing row. The ledger logs every 5xx with its exception, so the message is what reaches
+     * the log. A unique violation's detail names the duplicated key, which shows whether any detail is
+     * kept; the probe table is temporary and rolled back, so the store is untouched.
+     */
+    @Test
+    void Given_the_ledger_data_source_When_a_statement_violates_a_constraint_Then_the_message_carries_no_server_detail()
+            throws Exception {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement()) {
+            connection.setAutoCommit(false);
+            try {
+                statement.execute("CREATE TEMPORARY TABLE detail_probe (id integer PRIMARY KEY)");
+                statement.execute("INSERT INTO detail_probe VALUES (1)");
+
+                assertThatThrownBy(() -> statement.execute("INSERT INTO detail_probe VALUES (1)"))
+                        .isInstanceOf(SQLException.class)
+                        .hasMessageContaining("detail_probe_pkey")
+                        .hasMessageNotContaining("Detail")
+                        .hasMessageNotContaining("(id)=(1)");
+            } finally {
+                connection.rollback();
+            }
+        }
     }
 
     /**

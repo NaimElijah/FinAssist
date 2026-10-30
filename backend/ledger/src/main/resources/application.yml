@@ -60,6 +60,14 @@ spring:
     url: ${LEDGER_DB_URL:jdbc:postgresql://localhost:5432/finassist}
     username: ${LEDGER_DB_USERNAME:finassist}
     password: ${LEDGER_DB_PASSWORD:}
+    hikari:
+      data-source-properties:
+        # pgjdbc appends the server's Detail line to an exception's message by default, and for a
+        # CHECK or NOT NULL violation that line quotes the failing row: a description, an amount,
+        # who recorded it. Every 5xx is logged with its exception, so the detail stays off the
+        # message, whatever URL is in use; the error and the constraint's name remain
+        # (LedgerApplicationIT).
+        logServerErrorDetail: false
 
   flyway:
     # Locations are left at the default, classpath:db/migration, which Flyway scans recursively.
