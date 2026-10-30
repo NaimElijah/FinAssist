@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import threading
 from collections.abc import Iterator
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, NoReturn
+from typing import Any, NamedTuple, NoReturn
 
 import httpx
 import pytest
@@ -27,7 +29,7 @@ from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.testclient import WebSocketDenialResponse
 
-from finassist_assistant.adapters.__main__ import main
+from finassist_assistant.adapters.__main__ import MAX_HEADER_BLOCK_BYTES, main
 from finassist_assistant.adapters.app import (
     CORRELATION_ID_HEADER,
     _correlation_id_for,
@@ -52,6 +54,8 @@ TRACEPARENT = f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"
 REQUEST_LINE = "request answered"
 # A recognisable amount, sent in a query string that must never reach a log line.
 AMOUNT = "98765.43"
+# The longest a test server may take to answer or to stop, so a hang fails rather than stalls.
+_SERVER_STOP_SECONDS = 10.0
 
 
 @pytest.fixture
@@ -353,6 +357,29 @@ def Given_a_foreign_host_When_a_websocket_upgrade_arrives_Then_it_is_refused_wit
     assert _request_lines(captured) == []
 
 
+class _Launch(NamedTuple):
+    """What the entry point hands ``uvicorn.run``: the app, and every option it passes."""
+
+    app: Any
+    options: dict[str, Any]
+
+
+def _entry_point_launch(monkeypatch: pytest.MonkeyPatch) -> _Launch:
+    """Runs the entry point with ``uvicorn.run`` replaced, and returns what it was given."""
+    launched: list[_Launch] = []
+
+    def run(app: Any, **options: Any) -> None:
+        launched.append(_Launch(app, options))
+
+    monkeypatch.setenv("OTEL_EXPORT_ENABLED", "false")
+    monkeypatch.setattr(uvicorn, "run", run)
+
+    main()
+
+    [launch] = launched
+    return launch
+
+
 def Given_the_entry_point_When_it_starts_the_server_Then_uvicorn_writes_no_access_log(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -361,18 +388,102 @@ def Given_the_entry_point_When_it_starts_the_server_Then_uvicorn_writes_no_acces
     Uvicorn's own access line is written afterwards, from its protocol layer, when nothing is bound,
     so leaving it on would add a second line per request that no id can join.
     """
-    started: dict[str, Any] = {}
-
-    def run(_app: Any, **options: Any) -> None:
-        started.update(options)
-
-    monkeypatch.setenv("OTEL_EXPORT_ENABLED", "false")
-    monkeypatch.setattr(uvicorn, "run", run)
-
-    main()
+    started = _entry_point_launch(monkeypatch).options
 
     assert started["access_log"] is False
     assert started["log_config"] is None
+
+
+def Given_the_entry_point_When_it_starts_the_server_Then_the_header_block_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``httptools``, which uvicorn picks when it is installed, buffers a header of any size."""
+    started = _entry_point_launch(monkeypatch).options
+
+    assert started.get("http") == "h11"
+    assert started.get("h11_max_incomplete_event_size") == MAX_HEADER_BLOCK_BYTES
+
+
+@contextmanager
+def _serving_as_the_entry_point_does(
+    launch: _Launch, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[str, int]]:
+    """Serves *launch*'s app with *launch*'s own options, on an ephemeral loopback port.
+
+    The socket is listening before the server thread starts, so a client may connect at once:
+    the connection waits in the backlog until the server accepts it, and nothing polls for start.
+
+    ``access_log=False`` makes uvicorn empty and detach its access logger for the whole process,
+    so both are restored afterwards, or a later test writing an access line would find it gone.
+    """
+    access = logging.getLogger("uvicorn.access")
+    monkeypatch.setattr(access, "handlers", access.handlers)
+    monkeypatch.setattr(access, "propagate", access.propagate)
+    listener = socket.create_server(("127.0.0.1", 0))
+    server = uvicorn.Server(uvicorn.Config(launch.app, **launch.options))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+    thread.start()
+    try:
+        yield listener.getsockname()
+    finally:
+        server.should_exit = True
+        thread.join(timeout=_SERVER_STOP_SECONDS)
+        listener.close()
+    assert not thread.is_alive(), "the server never stopped"
+
+
+def _answer_to(address: tuple[str, int], request: bytes) -> bytes:
+    """Sends *request* over a raw socket and reads the answer until the server closes."""
+    with socket.create_connection(address, timeout=_SERVER_STOP_SECONDS) as connection:
+        connection.sendall(request)
+        answer = b""
+        while chunk := connection.recv(65_536):
+            answer += chunk
+    return answer
+
+
+def Given_headers_over_the_bound_When_the_entry_point_serves_them_Then_they_are_refused_400(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refused by the server before the app, and so before authentication, ever sees them.
+
+    Exactly one byte over, with the header block left unfinished, so the server has read all of it
+    when it refuses and closes, and the refusal arrives intact rather than behind a reset.
+    """
+    monkeypatch.setenv("ASSISTANT_ALLOWED_HOSTS", "127.0.0.1")
+    launch = _entry_point_launch(monkeypatch)
+    start = b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nX-Padding: "
+    oversized = start + b"a" * (MAX_HEADER_BLOCK_BYTES + 1 - len(start))
+
+    with _serving_as_the_entry_point_does(launch, monkeypatch) as address:
+        served = _answer_to(address, start[: -len(b"X-Padding: ")] + b"\r\n")
+        refused = _answer_to(address, oversized)
+
+    assert served.startswith(b"HTTP/1.1 200 ")
+    assert refused.startswith(b"HTTP/1.1 400 ")
+
+
+def Given_a_header_block_just_under_the_bound_When_the_entry_point_serves_it_Then_it_is_200(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A large bearer token is still served: the bound limits what is buffered, not a token.
+
+    The whole block is one byte under the bound. It guards against a later bound, in the server
+    or in authentication, that would refuse a legitimate token; the 400 test above is what proves
+    the bound itself, since a block that arrives whole is parsed whatever its size.
+    """
+    monkeypatch.setenv("ASSISTANT_ALLOWED_HOSTS", "127.0.0.1")
+    launch = _entry_point_launch(monkeypatch)
+    start = (
+        b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nAuthorization: Bearer "
+    )
+    end = b"\r\n\r\n"
+    token = b"a" * (MAX_HEADER_BLOCK_BYTES - 1 - len(start) - len(end))
+
+    with _serving_as_the_entry_point_does(launch, monkeypatch) as address:
+        served = _answer_to(address, start + token + end)
+
+    assert served.startswith(b"HTTP/1.1 200 ")
 
 
 # --- redaction -----------------------------------------------------------------------------

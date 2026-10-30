@@ -6,10 +6,28 @@ README instead of hiding behind an entry point that has to be installed first.
 
 from __future__ import annotations
 
+from typing import Final
+
 import uvicorn
 
 from finassist_assistant.adapters.app import create_app
 from finassist_assistant.adapters.settings import Settings
+
+HTTP_IMPLEMENTATION: Final = "h11"
+"""uvicorn's pure-Python HTTP/1.1 implementation, chosen for its header bound.
+
+uvicorn otherwise picks ``httptools`` whenever it is installed, as ``uvicorn[standard]`` installs
+it, and ``httptools`` buffers a header block of any size. The throughput it would add does not
+matter to a single owner.
+"""
+
+MAX_HEADER_BLOCK_BYTES: Final = 16 * 1024
+"""The most of an unfinished request line and header block the server buffers, in bytes.
+
+Past it the request is refused 400 before the application, and so authentication, sees it.
+``h11`` checks the bound while the block is incomplete, so a whole block that arrives in a single
+read can exceed it by up to that read's size: a bound on the buffer, not an exact header limit.
+"""
 
 
 def main() -> None:
@@ -31,6 +49,8 @@ def main() -> None:
         # line comes afterwards, from the protocol layer, carrying no id and the query string too
         # (ADR-019, ADR-028).
         access_log=False,
+        http=HTTP_IMPLEMENTATION,
+        h11_max_incomplete_event_size=MAX_HEADER_BLOCK_BYTES,
     )
 
 
