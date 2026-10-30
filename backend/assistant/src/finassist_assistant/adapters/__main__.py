@@ -29,6 +29,14 @@ Past it the request is refused 400 before the application, and so authentication
 read can exceed it by up to that read's size: a bound on the buffer, not an exact header limit.
 """
 
+WEBSOCKET_IMPLEMENTATION: Final = "none"
+"""No WebSocket implementation, so uvicorn performs no upgrade at all.
+
+No WebSocket route is served until how one authenticates is designed. An ``Upgrade: websocket``
+request is answered as the plain HTTP request it also is, and no handshake is ever logged with
+its path and query string.
+"""
+
 
 def main() -> None:
     """Serve the application on the configured host and port.
@@ -51,6 +59,7 @@ def main() -> None:
         access_log=False,
         http=HTTP_IMPLEMENTATION,
         h11_max_incomplete_event_size=MAX_HEADER_BLOCK_BYTES,
+        ws=WEBSOCKET_IMPLEMENTATION,
     )
 
 

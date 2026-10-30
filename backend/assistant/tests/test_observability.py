@@ -30,7 +30,11 @@ from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.testclient import WebSocketDenialResponse
 
-from finassist_assistant.adapters.__main__ import MAX_HEADER_BLOCK_BYTES, main
+from finassist_assistant.adapters.__main__ import (
+    MAX_HEADER_BLOCK_BYTES,
+    WEBSOCKET_IMPLEMENTATION,
+    main,
+)
 from finassist_assistant.adapters.app import (
     CORRELATION_ID_HEADER,
     _correlation_id_for,
@@ -339,9 +343,9 @@ def Given_a_foreign_host_When_a_websocket_upgrade_arrives_Then_it_is_refused_wit
     """The allow-list checks WebSocket upgrades too, on the DNS-rebinding path it exists for.
 
     A WebSocket scope carries no method, and the request line records an HTTP request. The
-    assistant serves no WebSocket route, so an admitted upgrade writes no line either, and uvicorn
-    reports a handshake it refused on ``uvicorn.error``, query string included, which no route
-    reads. So the refusal writes no request line, and must not fail on the way to answering.
+    assistant serves no WebSocket route, so an admitted upgrade writes no line either, and the
+    entry point's uvicorn performs no upgrade at all (``ws="none"``). So the refusal writes no
+    request line, and must not fail on the way to answering.
     """
     capsys.readouterr()
 
@@ -403,6 +407,14 @@ def Given_the_entry_point_When_it_starts_the_server_Then_the_header_block_is_bou
 
     assert started.get("http") == "h11"
     assert started.get("h11_max_incomplete_event_size") == MAX_HEADER_BLOCK_BYTES
+
+
+def Given_the_entry_point_When_it_starts_the_server_Then_no_websocket_is_upgraded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = _entry_point_launch(monkeypatch).options
+
+    assert started.get("ws") == WEBSOCKET_IMPLEMENTATION == "none"
 
 
 @contextmanager
@@ -485,6 +497,24 @@ def Given_a_header_block_just_under_the_bound_When_the_entry_point_serves_it_The
         served = _answer_to(address, start + token + end)
 
     assert served.startswith(b"HTTP/1.1 200 ")
+
+
+def Given_a_websocket_upgrade_When_the_entry_point_serves_it_Then_it_is_answered_as_plain_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No handshake, so no ``101``: the request is served as the HTTP request it also is."""
+    monkeypatch.setenv("ASSISTANT_ALLOWED_HOSTS", "127.0.0.1")
+    launch = _entry_point_launch(monkeypatch)
+    upgrade = (
+        b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade, close\r\n"
+        b"Upgrade: websocket\r\nSec-WebSocket-Version: 13\r\n"
+        b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+    )
+
+    with _serving_as_the_entry_point_does(launch, monkeypatch) as address:
+        answer = _answer_to(address, upgrade)
+
+    assert answer.startswith(b"HTTP/1.1 200 ")
 
 
 # --- redaction -----------------------------------------------------------------------------

@@ -73,11 +73,15 @@ From `backend/assistant`:
 - **Every route declares exactly one permission dependency, built through the `require` factory
   the composition root passes into the router** (ADR-030, ADR-032):
   `Depends(require(READ_PORTFOLIO))` on each of `portfolio_router`'s three routes. A coverage test
-  in `tests/test_authorization.py` fails the build if a route is added without one.
+  in `tests/test_authorization.py` fails the build if a route of any type is added without one,
+  so a WebSocket or plain Starlette route, which cannot declare one, fails it too.
   `RequirePermission`, the factory `app.py` passes as `require`, reads the `Principal` that
   `BearerAuthentication` already verified from `request.scope`. The router never imports it: that
   would be the composition-root import the slice rule forbids. `/health`, `/ready` and
   `/openapi.json` stay public; every business route needs a bearer token and `portfolio:read`.
+  No WebSocket upgrade is served until how one authenticates is designed: the entry point runs
+  uvicorn with `ws="none"`, and `BearerAuthentication` refuses any `websocket` scope before
+  routing, token or none, as defence in depth.
 - **`BearerAuthentication` runs inside the correlation middleware, not outside it.** It is added to
   the app before `correlate`, so Starlette's last-added-runs-first rule puts `correlate` outside it
   and a refused request still gets a correlation id and a request-answered line. The order is

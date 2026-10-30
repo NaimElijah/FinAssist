@@ -54,7 +54,9 @@ from jwt import PyJWK, PyJWKClient
 from jwt.exceptions import InvalidSubjectError
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
+from starlette.status import WS_1008_POLICY_VIOLATION
 from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.websockets import WebSocketClose
 
 from finassist_assistant.adapters.problems import (
     AUTHENTICATION_UNAVAILABLE,
@@ -567,6 +569,7 @@ _AUTHENTICATION_UNAVAILABLE_DETAIL: Final = (
 _INSUFFICIENT_SCOPE_DETAIL: Final = "This token does not grant the permission this request needs."
 
 _HTTP_SCOPE: Final = "http"
+_WEBSOCKET_SCOPE: Final = "websocket"
 
 
 def _bearer_token(headers: Headers) -> str:
@@ -602,8 +605,13 @@ class BearerAuthentication:
     response it produces. ``HostAllowList`` stays outside both, so a foreign ``Host`` is refused
     before authentication is even attempted.
 
-    Only the ``http`` scope is checked. The assistant serves no WebSocket route, and
-    ``HostAllowList`` already refuses a foreign host on that scope type too.
+    Every ``websocket`` scope is refused, whatever its path or token, by closing it before
+    routing, so a WebSocket route added later is never served unauthenticated. The entry point's
+    uvicorn performs no upgrade at all (``ws="none"``), so this is defence in depth for any other
+    launcher, which answers a close before acceptance with HTTP 403. No WebSocket route exists,
+    and none will be served until how one authenticates is designed. ``HostAllowList`` refuses a
+    foreign host on that scope type first. Any other scope type, such as ``lifespan``, passes
+    through.
 
     :param app: the application behind the check.
     :param verifier: decides whether a bearer token is genuine.
@@ -618,6 +626,9 @@ class BearerAuthentication:
         self._verifier = verifier
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == _WEBSOCKET_SCOPE:
+            await WebSocketClose(code=WS_1008_POLICY_VIOLATION)(scope, receive, send)
+            return
         if scope["type"] != _HTTP_SCOPE or scope["path"] in PUBLIC_PATHS:
             await self._app(scope, receive, send)
             return
