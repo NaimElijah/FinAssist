@@ -19,6 +19,7 @@
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
   "revokeRefreshToken": false,
+  "eventsListeners": [],
   "roles": {
     "realm": [
       { "name": "owner", "description": "Reads and writes the ledger; held by the owner alone." },

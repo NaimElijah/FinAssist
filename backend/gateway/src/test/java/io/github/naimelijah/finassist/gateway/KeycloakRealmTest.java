@@ -175,6 +175,15 @@ class KeycloakRealmTest {
                 .isEqualTo("length(12) and notUsername and notEmail and passwordHistory(3)");
     }
 
+    /**
+     * Left unset, the realm takes Keycloak's {@code jboss-logging} listener, which writes sign-in
+     * events, the username included, to the container log. Empty, no sign-in event reaches the log.
+     */
+    @Test
+    void Given_the_realm_file_When_read_Then_no_event_listener_writes_sign_ins_to_the_log() {
+        assertMember(realm(), "eventsListeners", JSON.createArrayNode());
+    }
+
     @Test
     void Given_the_realm_file_When_read_Then_ssl_is_required_externally_only() {
         assertThat(realm().path("sslRequired").asString()).isEqualTo("external");

@@ -3,6 +3,7 @@ package io.github.naimelijah.finassist.gateway;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -12,11 +13,15 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
+import org.testcontainers.containers.output.WaitingConsumer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.utility.DockerImageName;
@@ -51,13 +56,14 @@ import tools.jackson.databind.node.StringNode;
  *   <li>Keycloak honours the owner's pinned {@code id}, which is what makes the {@code sub} in
  *       every journal row survive a re-import (ADR-031, ADR-033).
  *   <li>the realm's sign-in protection as Keycloak holds it after the import: no self-registration,
- *       no password reset, no remember-me, the password policy and the brute-force thresholds; the
- *       owner's forced password change and TOTP enrolment; and the gateway client's two audiences,
- *       both as its mappers and as the access token Keycloak would issue the owner through it. A
- *       key Keycloak ignored or renamed on import would leave {@link KeycloakRealmTest} green and
- *       the realm at Keycloak's own default. For {@code registrationAllowed} that default is off,
- *       so a lost key would be harmless; for {@code bruteForceProtected} it is off too, where the
- *       realm asks for on, so a lost key would silently remove the protection.
+ *       no password reset, no remember-me, no event listener, the password policy and the
+ *       brute-force thresholds; the owner's forced password change and TOTP enrolment; and the
+ *       gateway client's two audiences, both as its mappers and as the access token Keycloak would
+ *       issue the owner through it. A key Keycloak ignored or renamed on import would leave
+ *       {@link KeycloakRealmTest} green and the realm at Keycloak's own default. For {@code
+ *       registrationAllowed} that default is off, so a lost key would be harmless; for {@code
+ *       bruteForceProtected} it is off too, where the realm asks for on, so a lost key would
+ *       silently remove the protection.
  * </ul>
  *
  * <p>Every realm placeholder is supplied here as a container environment variable, because the
@@ -96,6 +102,24 @@ class KeycloakRealmIT {
     private static final String OWNER_INITIAL_PASSWORD = "it-owner-initial-pw-12chars";
 
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(15);
+
+    /** The redirect the gateway client registers, from the {@code GATEWAY_PUBLIC_URL} given below. */
+    private static final String GATEWAY_REDIRECT_URI = "http://localhost:5173/bff/login/oauth2/code/keycloak";
+
+    /**
+     * Any well-formed S256 challenge: the sign-in below fails at the password, so no code is ever
+     * exchanged against it. This one is RFC 7636's own example.
+     */
+    private static final String PKCE_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+
+    /** The login page's form, whose action carries the authentication session's parameters. */
+    private static final Pattern LOGIN_FORM_ACTION = Pattern.compile("<form[^>]*action=\"([^\"]+)\"");
+
+    /** Keycloak's own message for a wrong username or password, in its default English theme. */
+    private static final String INVALID_CREDENTIALS_MESSAGE = "Invalid username or password.";
+
+    /** How long the control sign-in's log line may take to reach the container's log. */
+    private static final int CONTROL_LINE_WAIT_SECONDS = 30;
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final HttpClient CLIENT = HttpClient.newHttpClient();
@@ -405,6 +429,88 @@ class KeycloakRealmIT {
     }
 
     /**
+     * The property the empty listener list stands for, read where it would show: a failed sign-in
+     * through the login form leaves the username it was given out of Keycloak's log. The page's own
+     * error message proves the attempt reached the credential check, so the absence is not for
+     * want of a sign-in.
+     *
+     * <p>The log is read only once a later control line has reached it: a failed sign-in to {@code
+     * master}, which keeps Keycloak's default listener. Keycloak writes the two in order, so a line
+     * from the first attempt cannot still be on its way when the second has arrived. Should {@code
+     * master} ever log no sign-in event either, the wait fails rather than the check passing.
+     */
+    @Test
+    void Given_a_failed_sign_in_through_the_login_form_When_the_log_is_read_Then_the_username_is_absent()
+            throws Exception {
+        String marker = "it-marker-username-7qz41";
+        String control = "it-control-username-3vk82";
+        WaitingConsumer log = new WaitingConsumer();
+        keycloak.followOutput(log);
+
+        HttpResponse<String> answer = failedFormSignIn(marker);
+        failedMasterPasswordGrant(control);
+        log.waitUntil(frame -> frame.getUtf8String().contains(control), CONTROL_LINE_WAIT_SECONDS, TimeUnit.SECONDS);
+
+        assertThat(answer.statusCode()).as("the login form's answer").isEqualTo(200);
+        assertThat(answer.body()).contains(INVALID_CREDENTIALS_MESSAGE);
+        assertThat(keycloak.getLogs()).doesNotContain(marker);
+    }
+
+    /** A password grant to {@code master} for a user that does not exist, refused as such. */
+    private static void failedMasterPasswordGrant(String username) throws Exception {
+        String body = "grant_type=password&client_id=admin-cli&username="
+                + URLEncoder.encode(username, StandardCharsets.UTF_8) + "&password=it-wrong-password-for-the-control";
+        HttpResponse<String> response = CLIENT.send(
+                HttpRequest.newBuilder(URI.create(baseUrl() + "/realms/master/protocol/openid-connect/token"))
+                        .timeout(HTTP_TIMEOUT)
+                        .header("Content-Type", "application/x-www-form-urlencoded")
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(JSON.readTree(response.body()).path("error").asString())
+                .as("the control sign-in's refusal")
+                .isEqualTo("invalid_grant");
+    }
+
+    /**
+     * Opens the gateway client's login page and submits its form with {@code username} and a wrong
+     * password. The JDK's {@code CookieManager} sends no {@code Secure} cookie over plain HTTP,
+     * which Keycloak's are, so the page's cookies are carried by hand; and the form's action names
+     * the public URL, so it is replayed against the mapped port instead.
+     */
+    private static HttpResponse<String> failedFormSignIn(String username) throws Exception {
+        String query = "client_id=finassist-gateway&response_type=code&scope=openid&state=it"
+                + "&code_challenge_method=S256&code_challenge=" + PKCE_CHALLENGE
+                + "&redirect_uri=" + URLEncoder.encode(GATEWAY_REDIRECT_URI, StandardCharsets.UTF_8);
+        HttpResponse<String> page = CLIENT.send(
+                HttpRequest.newBuilder(
+                                URI.create(baseUrl() + "/realms/finassist/protocol/openid-connect/auth?" + query))
+                        .timeout(HTTP_TIMEOUT)
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(page.statusCode()).as("the login page").isEqualTo(200);
+        Matcher form = LOGIN_FORM_ACTION.matcher(page.body());
+        assertThat(form.find()).as("the login page holds its form").isTrue();
+        URI action = URI.create(form.group(1).replace("&amp;", "&"));
+        String cookies = String.join(
+                "; ",
+                page.headers().allValues("set-cookie").stream()
+                        .map(cookie -> cookie.split(";", 2)[0])
+                        .toList());
+        String credentials = "credentialId=&username=" + URLEncoder.encode(username, StandardCharsets.UTF_8)
+                + "&password=" + URLEncoder.encode("it-wrong-password-for-the-marker", StandardCharsets.UTF_8);
+        return CLIENT.send(
+                HttpRequest.newBuilder(URI.create(baseUrl() + action.getRawPath() + "?" + action.getRawQuery()))
+                        .timeout(HTTP_TIMEOUT)
+                        .header("Content-Type", "application/x-www-form-urlencoded")
+                        .header("Cookie", cookies)
+                        .POST(HttpRequest.BodyPublishers.ofString(credentials))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    /**
      * Brute-force protection as the running server applies it. {@code permanentLockout} is pinned
      * off with the rest because the realm has a single owner: a permanent lockout after five wrong
      * guesses would lock that owner out until someone with the admin password intervened.
@@ -431,6 +537,16 @@ class KeycloakRealmIT {
                 importedRealm(),
                 "passwordPolicy",
                 StringNode.valueOf("length(12) and notUsername and notEmail and passwordHistory(3)"));
+    }
+
+    /**
+     * Keycloak's default listener, {@code jboss-logging}, writes sign-in events to the container
+     * log. An empty list in the file must reach the running realm as empty, not be dropped on
+     * import in favour of that default.
+     */
+    @Test
+    void Given_the_realm_as_imported_When_its_event_listeners_are_read_Then_there_are_none() throws Exception {
+        assertMember(importedRealm(), "eventsListeners", JSON.createArrayNode());
     }
 
     /**
