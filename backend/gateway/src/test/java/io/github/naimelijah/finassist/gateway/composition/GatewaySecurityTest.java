@@ -701,6 +701,54 @@ class GatewaySecurityTest {
     }
 
     /**
+     * The browser security headers Spring Security writes by default, pinned because nothing in
+     * the gateway's configuration names them and so nothing else would notice them dropped or
+     * relaxed. {@code no-store} matters most on {@code /bff/me}, which names the owner, and on the
+     * sign-out answer, whose {@code logoutUrl} carries the ID token; a relayed answer whose upstream
+     * set none of these headers must carry them too. {@link #upstream} sets none of them.
+     */
+    @Test
+    void
+            Given_a_signed_in_session_When_me_logout_and_a_relayed_answer_are_read_Then_each_carries_nosniff_frame_deny_and_no_store()
+                    throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        Cookie csrf = signIn(session);
+
+        MockHttpServletResponse me = mvc.perform(named(get(ME)).session(session))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse();
+        MockHttpServletResponse relayed = mvc.perform(named(get(LEDGER_ACCOUNTS))
+                        .session(session)
+                        .with(oidcLogin()
+                                .clientRegistration(registrations.findByRegistrationId(REGISTRATION_ID))
+                                .idToken(ownerToken(List.of("owner"))))
+                        .with(bodyAlreadyRead()))
+                .andReturn()
+                .getResponse();
+        assertThat(relayed.getContentAsString()).as("the relayed answer's body").isEqualTo(UPSTREAM_BODY);
+        MockHttpServletResponse signedOut = mvc.perform(
+                        named(post(LOGOUT)).session(session).cookie(csrf).header(XSRF_HEADER, csrf.getValue()))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse();
+
+        for (Map.Entry<String, MockHttpServletResponse> answer :
+                Map.of(ME, me, LEDGER_ACCOUNTS, relayed, LOGOUT, signedOut).entrySet()) {
+            MockHttpServletResponse response = answer.getValue();
+            assertThat(response.getHeader("X-Content-Type-Options"))
+                    .as("X-Content-Type-Options on %s", answer.getKey())
+                    .isEqualTo("nosniff");
+            assertThat(response.getHeader("X-Frame-Options"))
+                    .as("X-Frame-Options on %s", answer.getKey())
+                    .isEqualTo("DENY");
+            assertThat(response.getHeader(HttpHeaders.CACHE_CONTROL))
+                    .as("Cache-Control on %s", answer.getKey())
+                    .contains("no-store");
+        }
+    }
+
+    /**
      * {@code LoginEntryNavigationFilter} looks at Fetch Metadata on the login entry and nowhere
      * else. The web client reads {@code /bff/me} and the relay with {@code fetch}, which the browser
      * marks {@code Sec-Fetch-Mode: cors} and {@code Sec-Fetch-Dest: empty}, so a filter that looked
