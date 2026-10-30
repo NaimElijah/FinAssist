@@ -409,6 +409,16 @@ def Given_the_entry_point_When_it_starts_the_server_Then_the_header_block_is_bou
     assert started.get("h11_max_incomplete_event_size") == MAX_HEADER_BLOCK_BYTES
 
 
+def Given_the_entry_point_When_it_starts_the_server_Then_proxy_and_server_headers_are_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The assistant trusts no proxy's forwarding headers, and names no server software."""
+    started = _entry_point_launch(monkeypatch).options
+
+    assert started.get("proxy_headers") is False
+    assert started.get("server_header") is False
+
+
 def Given_the_entry_point_When_it_starts_the_server_Then_no_websocket_is_upgraded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -473,6 +483,7 @@ def Given_headers_over_the_bound_When_the_entry_point_serves_them_Then_they_are_
         refused = _answer_to(address, oversized)
 
     assert served.startswith(b"HTTP/1.1 200 ")
+    assert b"\r\nserver:" not in served.lower()
     assert refused.startswith(b"HTTP/1.1 400 ")
 
 

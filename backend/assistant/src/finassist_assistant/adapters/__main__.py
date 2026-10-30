@@ -60,6 +60,11 @@ def main() -> None:
         http=HTTP_IMPLEMENTATION,
         h11_max_incomplete_event_size=MAX_HEADER_BLOCK_BYTES,
         ws=WEBSOCKET_IMPLEMENTATION,
+        # No proxy sits in front that the assistant should believe: uvicorn would otherwise
+        # rewrite the client address and scheme from X-Forwarded-* sent over loopback.
+        proxy_headers=False,
+        # No "server: uvicorn" on every response, naming the software to every caller for nothing.
+        server_header=False,
     )
 
 
