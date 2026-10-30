@@ -121,10 +121,11 @@ From the repository root unless stated:
   or a secret it takes from `.env`, and nothing changes for an existing volume until the realm is
   imported again. `docs/operations/operations.md`'s "Changing the realm or its secrets" gives
   both recipes — a re-import with `kc.sh import --override true`, or a recreated
-  `keycloak-db-data` — and both delete the realm's users. A changed secret takes neither: its
-  "Rotating a secret" changes each one in place, `.env` first, and keeps every user. A locked-out
-  owner or a lost admin password is restored with `kcadm.sh` or `kc.sh bootstrap-admin`, never by
-  recreating `keycloak-db-data`.
+  `keycloak-db-data` — and both delete the realm's users. A setting `kcadm.sh` can change, and a
+  changed secret, take neither, and keep every user: its "Applying a realm setting in place" sets
+  the one on the running realm, and its "Rotating a secret" changes each secret in place, `.env`
+  first. A locked-out owner or a lost admin password is restored with `kcadm.sh` or `kc.sh
+  bootstrap-admin`, never by recreating `keycloak-db-data`.
 - **Every secret and credential in the realm is a `${VAR}` placeholder**, pinned by
   `KeycloakRealmTest`. `KeycloakRealmIT` imports the file into a real Keycloak and reads back the
   sign-in protection, the owner's id and required actions, and each client's scope and audience;
