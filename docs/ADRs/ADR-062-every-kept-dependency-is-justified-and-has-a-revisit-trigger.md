@@ -228,7 +228,8 @@ artefact, or `LICENSE` stops being proprietary.
 - **The Spring Boot parent version is the Java services' effective lock.** Boot's BOM fixes every
   version it manages. The ledger pins by exact property only what the BOM does not manage:
   springdoc, ArchUnit, Spotless, palantir-java-format, JaCoCo, PIT and PIT's JUnit 5 plugin. The
-  gateway pins the Spring Cloud train, springdoc, Spotless, palantir-java-format and JaCoCo.
+  gateway pins the Spring Cloud train, springdoc, Spotless, palantir-java-format and JaCoCo. Both
+  also set, as an override of a version Boot does manage, `opentelemetry.version` (below).
   **No Maven lockfile was adopted** (a rejection, below). **Revisit when** a dependency outside
   Boot's BOM is pinned by range, or #66 or #303 makes a resolved tree available to audit.
 - **palantir-java-format is bumped by hand, in both poms together.** Its version is a parameter of
