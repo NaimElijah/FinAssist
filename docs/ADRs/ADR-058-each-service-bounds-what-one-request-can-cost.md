@@ -62,8 +62,9 @@ promises. [ADR-018](ADR-018-cross-language-money-vectors.md) pins the two kernel
 ## Decision
 
 **A body over 64 KiB is refused with 413 `CONTENT_TOO_LARGE`, by all three services.** The
-owner decided the limit on 2026-10-31. It is one value in each codebase, `MAX_REQUEST_BODY_BYTES`, because one gateway relays to both
-services and one client reads every service's problems (ADR-026).
+owner decided the limit on 2026-10-30. It is one value in each codebase, `MAX_REQUEST_BODY_BYTES`,
+because one gateway relays to both services and one client reads every service's problems
+(ADR-026).
 
 - **The code.** `CONTENT_TOO_LARGE` is RFC 9110's name for status 413 and what Spring's own 413
   already carried on the ledger.
@@ -92,7 +93,7 @@ services and one client reads every service's problems (ADR-026).
   with the horizon.**
 - **A date falls in the years 1 to 9999.** `SupportedDates` bounds a query parameter and a body
   member alike; one outside is a 400 `MALFORMED_REQUEST`, as a date that does not parse is.
-  **The range is the owner's decision, made on 2026-10-31.**
+  **The range is the owner's decision, made on 2026-10-30.**
 - **An unparseable multipart body is a 400 `MALFORMED_REQUEST`**, with a fixed detail, in
   `LedgerProblemHandler`. A body over the multipart upload limit stays a 413.
 - **A firewall rejection is a 400 `MALFORMED_REQUEST` problem.** The ledger's
