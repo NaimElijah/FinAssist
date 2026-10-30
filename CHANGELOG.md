@@ -294,11 +294,11 @@ history; write the commit message well and this file writes itself.
 ### Fixed
 
 - **The gateway's relay test no longer fails once in a thousand runs.** It sent bodiless requests
-  as MockMvc builds them, with a body stream not yet read, so the relay streamed an empty body and
-  hit a race in the JDK's HTTP client that answers 500. It now sends them as Tomcat delivers them,
-  requires the upstream's own answer rather than any status but 401 or 403, and runs the relay
-  client on the calling thread so a streamed empty body fails every run. The race itself, which
-  only an empty chunked request can reach in production, is
+  as MockMvc builds them, with a body stream not yet read, so the relay streamed an empty body,
+  which can trip a race in the JDK's HTTP client whose `NullPointerException` the gateway answers
+  500. It now sends them as Tomcat delivers them, requires the upstream's own answer rather than
+  any status but 401 or 403, and fails any relayed request that reaches upstream as a streamed,
+  chunked body. The race itself, which only an empty chunked request can reach in production, is
   [#358](https://github.com/NaimElijah/FinAssist/issues/358)
   ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
 - **The web client refuses a decimal that arrives as a JSON number, on every read.** Every decimal

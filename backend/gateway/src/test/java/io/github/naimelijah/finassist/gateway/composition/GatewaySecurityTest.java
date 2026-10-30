@@ -35,14 +35,10 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.http.client.JdkClientHttpRequestFactoryBuilder;
-import org.springframework.boot.http.client.autoconfigure.ClientHttpRequestFactoryBuilderCustomizer;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -176,27 +172,6 @@ class GatewaySecurityTest {
         upstream.close();
     }
 
-    /**
-     * Runs the relay's {@code HttpClient} on the calling thread, so that a race in the JDK client
-     * which a streamed empty body can lose is lost many times a run rather than once in a thousand.
-     *
-     * <p>JDK 21's {@code Http1Exchange.sendBodyAsync} subscribes a body publisher before it records
-     * the subscriber, and a zero-byte streamed body can complete in between: a {@code
-     * NullPointerException} the gateway answers 500. On the default executor that interleaving is
-     * rare; on this one it fires on many of the relayed requests sent over a kept-alive connection.
-     * So a relayed request that streams an empty body again fails here, not once in CI. Boot
-     * applies every customizer of this type in turn, so this composes with {@code
-     * GatewayConfiguration}'s HTTP/1.1 pin rather than replacing it.
-     */
-    @TestConfiguration
-    static class SynchronousRelayClient {
-
-        @Bean
-        ClientHttpRequestFactoryBuilderCustomizer<JdkClientHttpRequestFactoryBuilder> relayOnCallingThread() {
-            return builder -> builder.withHttpClientCustomizer(httpClient -> httpClient.executor(Runnable::run));
-        }
-    }
-
     /** Points both relay routes at {@link #upstream}; read by the route beans built at start-up. */
     @DynamicPropertySource
     static void relayProperties(DynamicPropertyRegistry registry) {
@@ -213,11 +188,12 @@ class GatewaySecurityTest {
      * Delivers a bodiless request the way a servlet container does: with its body stream already
      * finished.
      *
-     * <p>Tomcat reports an empty body's stream finished before any read, so the relay sees no body
-     * and sends {@code Content-Length: 0}. MockMvc reports the same stream unfinished until it is
-     * read, so the relay streams an empty body instead — a request no browser can make through
-     * Tomcat, and the one that trips the JDK client's race (see {@link SynchronousRelayClient}).
-     * Reading the stream first lets the relay decide about the body as it does in production.
+     * <p>Tomcat reports an empty body's stream finished before any read, so the relay sees no body.
+     * MockMvc reports the same stream unfinished until it is read, so the relay streams an empty
+     * body instead, chunked because it has no length: a request no browser can make through Tomcat,
+     * and one that can trip a race in JDK 21's HTTP client, whose {@code NullPointerException} the
+     * gateway answers 500 (#358). Reading the stream first lets the relay decide about the body as
+     * it does in production.
      */
     private static RequestPostProcessor bodyAlreadyRead() {
         return request -> {
@@ -597,6 +573,12 @@ class GatewaySecurityTest {
                         "the request upstream received for %s %s, which the gateway answered %s with %s",
                         operation.method(), path, response.getStatus(), response.getContentAsString())
                 .isNotNull();
+        assertThat(relayed.hasHeader(HttpHeaders.TRANSFER_ENCODING))
+                .as(
+                        "whether %s %s reached upstream as a streamed body, which a bodiless request"
+                                + " delivered as Tomcat delivers it never is",
+                        operation.method(), path)
+                .isFalse();
         assertThat(relayed.method())
                 .as("the method upstream received for %s %s", operation.method(), path)
                 .isEqualTo(operation.method().name());
