@@ -13,7 +13,7 @@ dependencies = [
     # Plain, never `[standard]`: the server runs `h11` with no WebSocket support (ADR-058), so
     # that extra's httptools, uvloop, websockets, watchfiles and pyyaml would ship unused.
     "uvicorn==0.53.0",
-    "pydantic==2.13.5",
+    "pydantic==2.14.1",
     "pydantic-settings==2.16.2",
     "structlog==26.1.0",      # structured logging; never `print`
     # Telemetry (ADR-019). The instrumentation package tracks the API/SDK on its own 0.x
