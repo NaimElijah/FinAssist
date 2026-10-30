@@ -142,8 +142,11 @@ class GatewaySecurityTest {
      */
     private static FakeService upstream;
 
-    /** The body {@link #upstream} answers with its {@code 200}, which no gateway answer carries. */
-    private static final String UPSTREAM_BODY = "{}";
+    /**
+     * The body {@link #upstream} answers with, set rather than left to its default, and distinctive
+     * enough that no gateway answer could carry it: a relayed request must come back with it.
+     */
+    private static final String UPSTREAM_BODY = "{\"answeredBy\":\"upstream\"}";
 
     /**
      * The registration a real sign-in completes against. {@code oidcLogin()} defaults to one named
@@ -165,6 +168,7 @@ class GatewaySecurityTest {
     @BeforeAll
     static void startUpstream() throws IOException {
         upstream = new FakeService();
+        upstream.respondNext(HttpStatus.OK.value(), MediaType.APPLICATION_JSON_VALUE, UPSTREAM_BODY);
     }
 
     @AfterAll
