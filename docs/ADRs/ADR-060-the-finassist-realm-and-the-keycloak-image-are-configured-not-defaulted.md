@@ -71,10 +71,9 @@ at the first sign-in. Nothing requires a viewer the owner adds to enrol one.
 owner on 2026-10-30,** and `docs/requirements/requirements.md` lists it under Non-goals. TOTP stays
 required of the owner at the first sign-in and of any user who has enrolled one.
 
-**Two neighbouring gaps are out of scope here and tracked on their own:** the `master` realm, which
-holds Keycloak's own administrator ([#368](https://github.com/NaimElijah/FinAssist/issues/368)),
-and a Host allow-list in front of Keycloak, as the three services have
-([#369](https://github.com/NaimElijah/FinAssist/issues/369)).
+**Two neighbouring items about Keycloak are out of scope here and tracked on their own:**
+[#368](https://github.com/NaimElijah/FinAssist/issues/368) and
+[#369](https://github.com/NaimElijah/FinAssist/issues/369).
 
 ## Consequences
 

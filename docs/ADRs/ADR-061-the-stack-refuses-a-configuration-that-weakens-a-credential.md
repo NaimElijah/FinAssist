@@ -16,15 +16,10 @@ which has no rule for a log level.
 `docs/operations/operations.md` documents `openssl rand -hex 16` for generating each, but nothing
 makes the owner use it ([#340](https://github.com/NaimElijah/FinAssist/issues/340)).
 
-**Length is the only bound on guessing where nothing locks the account out.** Two of the stack's
-credentials stand behind no lockout:
-
-- **Keycloak's `master`-realm administrator.** The `master` realm is not under the repository's
-  configuration ([#368](https://github.com/NaimElijah/FinAssist/issues/368)).
-- **PostgreSQL's password.** A database has no account lockout, and its port is published on
-  loopback.
-
-A rule for those two would stop short of the other six. The owner's decision, on 2026-10-30, was to
+**Length is the only bound on guessing a secret that no account lockout protects.** Bringing
+every credential the stack holds under such a protection is tracked on its own
+([#368](https://github.com/NaimElijah/FinAssist/issues/368)), and a rule for some of the secrets
+would leave the others on the old footing. The owner's decision, on 2026-10-30, was to
 set one minimum and apply it to all eight.
 
 **The gateway's log levels are set by environment variables nothing checks.** Spring Boot reads
@@ -94,11 +89,10 @@ Compose convention: `make check-compose`, which CI's `compose` job calls.
 
 ## Alternatives considered
 
-- **Apply the minimum to the Keycloak admin password only.** Rejected: PostgreSQL's password has
-  no lockout either, and a rule that names two secrets leaves six on the old footing. **Revisit
-  when** the `master` realm is under the repository's configuration with a lockout (#368) and the
-  database port is no longer published (#61): the two credentials that motivate the rule are then
-  protected another way, and the rule for the other six can be argued on its own.
+- **Apply the minimum only to the secrets that no lockout protects.** Rejected: a rule that names
+  some of the secrets leaves the rest on the old footing. **Revisit when** every credential the
+  stack holds is protected another way (#368, #61): the rule for the rest can then be argued on its
+  own.
 - **An entropy check.** Rejected: length is what the generator guarantees. **Revisit when** the
   owner stops generating the values with `openssl rand -hex 16`.
 - **A different minimum, or a subset of the secrets.** The owner chose 32 and all eight on

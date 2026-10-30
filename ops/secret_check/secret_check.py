@@ -46,8 +46,7 @@ SECRET_VARIABLES: Final = (
     "GRAFANA_ADMIN_PASSWORD",
 )
 # What `openssl rand -hex 16`, the generator docs/operations/operations.md documents, writes. Length
-# is the only bound on guessing where nothing locks an account out: Keycloak's master-realm admin,
-# and PostgreSQL's port.
+# is the only bound on guessing a secret that no account lockout protects.
 MIN_SECRET_LENGTH: Final = 32
 # The scan root must hold this, or it is not the repository and nothing was searched.
 ANCHOR_FILE: Final = "docker-compose.yml"

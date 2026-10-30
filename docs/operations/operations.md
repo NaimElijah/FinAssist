@@ -217,13 +217,13 @@ from inside that container. No value is ever typed into a command line or kept i
 None is passed as a process argument either, where any local user's `ps` could read it on a Linux
 Docker host: each one reaches its tool through the environment or standard input.
 
-**A stack that refuses to start on a published or a short secret is fixed the same way.** Before
-any database starts, `secret-check` refuses each secret that a file git does not ignore holds, and
-each one shorter than 32 characters, and `docker compose logs secret-check` names them
+**A stack that refuses to start on a published or a short secret is fixed the same way.** Before any
+database starts, `secret-check` refuses each secret that a file git does not ignore holds, and each
+one shorter than 32 characters, and `docker compose logs secret-check` names them
 ([ADR-044](../ADRs/ADR-044-compose-refuses-a-published-secret.md)). Length is the only bound on
-guessing a password that nothing locks out, such as Keycloak's own admin or a database role. Write
-a new value for each into `.env`, then follow [Every secret at once](#every-secret-at-once): the
-databases start again as soon as no secret is published or short.
+guessing a password that no account lockout protects. Write a new value for each into `.env`, then
+follow [Every secret at once](#every-secret-at-once): the databases start again as soon as no secret
+is published or short.
 
 Before you start:
 
