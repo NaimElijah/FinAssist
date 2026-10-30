@@ -44,7 +44,7 @@
     <jacoco.version>0.8.15</jacoco.version>
     <pitest.version>1.30.0</pitest.version>
     <pitest-junit5.version>1.2.3</pitest-junit5.version>
-    <springdoc.version>3.1.1</springdoc.version>
+    <springdoc.version>3.2.0</springdoc.version>
     <!-- Overrides the 1.62.0 that Boot 4.1.2 manages, whose W3C tracestate parsing costs
          quadratic CPU (GHSA-ccrj-gw8r-854m, fixed in 1.67.0). Boot's opentelemetry-bom import
          reads this property, so every io.opentelemetry artefact moves together. Delete it once

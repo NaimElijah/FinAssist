@@ -62,7 +62,7 @@ finassist:
 springdoc:
   api-docs:
     # Serving the document is a deliberate choice, not springdoc's default, matching the ledger
-    # (ADR-028's pattern). Left unset, springdoc 3.1.1 serves it anyway and warns at every
+    # (ADR-028's pattern). Left unset, springdoc 3.2.0 serves it anyway and warns at every
     # start-up that the endpoint "is enabled by default"; set, that warning is gone. The switch
     # only controls whether the endpoint exists; GatewayContractIT never calls it over HTTP, and
     # the security chain still denies it (GatewayOpenApiConfiguration explains why).
