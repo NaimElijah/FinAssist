@@ -55,8 +55,11 @@ spring:
 
   datasource:
     # Defaults serve the native run: a ledger on the host reaching the Compose database through its
-    # published port on localhost. The Compose ledger overrides them with the service name, db. No
-    # password default — an unset one should fail to connect, not silently try an empty string.
+    # published port on localhost. The Compose ledger overrides them with the service name, db. The
+    # password's empty default reaches pgjdbc as no password at all, and pgjdbc then refuses
+    # PostgreSQL's SCRAM challenge, so an unset LEDGER_DB_PASSWORD fails start-up at Flyway's
+    # first connection. Dropping the default would not fail sooner: Boot's binder keeps an
+    # unresolved placeholder as its literal text, which would then be sent as the password.
     url: ${LEDGER_DB_URL:jdbc:postgresql://localhost:5432/finassist}
     username: ${LEDGER_DB_USERNAME:finassist}
     password: ${LEDGER_DB_PASSWORD:}
