@@ -52,7 +52,7 @@ read the registries, OSV, OpenSSF Scorecard, the lockfiles and the resolved Mave
   `npm ci` fails with ERESOLVE. `@types/node` was at 26.6.2, and the runtime is Node 24
   (`.nvmrc`, CI's `setup-node` and `engines`).
 - **Most tools had no record of their licence or of when to drop them.** Hypothesis, certifi,
-  `pathspec` and `lightningcss` are MPL-2.0, JaCoCo is EPL-2.0, and three Java transitives are
+  `pathspec` and `lightningcss` are MPL-2.0, JaCoCo is EPL-2.0, and four Java transitives are
   dual-licensed.
 
 **`LICENSE` is proprietary, "All rights reserved", on a public repository.** No record said which
