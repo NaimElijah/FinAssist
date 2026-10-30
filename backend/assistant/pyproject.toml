@@ -10,7 +10,9 @@ license = { text = "Proprietary - all rights reserved. See LICENSE at the reposi
 # Exact pins only. Ranges make a lockfile a suggestion; see docs/ADRs/ADR-003.
 dependencies = [
     "fastapi==0.141.1",
-    "uvicorn[standard]==0.53.0",
+    # Plain, never `[standard]`: the server runs `h11` with no WebSocket support (ADR-058), so
+    # that extra's httptools, uvloop, websockets, watchfiles and pyyaml would ship unused.
+    "uvicorn==0.53.0",
     "pydantic==2.13.5",
     "pydantic-settings==2.15.0",
     "httpx==0.28.1",          # talks to the ledger over its OpenAPI contract

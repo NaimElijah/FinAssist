@@ -110,6 +110,8 @@ From `backend/assistant`:
   `h11_max_incomplete_event_size=MAX_HEADER_BLOCK_BYTES` (16 KiB), because `httptools` buffers a
   header block of any size; `proxy_headers=False`, so no `X-Forwarded-*` rewrites the client address
   or scheme; `server_header=False`; and `ws="none"`. Pinned by `tests/test_observability.py`.
+  `pyproject.toml` declares plain `uvicorn`: `[standard]` would install httptools, uvloop,
+  websockets, watchfiles and pyyaml, none of which those settings use.
 - **A registered secret is scrubbed from every logged value** (`adapters/observability.py`). A
   value that is not text, a number, a boolean, `None` or a container is scrubbed as its text, so a
   secret inside an exception or an object's representation does not reach the output.

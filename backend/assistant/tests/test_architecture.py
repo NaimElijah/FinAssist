@@ -73,7 +73,7 @@ def _declared_runtime_distributions() -> frozenset[str]:
 
     names = set()
     for requirement in project["dependencies"]:
-        # "uvicorn[standard]==0.52.4" -> "uvicorn". Distribution names are hyphenated where
+        # "PyJWT[crypto]==<version>" -> "PyJWT". Distribution names are hyphenated where
         # import names are underscored.
         name = re.split(r"[\[<>=!~;\s]", requirement, maxsplit=1)[0]
         names.add(name.strip().replace("-", "_"))
