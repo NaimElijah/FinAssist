@@ -34,8 +34,8 @@ append-only history: to change course, add a new record and mark the old one
 | [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted, extended by 030 |
 | [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
 | [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030 and 056 |
-| [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047 and 056 |
-| [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037 and 053, corrected by 047 |
+| [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056 and 057 |
+| [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, 053 and 057, corrected by 047 |
 | [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036, corrected by 047 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted, corrected by 047 |
 | [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035 |
@@ -62,6 +62,7 @@ append-only history: to change course, add a new record and mark the old one
 | [054](ADR-054-each-service-ships-as-a-two-stage-image-run-as-a-non-root-user.md) | Each service ships as a two-stage image, built from source and run as a non-root user | Accepted |
 | [055](ADR-055-the-assistants-development-seed-lives-in-its-composition-root.md) | The assistant's development seed lives in its composition root, and is off by default | Accepted |
 | [056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md) | The web client retries a failed read once, and never a write | Accepted |
+| [057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md) | A page on another `localhost` port is treated as hostile | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -238,3 +239,13 @@ and it is never a data source. It goes when a ledger client and a quote feed exi
 neither states. A failed read is retried once, on a network failure or a 5xx other than 503; a
 write is never retried; and a 401 from anything but the session check ends the session
 ([#339](https://github.com/NaimElijah/FinAssist/issues/339)).
+
+057 extends 030 and 029 on 2026-10-30, because cookies ignore ports, so a page served from any other
+`localhost` port is same-site with the app, shares its cookie jar and rides its `Lax` cookies.
+ADR-030 used the fact to rename the cookies and no record drew the rest of its consequences. The
+gateway now takes the CSRF token from its header alone, starts a sign-in only from a top-level
+navigation and refuses any other with 403, lets a started sign-in's session idle 15 minutes, strips
+an upstream's cookie, site-data, HSTS and CORS headers, and logs only a registered OAuth2 code. The
+dev and preview servers refuse framing and CORS, `/__open-in-editor` answers only the app's own
+page, and the lint rule refuses raw-HTML sinks
+([#340](https://github.com/NaimElijah/FinAssist/issues/340)).
