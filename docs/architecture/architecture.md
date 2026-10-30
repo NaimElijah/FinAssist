@@ -254,7 +254,9 @@ a published secret (ADR-044); and `ops/compose_check/compose_check.py`, the chec
   because its proceeds are an amount of money — ADR-028), each behind `HostAllowList` and each
   refusal a problem. The web client's holding page calls the position and the valuation side by
   side for the symbol it shows, and the disposal when the owner prices one, the symbol
-  percent-encoded as one path segment. In development the browser calls `/assistant/…` on the Vite
+  percent-encoded as one path segment. Every id or symbol in a path, on every screen, goes through
+  `pathSegment` (`src/shared/api/pathSegment.ts`), which refuses an empty value, `.` or `..`
+  before a request is built, since the URL parser would resolve each to another path. In development the browser calls `/assistant/…` on the Vite
   origin, and the dev proxy forwards it, path intact, to the gateway on loopback, whose own route
   strips the prefix and relays to the assistant once the session is authenticated
   ([ADR-026](../ADRs/ADR-026-web-client-calls-both-services-through-one-origin.md), extended by

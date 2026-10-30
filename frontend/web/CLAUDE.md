@@ -89,6 +89,9 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
   wire type and maps it, member by member, onto the feature's own type in `types/` (ADR-029).
   Every decimal member goes through `decimalString` from `src/shared/api/decimal.ts`, so a JSON
   number is refused with `ApiBodyError` (ADR-028).
+- **An id or symbol enters an API path only through `pathSegment`** from
+  `src/shared/api/pathSegment.ts`, never a bare `encodeURIComponent`: it also refuses an empty
+  value, `.` and `..`, which encoding leaves alone and the URL parser resolves to another path.
 - **A feature's query keys come from one factory constant**, such as `accountKeys`, never a key
   literal spelled at the call site. A mutation invalidates only the keys that can have changed,
   never a wider prefix that would refetch data nothing touched.

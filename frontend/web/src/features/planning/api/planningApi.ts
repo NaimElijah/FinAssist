@@ -27,6 +27,7 @@ import type {
     ScenarioResponse,
 } from '@/shared/api/contracts/ledger/types.gen';
 import { decimalString } from '@/shared/api/decimal';
+import { pathSegment } from '@/shared/api/pathSegment';
 import { log } from '@/shared/lib/logger';
 
 import type { ComparedScenario, Comparison, ComparisonParams } from '../types/comparison';
@@ -47,7 +48,7 @@ const SCENARIO_COMPARISONS_URL = `${LEDGER_API}/scenario-comparisons`;
 
 /** The URL of one planned flow's lifecycle action, with the id encoded as a single path segment. */
 function flowActionUrl(flowId: string, action: string): string {
-    return `${PLANNED_FLOWS_URL}/${encodeURIComponent(flowId)}/${action}`;
+    return `${PLANNED_FLOWS_URL}/${pathSegment(flowId)}/${action}`;
 }
 
 /**
@@ -409,6 +410,8 @@ export async function planFlow(input: PlanFlowInput): Promise<PlannedFlow> {
  *   the flow is not `PLANNED`, 422 `RULE_VIOLATED`.
  * @throws ApiBodyError - when the response carries no JSON body, or anything `listPlannedFlows`
  *   refuses.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function commitFlow(flowId: string, on: string): Promise<PlannedFlow> {
     const url = flowActionUrl(flowId, 'commit');
@@ -427,6 +430,8 @@ export async function commitFlow(flowId: string, on: string): Promise<PlannedFlo
  *   the flow is not `COMMITTED`, 422 `RULE_VIOLATED`.
  * @throws ApiBodyError - when the response carries no JSON body, or anything `listPlannedFlows`
  *   refuses.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function realiseFlow(flowId: string, on: string): Promise<PlannedFlow> {
     const url = flowActionUrl(flowId, 'realise');
@@ -446,6 +451,8 @@ export async function realiseFlow(flowId: string, on: string): Promise<PlannedFl
  *   the flow is already `REALISED` or `CANCELLED`, 422 `RULE_VIOLATED`.
  * @throws ApiBodyError - when the response carries no JSON body, or anything `listPlannedFlows`
  *   refuses.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function cancelFlow(flowId: string, on: string, reason: string): Promise<PlannedFlow> {
     const url = flowActionUrl(flowId, 'cancel');
@@ -502,11 +509,13 @@ export async function defineScenario(input: DefineScenarioInput): Promise<Scenar
  *   unknown or in another currency.
  * @throws ApiBodyError - when the response carries no JSON body, no points, a step or currency
  *   the contract does not name, or an amount that is not a decimal string.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function projectScenario(params: ProjectionParams): Promise<Projection> {
     const query = new URLSearchParams();
     appendSettings(query, params);
-    const url = `${SCENARIOS_URL}/${encodeURIComponent(params.scenarioId)}/projection?${query.toString()}`;
+    const url = `${SCENARIOS_URL}/${pathSegment(params.scenarioId)}/projection?${query.toString()}`;
     const wire = await requestJson<ProjectionResponse>(url);
     return toProjection(wire, url);
 }
