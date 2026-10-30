@@ -334,7 +334,10 @@ a published secret (ADR-044); and `ops/compose_check/compose_check.py`, the chec
   failure as `KeySourceUnavailable`. It keeps the fetched set for five minutes and caches no signing
   key apart from it, as the ledger's Nimbus source keeps none, so a key removed from the realm stops
   verifying once the set expires, and a key source still unreachable past that lifespan is a 503
-  for every token (`test_auth.py`).
+  for every token (`test_auth.py`). After a failed fetch it fetches nothing for
+  `JWKS_FETCH_BACKOFF_SECONDS`, 15 seconds, three times the fetch's own five-second timeout, and
+  answers every lookup that would have fetched as an outage at once, so a stalled key source costs one fetch per backoff
+  rather than one per request queued behind PyJWT's lock.
 - **Keycloak to `keycloak-db`** — JDBC, to its own PostgreSQL on the Compose network. That
   database publishes no port and shares no role, volume or failure domain with the ledger's `db`
   (ADR-031).

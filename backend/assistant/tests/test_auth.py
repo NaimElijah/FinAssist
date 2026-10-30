@@ -42,6 +42,7 @@ from finassist_assistant.adapters.app import create_app
 from finassist_assistant.adapters.auth import (
     ASSISTANT_AUDIENCE,
     JWKS_CACHE_LIFESPAN_SECONDS,
+    JWKS_FETCH_BACKOFF_SECONDS,
     REASON_AUDIENCE,
     REASON_ISSUER,
     REASON_KEY_SOURCE,
@@ -1281,6 +1282,10 @@ def Given_a_claim_PyJWT_requires_to_be_a_string_When_it_is_a_number_Then_it_is_r
 _PYJWT_CLOCK_READERS: Final = (jwt.api_jwk, jwt.jwk_set_cache, jwt.jwks_client)
 """Every PyJWT module that reads ``time.monotonic``, as read from the installed 2.15 sources."""
 
+_PYJWT_UNKNOWN_KID_COOLDOWN_SECONDS: Final = 30
+"""PyJWT's default wait between forced refreshes for an unknown ``kid``, which ``jwks_key_source``
+leaves as it is. Well inside the set's lifespan."""
+
 _REMOVED_KEY_ID = "k-old"
 _ADDED_KEY_ID = "k-new"
 
@@ -1421,6 +1426,90 @@ def Given_the_key_source_unreachable_past_the_set_lifespan_When_a_known_kid_arri
 
     assert response.status_code == 503
     assert response.json()["code"] == "AUTHENTICATION_UNAVAILABLE"
+
+
+# --- backing off after a failed fetch ---------------------------------------------------------
+
+
+def _outcomes(verify: TokenVerifier, tokens: list[str]) -> list[str]:
+    """What *verify* made of each of *tokens*: the subject it names, or the reason it failed."""
+    outcomes = []
+    for token in tokens:
+        try:
+            outcomes.append(verify(token).subject)
+        except (TokenRefused, KeySourceUnavailable) as failed:
+            outcomes.append(failed.reason)
+    return outcomes
+
+
+def Given_a_failed_fetch_When_tokens_arrive_within_the_backoff_Then_none_fetches_again(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    switchable_jwks: _SwitchableJwks,
+    stepped_clock: _SteppedClock,
+    fixed_clock: Clock,
+) -> None:
+    """While the key source is failing, one fetch per backoff, not one per request. Every fetch
+    waits up to the five-second timeout under PyJWT's lock, so a fetch per request queued each
+    caller behind every other one's wait."""
+    private_key, _ = rsa_key_pair
+    switchable_jwks.fail()
+    verify = _verifier(jwks_key_source(switchable_jwks.uri, monotonic=stepped_clock), fixed_clock)
+    tokens = [
+        _encode(private_key, _valid_claims(fixed_clock()), key_id=f"kid-{index}")
+        for index in range(3)
+    ]
+
+    assert _outcomes(verify, tokens) == [REASON_KEY_SOURCE] * len(tokens)
+    stepped_clock.step(JWKS_FETCH_BACKOFF_SECONDS - 1)
+    assert _outcomes(verify, tokens) == [REASON_KEY_SOURCE] * len(tokens)
+
+    assert switchable_jwks.fetches == 1
+
+
+def Given_a_failed_fetch_When_the_backoff_has_passed_Then_the_key_source_is_fetched_again(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    switchable_jwks: _SwitchableJwks,
+    stepped_clock: _SteppedClock,
+    fixed_clock: Clock,
+) -> None:
+    private_key, public_key = rsa_key_pair
+    switchable_jwks.fail()
+    verify = _verifier(jwks_key_source(switchable_jwks.uri, monotonic=stepped_clock), fixed_clock)
+    token = _encode(private_key, _valid_claims(fixed_clock()))
+    assert _outcomes(verify, [token]) == [REASON_KEY_SOURCE]
+
+    switchable_jwks.serve((KEY_ID, public_key))
+    stepped_clock.step(JWKS_FETCH_BACKOFF_SECONDS)
+
+    assert verify(token) == Principal(subject=SUBJECT)
+    assert switchable_jwks.fetches == 2
+
+
+def Given_a_failing_source_and_a_fresh_set_When_unknown_kids_arrive_Then_one_fetch_is_made(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    switchable_jwks: _SwitchableJwks,
+    stepped_clock: _SteppedClock,
+    fixed_clock: Clock,
+) -> None:
+    """Unknown ``kid`` values each force a refresh once PyJWT's 30 s cooldown has passed. With the
+    source failing, the first refresh fails and the rest are answered at once, and a token whose
+    key is in the still-fresh set goes on verifying meanwhile."""
+    private_key, public_key = rsa_key_pair
+    switchable_jwks.serve((KEY_ID, public_key))
+    verify = _verifier(jwks_key_source(switchable_jwks.uri, monotonic=stepped_clock), fixed_clock)
+    known = _encode(private_key, _valid_claims(fixed_clock()))
+    verify(known)
+
+    stepped_clock.step(_PYJWT_UNKNOWN_KID_COOLDOWN_SECONDS)
+    switchable_jwks.fail()
+    unknown = [
+        _encode(private_key, _valid_claims(fixed_clock()), key_id=f"kid-{index}")
+        for index in range(3)
+    ]
+
+    assert _outcomes(verify, unknown) == [REASON_KEY_SOURCE] * len(unknown)
+    assert verify(known) == Principal(subject=SUBJECT)
+    assert switchable_jwks.fetches == 2
 
 
 # --- the verifier create_app builds when a test does not supply one ---------------------------

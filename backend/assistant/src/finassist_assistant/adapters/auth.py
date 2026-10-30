@@ -40,6 +40,7 @@ and four tests in ``tests/test_auth.py`` guard the exact-match boundary - so do 
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -67,6 +68,7 @@ __all__ = [
     "ASSISTANT_AUDIENCE",
     "DEFAULT_LEEWAY",
     "JWKS_CACHE_LIFESPAN_SECONDS",
+    "JWKS_FETCH_BACKOFF_SECONDS",
     "PRINCIPAL_SCOPE_KEY",
     "PUBLIC_PATHS",
     "REASON_AUDIENCE",
@@ -83,6 +85,7 @@ __all__ = [
     "BearerAuthentication",
     "KeySource",
     "KeySourceUnavailable",
+    "MonotonicClock",
     "Principal",
     "RequirePermission",
     "TokenRefused",
@@ -120,6 +123,16 @@ JWKS_CACHE_LIFESPAN_SECONDS: Final = 300
 """How long a fetched key set is trusted before it is fetched again, as on the ledger (ADR-037)."""
 
 _JWKS_TIMEOUT_SECONDS: Final = 5
+
+JWKS_FETCH_BACKOFF_SECONDS: Final = 15
+"""How long after a failed key-set fetch the key source answers an outage without fetching again.
+
+Three times a fetch's own five-second timeout, and deliberately longer than it. Every lookup takes
+PyJWT's lock, and a fetch that stalls holds it for its whole timeout; a backoff no longer than the
+timeout would leave the lock held by the next stalled fetch about half the time while lookups
+that need one keep arriving. With it, one fetch per backoff fails, and every lookup in between is
+answered at once.
+"""
 
 # The fixed reason vocabulary every authentication failure is logged under (ADR-030). A caller
 # logs one of these nine words, never the token and never a claim value.
@@ -208,24 +221,51 @@ class KeySourceUnavailable(Exception):  # noqa: N818 - ADR-030's term: an unreac
     reason: Final[str] = REASON_KEY_SOURCE
 
 
+MonotonicClock = Callable[[], float]
+"""Reads a monotonic time in seconds, such as :func:`time.monotonic`. Injected so a test can step
+it rather than wait."""
+
+
 class _KeySetClient(PyJWKClient):
-    """A ``PyJWKClient`` that reports a key set it cannot use as an outage (ADR-037).
+    """A ``PyJWKClient`` that reports a key set it cannot use as an outage (ADR-037), and backs off
+    after a failed fetch.
 
     PyJWT raises the same types for a key set it cannot use as for a token naming a key the set
     lacks: ``[]`` raises ``PyJWKClientError`` exactly as an unknown ``kid`` does. Telling the two
     apart by message would be fragile, so they are told apart by *where* they are raised instead.
+
+    :param uri: the JWKS URI.
+    :param monotonic: reads the time the backoff is measured against.
+    :param lifespan: how long a fetched set is cached, in seconds.
+    :param timeout: how long one fetch may wait, in seconds.
     """
 
+    def __init__(
+        self, uri: str, *, monotonic: MonotonicClock, lifespan: float, timeout: float
+    ) -> None:
+        # No per-kid cache: it never expires. jwks_key_source's docstring says what that costs.
+        super().__init__(uri, cache_keys=False, lifespan=lifespan, timeout=timeout)
+        self._monotonic = monotonic
+        # Read and written under PyJWT's own lock: every fetch happens inside get_signing_key.
+        self._failed_at: float | None = None
+
     def fetch_data(self) -> Any:
-        """Fetches, decodes and parses the key set, exactly as ``PyJWKClient`` does.
+        """Fetches, decodes and parses the key set, exactly as ``PyJWKClient`` does, unless a fetch
+        failed less than :data:`JWKS_FETCH_BACKOFF_SECONDS` ago.
 
         :raises KeySourceUnavailable: the set could not be fetched, or holds nothing a token can be
-            verified against. This method never sees a token, so no failure inside it can be the
-            caller's - which is what makes catching ``ValueError`` here safe, where catching it
-            around the whole key lookup would also take an error raised from the token itself.
+            verified against, or a fetch failed within the backoff. This method never sees a
+            token, so no failure inside it can be the caller's - which is what makes catching
+            ``ValueError`` here safe, where catching it around the whole key lookup would also
+            take an error raised from the token itself.
         """
+        if (
+            self._failed_at is not None
+            and self._monotonic() - self._failed_at < JWKS_FETCH_BACKOFF_SECONDS
+        ):
+            raise KeySourceUnavailable
         try:
-            return super().fetch_data()
+            fetched = super().fetch_data()
         except (
             jwt.PyJWKClientError,
             jwt.PyJWKSetError,
@@ -243,15 +283,20 @@ class _KeySetClient(PyJWKClient):
             # does not skip. RecursionError: nested too deep to parse, and not a ValueError at all.
             # OSError: the connection reset while the response was being read. urllib passes that
             # through raw, and it is none of the three types PyJWT wraps.
+            self._failed_at = self._monotonic()
             raise KeySourceUnavailable from unusable
+        self._failed_at = None
+        return fetched
 
 
-def jwks_key_source(uri: str) -> KeySource:
+def jwks_key_source(uri: str, monotonic: MonotonicClock = time.monotonic) -> KeySource:
     """Builds a :data:`KeySource` backed by a real JWKS endpoint.
 
     :param uri: the *internal* JWKS URI, fetched service-to-service. Always distinct from a
         token's own ``iss``, which is always the public issuer a browser signed in against
         (ADR-030) - the two are never the same value, so they are never the same setting.
+    :param monotonic: reads the time a failed fetch's backoff is measured against. The process's
+        monotonic clock by default, which is what the composition root uses.
 
     The returned key source caches the fetched key set for :data:`JWKS_CACHE_LIFESPAN_SECONDS`,
     so an ordinary verification fetches nothing over the network. It caches no signing key apart
@@ -262,11 +307,13 @@ def jwks_key_source(uri: str) -> KeySource:
     JWKS endpoint fails quickly rather than hanging the request that discovered it. A key set that
     cannot be fetched or used raises :class:`KeySourceUnavailable` through :class:`_KeySetClient`;
     a failed refresh leaves the last good set cached until its lifespan ends, because PyJWT caches
-    only a successful fetch.
+    only a successful fetch. After a failed fetch, no fetch is tried again for
+    :data:`JWKS_FETCH_BACKOFF_SECONDS`, and every lookup that would have fetched is an outage at
+    once.
     """
     client = _KeySetClient(
         uri,
-        cache_keys=False,
+        monotonic=monotonic,
         lifespan=JWKS_CACHE_LIFESPAN_SECONDS,
         timeout=_JWKS_TIMEOUT_SECONDS,
     )
