@@ -352,7 +352,11 @@ The ledger never calls the assistant, and the assistant never calls the web clie
 
 **A ledger request reaches a use case.** `HostAllowListFilter` runs first, ahead of every
 other filter, Actuator included (ADR-030): a request whose `Host` is not on
-`LEDGER_ALLOWED_HOSTS` is refused 403 before the dispatcher sees it. Next is
+`LEDGER_ALLOWED_HOSTS` is refused 403 before the dispatcher sees it. After Spring MVC's request
+observation, and ahead of the form-content filter and every other filter that could read a body,
+`RequestBodyLimitFilter` refuses a body over `MAX_REQUEST_BODY_BYTES`, 64 KiB, with 413
+`CONTENT_TOO_LARGE`: a declared `Content-Length` over it unread, and a chunked body once it runs
+one byte past it, which within the limit goes on carrying the bytes already read. Next is
 `LedgerSecurityConfiguration`'s own filter chain, registered as the `springSecurityFilterChain`
 servlet filter: it reads the `Authorization` header, decodes and validates the bearer token
 against Keycloak's JWKS with an injected clock, and checks the permission its URL rule needs —
@@ -367,7 +371,7 @@ calls its repository, which issues hand-written SQL over `JdbcClient` against Po
 response DTO is built from the domain result and serialised — every decimal as a string, every
 sealed lifecycle flattened to a required `status` with optional `on`/`reason` members, mapped by
 hand rather than by a Jackson polymorphism annotation (ADR-028): HTTP → `HostAllowListFilter` →
-security chain → controller → in-port → service → repository → PostgreSQL.
+`RequestBodyLimitFilter` → security chain → controller → in-port → service → repository → PostgreSQL.
 
 **A failure becomes a problem.** A well-formed request a domain or adapter rule refuses raises
 `IllegalArgumentException` and is answered 422; an illegal lifecycle transition raises
@@ -878,6 +882,7 @@ the classes and tests that enforce them in
 | **Every endpoint the running ledger maps is in a named inventory**, so one added without a URL rule fails the build rather than shipping open | `LedgerAuthorizationIT.Given_the_running_ledger_When_its_handler_mappings_are_read_Then_they_equal_the_named_inventory` |
 | **Every `APIRoute` the assembled assistant serves outside its public paths carries exactly one permission dependency**. The test walks routes behind any depth of `include_router`, so a second router is covered without a change to it, and skips `PUBLIC_PATHS` (`/health`, `/ready`, `/openapi.json`), which need no token at all | `test_authorization.py::Given_the_assembled_app_When_routes_are_inspected_Then_each_declares_one_permission` |
 | **The packaged gateway starts**: the repackaged jar the image ships, run with `java -jar`, reports ready. A suite on the test classpath cannot see a library the jar lacks (#233) | `GatewayPackagedJarIT.Given_the_packaged_jar_When_it_is_run_Then_it_starts_and_reports_ready` |
+| **The ledger's `RequestBodyLimitFilter` runs after its `HostAllowListFilter` and its request observation, and before every filter that could read a body**, in the filter chain the server actually built | `RequestBodyLimitIT.Given_the_running_ledger_When_its_filter_chain_is_read_Then_the_body_limit_runs_after_the_host_allow_list_and_before_any_body_reader` |
 | **The gateway's `HostAllowListFilter` runs before its security chain**, in the filter chain the server actually built | `GatewayApplicationIT.Given_the_running_gateway_When_its_filter_chain_is_read_Then_the_host_allow_list_runs_before_security` |
 | **No released migration is edited, reordered or filed under another context's major version**: each script is pinned to its SHA-256, and versions strictly increase within a context's directory | `ReleasedMigrationsTest` (ADR-035, ADR-047) |
 | **The ledger starts against the migration history a real database holds**, not only a fresh one | `LedgerUpgradeIT` |

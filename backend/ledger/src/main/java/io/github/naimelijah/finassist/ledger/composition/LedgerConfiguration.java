@@ -28,6 +28,7 @@ import io.github.naimelijah.finassist.ledger.planning.application.service.PlanSe
 import io.github.naimelijah.finassist.ledger.planning.application.service.ScenarioService;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.servlet.filter.OrderedFormContentFilter;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -54,7 +55,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  * <p>The services are called by the controllers in a context's {@code adapter.in.web}, which are
  * component-scanned rather than built here. That is the one bounded exception ADR-028 makes, so that a
  * {@code @WebMvcTest} slice loads them. What every request passes through first is built here: the Host
- * allow-list that refuses a DNS-rebound page (ADR-030).
+ * allow-list that refuses a DNS-rebound page (ADR-030), and the bound on a request body.
  */
 @Configuration
 public class LedgerConfiguration {
@@ -74,6 +75,20 @@ public class LedgerConfiguration {
         FilterRegistrationBean<HostAllowListFilter> registration =
                 new FilterRegistrationBean<>(new HostAllowListFilter(allowedHosts));
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
+    }
+
+    /**
+     * The request-body bound, registered just ahead of the form-content filter, the first filter in the
+     * chain that can read a body; Spring Security runs later still. That places it after the Host
+     * allow-list and after Spring MVC's request observation, so a refusal is traced and counted like any
+     * other answer. {@code RequestBodyLimitIT} reads the order from the running server.
+     */
+    @Bean
+    FilterRegistrationBean<RequestBodyLimitFilter> requestBodyLimitFilter() {
+        FilterRegistrationBean<RequestBodyLimitFilter> registration =
+                new FilterRegistrationBean<>(new RequestBodyLimitFilter());
+        registration.setOrder(OrderedFormContentFilter.DEFAULT_ORDER - 1);
         return registration;
     }
 

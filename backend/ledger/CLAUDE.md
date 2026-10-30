@@ -178,6 +178,10 @@ bounded context (ADR-006, ADR-024).
 - **The Host allow-list lives in `composition`.** `HostAllowListFilter`, at the highest filter
   precedence, refuses a `Host` outside `LEDGER_ALLOWED_HOSTS` with 403 — before Actuator, and
   before any controller (ADR-030).
+- **A request body over 64 KiB is refused 413 `CONTENT_TOO_LARGE`** by `RequestBodyLimitFilter`,
+  in `composition`, before anything reads it: after the Host allow-list and Spring MVC's request
+  observation, ahead of the form-content filter and Spring Security. `RequestBodyLimitIT` reads that
+  order from the running server. A slice loads no filter registration, so only an IT proves it.
 - **Every `@WebMvcTest` slice imports `WebSliceSecurity`.** A slice loads no scanned configuration
   (ADR-028's convention, extended to ADR-030), so without it a slice would boot with no security at
   all — every request admitted, which is a false pass, not a fast one. `WebSliceSecurityImportTest`
