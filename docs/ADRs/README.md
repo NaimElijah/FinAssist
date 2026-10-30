@@ -42,7 +42,7 @@ append-only history: to change course, add a new record and mark the old one
 | [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted, extended by 040 |
 | [035](ADR-035-flyway-runs-out-of-order.md) | Flyway runs out of order, because every context owns a major version | Accepted, corrected by 047 |
 | [036](ADR-036-least-privilege-keycloak-client-scoping.md) | Deny each Keycloak client the realm's full scope | Accepted |
-| [037](ADR-037-an-unusable-key-set-is-an-outage.md) | A key set that cannot be read, or holds no key, is an outage, on both services | Accepted |
+| [037](ADR-037-an-unusable-key-set-is-an-outage.md) | A key set that cannot be read, or holds no key, is an outage, on both services | Accepted, extended by 059 |
 | [038](ADR-038-back-up-each-database-as-a-logical-dump.md) | Back up each database as its own logical dump, on demand, proven by an isolated restore check | Accepted |
 | [039](ADR-039-compose-restarts-services-and-bounds-their-logs.md) | Compose restarts a crashed service, and keeps at most 30 MB of each container's logs | Accepted, extended by 044 |
 | [040](ADR-040-the-smoke-check-trigger-fired.md) | ADR-034's first trigger fired: the smoke check stays manual, and CI starts the packaged gateway | Accepted |
@@ -64,6 +64,7 @@ append-only history: to change course, add a new record and mark the old one
 | [056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md) | The web client retries a failed read once, and never a write | Accepted |
 | [057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md) | A page on another `localhost` port is treated as hostile | Accepted |
 | [058](ADR-058-each-service-bounds-what-one-request-can-cost.md) | Each service bounds what one request can cost | Accepted |
+| [059](ADR-059-the-assistant-trusts-only-the-key-set-it-last-fetched.md) | The assistant trusts only the key set it last fetched | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -259,4 +260,13 @@ The ledger bounds a horizon at 100 years, a comparison at 10 scenarios and every
 1 to 9999, and answers an unparseable multipart body and a firewall rejection 400. The assistant
 serves through `h11` with a 16 KiB header bound, trusts no forwarded header and upgrades no
 WebSocket, and its `Money` accepts what Java's `BigDecimal` does
+([#340](https://github.com/NaimElijah/FinAssist/issues/340)).
+
+059 extends 037 on 2026-10-30, because 037 made an unusable key set an outage on both services and
+left open how long a key already seen stays trusted. The ledger keeps only the fetched set; the
+assistant also kept every key it had resolved, for ever, so a key the realm removed kept verifying
+until a restart, and an outage went unseen for every key already cached. The assistant now caches no
+key apart from the set, so a key leaves with it, and after a failed fetch it answers an outage for
+15 seconds without fetching again. 037's line that the assistant's per-`kid` cache is untouched
+by a failed refresh no longer holds; 037 keeps its text
 ([#340](https://github.com/NaimElijah/FinAssist/issues/340)).

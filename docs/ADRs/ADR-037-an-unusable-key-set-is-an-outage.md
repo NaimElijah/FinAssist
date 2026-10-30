@@ -1,6 +1,7 @@
 # ADR-037: A key set that cannot be read, or holds no key, is an outage, on both services
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-059](ADR-059-the-assistant-trusts-only-the-key-set-it-last-fetched.md)
 - **Date:** 2026-10-10
 
 ## Context
