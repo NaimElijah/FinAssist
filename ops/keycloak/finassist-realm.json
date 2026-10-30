@@ -18,7 +18,10 @@
   "accessTokenLifespan": 300,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
+  "offlineSessionMaxLifespanEnabled": true,
+  "offlineSessionMaxLifespan": 36000,
   "revokeRefreshToken": false,
+  "eventsListeners": [],
   "roles": {
     "realm": [
       { "name": "owner", "description": "Reads and writes the ledger; held by the owner alone." },
@@ -133,6 +136,19 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "admin-cli",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [],
+      "webOrigins": []
     }
   ],
   "users": [

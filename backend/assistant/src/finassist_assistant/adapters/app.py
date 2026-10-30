@@ -15,8 +15,10 @@ package, and the architecture tests fail the build if one does.
 
 Every failure is answered as an RFC 9457 problem, by the handlers in
 :mod:`~finassist_assistant.adapters.problems`, a request whose ``Host`` names no allowed host is
-refused before anything else runs, by :mod:`~finassist_assistant.adapters.hosts`, and every other
-request needs a valid bearer token and a permission, checked by
+refused before anything else runs, by :mod:`~finassist_assistant.adapters.hosts`, a body over the
+size limit is refused by :mod:`~finassist_assistant.adapters.body_limit`, before authentication
+when its length is declared, and every other request needs a valid bearer token and a
+permission, checked by
 :mod:`~finassist_assistant.adapters.auth` (ADR-030, ADR-032).
 
 See ADR-019, ADR-021, ADR-026, ADR-028, ADR-030 and ADR-032.
@@ -45,6 +47,7 @@ from finassist_assistant.adapters.auth import (
     TokenVerifier,
     jwks_key_source,
 )
+from finassist_assistant.adapters.body_limit import RequestBodyLimit
 from finassist_assistant.adapters.hosts import HostAllowList
 from finassist_assistant.adapters.observability import (
     TRACEPARENT_HEADER,
@@ -166,11 +169,13 @@ def create_app(
         prefix=PORTFOLIO_PREFIX,
     )
 
-    # Added before the correlation middleware, so correlation wraps it and a refused request
+    # Added before the correlation middleware, so correlation wraps both and a refused request
     # still gets a correlation id and a request-answered line (ADR-019, ADR-030): the order is
-    # HostAllowList -> correlate -> auth -> routes, and Starlette runs the last-added middleware
-    # first, so the earliest-added of the three ends up closest to the routes.
+    # HostAllowList -> correlate -> body limit -> auth -> routes, and Starlette runs the
+    # last-added middleware first, so the earliest-added ends up closest to the routes. The body
+    # limit is outside authentication, so no body is buffered past it before the token is checked.
     app.add_middleware(BearerAuthentication, verifier=resolved_verifier)
+    app.add_middleware(RequestBodyLimit)
 
     @app.middleware("http")
     async def correlate(

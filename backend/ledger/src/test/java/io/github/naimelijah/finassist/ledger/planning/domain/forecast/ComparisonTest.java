@@ -143,6 +143,28 @@ class ComparisonTest {
     }
 
     @Test
+    void Given_more_projections_than_the_maximum_When_compared_Then_it_is_refused() {
+        Map<String, Projection> named = new LinkedHashMap<>();
+        for (int index = 0; index <= Comparison.MAXIMUM_SCENARIOS; index++) {
+            named.put("Strategy " + index, baselineProjection());
+        }
+
+        assertThatThrownBy(() -> Comparison.of(named))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at most " + Comparison.MAXIMUM_SCENARIOS);
+    }
+
+    @Test
+    void Given_exactly_the_maximum_number_of_projections_When_compared_Then_each_is_kept() {
+        Map<String, Projection> named = new LinkedHashMap<>();
+        for (int index = 0; index < Comparison.MAXIMUM_SCENARIOS; index++) {
+            named.put("Strategy " + index, baselineProjection());
+        }
+
+        assertThat(Comparison.of(named).projections()).hasSize(Comparison.MAXIMUM_SCENARIOS);
+    }
+
+    @Test
     void Given_an_unknown_name_When_asked_for_its_projection_Then_it_is_refused() {
         assertThatThrownBy(() -> aComparison().projection("Something else"))
                 .isInstanceOf(IllegalArgumentException.class)

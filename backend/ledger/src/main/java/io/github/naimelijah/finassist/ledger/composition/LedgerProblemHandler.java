@@ -22,6 +22,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
@@ -49,6 +51,11 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  *       It is not the domain's only refusal: {@code IllegalTransitionException} and {@code
  *       IllegalPlanTransitionException} extend {@link RuntimeException}, so each is left to its own
  *       context's advice. Accounting's maps the first and planning's the second, each to 409;
+ *   <li>a {@link MultipartException}, a body declared as multipart that cannot be parsed, is 400 {@code
+ *       MALFORMED_REQUEST}. Spring MVC parses multipart before it chooses a route, a {@code GET}'s
+ *       included, and nothing in the ledger takes multipart, so a failure to parse it is the request's. A
+ *       body over the upload limit is the narrower {@link MaxUploadSizeExceededException}, which the
+ *       inherited handler still answers 413;
  *   <li>{@link CurrencyMismatchException} is 422 {@code CURRENCY_MISMATCH}. It is mapped once here
  *       because all three contexts throw it;
  *   <li>anything else is 500 {@code INTERNAL_ERROR}.
@@ -68,6 +75,9 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
     private static final Logger LOG = LoggerFactory.getLogger(LedgerProblemHandler.class);
 
     private static final String INTERNAL_ERROR_DETAIL = "The ledger failed to handle this request.";
+
+    private static final String UNPARSEABLE_MULTIPART_DETAIL =
+            "The request declares a multipart body that cannot be parsed; the ledger reads JSON only.";
 
     /**
      * The code for each status Spring MVC can raise on its own. Keyed by status value, so a status with no
@@ -91,6 +101,19 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
                 exception,
                 ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, exception.getMessage()),
                 Problems.RULE_VIOLATED,
+                request);
+    }
+
+    /**
+     * A body declared as multipart that cannot be parsed, such as one whose type names no boundary. The
+     * detail is fixed, because the parser's message describes its own internals rather than the request.
+     */
+    @ExceptionHandler(MultipartException.class)
+    ResponseEntity<Object> handleUnparseableMultipart(MultipartException exception, WebRequest request) {
+        return respond(
+                exception,
+                ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, UNPARSEABLE_MULTIPART_DETAIL),
+                Problems.MALFORMED_REQUEST,
                 request);
     }
 

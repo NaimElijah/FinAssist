@@ -1,6 +1,8 @@
 package io.github.naimelijah.finassist.gateway.composition;
 
+import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.DispatcherType;
+import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,9 +15,13 @@ import org.springframework.security.oauth2.client.endpoint.OAuth2AuthorizationCo
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.firewall.CompositeRequestRejectedHandler;
+import org.springframework.security.web.firewall.ObservationMarkingRequestRejectedHandler;
+import org.springframework.security.web.firewall.RequestRejectedHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 
 /**
@@ -46,10 +52,18 @@ import org.springframework.security.web.savedrequest.NullRequestCache;
  * <p>The CSRF cookie and header are renamed from Spring's {@code XSRF-TOKEN} and {@code
  * X-XSRF-TOKEN} because cookies ignore ports: every application on {@code localhost} shares one
  * cookie jar, so the defaults would collide with another local application's (ADR-030). {@code
- * csrf().spa()} installs the single-page-application handler — which resolves the token on every
- * request, so the cookie is written eagerly rather than only where a handler asks for it — and the
- * renamed repository is set afterwards, replacing the one {@code spa()} installed while keeping
- * its handler.
+ * csrf().spa()} is configured first, and both of the parts it installs are then replaced: the
+ * renamed repository replaces its cookie repository, and {@link HeaderOnlyCsrfTokenRequestHandler}
+ * replaces its handler, which would also accept the token as a {@code _csrf} request parameter.
+ * The replacement keeps what {@code spa()} is for — the cookie written eagerly on every request,
+ * and the header compared as the web client sends it.
+ *
+ * <p>The login entry is public and creates a session, so two parts bound what it can be made to
+ * hold: {@link LoginEntryNavigationFilter} refuses, {@code 403}, a browser request whose Fetch
+ * Metadata does not name a top-level navigation ({@code Sec-Fetch-Mode: navigate}, {@code
+ * Sec-Fetch-Dest: document}) before any session exists, and {@link
+ * PreSignInAuthorizationRequestRepository} gives the session it does create a short idle limit,
+ * which the sign-in success handler lifts back to the configured one.
  *
  * <p>{@link HostAllowListFilter} still runs before all of this, at the highest filter precedence,
  * because a request under a foreign {@code Host} should never reach a security decision at all.
@@ -107,10 +121,26 @@ public class GatewaySecurityConfiguration {
     }
 
     /**
+     * Answers a request Spring Security's firewall refuses as a {@code 400} problem rather than
+     * Boot's error body. {@code WebSecurity} installs a {@link RequestRejectedHandler} bean on the
+     * filter chain proxy in place of its own default; that default also marks the current
+     * observation as failed, so this one keeps doing that before writing the problem.
+     *
+     * @param observations the registry the default handler would have marked the rejection in
+     * @return the handler {@code FilterChainProxy} calls for every rejected request
+     */
+    @Bean
+    RequestRejectedHandler requestRejectedHandler(ObservationRegistry observations) {
+        return new CompositeRequestRejectedHandler(
+                new ObservationMarkingRequestRejectedHandler(observations), new ProblemRequestRejectedHandler());
+    }
+
+    /**
      * Assembles the chain.
      *
      * @param http Boot's pre-configured builder for this application
-     * @param csrfTokenRepository the renamed repository, replacing the one {@code spa()} installs
+     * @param csrfTokenRepository the renamed repository, replacing the one {@code spa()} installs;
+     *     its handler is replaced too, by {@link HeaderOnlyCsrfTokenRequestHandler}
      * @param registrations the {@code keycloak} registration, read by the sign-out handler
      * @param webOrigin where every redirect this chain issues points
      * @param sessionCookieName {@code server.servlet.session.cookie.name}, so the cookie the
@@ -150,13 +180,16 @@ public class GatewaySecurityConfiguration {
                         .authenticated()
                         .anyRequest()
                         .denyAll())
-                .csrf(csrf -> csrf.spa().csrfTokenRepository(csrfTokenRepository))
+                .csrf(csrf -> csrf.spa()
+                        .csrfTokenRepository(csrfTokenRepository)
+                        .csrfTokenRequestHandler(new HeaderOnlyCsrfTokenRequestHandler()))
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(new ProblemAuthenticationEntryPoint())
                         .accessDeniedHandler(new ProblemAccessDeniedHandler()))
                 .requestCache(cache -> cache.requestCache(new NullRequestCache()))
                 .oauth2Login(login -> login.loginPage(BffRoutes.LOGIN_ENTRY)
-                        .authorizationEndpoint(endpoint -> endpoint.baseUri(BffRoutes.AUTHORIZATION_BASE))
+                        .authorizationEndpoint(endpoint -> endpoint.baseUri(BffRoutes.AUTHORIZATION_BASE)
+                                .authorizationRequestRepository(new PreSignInAuthorizationRequestRepository()))
                         .redirectionEndpoint(endpoint -> endpoint.baseUri(BffRoutes.CALLBACK_PATTERN))
                         .tokenEndpoint(endpoint -> endpoint.accessTokenResponseClient(tokenResponseClient))
                         .successHandler(signInSuccessHandler(webOrigin))
@@ -171,6 +204,7 @@ public class GatewaySecurityConfiguration {
                 // describes and nothing here would authorise.
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
+                .addFilterBefore(new LoginEntryNavigationFilter(), OAuth2AuthorizationRequestRedirectFilter.class)
                 .build();
         stopAnsweringAnUnknownLoginEntryWithA500(chain);
         return chain;
@@ -217,10 +251,23 @@ public class GatewaySecurityConfiguration {
      * A completed sign-in always lands on the web client's root, never on wherever the browser
      * happened to be going: {@code alwaysUseDefaultTargetUrl} is what makes that unconditional,
      * and with a {@link NullRequestCache} there is nothing saved to go back to anyway.
+     *
+     * <p>It first gives the session back the idle limit every new session gets. The session was
+     * created to hold the authorization request, with {@link
+     * PreSignInAuthorizationRequestRepository#PRE_SIGN_IN_IDLE_LIMIT}, and the sign-in rotates its
+     * id but keeps that limit, so without this the owner would be signed out after a few idle
+     * minutes rather than ADR-030's half hour. The limit is read from the servlet context, where
+     * Boot has already applied {@code server.servlet.session.timeout} in its own unit, seconds for a
+     * bare number, and rounded as the container rounds it, rather than converted again here.
      */
-    private static SimpleUrlAuthenticationSuccessHandler signInSuccessHandler(Origin webOrigin) {
-        SimpleUrlAuthenticationSuccessHandler handler = new SimpleUrlAuthenticationSuccessHandler(webOrigin.root());
-        handler.setAlwaysUseDefaultTargetUrl(true);
-        return handler;
+    private static AuthenticationSuccessHandler signInSuccessHandler(Origin webOrigin) {
+        SimpleUrlAuthenticationSuccessHandler redirect = new SimpleUrlAuthenticationSuccessHandler(webOrigin.root());
+        redirect.setAlwaysUseDefaultTargetUrl(true);
+        return (request, response, authentication) -> {
+            Duration containerIdleLimit =
+                    Duration.ofMinutes(request.getServletContext().getSessionTimeout());
+            request.getSession().setMaxInactiveInterval(Math.toIntExact(containerIdleLimit.toSeconds()));
+            redirect.onAuthenticationSuccess(request, response, authentication);
+        };
     }
 }

@@ -11,6 +11,9 @@ FROM quay.io/keycloak/keycloak:26.8.1 AS builder
 # refuses to change either without rebuilding.
 ENV KC_HEALTH_ENABLED=true
 ENV KC_DB=postgres
+# Both are deprecated and on by default in 26.8, and FinAssist brokers no identity provider.
+# KeycloakRealmIT reads every deprecated feature back from the built image as disabled.
+ENV KC_FEATURES_DISABLED=twitter-broker,identity-brokering-api
 RUN /opt/keycloak/bin/kc.sh build
 
 FROM quay.io/keycloak/keycloak:26.8.1

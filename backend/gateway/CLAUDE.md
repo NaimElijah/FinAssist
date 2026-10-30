@@ -7,25 +7,37 @@ too; this file adds what binds the gateway alone.
 
 The backend-for-frontend (ADR-030). It signs the browser in with OIDC (code flow, PKCE) against
 Keycloak, keeps the access and refresh tokens in its in-memory session, and relays `GET`/`POST`
-`/ledger/api/v1/**` and `/assistant/api/v1/**` with `StripPrefix`, `RemoveRequestHeader` and
-`TokenRelay` — routes declared in `application.yml`. The browser holds only an `HttpOnly` session
-cookie and a CSRF token. The gateway answers Actuator probes.
+`/ledger/api/v1/**` and `/assistant/api/v1/**` with `StripPrefix`, `RemoveRequestHeader`,
+`RemoveResponseHeader` (a service's `Set-Cookie`, `Server`, `Clear-Site-Data`,
+`Strict-Transport-Security` and CORS headers) and `TokenRelay` — routes declared in
+`application.yml`. The browser holds only an `HttpOnly` session cookie and a CSRF token. The gateway
+answers Actuator probes.
 
 It holds no bounded context: everything is in its `composition/` root. The parts to know:
 
 - `GatewayConfiguration` registers the Host allow-list first. `HostAllowListFilter` is a
-  deliberate copy of the ledger's, configured by `GATEWAY_ALLOWED_HOSTS`.
+  deliberate copy of the ledger's, configured by `GATEWAY_ALLOWED_HOSTS`. `RequestBodyLimitFilter`,
+  registered after the Host allow-list and the request observation, is a copy of the ledger's too:
+  a body over 64 KiB, declared or chunked, is refused 413 `CONTENT_TOO_LARGE` before the security
+  chain or the relay reads it.
 - `GatewaySecurityConfiguration` is the one security chain: deny by default, 401 never 302, and a
-  renamed CSRF cookie and header.
+  renamed CSRF cookie and header. `HeaderOnlyCsrfTokenRequestHandler` reads the token from that
+  header alone, never from a `_csrf` request parameter, which `csrf().spa()`'s own handler accepts.
+- The public login entry creates a session, so `LoginEntryNavigationFilter` refuses, 403
+  `FORBIDDEN`, a browser request that is not a top-level navigation (`Sec-Fetch-Mode` other than
+  `navigate`, or `Sec-Fetch-Dest` other than `document`, whichever is sent) before one exists, and
+  `PreSignInAuthorizationRequestRepository` gives the session it does create a fifteen-minute
+  idle limit, which the sign-in success handler lifts back to `server.servlet.session.timeout`.
 - `BffRoutes` holds every `/bff/` path, in one place. `SessionController` serves `GET /bff/me`,
   `SpaLogoutSuccessHandler` answers `POST /bff/logout`, and `SignInFailureHandler` sends a failed
   sign-in back to `?signin=failed`. `LoginEntryFailureHandler` answers a sign-in that cannot start
   (an unknown registration id) with the entry point's plain 401, and logs nothing for it.
 - `KeycloakRegistration` builds the `ClientRegistration` by hand, with the public and backchannel
   URLs split, and the client manager `TokenRelay` uses.
-- `ProblemAuthenticationEntryPoint` (401), `ProblemAccessDeniedHandler` (403), `GatewayProblems`
-  (the problem codes and writer) and `GatewayRelayProblems` (a relay's failures) answer
-  problem+json. `GatewayOpenApiConfiguration` shapes the committed contract.
+- `ProblemAuthenticationEntryPoint` (401), `ProblemAccessDeniedHandler` (403),
+  `ProblemRequestRejectedHandler` (400, a URL the firewall refuses), `GatewayProblems` (the problem
+  codes and writer) and `GatewayRelayProblems` (a relay's failures) answer problem+json.
+  `GatewayOpenApiConfiguration` shapes the committed contract.
 
 The realm file, `ops/keycloak/finassist-realm.json`, is pinned by `KeycloakRealmTest` and
 `KeycloakRealmIT` in this module; its rules are in `ops/CLAUDE.md`.
@@ -78,3 +90,19 @@ From `backend/gateway`:
   `package` wrote with `java -jar` and requires readiness, because every other suite runs on the
   test classpath, which can hold a library the jar lacks. A test-scoped declaration of something
   Boot needs at runtime (`snakeyaml`, #233) fails the build there.
+- **Never lower `org.springframework.web` or `org.springframework.security` to `DEBUG` or `TRACE`**,
+  nor a parent such as `org.springframework` or the root logger, and never turn on Spring Boot's
+  `debug` or `trace` switch (`DEBUG=true`, `TRACE=true`, `--debug`, `--trace`), in any environment
+  that handles a real sign-in: `debug` lowers Boot's `web` logger group, which holds
+  `org.springframework.web`, to `DEBUG`, and `trace` lowers all of `org.springframework` to `TRACE`.
+  "The gateway logs no token" holds at `INFO` only, which is what `GatewayLoginFlowIT`'s log sweep
+  runs at. At `DEBUG`, `DefaultRestClient` writes the token request's form body, so the
+  authorization code and the PKCE verifier of every sign-in reach the log, and by the same line,
+  read from Spring's sources rather than observed, the refresh token of every refresh;
+  `FilterChainProxy` writes the callback's query, `code` and `state` included; and the
+  security-context lines carry the ID token's claims. Under Compose, `make check-compose` refuses
+  `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` and `TRACE` on the gateway
+  service; a native run has no guard. To diagnose a failed sign-in, read `SignInFailureHandler`'s
+  WARN line, which names the OAuth2 error code. Keycloak records no sign-in event
+  (`eventsListeners: []`), so for an account that may be locked out ask its brute-force detector:
+  `kcadm.sh get attack-detection/brute-force/users/<user-id> -r finassist`.

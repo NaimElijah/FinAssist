@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.naimelijah.finassist.ledger.composition.HostAllowListFilter;
 import java.io.BufferedReader;
@@ -14,18 +15,28 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import javax.sql.DataSource;
 import org.apache.catalina.Context;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.tomcat.TomcatWebServer;
 import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -39,8 +50,9 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>It asserts the wiring and the edge rather than any business behaviour: that the context loads
  * with every context's domain on the classpath, that {@code application.yml} parses, that the three
  * probes the file configures are exposed, that springdoc serves an OpenAPI document (ADR-028), that a
- * foreign {@code Host} is refused by a filter that runs first (ADR-030), and that an unknown route is
- * answered as a problem (ADR-028).
+ * foreign {@code Host} is refused by a filter that runs first (ADR-030), that an unknown route is
+ * answered as a problem (ADR-028), and that the data source keeps the database's error detail out of an
+ * exception's message.
  *
  * <p>Uses the JDK's {@link HttpClient} rather than {@code TestRestTemplate}, which Spring Boot 4
  * moved out of {@code spring-boot-starter-test} into a separate {@code spring-boot-resttestclient}
@@ -48,6 +60,7 @@ import tools.jackson.databind.json.JsonMapper;
  * trade.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ExtendWith(OutputCaptureExtension.class)
 class LedgerApplicationIT extends PostgresFixture {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
@@ -57,6 +70,9 @@ class LedgerApplicationIT extends PostgresFixture {
 
     @Autowired
     private ServletWebServerApplicationContext context;
+
+    @Autowired
+    private DataSource dataSource;
 
     /**
      * One client for the class, closed afterwards. {@link HttpClient} owns a selector thread and
@@ -200,6 +216,116 @@ class LedgerApplicationIT extends PostgresFixture {
         assertThat(springSecurityIndex)
                 .as("springSecurityFilterChain must be registered")
                 .isGreaterThan(0);
+    }
+
+    /**
+     * pgjdbc appends the server's {@code Detail} line to an exception's message unless {@code
+     * logServerErrorDetail} is off, and for a {@code CHECK} or {@code NOT NULL} violation that line quotes
+     * the whole failing row. The ledger logs every 5xx with its exception, so the message is what reaches
+     * the log. A unique violation's detail names the duplicated key, which shows whether any detail is
+     * kept; the probe table is temporary and rolled back, so the store is untouched.
+     */
+    @Test
+    void Given_the_ledger_data_source_When_a_statement_violates_a_constraint_Then_the_message_carries_no_server_detail()
+            throws Exception {
+        try (Connection connection = dataSource.getConnection();
+                Statement statement = connection.createStatement()) {
+            connection.setAutoCommit(false);
+            try {
+                statement.execute("CREATE TEMPORARY TABLE detail_probe (id integer PRIMARY KEY)");
+                statement.execute("INSERT INTO detail_probe VALUES (1)");
+
+                assertThatThrownBy(() -> statement.execute("INSERT INTO detail_probe VALUES (1)"))
+                        .isInstanceOf(SQLException.class)
+                        .hasMessageContaining("detail_probe_pkey")
+                        .hasMessageNotContaining("Detail")
+                        .hasMessageNotContaining("(id)=(1)");
+            } finally {
+                connection.rollback();
+            }
+        }
+    }
+
+    /**
+     * Nothing in the ledger takes multipart, but Spring MVC parses any request that declares it before a
+     * route is chosen, a {@code GET} included. A {@code multipart/form-data} type naming no boundary cannot
+     * be parsed, which is the client's mistake: it is answered as any other malformed request (ADR-028),
+     * and not logged as a failure of the ledger's.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"GET", "POST"})
+    void Given_a_multipart_request_naming_no_boundary_When_it_reaches_the_ledger_Then_it_is_a_400_and_logs_no_error(
+            String method, CapturedOutput output) throws Exception {
+        HttpResponse<String> response = CLIENT.send(
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/accounts"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
+                        .header(HttpHeaders.CONTENT_TYPE, MediaType.MULTIPART_FORM_DATA_VALUE)
+                        .timeout(TIMEOUT)
+                        .method(method, HttpRequest.BodyPublishers.ofString("x"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.headers().firstValue(HttpHeaders.CONTENT_TYPE))
+                .hasValue(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        assertThat(JsonMapper.shared().readTree(response.body()).path("code").asString())
+                .isEqualTo("MALFORMED_REQUEST");
+        assertThat(output.getOut()).doesNotContain("\"level\":\"ERROR\"");
+    }
+
+    /**
+     * Spring Security's firewall refuses a path it cannot route safely — an encoded dot segment, an
+     * encoded percent sign, an empty segment, a path parameter — before any filter of the chain runs.
+     * Left to the default handler, the refusal was {@code sendError(400)}, and the container's error
+     * dispatch answered it with Boot's own body: a {@code timestamp} and the caller's {@code path}, with no
+     * {@code code}. Only a real container performs that dispatch, so only an IT can see it. The gateway's
+     * {@code GatewayApplicationIT} pins the same refusal.
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {"/api/v1/%2e%2e/accounts", "/api/v1/accounts%25", "/api//v1/accounts", "/api/v1/accounts;a=b"})
+    void Given_a_path_the_firewall_rejects_When_answered_Then_it_is_a_400_problem_with_a_code(String path)
+            throws Exception {
+        HttpResponse<String> response = get(path);
+
+        assertThat(response.statusCode()).as("the status %s answered", path).isEqualTo(400);
+        assertThat(response.headers().firstValue(HttpHeaders.CONTENT_TYPE))
+                .hasValue(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        assertThat(response.body())
+                .contains("\"code\":\"MALFORMED_REQUEST\"")
+                .doesNotContain("\"timestamp\"")
+                .doesNotContain("\"path\"");
+    }
+
+    /**
+     * The slices cannot show this: MockMvc never parses a multipart body. A well-formed one, with a
+     * boundary and a real part, is parsed by the container and then refused by the write's {@code
+     * consumes}, as every body but JSON is (ADR-030).
+     */
+    @Test
+    void Given_a_well_formed_multipart_body_When_posted_to_a_write_Then_it_is_a_415_problem() throws Exception {
+        String boundary = "finassist-boundary";
+        String body = "--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"name\"\r\n\r\n"
+                + "Cash\r\n"
+                + "--" + boundary + "--\r\n";
+
+        HttpResponse<String> response = CLIENT.send(
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/accounts"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
+                        .header(
+                                HttpHeaders.CONTENT_TYPE,
+                                MediaType.MULTIPART_FORM_DATA_VALUE + "; boundary=" + boundary)
+                        .timeout(TIMEOUT)
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(415);
+        assertThat(response.headers().firstValue(HttpHeaders.CONTENT_TYPE))
+                .hasValue(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        assertThat(JsonMapper.shared().readTree(response.body()).path("code").asString())
+                .isEqualTo("UNSUPPORTED_MEDIA_TYPE");
     }
 
     /**

@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import threading
 from collections.abc import Iterator
+from contextlib import contextmanager
+from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, NoReturn
+from typing import Any, NamedTuple, NoReturn
 
 import httpx
 import pytest
@@ -27,7 +30,11 @@ from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.testclient import WebSocketDenialResponse
 
-from finassist_assistant.adapters.__main__ import main
+from finassist_assistant.adapters.__main__ import (
+    MAX_HEADER_BLOCK_BYTES,
+    WEBSOCKET_IMPLEMENTATION,
+    main,
+)
 from finassist_assistant.adapters.app import (
     CORRELATION_ID_HEADER,
     _correlation_id_for,
@@ -52,6 +59,8 @@ TRACEPARENT = f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"
 REQUEST_LINE = "request answered"
 # A recognisable amount, sent in a query string that must never reach a log line.
 AMOUNT = "98765.43"
+# The longest a test server may take to answer or to stop, so a hang fails rather than stalls.
+_SERVER_STOP_SECONDS = 10.0
 
 
 @pytest.fixture
@@ -334,9 +343,9 @@ def Given_a_foreign_host_When_a_websocket_upgrade_arrives_Then_it_is_refused_wit
     """The allow-list checks WebSocket upgrades too, on the DNS-rebinding path it exists for.
 
     A WebSocket scope carries no method, and the request line records an HTTP request. The
-    assistant serves no WebSocket route, so an admitted upgrade writes no line either, and uvicorn
-    reports a handshake it refused on ``uvicorn.error``, query string included, which no route
-    reads. So the refusal writes no request line, and must not fail on the way to answering.
+    assistant serves no WebSocket route, so an admitted upgrade writes no line either, and the
+    entry point's uvicorn performs no upgrade at all (``ws="none"``). So the refusal writes no
+    request line, and must not fail on the way to answering.
     """
     capsys.readouterr()
 
@@ -353,6 +362,29 @@ def Given_a_foreign_host_When_a_websocket_upgrade_arrives_Then_it_is_refused_wit
     assert _request_lines(captured) == []
 
 
+class _Launch(NamedTuple):
+    """What the entry point hands ``uvicorn.run``: the app, and every option it passes."""
+
+    app: Any
+    options: dict[str, Any]
+
+
+def _entry_point_launch(monkeypatch: pytest.MonkeyPatch) -> _Launch:
+    """Runs the entry point with ``uvicorn.run`` replaced, and returns what it was given."""
+    launched: list[_Launch] = []
+
+    def run(app: Any, **options: Any) -> None:
+        launched.append(_Launch(app, options))
+
+    monkeypatch.setenv("OTEL_EXPORT_ENABLED", "false")
+    monkeypatch.setattr(uvicorn, "run", run)
+
+    main()
+
+    [launch] = launched
+    return launch
+
+
 def Given_the_entry_point_When_it_starts_the_server_Then_uvicorn_writes_no_access_log(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -361,18 +393,139 @@ def Given_the_entry_point_When_it_starts_the_server_Then_uvicorn_writes_no_acces
     Uvicorn's own access line is written afterwards, from its protocol layer, when nothing is bound,
     so leaving it on would add a second line per request that no id can join.
     """
-    started: dict[str, Any] = {}
-
-    def run(_app: Any, **options: Any) -> None:
-        started.update(options)
-
-    monkeypatch.setenv("OTEL_EXPORT_ENABLED", "false")
-    monkeypatch.setattr(uvicorn, "run", run)
-
-    main()
+    started = _entry_point_launch(monkeypatch).options
 
     assert started["access_log"] is False
     assert started["log_config"] is None
+
+
+def Given_the_entry_point_When_it_starts_the_server_Then_the_header_block_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``httptools``, which uvicorn picks when it is installed, buffers a header of any size."""
+    started = _entry_point_launch(monkeypatch).options
+
+    assert started.get("http") == "h11"
+    assert started.get("h11_max_incomplete_event_size") == MAX_HEADER_BLOCK_BYTES
+
+
+def Given_the_entry_point_When_it_starts_the_server_Then_proxy_and_server_headers_are_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The assistant trusts no proxy's forwarding headers, and names no server software."""
+    started = _entry_point_launch(monkeypatch).options
+
+    assert started.get("proxy_headers") is False
+    assert started.get("server_header") is False
+
+
+def Given_the_entry_point_When_it_starts_the_server_Then_no_websocket_is_upgraded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = _entry_point_launch(monkeypatch).options
+
+    assert started.get("ws") == WEBSOCKET_IMPLEMENTATION == "none"
+
+
+@contextmanager
+def _serving_as_the_entry_point_does(
+    launch: _Launch, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[str, int]]:
+    """Serves *launch*'s app with *launch*'s own options, on an ephemeral loopback port.
+
+    The socket is listening before the server thread starts, so a client may connect at once:
+    the connection waits in the backlog until the server accepts it, and nothing polls for start.
+
+    ``access_log=False`` makes uvicorn empty and detach its access logger for the whole process,
+    so both are restored afterwards, or a later test writing an access line would find it gone.
+    """
+    access = logging.getLogger("uvicorn.access")
+    monkeypatch.setattr(access, "handlers", access.handlers)
+    monkeypatch.setattr(access, "propagate", access.propagate)
+    listener = socket.create_server(("127.0.0.1", 0))
+    server = uvicorn.Server(uvicorn.Config(launch.app, **launch.options))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+    thread.start()
+    try:
+        yield listener.getsockname()
+    finally:
+        server.should_exit = True
+        thread.join(timeout=_SERVER_STOP_SECONDS)
+        listener.close()
+    assert not thread.is_alive(), "the server never stopped"
+
+
+def _answer_to(address: tuple[str, int], request: bytes) -> bytes:
+    """Sends *request* over a raw socket and reads the answer until the server closes."""
+    with socket.create_connection(address, timeout=_SERVER_STOP_SECONDS) as connection:
+        connection.sendall(request)
+        answer = b""
+        while chunk := connection.recv(65_536):
+            answer += chunk
+    return answer
+
+
+def Given_headers_over_the_bound_When_the_entry_point_serves_them_Then_they_are_refused_400(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refused by the server before the app, and so before authentication, ever sees them.
+
+    Exactly one byte over, with the header block left unfinished, so the server has read all of it
+    when it refuses and closes, and the refusal arrives intact rather than behind a reset.
+    """
+    monkeypatch.setenv("ASSISTANT_ALLOWED_HOSTS", "127.0.0.1")
+    launch = _entry_point_launch(monkeypatch)
+    start = b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nX-Padding: "
+    oversized = start + b"a" * (MAX_HEADER_BLOCK_BYTES + 1 - len(start))
+
+    with _serving_as_the_entry_point_does(launch, monkeypatch) as address:
+        served = _answer_to(address, start[: -len(b"X-Padding: ")] + b"\r\n")
+        refused = _answer_to(address, oversized)
+
+    assert served.startswith(b"HTTP/1.1 200 ")
+    assert b"\r\nserver:" not in served.lower()
+    assert refused.startswith(b"HTTP/1.1 400 ")
+
+
+def Given_a_header_block_just_under_the_bound_When_the_entry_point_serves_it_Then_it_is_200(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A large bearer token is still served: the bound limits what is buffered, not a token.
+
+    The whole block is one byte under the bound. It guards against a later bound, in the server
+    or in authentication, that would refuse a legitimate token; the 400 test above is what proves
+    the bound itself, since a block that arrives whole is parsed whatever its size.
+    """
+    monkeypatch.setenv("ASSISTANT_ALLOWED_HOSTS", "127.0.0.1")
+    launch = _entry_point_launch(monkeypatch)
+    start = (
+        b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nAuthorization: Bearer "
+    )
+    end = b"\r\n\r\n"
+    token = b"a" * (MAX_HEADER_BLOCK_BYTES - 1 - len(start) - len(end))
+
+    with _serving_as_the_entry_point_does(launch, monkeypatch) as address:
+        served = _answer_to(address, start + token + end)
+
+    assert served.startswith(b"HTTP/1.1 200 ")
+
+
+def Given_a_websocket_upgrade_When_the_entry_point_serves_it_Then_it_is_answered_as_plain_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No handshake, so no ``101``: the request is served as the HTTP request it also is."""
+    monkeypatch.setenv("ASSISTANT_ALLOWED_HOSTS", "127.0.0.1")
+    launch = _entry_point_launch(monkeypatch)
+    upgrade = (
+        b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade, close\r\n"
+        b"Upgrade: websocket\r\nSec-WebSocket-Version: 13\r\n"
+        b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+    )
+
+    with _serving_as_the_entry_point_does(launch, monkeypatch) as address:
+        answer = _answer_to(address, upgrade)
+
+    assert answer.startswith(b"HTTP/1.1 200 ")
 
 
 # --- redaction -----------------------------------------------------------------------------
@@ -435,6 +588,65 @@ def Given_a_secret_named_field_When_logged_Then_its_value_never_reaches_the_outp
     record = _last_record(capsys.readouterr().out)
     assert record["api_key"] == REDACTED
     assert record["password"] == REDACTED
+
+
+class _CarriesItInItsRepr:
+    """An object that shows the secret only when rendered, as a client or a response may."""
+
+    def __repr__(self) -> str:
+        return f"<client key={SECRET}>"
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        ConnectionError(f"refused calling https://api.anthropic.com?key={SECRET}"),
+        f"key={SECRET}".encode(),
+        _CarriesItInItsRepr(),
+    ],
+    ids=["exception", "bytes", "object-with-a-repr"],
+)
+def Given_a_registered_secret_inside_a_non_string_field_When_rendered_Then_it_is_scrubbed(
+    settings: Settings, capsys: pytest.CaptureFixture[str], field: object
+) -> None:
+    """The renderer turns any other value into text after redaction has run, so a secret inside
+    one would reach the output unscrubbed. An outbound client logging its exception as a field is
+    the likely first carrier."""
+    configure_logging(settings)
+
+    structlog.get_logger("test").warning("outbound call failed", error=field)
+
+    written = capsys.readouterr().out
+    assert SECRET not in written
+    assert REDACTED in _last_record(written)["error"]
+
+
+@pytest.mark.parametrize("field", [True, None, 1.5], ids=["bool", "none", "float"])
+def Given_a_boolean_none_or_float_field_When_rendered_Then_it_keeps_its_json_type(
+    settings: Settings, capsys: pytest.CaptureFixture[str], field: object
+) -> None:
+    configure_logging(settings)
+
+    structlog.get_logger("test").info("measured", value=field)
+
+    value = _last_record(capsys.readouterr().out)["value"]
+    assert value == field
+    assert type(value) is type(field)
+
+
+def Given_a_decimal_field_When_rendered_Then_it_is_its_text_scrubbed(
+    settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Through ``str``, so ``12.50``, not ``Decimal('12.50')``, and scrubbed like any text."""
+    configure_logging(settings)
+    digits = "9876543210"
+    register_secret(digits)
+
+    structlog.get_logger("test").info("measured", plain=Decimal("12.50"), holding=Decimal(digits))
+
+    record = _last_record(capsys.readouterr().out)
+    assert record["plain"] == "12.50"
+    assert record["holding"] == REDACTED
 
 
 def Given_a_log_event_When_written_Then_it_is_one_json_object_per_line(

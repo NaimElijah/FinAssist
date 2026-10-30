@@ -34,6 +34,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -141,12 +142,24 @@ class AccountControllerTest {
         verifyNoInteractions(opener);
     }
 
-    /** A cross-site page can post a form without a preflight, so a write refuses anything but JSON (ADR-030). */
-    @Test
-    void Given_a_form_encoded_body_When_opening_an_account_Then_it_is_a_415_problem() throws Exception {
-        mvc.perform(post(ACCOUNTS)
-                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .content("name=Cash&type=ASSET&currency=ILS"))
+    /**
+     * A cross-site page can post a form, plain text or multipart without a preflight, so a write refuses
+     * anything but JSON (ADR-030).
+     *
+     * <p>MockMvc never parses a multipart body, so the multipart case here reaches the mapping's refusal
+     * without the parsing a container performs first; {@code LedgerApplicationIT} posts a well-formed
+     * multipart body to the running ledger.
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+                MediaType.TEXT_PLAIN_VALUE,
+                MediaType.MULTIPART_FORM_DATA_VALUE
+            })
+    void Given_a_body_that_is_not_json_When_opening_an_account_Then_it_is_a_415_problem(String mediaType)
+            throws Exception {
+        mvc.perform(post(ACCOUNTS).contentType(mediaType).content("name=Cash&type=ASSET&currency=ILS"))
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"));

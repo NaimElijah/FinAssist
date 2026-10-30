@@ -115,6 +115,25 @@ const COMPARISON = {
     scenarios: [DO_NOTHING_COMPARED, SAVING_COMPARED],
 };
 
+/** The most scenarios the ledger compares at once; one more is refused with 400. */
+const MAXIMUM_SCENARIOS = 10;
+
+/** `count` scenarios in one currency, named `Scenario 1` onward. */
+function manyScenarios(count: number) {
+    return Array.from({ length: count }, (_, index) => ({
+        id: `s-${String(index + 1)}`,
+        name: `Scenario ${String(index + 1)}`,
+        currency: 'ILS',
+        flows: [],
+        growthRatePerStep: '0',
+    }));
+}
+
+/** The checkbox labels of `scenarios`, as the Scenarios group shows them. */
+function labelsOf(scenarios: readonly { name: string; currency: string }[]): string[] {
+    return scenarios.map((scenario) => `${scenario.name} (${scenario.currency})`);
+}
+
 function isComparison(request: RecordedRequest): boolean {
     return request.url.startsWith(`${COMPARISONS_URL}?`);
 }
@@ -268,6 +287,39 @@ describe('ComparisonPage', () => {
         ).toBe(error.id);
         expect(document.activeElement).toBe(scenarioCheckbox('Do nothing (ILS)'));
         expect(requests.filter(isComparison)).toHaveLength(0);
+    });
+
+    it('Given_more_scenarios_chosen_than_the_ledger_compares_When_compared_Then_a_field_error_asks_for_at_most_ten_takes_focus_and_nothing_is_sent', async () => {
+        const scenarios = manyScenarios(MAXIMUM_SCENARIOS + 1);
+        const requests = fakeFetch(ledger(scenarios, () => jsonResponse(COMPARISON)));
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+
+        await compare(user, labelsOf(scenarios));
+
+        const error = await screen.findByText('Choose at most ten scenarios to compare.');
+        expect(
+            screen.getByRole('group', { name: 'Scenarios' }).getAttribute('aria-describedby'),
+        ).toBe(error.id);
+        expect(document.activeElement).toBe(scenarioCheckbox('Scenario 1 (ILS)'));
+        expect(requests.filter(isComparison)).toHaveLength(0);
+    });
+
+    it('Given_exactly_ten_scenarios_chosen_When_compared_Then_the_request_is_sent_with_every_one', async () => {
+        const scenarios = manyScenarios(MAXIMUM_SCENARIOS);
+        const requests = fakeFetch(ledger(scenarios, () => pendingResponse()));
+        renderComparison();
+
+        await compare(userEvent.setup({ delay: null }), labelsOf(scenarios));
+
+        await waitFor(() => {
+            expect(requests.filter(isComparison)).toHaveLength(1);
+        });
+        const [comparison] = requests.filter(isComparison);
+        expect(
+            new URL(comparison?.url ?? '', 'http://localhost').searchParams.getAll('scenario'),
+        ).toHaveLength(MAXIMUM_SCENARIOS);
+        expect(screen.queryByText('Choose at most ten scenarios to compare.')).toBeNull();
     });
 
     it('Given_a_field_error_shown_When_a_second_scenario_is_chosen_and_compared_Then_the_error_clears_and_the_request_is_sent', async () => {

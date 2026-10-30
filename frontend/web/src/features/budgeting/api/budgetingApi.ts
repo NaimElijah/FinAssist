@@ -22,6 +22,7 @@ import type {
     UnbudgetedSpendResponse,
 } from '@/shared/api/contracts/ledger/types.gen';
 import { decimalString } from '@/shared/api/decimal';
+import { pathSegment } from '@/shared/api/pathSegment';
 import { log } from '@/shared/lib/logger';
 
 import type { Budget, CategoryLimit, DefineBudgetInput } from '../types/budget';
@@ -38,7 +39,7 @@ const CATEGORISATION_RULES_URL = `${LEDGER_API}/categorisation-rules`;
 
 /** The URL of one budget's sub-resource, with the id encoded as a single path segment. */
 function budgetUrl(budgetId: string, subResource: string): string {
-    return `${BUDGETS_URL}/${encodeURIComponent(budgetId)}/${subResource}`;
+    return `${BUDGETS_URL}/${pathSegment(budgetId)}/${subResource}`;
 }
 
 /**
@@ -161,6 +162,8 @@ export async function defineBudget(input: DefineBudgetInput): Promise<Budget> {
  * @throws ApiError - on a non-2xx response: 404 `BUDGET_NOT_FOUND` for an unknown budget.
  * @throws ApiBodyError - when the response carries no JSON body, a currency the contract does
  *   not name, or an amount that is not a decimal string.
+ * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function reviewBudget(budgetId: string): Promise<BudgetReview> {
     const url = budgetUrl(budgetId, 'review');

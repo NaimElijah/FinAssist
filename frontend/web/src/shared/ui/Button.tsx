@@ -1,4 +1,4 @@
-import type { ComponentPropsWithoutRef } from 'react';
+import type { ComponentPropsWithRef } from 'react';
 
 import styles from './Button.module.css';
 import { joinClassNames } from './classNames';
@@ -6,8 +6,8 @@ import { joinClassNames } from './classNames';
 /** How much weight an action carries: the main action, a secondary one, or a destructive one. */
 export type ButtonVariant = 'primary' | 'secondary' | 'danger';
 
-/** Every native button prop, plus a variant and a pending flag. */
-export interface ButtonProps extends ComponentPropsWithoutRef<'button'> {
+/** Every native button prop, its `ref` included, plus a variant and a pending flag. */
+export interface ButtonProps extends ComponentPropsWithRef<'button'> {
     /** Defaults to `primary`. */
     readonly variant?: ButtonVariant;
     /**
@@ -21,7 +21,8 @@ export interface ButtonProps extends ComponentPropsWithoutRef<'button'> {
 /**
  * A button in one of three variants.
  *
- * Native props pass through, with one deliberate difference: `type` defaults to `button` rather
+ * Native props pass through, `ref` among them, so a caller can move focus back to the button,
+ * with one deliberate difference: `type` defaults to `button` rather
  * than the native `submit`, so a button inside a form submits it only when asked to. An
  * accidental submit here is an accidental create.
  *

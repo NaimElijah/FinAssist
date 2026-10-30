@@ -87,6 +87,11 @@ From `backend/ledger`:
   each event and drop it; the recording `InMemoryAccountingEvents` and `InMemoryPlanningEvents` are
   test doubles under `src/test`, read by the service tests. The transactional outbox is deferred
   until the first consumer exists, not refused (ADR-023, ADR-048).
+- **A projection is bounded where it is built** (ADR-058). `Horizon.MAXIMUM_SPAN_YEARS` (100) and
+  `Comparison.MAXIMUM_SCENARIOS` (10) are checked in the constructors, because a projection
+  computes and holds every step at once; the controllers answer a longer horizon 422
+  `RULE_VIOLATED` and more scenarios 400. Pinned by `HorizonTest`, `ComparisonTest` and
+  `ProjectionControllerTest`.
 - **`@Transactional` goes on the adapter, never on an application service** —
   `the_application_layer_depends_on_no_framework` fails the build for the latter. When a use case
   must write across two aggregates, the boundary moves to a decorator in `composition`.
@@ -109,6 +114,11 @@ bounded context (ADR-006, ADR-024).
   `INSERT`. Never run
   `ALTER TABLE ... VALIDATE CONSTRAINT` on either: it would scan the historical `NULL` rows and
   fail, and the append-only triggers forbid the `UPDATE` a fix would need (ADR-033).
+- **`logServerErrorDetail=false` stays on the data source** (`application.yml`, under
+  `hikari.data-source-properties`; ADR-058). pgjdbc otherwise appends the server's `Detail` line to
+  an exception's message, and for a constraint violation that line quotes the failing row, which
+  every logged 5xx would carry. The error and the constraint's name remain. Pinned by
+  `LedgerApplicationIT`.
 - **`spring.flyway.out-of-order` stays `true`; never turn it off.** One history table with a major
   version per context (ADR-024) means the next migration for any context but the highest arrives
   below a version already applied, which Flyway classes `IGNORED` and refuses to start over. Safe
@@ -146,6 +156,18 @@ bounded context (ADR-006, ADR-024).
 - **A JSON number in any text member is a 400**, through `StrictTextCoercion`, proven against the
   running ledger by `AccountingHttpIT`. A `@WebMvcTest` slice that sends a number must `@Import`
   it, since a slice loads no scanned configuration.
+- **A date outside the years 1 to 9999 is a 400**, in a query parameter or a body member, through
+  `SupportedDates`, proven against the running ledger by `AccountingHttpIT`. A slice that sends
+  one must `@Import` it, as it must `StrictTextCoercion`. Its query formatter parses every
+  `LocalDate` as ISO and overrides any `@DateTimeFormat` pattern, so a non-ISO query date needs
+  another way to be bounded.
+- **A multipart body that cannot be parsed is a 400 `MALFORMED_REQUEST`**, not a 500: Spring MVC
+  parses multipart before it chooses a route and nothing here takes it, so the failure is the
+  request's (`LedgerProblemHandler`, ADR-058). Proven by `LedgerApplicationIT`.
+- **A request the Spring Security firewall refuses is a 400 problem with a `code`**, through
+  `ProblemRequestRejectedHandler`, never Boot's own error body, which has none and echoes the path
+  (ADR-058). `LedgerSecurityConfiguration` registers it beside the handler that marks the
+  observation failed. Pinned by `RequestRejectedHandlerTest` and `LedgerApplicationIT`.
 - **A fractional or decimal-pointed JSON number in an integer field is a 400**, `1.5` and `1.0`
   alike (`spring.jackson.deserialization.accept-float-as-int: false`).
 - **A web DTO's simple name is unique across every context**
@@ -173,6 +195,16 @@ bounded context (ADR-006, ADR-024).
 - **The Host allow-list lives in `composition`.** `HostAllowListFilter`, at the highest filter
   precedence, refuses a `Host` outside `LEDGER_ALLOWED_HOSTS` with 403 — before Actuator, and
   before any controller (ADR-030).
+- **A request body over 64 KiB is refused 413 `CONTENT_TOO_LARGE`** by `RequestBodyLimitFilter`,
+  in `composition`, before anything reads it: after the Host allow-list and Spring MVC's request
+  observation, ahead of the form-content filter and Spring Security. `RequestBodyLimitIT` reads that
+  order from the running server. A slice loads no filter registration, so only an IT proves it.
+- **A problem written before the dispatcher is built by `Problems.write` and sent by
+  `Problems.send`** (the Host allow-list, the body limit and the firewall handler), so its body has
+  the shape of every controller-advice problem: `type` `about:blank`, a `code` member, absent
+  members omitted. The authentication entry point and the access-denied handler build theirs from
+  the same `Problems.BLANK_TYPE` and `CODE_MEMBER`. Add a new early writer to `Problems`, not
+  another copy.
 - **Every `@WebMvcTest` slice imports `WebSliceSecurity`.** A slice loads no scanned configuration
   (ADR-028's convention, extended to ADR-030), so without it a slice would boot with no security at
   all — every request admitted, which is a false pass, not a fast one. `WebSliceSecurityImportTest`

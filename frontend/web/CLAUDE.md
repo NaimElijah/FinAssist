@@ -23,7 +23,7 @@ the gateway. Each feature maps the generated wire types onto its own types in it
 - **Planning.** `PlannedFlowsPage` plans flows and moves each through its lifecycle.
   `ScenariosPage` defines scenarios. `ProjectionPage` (`/planning/projection`) charts a scenario's
   projection, with its first shortfall, against the cash and invested accounts the owner chooses.
-  `ComparisonPage` (`/planning/compare`) compares two or more scenarios against a baseline in
+  `ComparisonPage` (`/planning/compare`) compares two to ten scenarios against a baseline in
   tables. Planning's account choices come from accounting through `PlanningAccountsBridge` in
   `src/app`, the web client's one cross-feature translation.
 - **Portfolio** (ADR-026, extended by ADR-030). `PortfolioPage` looks a holding up by symbol.
@@ -66,6 +66,17 @@ From `frontend/web`:
   imports a generated contract type. `tests/architecture.test.ts` fails the build otherwise,
   reading every import form with the TypeScript parser and refusing a computed specifier it
   cannot resolve.
+- **No file hands markup to the HTML parser** through `dangerouslySetInnerHTML` or `srcDoc` (as a
+  JSX prop, or `dangerouslySetInnerHTML` as an object property), an `innerHTML` or `outerHTML`
+  assignment or member given to `Object.assign`, a call to `insertAdjacentHTML`,
+  `createContextualFragment`, `setHTMLUnsafe` or `parseFromString`, or `document.write` or
+  `document.writeln` (also as `window.document`), each member or key named directly or by a
+  string or template-literal key: `no-restricted-syntax` fails `npm run lint`. Reading
+  `innerHTML` stays allowed, and so does a `write` on anything but `document`. Not caught: a key
+  computed any other way, `Reflect.set`, and `setAttribute('srcdoc', …)`.
+  `tests/lintRules.test.ts` lints a snippet of each through ESLint's API to prove the rule fires.
+  Test files set that rule again, for the skip rule below, so `RAW_HTML_SINKS` is listed in both
+  blocks.
 - **No test file commits a `.skip`, `.todo` or `.only`** on `it`, `test`, `describe` or `suite`:
   ESLint's `no-restricted-syntax` fails `npm run lint`. `it.fails`, `skipIf` and `runIf` stay
   allowed — a test that must fail, and a skip a platform decides.
@@ -78,6 +89,9 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
   wire type and maps it, member by member, onto the feature's own type in `types/` (ADR-029).
   Every decimal member goes through `decimalString` from `src/shared/api/decimal.ts`, so a JSON
   number is refused with `ApiBodyError` (ADR-028).
+- **An id or symbol enters an API path only through `pathSegment`** from
+  `src/shared/api/pathSegment.ts`, never a bare `encodeURIComponent`: it also refuses an empty
+  value, `.` and `..`, which encoding leaves alone and the URL parser resolves to another path.
 - **A feature's query keys come from one factory constant**, such as `accountKeys`, never a key
   literal spelled at the call site. A mutation invalidates only the keys that can have changed,
   never a wider prefix that would refetch data nothing touched.

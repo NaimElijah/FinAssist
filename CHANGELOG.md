@@ -566,6 +566,42 @@ history; write the commit message well and this file writes itself.
 
 ### Security
 
+- **The whole system was audited for security, and what the audit found is fixed or filed.**
+  Scan 3 of 12 in M0 ([#340](https://github.com/NaimElijah/FinAssist/issues/340)):
+  - The gateway accepts the CSRF token from its header only, starts a sign-in only from a
+    top-level navigation and bounds the session that holds it, keeps a relayed answer from setting
+    the browser's state for its origin, and logs only a registered OAuth2 error code
+    ([ADR-057](docs/ADRs/ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md)).
+  - The gateway, the ledger and the assistant each refuse a request body over 64 KiB with 413
+    `CONTENT_TOO_LARGE`. A projection's horizon spans at most 100 years and a comparison at most
+    ten scenarios. The ledger refuses a date outside the years 1 to 9999, and answers a malformed
+    multipart body or a firewall rejection with a 400 problem, and keeps the database's error
+    detail out of its log. The assistant bounds its header block, serves no WebSocket upgrade,
+    turns off uvicorn's proxy headers and `server` header, and builds `Money` over the widest
+    exponent range, as the ledger's `BigDecimal` does
+    ([ADR-058](docs/ADRs/ADR-058-each-service-bounds-what-one-request-can-cost.md)).
+  - The assistant verifies tokens only against the key set it last fetched, as the ledger does,
+    and backs off for 15 s after a failed fetch. Its logging boundary scrubs a registered secret
+    from every logged value, not only from text
+    ([ADR-059](docs/ADRs/ADR-059-the-assistant-trusts-only-the-key-set-it-last-fetched.md)).
+  - The realm logs no sign-in event, turns every `admin-cli` flow off and caps offline sessions,
+    and Keycloak logs JSON with its deprecated features off. An existing realm takes these through
+    "Applying a realm setting in place" in the operations guide
+    ([ADR-060](docs/ADRs/ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md)).
+  - `secret-check` refuses a secret shorter than 32 characters, and `make check-compose` refuses a
+    log-level override on the gateway
+    ([ADR-061](docs/ADRs/ADR-061-the-stack-refuses-a-configuration-that-weakens-a-credential.md)).
+    **A `.env` holding a shorter value must be rotated before the stack starts**, by "Rotating a
+    secret" in the operations guide.
+  - The web dev and preview servers refuse framing and CORS and answer the editor endpoint only
+    for the app's own page. The client says when signing out fails, keeps every id in an API
+    path as exactly one segment, never logs an `ApiError`'s detail from its top-level boundary,
+    and holds the comparison form to ten scenarios; lint refuses raw-HTML sinks.
+  - Filed for later: [#368](https://github.com/NaimElijah/FinAssist/issues/368),
+    [#369](https://github.com/NaimElijah/FinAssist/issues/369),
+    [#370](https://github.com/NaimElijah/FinAssist/issues/370),
+    [#371](https://github.com/NaimElijah/FinAssist/issues/371) and
+    [#372](https://github.com/NaimElijah/FinAssist/issues/372).
 - **Four dev-only dependencies move past advisories that turned the audits red on `dev`.**
   `filelock` 4.2.4 and `msgpack` 1.2.4, under `pip-audit`'s own cache; `undici` 8.12.3, under
   `jsdom`, and `zod` 4.6.7, under `eslint-plugin-react-hooks`, in the web client's tests and

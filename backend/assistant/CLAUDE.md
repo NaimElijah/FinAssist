@@ -9,8 +9,8 @@ Contexts `portfolio/`, `assistance/` and `marketdata/` under `src/finassist_assi
 `domain/`, `application/{port,usecase}/` and `adapters/{inbound,outbound}/` (`marketdata` has
 only `outbound/`), plus `shared/`. The composition root is `src/finassist_assistant/adapters/`:
 `__main__.py`, `app.py`, `wiring.py`, `settings.py`, `observability.py`, `auth.py`
-(`BearerAuthentication`, `RequirePermission`), `hosts.py` (`HostAllowList`), `problems.py`,
-`openapi.py` and `seed.py`.
+(`BearerAuthentication`, `RequirePermission`), `hosts.py` (`HostAllowList`), `body_limit.py`
+(`RequestBodyLimit`), `problems.py`, `openapi.py` and `seed.py`.
 
 Only `portfolio` is served, under `/api/v1`, behind `HostAllowList` and the problem+json handling
 in `adapters/problems.py`. Its OpenAPI document is generated from the code and committed at
@@ -73,21 +73,51 @@ From `backend/assistant`:
 - **Every route declares exactly one permission dependency, built through the `require` factory
   the composition root passes into the router** (ADR-030, ADR-032):
   `Depends(require(READ_PORTFOLIO))` on each of `portfolio_router`'s three routes. A coverage test
-  in `tests/test_authorization.py` fails the build if a route is added without one.
+  in `tests/test_authorization.py` fails the build if a route of any type is added without one,
+  so a WebSocket or plain Starlette route, which cannot declare one, fails it too.
   `RequirePermission`, the factory `app.py` passes as `require`, reads the `Principal` that
   `BearerAuthentication` already verified from `request.scope`. The router never imports it: that
   would be the composition-root import the slice rule forbids. `/health`, `/ready` and
   `/openapi.json` stay public; every business route needs a bearer token and `portfolio:read`.
+  No WebSocket upgrade is served until how one authenticates is designed: the entry point runs
+  uvicorn with `ws="none"`, and `BearerAuthentication` refuses any `websocket` scope before
+  routing, token or none, as defence in depth.
 - **`BearerAuthentication` runs inside the correlation middleware, not outside it.** It is added to
   the app before `correlate`, so Starlette's last-added-runs-first rule puts `correlate` outside it
   and a refused request still gets a correlation id and a request-answered line. The order is
-  `HostAllowList` → correlate → auth → routes; `HostAllowList` stays outermost, added last, so a
-  foreign `Host` is refused before authentication is even attempted.
+  `HostAllowList` → correlate → body limit → auth → routes; `HostAllowList` stays outermost, added
+  last, so a foreign `Host` is refused before authentication is even attempted.
+- **No body is buffered past `MAX_REQUEST_BODY_BYTES`** (64 KiB, as on the ledger and the
+  gateway; ADR-058). `RequestBodyLimit` sits outside authentication, because FastAPI reads and
+  parses a body before any dependency runs: a declared `Content-Length` over it is refused 413
+  `CONTENT_TOO_LARGE` before authentication and before the body is read. A chunked body is
+  counted as the route reads it, after authentication, so an unauthenticated one is answered 401
+  unread. Pinned by `tests/test_body_limit.py`.
 - **A key-source outage is told apart where it is raised, never by an exception's message** (the
   root's WARN-versus-ERROR rule, ADR-037). `BearerAuthentication._report_unavailable` logs the
   outage, and failures are mapped only inside `_KeySetClient.fetch_data`, which never sees a
   token. Pinned by `tests/test_authorization.py`. `tests/test_auth.py` serves the assistant the
   same key-set bodies that `LedgerJwksBodyTest` serves the ledger: keep the two in step.
+- **The key source trusts only the set it last fetched** (ADR-059). `_KeySetClient` is built with
+  `cache_keys=False` and a 300 s set lifespan (`JWKS_CACHE_LIFESPAN_SECONDS`), so a key the realm
+  removed stops verifying once the set is refetched, and an outage past the lifespan is a 503, as
+  on the ledger. After a failed fetch, `JWKS_FETCH_BACKOFF_SECONDS` (15 s) answers every lookup as
+  an outage without fetching, so a stalled fetch does not hold PyJWT's lock request after request.
+  Do not turn `cache_keys` on or shorten the backoff below the 5 s fetch timeout. Pinned by the
+  key-set tests in `tests/test_auth.py`.
+- **uvicorn runs `h11`, bounded and quiet** (`adapters/__main__.py`, ADR-058): `http="h11"` with
+  `h11_max_incomplete_event_size=MAX_HEADER_BLOCK_BYTES` (16 KiB), because `httptools` buffers a
+  header block of any size; `proxy_headers=False`, so no `X-Forwarded-*` rewrites the client address
+  or scheme; `server_header=False`; and `ws="none"`. Pinned by `tests/test_observability.py`.
+- **A registered secret is scrubbed from every logged value** (`adapters/observability.py`). A
+  value that is not text, a number, a boolean, `None` or a container is scrubbed as its text, so a
+  secret inside an exception or an object's representation does not reach the output.
+  `redact_secrets` stays after `format_exc_info` in `_processors`, so a traceback is scrubbed too.
+  Pinned by `tests/test_observability.py`.
+- **`Money` computes over the widest exponent range** (`_widest` in `shared/money.py`), so an
+  amount past a million integer digits is accepted and a result is never rounded as subnormal, as
+  `BigDecimal` accepts it. Build every context there; none inherits Python's default limit.
+  Pinned by `tests/test_money.py`.
 - **The problem handlers live in the composition root**, `adapters/problems.py` — the one package
   allowed to see every context's exceptions. The ledger maps them per context, a `*ProblemAdvice`
   in each, and keeps only a fallback, `LedgerProblemHandler`, in `composition`; only `portfolio` is

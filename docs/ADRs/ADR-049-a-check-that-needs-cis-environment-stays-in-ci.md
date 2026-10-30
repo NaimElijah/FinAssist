@@ -1,6 +1,7 @@
 # ADR-049: A check that needs CI's throwaway environment stays in CI, and every other check is a Make target
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-061](ADR-061-the-stack-refuses-a-configuration-that-weakens-a-credential.md)
 - **Date:** 2026-10-29
 
 Extends [ADR-005](ADR-005-docker-compose-as-the-run-mechanism.md). Its Decision says "CI invokes

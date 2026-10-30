@@ -3,6 +3,7 @@ package io.github.naimelijah.finassist.gateway;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.naimelijah.finassist.gateway.composition.HostAllowListFilter;
+import io.github.naimelijah.finassist.gateway.composition.RequestBodyLimitFilter;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -20,10 +21,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.stream.Stream;
 import org.apache.catalina.Context;
+import org.apache.catalina.Session;
 import org.apache.tomcat.util.descriptor.web.FilterMap;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.endpoint.ExposableEndpoint;
 import org.springframework.boot.actuate.endpoint.web.PathMappedEndpoint;
@@ -71,6 +76,27 @@ class GatewayApplicationIT {
     /** The name Spring Boot registers the security chain under, and the one Tomcat knows it by. */
     private static final String SECURITY_FILTER_NAME = "springSecurityFilterChain";
 
+    /** The names Boot registers its request observation and its form-content filter under. */
+    private static final String OBSERVATION_FILTER_NAME = "webMvcObservationFilter";
+
+    private static final String FORM_CONTENT_FILTER_NAME = "formContentFilter";
+
+    /** The name Spring Cloud Gateway Server MVC registers its form filter under, which reads a form body. */
+    private static final String GATEWAY_FORM_FILTER_NAME = "formFilter";
+
+    /**
+     * The largest request body the gateway reads: 64 KiB, the limit the ledger and the assistant
+     * apply too. Spelled here rather than borrowed from {@code RequestBodyLimitFilter}, as every
+     * wire value is.
+     */
+    private static final int BODY_LIMIT_BYTES = 64 * 1024;
+
+    /** The smallest JSON body, padded to a size with the whitespace JSON allows after a value. */
+    private static final String EMPTY_OBJECT = "{}";
+
+    /** A relayed write: refused without a session, so only the body limit could answer it 413. */
+    private static final String LEDGER_WRITE = "/ledger/api/v1/transactions";
+
     private static final String SESSION_COOKIE = "FINASSIST_SESSION";
 
     private static final String CSRF_COOKIE = "FINASSIST-XSRF-TOKEN";
@@ -92,6 +118,29 @@ class GatewayApplicationIT {
 
     /** ADR-030's idle timeout, {@code server.servlet.session.timeout}, spelled here for the same reason. */
     private static final Duration SHIPPED_SESSION_TIMEOUT = Duration.ofMinutes(30);
+
+    /**
+     * How long a session holding only a started sign-in may sit idle, spelled here for the same
+     * reason: long enough for a first sign-in at Keycloak, half a signed-in session's.
+     */
+    private static final Duration PRE_SIGN_IN_IDLE_LIMIT = Duration.ofMinutes(15);
+
+    /** The Fetch Metadata header a browser sends to say what kind of request it is making. */
+    private static final String SEC_FETCH_MODE = "Sec-Fetch-Mode";
+
+    /** The {@link #SEC_FETCH_MODE} of a navigation, the only mode that may start a sign-in. */
+    private static final String NAVIGATE = "navigate";
+
+    /** The Fetch Metadata header naming the requesting page's relation to this origin. */
+    private static final String SEC_FETCH_SITE = "Sec-Fetch-Site";
+
+    private static final String CROSS_SITE = "cross-site";
+
+    /** The Fetch Metadata header a browser sends to say where the answer will be used. */
+    private static final String SEC_FETCH_DEST = "Sec-Fetch-Dest";
+
+    /** The {@link #SEC_FETCH_DEST} of the browser's own window, the only one a sign-in may open in. */
+    private static final String DOCUMENT = "document";
 
     /** The one Actuator endpoint ADR-030 lets the gateway serve over HTTP, spelled here for the same reason. */
     private static final String HEALTH_ENDPOINT = "health";
@@ -147,13 +196,18 @@ class GatewayApplicationIT {
         CLIENT.close();
     }
 
-    private HttpResponse<String> get(String path) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder()
+    /**
+     * A {@code GET} of {@code path}, carrying any headers given as name, value, name, value.
+     */
+    private HttpResponse<String> get(String path, String... headers) throws IOException, InterruptedException {
+        HttpRequest.Builder request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + path))
                 .timeout(TIMEOUT)
-                .GET()
-                .build();
-        return CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+                .GET();
+        if (headers.length > 0) {
+            request.headers(headers);
+        }
+        return CLIENT.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     /**
@@ -340,6 +394,64 @@ class GatewayApplicationIT {
                 .contains(SECURITY_FILTER_NAME);
     }
 
+    /**
+     * Read from the running server, not from the registration's order: the body limit must run
+     * after the Host allow-list, which refuses a foreign request before anything else sees it
+     * (ADR-030), after Spring MVC's request observation, so that a refusal is traced and counted,
+     * and before every filter that could read a body, Spring Security's, the form-content filter's
+     * and Spring Cloud Gateway's form filter's included, and so before the relay.
+     */
+    @Test
+    void
+            Given_the_running_gateway_When_its_filter_chain_is_read_Then_the_body_limit_runs_after_the_host_allow_list_and_before_any_body_reader() {
+        List<Context> webApps = webApps();
+        List<String> names = webApps.stream()
+                .flatMap(web -> Arrays.stream(web.findFilterMaps()).map(FilterMap::getFilterName))
+                .toList();
+        List<String> classes = webApps.stream()
+                .flatMap(web -> Arrays.stream(web.findFilterMaps())
+                        .map(map -> web.findFilterDef(map.getFilterName()).getFilterClass()))
+                .toList();
+
+        int hostAllowList = classes.indexOf(HostAllowListFilter.class.getName());
+        int observation = names.indexOf(OBSERVATION_FILTER_NAME);
+        int bodyLimit = classes.indexOf(RequestBodyLimitFilter.class.getName());
+        assertThat(observation)
+                .as("the observation filter's position in %s", names)
+                .isNotNegative();
+        assertThat(bodyLimit)
+                .as("the body limit's position, after the Host allow-list and the observation, in %s", names)
+                .isGreaterThan(hostAllowList)
+                .isGreaterThan(observation);
+        assertThat(names.subList(0, bodyLimit))
+                .as("filters ahead of the body limit")
+                .doesNotContain(SECURITY_FILTER_NAME, FORM_CONTENT_FILTER_NAME, GATEWAY_FORM_FILTER_NAME);
+    }
+
+    /**
+     * The body limit runs before the security chain, shown by what it answers rather than by
+     * where it is registered: a write with no session and no CSRF token, whose declared length is
+     * one byte over the limit, is refused 413 {@code CONTENT_TOO_LARGE}. Had the chain seen it
+     * first, the answer would have been its own 401 or 403.
+     */
+    @Test
+    void Given_no_session_When_a_write_declares_a_body_over_the_limit_Then_it_is_refused_413_before_security()
+            throws Exception {
+        String body = EMPTY_OBJECT + " ".repeat(BODY_LIMIT_BYTES + 1 - EMPTY_OBJECT.length());
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + port + LEDGER_WRITE))
+                .timeout(TIMEOUT)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+
+        HttpResponse<String> response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(413);
+        assertThat(response.headers().firstValue("content-type")).contains("application/problem+json");
+        assertThat(response.body()).contains("\"code\":\"CONTENT_TOO_LARGE\"");
+    }
+
     /** The web applications the running Tomcat holds, as the container itself sees them. */
     private List<Context> webApps() {
         TomcatWebServer server = (TomcatWebServer) context.getWebServer();
@@ -381,6 +493,105 @@ class GatewayApplicationIT {
                 .contains("HttpOnly")
                 .contains("SameSite=Lax")
                 .doesNotContain("Secure");
+    }
+
+    /**
+     * A sign-in starts only from a top-level navigation, which is how the web client reaches the
+     * login entry: a link the browser follows in its own window, marked {@code Sec-Fetch-Mode:
+     * navigate} and {@code Sec-Fetch-Dest: document}. A request a page makes for an image, a script
+     * or a {@code fetch} names another mode, and a navigation into a frame names another
+     * destination. The login entry creates a session for each request it accepts, so each of these
+     * is refused before any session exists, 403 {@code FORBIDDEN} rather than 401: the endpoint is
+     * public, so no credential would change the answer. A client that sends neither header, as
+     * every other test here does, is not refused: only a browser sends them.
+     */
+    @ParameterizedTest
+    @CsvSource({"no-cors, image", "cors, empty", "same-origin, empty", "navigate, iframe", "navigate, embed"})
+    void
+            Given_a_browser_request_that_is_not_a_top_level_navigation_When_it_reaches_the_login_entry_Then_it_is_refused_403_and_no_session_is_created(
+                    String fetchMode, String fetchDest) throws Exception {
+        HttpResponse<String> response =
+                get(LOGIN_ENTRY, SEC_FETCH_MODE, fetchMode, SEC_FETCH_DEST, fetchDest, SEC_FETCH_SITE, CROSS_SITE);
+
+        assertThat(response.statusCode()).isEqualTo(403);
+        assertThat(response.headers().firstValue("content-type")).contains("application/problem+json");
+        assertThat(response.body())
+                .contains("\"code\":\"FORBIDDEN\"")
+                .contains("A sign-in starts only from a top-level navigation.")
+                .doesNotContain("session");
+        assertThat(response.headers().firstValue("location")).isEmpty();
+        assertThat(response.headers().allValues("set-cookie"))
+                .as("the cookies the refusal set")
+                .noneMatch(header -> header.startsWith(SESSION_COOKIE + "="));
+    }
+
+    /** The navigation the web client makes is still sent on to Keycloak. */
+    @Test
+    void Given_a_top_level_navigation_When_it_reaches_the_login_entry_Then_it_is_redirected_to_keycloak()
+            throws Exception {
+        HttpResponse<String> response =
+                get(LOGIN_ENTRY, SEC_FETCH_MODE, NAVIGATE, SEC_FETCH_DEST, DOCUMENT, SEC_FETCH_SITE, "same-origin");
+
+        assertThat(response.statusCode()).isEqualTo(302);
+        assertThat(setCookie(response, SESSION_COOKIE)).isNotBlank();
+    }
+
+    /**
+     * A session the login entry creates holds nothing but the authorization request, and it lives
+     * only as long as a sign-in needs, rather than ADR-030's half hour: a sign-in started and never
+     * finished does not hold memory for thirty minutes. Read from the session Tomcat's own manager
+     * holds, under the id the cookie names, because that is what expiry acts on. A completed
+     * sign-in restores the half hour, which {@code GatewayLoginFlowIT} holds.
+     */
+    @Test
+    void
+            Given_a_sign_in_started_and_never_finished_When_its_session_is_read_Then_its_idle_limit_is_the_pre_sign_in_limit()
+                    throws Exception {
+        HttpResponse<String> response = get(LOGIN_ENTRY);
+        assertThat(response.statusCode()).isEqualTo(302);
+
+        Session session = sessionNamedBy(response);
+
+        assertThat(session.getMaxInactiveInterval())
+                .as("the started sign-in's idle limit, in seconds")
+                .isEqualTo((int) PRE_SIGN_IN_IDLE_LIMIT.toSeconds());
+    }
+
+    /** The session Tomcat holds under the id the response's session cookie names. */
+    private Session sessionNamedBy(HttpResponse<String> response) throws IOException {
+        String cookie = setCookie(response, SESSION_COOKIE);
+        String id = cookie.substring(SESSION_COOKIE.length() + 1, cookie.indexOf(';'));
+        Session session = webApps().getFirst().getManager().findSession(id);
+        assertThat(session).as("the session Tomcat holds under the cookie's id").isNotNull();
+        return session;
+    }
+
+    /**
+     * Spring Security's firewall refuses a path it cannot route safely — an encoded dot segment, an
+     * encoded percent sign, an empty segment, a path parameter — before any filter of the chain
+     * runs. Left to the default handler, the refusal was {@code sendError(400)}, and the container's
+     * error dispatch answered it with Boot's own body: a {@code timestamp} and the caller's {@code
+     * path}, with no {@code code}. Only a real container performs that dispatch, so only this
+     * class can see it.
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "/ledger/api/v1/%2e%2e/accounts",
+                "/ledger/api/v1/accounts%25",
+                "/ledger//api/v1/accounts",
+                "/ledger/api/v1/accounts;a=b"
+            })
+    void Given_a_path_the_firewall_rejects_When_answered_Then_it_is_a_400_problem_with_a_code(String path)
+            throws Exception {
+        HttpResponse<String> response = get(path);
+
+        assertThat(response.statusCode()).as("the status %s answered", path).isEqualTo(400);
+        assertThat(response.headers().firstValue("content-type")).contains("application/problem+json");
+        assertThat(response.body())
+                .contains("\"code\":\"MALFORMED_REQUEST\"")
+                .doesNotContain("\"timestamp\"")
+                .doesNotContain("\"path\"");
     }
 
     /**

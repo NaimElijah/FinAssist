@@ -454,6 +454,15 @@ describe('planFlow', () => {
 });
 
 describe('commitFlow', () => {
+    it('Given_a_dot_dot_id_When_committed_Then_no_request_is_sent', async () => {
+        // `planned-flows/../commit` would resolve to a different route, one level up.
+        const stub = stubFetch(jsonResponse({}));
+
+        await expect(commitFlow('..', '2026-09-01')).rejects.toThrow(RangeError);
+
+        expect(stub).not.toHaveBeenCalled();
+    });
+
     it('Given_a_flow_id_and_a_date_When_committed_Then_it_posts_on_to_the_commit_path_and_maps_the_result', async () => {
         const stub = stubFetch(
             jsonResponse({
@@ -705,6 +714,17 @@ describe('projectScenario', () => {
     };
 
     const SETTINGS = { from: '2026-09-01', to: '2026-11-01', step: 'MONTHLY' } as const;
+
+    it('Given_a_dot_dot_id_When_projected_Then_no_request_is_sent', async () => {
+        // `scenarios/../projection` would resolve to a different route, one level up.
+        const stub = stubFetch(jsonResponse(WIRE_PROJECTION));
+
+        await expect(
+            projectScenario({ scenarioId: '..', ...SETTINGS, cash: [], invested: [] }),
+        ).rejects.toThrow(RangeError);
+
+        expect(stub).not.toHaveBeenCalled();
+    });
 
     it('Given_chosen_accounts_When_projected_Then_it_requests_the_projection_with_cash_and_invested_repeated', async () => {
         const stub = stubFetch(jsonResponse(WIRE_PROJECTION));

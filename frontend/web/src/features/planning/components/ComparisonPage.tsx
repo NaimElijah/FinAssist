@@ -30,7 +30,12 @@ import { toggled } from './toggled';
 /** A comparison needs something to compare against; the ledger refuses fewer with 400. */
 const MINIMUM_SCENARIOS = 2;
 
+/** The most scenarios the ledger compares in one request; it refuses more with 400. */
+const MAXIMUM_SCENARIOS = 10;
+
 const TOO_FEW_SCENARIOS_MESSAGE = 'Choose at least two scenarios to compare.';
+
+const TOO_MANY_SCENARIOS_MESSAGE = 'Choose at most ten scenarios to compare.';
 
 const NO_SCENARIOS_MESSAGE = 'No scenarios to compare yet — define at least two under Scenarios.';
 
@@ -38,6 +43,20 @@ const NO_SCENARIO_CHOSEN_MESSAGE = 'Choose scenarios to offer the accounts in th
 
 const MIXED_CURRENCIES_MESSAGE =
     'The chosen scenarios are in more than one currency, and a comparison covers one.';
+
+/**
+ * Why `count` chosen scenarios cannot be compared, or `undefined` when the ledger will take them:
+ * the same bounds it enforces, checked first so the owner gets a field error rather than its 400.
+ */
+function scenarioCountError(count: number): string | undefined {
+    if (count < MINIMUM_SCENARIOS) {
+        return TOO_FEW_SCENARIOS_MESSAGE;
+    }
+    if (count > MAXIMUM_SCENARIOS) {
+        return TOO_MANY_SCENARIOS_MESSAGE;
+    }
+    return undefined;
+}
 
 /** Offered, disabled, while no scenario is chosen: there is nothing to measure from yet. */
 const NO_BASELINE_OPTIONS: readonly SelectOption[] = [
@@ -158,8 +177,9 @@ function ComparisonForm({
 
     function submit(event: SubmitEvent<HTMLFormElement>) {
         event.preventDefault();
-        if (chosen.length < MINIMUM_SCENARIOS) {
-            setScenariosError(TOO_FEW_SCENARIOS_MESSAGE);
+        const countError = scenarioCountError(chosen.length);
+        if (countError !== undefined) {
+            setScenariosError(countError);
             // The first invalid field takes focus, as in every form in the app; a checkbox group's
             // first box stands for the group.
             scenariosRef.current
@@ -239,13 +259,14 @@ function ComparisonForm({
 }
 
 /**
- * `/planning/compare`: choose two or more scenarios, a baseline among them, one horizon, step and
+ * `/planning/compare`: choose two to ten scenarios, a baseline among them, one horizon, step and
  * set of opening accounts, and read each scenario's end state and how far it diverges from the
  * baseline at every step.
  *
- * Fewer than two scenarios is refused as a field error before anything is sent; the ledger stays
- * authoritative for everything else, a currency mismatch included. The accounts offered follow
- * the chosen scenarios' one currency, and none are offered while they span several.
+ * Fewer than two scenarios, or more than ten, is refused as a field error before anything is
+ * sent; the ledger stays authoritative for everything else, a currency mismatch included. The
+ * accounts offered follow the chosen scenarios' one currency, and none are offered while they span
+ * several.
  *
  * The result is tables alone. `ProjectionChart` draws one scenario's two lines; drawing several
  * scenarios would need a chart generalised over series, and the tables already carry every

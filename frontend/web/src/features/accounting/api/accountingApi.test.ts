@@ -160,6 +160,15 @@ describe('openAccount', () => {
 });
 
 describe('getBalance', () => {
+    it('Given_a_dot_dot_id_When_its_balance_is_read_Then_no_request_is_sent', async () => {
+        // `accounts/../balance` would resolve to a different route, one level up.
+        const stub = stubFetch(jsonResponse({}));
+
+        await expect(getBalance('..')).rejects.toThrow(RangeError);
+
+        expect(stub).not.toHaveBeenCalled();
+    });
+
     it('Given_an_account_id_When_its_balance_is_read_Then_it_requests_the_balance_and_returns_the_amount_as_received', async () => {
         const stub = stubFetch(
             jsonResponse({ account: CHECKING_ID, balance: { amount: '-250.00', currency: 'ILS' } }),
@@ -332,6 +341,15 @@ describe('recordTransaction', () => {
 });
 
 describe('clearTransaction', () => {
+    it('Given_a_dot_dot_id_When_cleared_Then_no_request_is_sent', async () => {
+        // `transactions/../clear` would resolve to a different route, one level up.
+        const stub = stubFetch(jsonResponse({}));
+
+        await expect(clearTransaction('..', '2026-09-01')).rejects.toThrow(RangeError);
+
+        expect(stub).not.toHaveBeenCalled();
+    });
+
     it('Given_a_transaction_id_and_a_date_When_cleared_Then_it_posts_on_to_the_clear_path_and_maps_the_result', async () => {
         const stub = stubFetch(
             jsonResponse({

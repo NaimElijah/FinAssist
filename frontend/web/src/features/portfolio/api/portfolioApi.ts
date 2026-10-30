@@ -19,6 +19,7 @@ import type {
     ValuationModel,
 } from '@/shared/api/contracts/assistant/types.gen';
 import { decimalString } from '@/shared/api/decimal';
+import { pathSegment } from '@/shared/api/pathSegment';
 import { log } from '@/shared/lib/logger';
 
 import type { DisposalInput, Disposition, Lot } from '../types/disposal';
@@ -38,7 +39,7 @@ const HOLDINGS_URL = `${ASSISTANT_API}/portfolio/holdings`;
  * symbol containing a space or a slash would otherwise change the path it names.
  */
 function holdingUrl(symbol: string, resource: 'position' | 'valuation' | 'disposal'): string {
-    return `${HOLDINGS_URL}/${encodeURIComponent(symbol)}/${resource}`;
+    return `${HOLDINGS_URL}/${pathSegment(symbol)}/${resource}`;
 }
 
 /**
@@ -107,6 +108,8 @@ function toDisposition(wire: DispositionModel, url: string): Disposition {
  * @throws ApiError - on a non-2xx response: 404 `HOLDING_NOT_FOUND` when nothing is held.
  * @throws ApiBodyError - when the response carries no JSON body, a currency the contract does
  *   not name, or a quantity or amount that is not a decimal string.
+ * @throws RangeError - before anything is sent, when the symbol is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function readPosition(symbol: string): Promise<Position> {
     const url = holdingUrl(symbol, 'position');
@@ -124,6 +127,8 @@ export async function readPosition(symbol: string): Promise<Position> {
  *   `PRICE_UNAVAILABLE` when no quote is recent enough to value it.
  * @throws ApiBodyError - when the response carries no JSON body, a currency the contract does
  *   not name, or a quantity or amount that is not a decimal string.
+ * @throws RangeError - before anything is sent, when the symbol is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function valueHolding(symbol: string): Promise<Valuation> {
     const url = holdingUrl(symbol, 'valuation');
@@ -149,6 +154,8 @@ export async function valueHolding(symbol: string): Promise<Valuation> {
  *   lots'; 400 `MALFORMED_REQUEST`, listing field `errors`.
  * @throws ApiBodyError - when the response carries no JSON body, a currency the contract does
  *   not name, or a quantity or amount that is not a decimal string.
+ * @throws RangeError - before anything is sent, when the symbol is empty, `.` or `..`, which
+ *   would name another path (`pathSegment`).
  */
 export async function priceDisposal(symbol: string, input: DisposalInput): Promise<Disposition> {
     const url = holdingUrl(symbol, 'disposal');

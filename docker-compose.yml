@@ -243,6 +243,9 @@ services:
       # (ADR-030). sslRequired: external in the realm itself still refuses a non-loopback caller
       # without TLS.
       KC_HTTP_ENABLED: "true"
+      # JSON on stdout, as every other service writes it (ADR-019); Keycloak's default is plain
+      # text. A runtime option, so it is set here rather than baked in by `kc.sh build`.
+      KC_LOG_CONSOLE_OUTPUT: json
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
       KC_DB_USERNAME: keycloak

@@ -12,6 +12,7 @@ import {
     fakeFetch,
     jsonResponse,
     pendingResponse,
+    problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
 
@@ -62,8 +63,15 @@ function renderUserMenu(session: Session, answer: FetchAnswer) {
     return { ...rendered, queryClient, requests };
 }
 
-/** The CSRF cookie the gateway sets, which one test plants in jsdom's cookie jar. */
+/** The CSRF cookie the gateway sets, which some tests plant in jsdom's cookie jar. */
 const XSRF_COOKIE = 'FINASSIST-XSRF-TOKEN';
+
+/** What the owner is told when signing out fails and the session is still open. */
+const SIGN_OUT_FAILED = 'Sign-out failed. You are still signed in. Try again.';
+
+/** A query read while signed in, which a failed sign-out must leave in the cache. */
+const CACHED_KEY = ['accounts'];
+const CACHED_DATA = ['something cached while signed in'];
 
 describe('UserMenu', () => {
     afterEach(() => {
@@ -173,5 +181,143 @@ describe('UserMenu', () => {
             );
         });
         expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('Given_sign_out_is_clicked_When_the_gateway_answers_403_csrf_token_invalid_Then_an_alert_says_the_session_is_still_open', async () => {
+        document.cookie = `${XSRF_COOKIE}=csrf-token-value`;
+        const assign = spyOnAssign();
+        const { queryClient, requests } = renderUserMenu(OWNER, (request) =>
+            request.url === LOGOUT_URL
+                ? problemResponse({
+                      status: 403,
+                      code: 'CSRF_TOKEN_INVALID',
+                      title: 'Forbidden',
+                  })
+                : unexpectedRequest(request),
+        );
+        queryClient.setQueryData(CACHED_KEY, CACHED_DATA);
+
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out' }));
+
+        expect((await screen.findByRole('alert')).textContent).toBe(SIGN_OUT_FAILED);
+        expect(requests.map(({ method, url }) => ({ method, url }))).toEqual([
+            { method: 'POST', url: LOGOUT_URL },
+        ]);
+        // The session the cache was read under is still open, so its reads still stand, and the
+        // owner can press Sign out again.
+        expect(queryClient.getQueryData(CACHED_KEY)).toEqual(CACHED_DATA);
+        expect(screen.getByRole('button', { name: 'Sign out' })).toHaveProperty('disabled', false);
+        expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('Given_a_corrupted_csrf_cookie_When_sign_out_is_clicked_Then_an_alert_says_the_session_is_still_open', async () => {
+        // Not valid percent-encoding, so `sendJson` throws a URIError before anything is sent.
+        document.cookie = `${XSRF_COOKIE}=%E0%A4%A`;
+        const assign = spyOnAssign();
+        const { queryClient, requests } = renderUserMenu(OWNER, NO_REQUESTS_EXPECTED);
+        queryClient.setQueryData(CACHED_KEY, CACHED_DATA);
+
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out' }));
+
+        expect((await screen.findByRole('alert')).textContent).toBe(SIGN_OUT_FAILED);
+        expect(requests).toHaveLength(0);
+        expect(queryClient.getQueryData(CACHED_KEY)).toEqual(CACHED_DATA);
+        expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('Given_a_failed_sign_out_When_it_is_retried_and_succeeds_Then_the_alert_is_gone_and_the_browser_navigates', async () => {
+        const assign = spyOnAssign();
+        let attempts = 0;
+        renderUserMenu(OWNER, (request) => {
+            if (request.url !== LOGOUT_URL) {
+                return unexpectedRequest(request);
+            }
+            attempts += 1;
+            return attempts === 1
+                ? problemResponse({ status: 503, code: 'UPSTREAM_UNAVAILABLE' })
+                : jsonResponse({ logoutUrl: LOGOUT_URL_RESPONSE });
+        });
+        const user = userEvent.setup();
+        await user.click(screen.getByRole('button', { name: 'Sign out' }));
+        await screen.findByRole('alert');
+
+        await user.click(screen.getByRole('button', { name: 'Sign out' }));
+
+        await waitFor(() => {
+            expect(assign).toHaveBeenCalledExactlyOnceWith(LOGOUT_URL_RESPONSE);
+        });
+        expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('Given_a_sign_out_whose_pending_button_dropped_focus_When_it_fails_Then_focus_returns_to_sign_out', async () => {
+        spyOnAssign();
+        let answer: (response: Response) => void = () => undefined;
+        renderUserMenu(OWNER, (request) =>
+            request.url === LOGOUT_URL
+                ? new Promise<Response>((resolve) => {
+                      answer = resolve;
+                  })
+                : unexpectedRequest(request),
+        );
+        const button = screen.getByRole('button', { name: 'Sign out' });
+        // A browser drops focus to the body once the pending button is disabled; jsdom keeps it
+        // on the disabled button and will not blur one. A click that never focuses the button
+        // leaves focus on the body, where the browser would have dropped it.
+        fireEvent.click(button);
+        await waitFor(() => {
+            expect(button).toHaveProperty('disabled', true);
+        });
+        expect(document.activeElement).toBe(document.body);
+
+        answer(problemResponse({ status: 503, code: 'UPSTREAM_UNAVAILABLE' }));
+
+        await screen.findByRole('alert');
+        await waitFor(() => {
+            expect(document.activeElement).toBe(button);
+        });
+    });
+
+    it('Given_focus_was_moved_elsewhere_during_sign_out_When_it_fails_Then_focus_stays_there', async () => {
+        spyOnAssign();
+        let answer: (response: Response) => void = () => undefined;
+        renderUserMenu(OWNER, (request) =>
+            request.url === LOGOUT_URL
+                ? new Promise<Response>((resolve) => {
+                      answer = resolve;
+                  })
+                : unexpectedRequest(request),
+        );
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out' }));
+        const elsewhere = document.createElement('input');
+        document.body.append(elsewhere);
+        // Removed whatever the assertions do, so no later test inherits a stray focusable input.
+        try {
+            elsewhere.focus();
+
+            answer(problemResponse({ status: 503, code: 'UPSTREAM_UNAVAILABLE' }));
+
+            await screen.findByRole('alert');
+            expect(document.activeElement).toBe(elsewhere);
+        } finally {
+            elsewhere.remove();
+        }
+    });
+
+    it('Given_a_sign_out_that_failed_When_it_fails_again_Then_the_alert_is_mounted_afresh_so_it_is_announced_again', async () => {
+        // The corrupted cookie fails each attempt before anything is sent, the quickest a second
+        // failure can follow the first.
+        document.cookie = `${XSRF_COOKIE}=%E0%A4%A`;
+        spyOnAssign();
+        renderUserMenu(OWNER, NO_REQUESTS_EXPECTED);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole('button', { name: 'Sign out' }));
+        const first = await screen.findByRole('alert');
+
+        await user.click(screen.getByRole('button', { name: 'Sign out' }));
+
+        await waitFor(() => {
+            expect(screen.getByRole('alert')).not.toBe(first);
+        });
+        expect(first.isConnected).toBe(false);
     });
 });

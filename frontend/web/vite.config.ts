@@ -1,7 +1,7 @@
 import { fileURLToPath, URL } from 'node:url';
 
 import react from '@vitejs/plugin-react';
-import type { ProxyOptions } from 'vite';
+import type { Plugin, ProxyOptions } from 'vite';
 // defineConfig comes from vitest/config, not vite: it carries the `test` key's types, which
 // the triple-slash reference used to supply before this file imported from vitest at all.
 import { coverageConfigDefaults, defineConfig } from 'vitest/config';
@@ -57,8 +57,54 @@ const proxy: Record<string, ProxyOptions> = {
     [proxyKey(BFF_BACKEND)]: proxyEntry(BFF_BACKEND),
 };
 
+/**
+ * Sent on every response the dev server and `vite preview` answer themselves, the app shell
+ * included, so no other page can frame the app and steer the owner's clicks inside it.
+ *
+ * Only `frame-ancestors`: a policy restricting scripts would break Fast Refresh's inline preamble
+ * in development, and the full policy, for a built bundle, is #165's. A proxied response carries
+ * whatever the gateway sends instead.
+ */
+const FRAMING_REFUSED_HEADERS: Readonly<Record<string, string>> = {
+    'Content-Security-Policy': "frame-ancestors 'none'",
+};
+
+/** The endpoint Vite's error overlay calls to open a file in the owner's editor. */
+const OPEN_IN_EDITOR_PATH = '/__open-in-editor';
+
+/** The only `Sec-Fetch-Site` value a request from the app's own page carries. */
+const SAME_ORIGIN = 'same-origin';
+
+const FORBIDDEN = 403;
+
+/**
+ * Refuse `/__open-in-editor` with 403 unless the request comes from the app's own page.
+ *
+ * Vite mounts that endpoint after its Host check but checks no origin, and it launches a process
+ * on the owner's machine for whatever file a GET names. The error overlay calls it from the page
+ * itself, so its click-to-open keeps working; any other page, including one on another
+ * `localhost` port, which is same-site but not same-origin, is refused. A `configureServer`
+ * middleware runs before Vite mounts its own, so this one sees the request first. Preview
+ * mounts no such endpoint, so this plugin has no preview hook.
+ */
+function openInEditorSameOriginOnly(): Plugin {
+    return {
+        name: 'finassist:open-in-editor-same-origin-only',
+        configureServer(server) {
+            server.middlewares.use(OPEN_IN_EDITOR_PATH, (request, response, next) => {
+                if (request.headers['sec-fetch-site'] === SAME_ORIGIN) {
+                    next();
+                    return;
+                }
+                response.statusCode = FORBIDDEN;
+                response.end();
+            });
+        },
+    };
+}
+
 export default defineConfig({
-    plugins: [react()],
+    plugins: [react(), openInEditorSameOriginOnly()],
     resolve: {
         // `@/features/portfolio` reads better than a run of `../../..`, and it makes a
         // cross-feature import obvious in review and to the architecture test.
@@ -73,10 +119,20 @@ export default defineConfig({
         // subdomains and every IP literal are allowed already, and any other Host is refused —
         // that refusal is the DNS-rebinding protection ADR-030 relies on. Do not set this to
         // `true`; that would accept every Host and remove the protection entirely.
+        // `fs.strict` and `fs.allow` are left at their defaults too: strict, and this workspace
+        // alone, which keeps the repository root's `.env` out of what the dev server serves.
+        headers: FRAMING_REFUSED_HEADERS,
+        // No CORS. The app calls only its own origin, and Vite's default would answer every
+        // `localhost` origin on any port, letting another local page read whatever this server
+        // serves; the CSRF defence counts on no other origin being answered.
+        cors: false,
         proxy,
     },
     preview: {
         host: LOOPBACK_HOST,
+        headers: FRAMING_REFUSED_HEADERS,
+        // Off for the same reason as the dev server's.
+        cors: false,
         proxy,
     },
     test: {
