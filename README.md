@@ -137,9 +137,9 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 | Web data | React Router, TanStack Query, @hey-api/openapi-ts | 8.3.1 / 5.102.8 / 0.99.0 | Deep links, cached server state, and types generated from all three contracts ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
 | Web runtime | Node | 24 | Pinned in `.nvmrc` and `engines`, because tests pin dates and amounts as that major's ICU data formats them |
 | Contracts | springdoc-openapi (API starter only) | 3.2.0 | Each service's OpenAPI document is generated, then pinned by a test to `contracts/` |
-| Architecture tests | ArchUnit | 1.5.0 | Layering, context isolation, no floating-point money, a one-way composition root |
+| Architecture tests | ArchUnit | 1.5.1 | Layering, context isolation, no floating-point money, a one-way composition root |
 | Tests | JUnit + Testcontainers, pytest + Hypothesis, Vitest + Testing Library | Boot-managed / 9.1.1 + 6.168.0 / 5.0 + 16.3 | Integration tests against a real PostgreSQL and a real Keycloak image; property tests seeded on both sides |
-| Coverage, mutation | JaCoCo, pytest-cov, coverage-v8; PIT | 0.8.15 / 7.1.0 / 5.0.4; 1.30.0 | Measured and gating nothing; mutation testing answers whether a test would notice ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
+| Coverage, mutation | JaCoCo, pytest-cov, coverage-v8; PIT | 0.8.15 / 7.1.0 / 5.0.4; 1.30.1 | Measured and gating nothing; mutation testing answers whether a test would notice ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
 | Format and lint | Spotless + palantir-java-format, ESLint + Prettier | 3.10.4 / 2.97.0, 10.11 / 3.9 | One authoritative formatter per language, checked in CI |
 | Telemetry | OpenTelemetry + Micrometer; Collector, Prometheus, Grafana | 1.45.1 (Python) / 1.67.0 (Java, over the Boot 4.1.2 starter); 0.139.0 / v3.7.3 / 12.3.1 | Vendor-neutral: the backend is an environment variable, not a rewrite ([ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 
