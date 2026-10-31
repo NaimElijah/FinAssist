@@ -123,6 +123,11 @@ _MALFORMED_REQUEST_DETAIL: Final = "The request could not be read; each entry in
 # the field's name.
 _REQUEST_PARTS: Final = frozenset({"path", "query", "header", "cookie", "body"})
 
+# FastAPI's error type for a body that is not JSON. It locates the error as ("body", <offset>), and
+# an offset names no member, so the entry names the body, as the ledger's does.
+_NOT_JSON: Final = "json_invalid"
+_BODY_FIELD: Final = "body"
+
 _log = structlog.get_logger(__name__)
 
 
@@ -244,7 +249,10 @@ def _malformed_request(request: Request, exception: RequestValidationError) -> J
     problem body is no place to reflect it back.
     """
     errors = [
-        {"field": _field_of(error["loc"]), "message": str(error["msg"])}
+        {
+            "field": _BODY_FIELD if error["type"] == _NOT_JSON else _field_of(error["loc"]),
+            "message": str(error["msg"]),
+        }
         for error in exception.errors()
     ]
     return problem_response(
