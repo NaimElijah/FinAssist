@@ -2,6 +2,7 @@ package io.github.naimelijah.finassist.ledger.accounting.adapter.out.persistence
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
@@ -157,11 +158,15 @@ class JournalStateHistoryIT extends PostgresFixture {
     void Given_a_transaction_in_a_state_When_the_next_one_is_dated_too_early_Then_it_is_refused(
             String from, String to, LocalDate effectiveOn) {
         Transaction current = recordIn(from);
+        String id = current.id().value().toString();
 
-        assertThatThrownBy(() -> insertState(current.id(), rows(current.id()), to, effectiveOn))
-                .hasMessageContaining("transaction " + current.id().value() + " cannot be " + to
-                        + " before it occurred or before its previous state")
-                .message()
+        Throwable refusal = catchThrowable(() -> insertState(current.id(), rows(current.id()), to, effectiveOn));
+
+        assertThat(refusal)
+                .hasMessageContaining(
+                        "transaction " + id + " cannot be " + to + " before it occurred or before its previous state");
+        // The id is a random UUID, which spells a year now and then; the rest of the message must not.
+        assertThat(refusal.getMessage().replace(id, ""))
                 .doesNotContain(
                         effectiveOn.toString(),
                         MARCH_1.toString(),
