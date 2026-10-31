@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.composition;
 
+import static io.github.naimelijah.finassist.ledger.ProblemAssertions.assertRequiredMembers;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
@@ -73,7 +74,7 @@ class RequestBodyLimitIT extends PostgresFixture {
         assertThat(response.statusCode()).isEqualTo(413);
         assertThat(response.headers().firstValue(HttpHeaders.CONTENT_TYPE))
                 .hasValue(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        assertContentTooLarge(JsonMapper.shared().readTree(response.body()));
+        assertContentTooLarge(response.statusCode(), response.body());
         assertThat(accounts()).isEmpty();
     }
 
@@ -93,7 +94,7 @@ class RequestBodyLimitIT extends PostgresFixture {
                 HttpResponse.BodyHandlers.ofString());
 
         assertThat(response.statusCode()).isEqualTo(413);
-        assertContentTooLarge(JsonMapper.shared().readTree(response.body()));
+        assertContentTooLarge(response.statusCode(), response.body());
     }
 
     @Test
@@ -104,7 +105,7 @@ class RequestBodyLimitIT extends PostgresFixture {
         assertThat(response).startsWith("HTTP/1.1 413");
         assertThat(response)
                 .containsIgnoringCase(HttpHeaders.CONTENT_TYPE + ": " + MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        assertContentTooLarge(JsonMapper.shared().readTree(response.substring(response.indexOf(CRLF + CRLF))));
+        assertContentTooLarge(413, response.substring(response.indexOf(CRLF + CRLF)));
         assertThat(accounts()).isEmpty();
     }
 
@@ -167,7 +168,10 @@ class RequestBodyLimitIT extends PostgresFixture {
                 .doesNotContain("springSecurityFilterChain", "formContentFilter");
     }
 
-    private static void assertContentTooLarge(JsonNode problem) {
+    /** A 413 problem body, with the status its response line or {@code HttpResponse} carried. */
+    private static void assertContentTooLarge(int status, String body) {
+        assertRequiredMembers(status, body);
+        JsonNode problem = JsonMapper.shared().readTree(body);
         assertThat(problem.path("status").asInt()).isEqualTo(413);
         assertThat(problem.path("type").asString()).isEqualTo("about:blank");
         assertThat(problem.path("code").asString()).isEqualTo("CONTENT_TOO_LARGE");

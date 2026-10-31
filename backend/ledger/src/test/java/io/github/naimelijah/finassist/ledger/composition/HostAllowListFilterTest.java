@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.composition;
 
+import static io.github.naimelijah.finassist.ledger.ProblemAssertions.assertRequiredMembers;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -112,6 +113,7 @@ class HostAllowListFilterTest {
         assertThat(response.getContentType()).isEqualTo(PROBLEM_JSON);
         assertThat(JSON.readTree(response.getContentAsByteArray()).path("code").asString())
                 .isEqualTo(HOST_NOT_ALLOWED);
+        assertRequiredMembers(response);
     }
 
     /**
@@ -167,6 +169,7 @@ class HostAllowListFilterTest {
         filter.doFilter(requestWithHost(host), response, chain);
 
         assertThat(response.getStatus()).isEqualTo(403);
+        assertRequiredMembers(response);
         assertThat(chain.getRequest()).isNull();
     }
 

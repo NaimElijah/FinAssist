@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.accounting.adapter.in.web;
 
+import static io.github.naimelijah.finassist.ledger.ProblemAssertions.requiredProblemMembers;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.mockito.ArgumentMatchers.any;
@@ -304,7 +305,8 @@ class TransactionControllerTest {
                 .andExpect(status().is(422))
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value(mismatch.getMessage()))
-                .andExpect(jsonPath("$.code").value("CURRENCY_MISMATCH"));
+                .andExpect(jsonPath("$.code").value("CURRENCY_MISMATCH"))
+                .andExpect(requiredProblemMembers());
     }
 
     /**
@@ -418,7 +420,8 @@ class TransactionControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value(missing.getMessage()))
-                .andExpect(jsonPath("$.code").value("TRANSACTION_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value("TRANSACTION_NOT_FOUND"))
+                .andExpect(requiredProblemMembers());
     }
 
     @ParameterizedTest
@@ -435,7 +438,8 @@ class TransactionControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value(illegal.getMessage()))
-                .andExpect(jsonPath("$.code").value("ILLEGAL_TRANSITION"));
+                .andExpect(jsonPath("$.code").value("ILLEGAL_TRANSITION"))
+                .andExpect(requiredProblemMembers());
     }
 
     @ParameterizedTest

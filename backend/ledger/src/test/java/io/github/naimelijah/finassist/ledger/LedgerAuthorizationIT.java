@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger;
 
+import static io.github.naimelijah.finassist.ledger.ProblemAssertions.requiredProblemMembers;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
@@ -388,6 +389,7 @@ class LedgerAuthorizationIT extends PostgresFixture {
         return result -> {
             content().contentType(MediaType.APPLICATION_PROBLEM_JSON).match(result);
             jsonPath("$.code").value(code).match(result);
+            requiredProblemMembers().match(result);
         };
     }
 
