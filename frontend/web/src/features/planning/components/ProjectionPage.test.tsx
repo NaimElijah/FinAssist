@@ -3,6 +3,7 @@
 // faked, so the feature's real api/ module and its mapping run under test; the account choices
 // src/app would provide are provided here directly, in planning's own terms.
 
+import { onlineManager } from '@tanstack/react-query';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { Outlet, type RouteObject } from 'react-router';
@@ -377,6 +378,37 @@ describe('ProjectionPage', () => {
                 screen.getByRole('heading', { level: 2, name: 'Projected balances' }),
             );
         });
+    });
+
+    it('Given_the_browser_offline_When_projected_Then_the_result_heading_takes_focus_only_once_the_paused_projection_lands', async () => {
+        // Offline, TanStack pauses the read rather than fetching it: it is unanswered, yet not
+        // fetching, so focus must wait for the answer rather than take that pause for one.
+        const requests = fakeFetch(ledger([SAVING], () => jsonResponse(WITH_SHORTFALL)));
+        renderProjection();
+        await screen.findByRole('option', { name: 'Aggressive saving (ILS)' });
+        try {
+            act(() => {
+                onlineManager.setOnline(false);
+            });
+            await project(userEvent.setup({ delay: null }));
+            await waitFor(() => {
+                expect(statusMessages()).toContain('Projecting…');
+            });
+            const heading = screen.getByRole('heading', { level: 2, name: 'Projected balances' });
+            expect(requests.filter(isProjection)).toHaveLength(0);
+            expect(document.activeElement).not.toBe(heading);
+
+            act(() => {
+                onlineManager.setOnline(true);
+            });
+
+            await screen.findByRole('table', { name: 'Projection' });
+            await waitFor(() => {
+                expect(document.activeElement).toBe(heading);
+            });
+        } finally {
+            onlineManager.setOnline(true);
+        }
     });
 
     it('Given_focus_moved_to_a_field_while_projecting_When_the_projection_lands_Then_focus_stays_on_that_field', async () => {

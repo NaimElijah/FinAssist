@@ -52,7 +52,9 @@ export function ReadResult<Data>({
     const submitOrigin = useRef<Element | null>(null);
     const answeredSubmission = useRef<object | null>(null);
     const failure = query.error;
-    const settled = !query.isFetching;
+    // Not `!isFetching`: a read waiting on the network (offline, or a retry held on a hidden tab)
+    // is `paused`, which `isFetching` reports as false although nothing has answered yet.
+    const settled = query.fetchStatus === 'idle';
     const { targetRef, onRetry } = useRetryFocus<HTMLHeadingElement>(
         failure,
         query.isFetching,
@@ -66,9 +68,9 @@ export function ReadResult<Data>({
         submitOrigin.current = document.activeElement;
     }, [submission]);
 
-    // The commit carrying a new submission already shows its read in flight: the page invalidates
-    // the key before setting it, and a key not yet fetched is fetching from its first render. So
-    // a settled read here is the submit's own answer, never the one already on screen.
+    // The commit carrying a new submission already shows its read unsettled: the page invalidates
+    // the key before setting it, and a key not yet fetched is fetching, or paused offline, from its
+    // first render. So a settled read here is the submit's own answer, never the one on screen.
     useEffect(() => {
         if (answeredSubmission.current === submission || !settled) {
             return;
