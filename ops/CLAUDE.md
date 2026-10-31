@@ -23,10 +23,12 @@ One directory per tool, none of them a deployable service of this repository's (
   and log bound, the one-shots' lack of either, four readiness probes (#142, ADR-039), every
   published port's `host_ip` exactly `127.0.0.1` and no port on `keycloak-db` (ADR-030),
   `auth-smoke` behind exactly `profiles: [smoke]` and `secret-check` behind none (ADR-034,
-  ADR-044); the `x-hardened` block's `cap_drop: [ALL]` and `no-new-privileges:true`, with no
-  `cap_add` or `privileged`, on every service but the two databases, `read_only: true` on every
-  one but those and Keycloak, and `db` and `keycloak-db` each on a network of its own shared with
-  its one client alone, `books` with the ledger and `identity` with Keycloak (ADR-063); no
+  ADR-044); the `x-hardened` block's `cap_drop: [ALL]` and `no-new-privileges:true` on every
+  service but the two databases, and `read_only: true` on every one but those and Keycloak, the
+  script naming the exemptions so that a new service is held to both; no `cap_add` or
+  `privileged` on any service, the databases included; `db` and `keycloak-db` each on a network
+  of its own shared with its one client alone, `books` with the ledger and `identity` with
+  Keycloak (ADR-063); no
   `network_mode` on any service but `secret-check`, whose is exactly `none`; exactly one
   `--web.cors.origin=` in Prometheus's `command`, the empty regex (ADR-057); and no
   `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON` key, in any

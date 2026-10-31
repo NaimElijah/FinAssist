@@ -35,6 +35,29 @@ LOOPBACK = "127.0.0.1"
 NO_CAPABILITIES = ["ALL"]
 NO_NEW_PRIVILEGES = ["no-new-privileges:true"]
 NO_CORS_GRANT = "--web.cors.origin="
+# Written out rather than read from the check, so a name dropped from its exemptions fails here.
+HARDENED_SERVICES = [
+    "assistant",
+    "auth-smoke",
+    "gateway",
+    "grafana",
+    "keycloak",
+    "ledger",
+    "otel-collector",
+    "prometheus",
+    "secret-check",
+]
+# Each of those but Keycloak, which writes its transaction log under /opt/keycloak/data.
+READ_ONLY_SERVICES = [
+    "assistant",
+    "auth-smoke",
+    "gateway",
+    "grafana",
+    "ledger",
+    "otel-collector",
+    "prometheus",
+    "secret-check",
+]
 PROMETHEUS_COMMAND = [
     "--config.file=/etc/prometheus/prometheus.yml",
     "--storage.tsdb.retention.time=7d",
@@ -709,7 +732,7 @@ def Given_secret_check_behind_a_profile_When_checked_Then_it_fails(
 
 
 @pytest.mark.parametrize("member", ["cap_drop", "security_opt"])
-@pytest.mark.parametrize("service", sorted(compose_check.HARDENED_SERVICES))
+@pytest.mark.parametrize("service", HARDENED_SERVICES)
 def Given_a_hardened_service_without_a_member_of_the_block_When_checked_Then_it_is_named(
     service: str, member: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -760,7 +783,7 @@ def Given_a_hardened_service_that_takes_privilege_back_When_checked_Then_it_is_n
     status, lines = _check(resolved, capsys)
 
     assert status == compose_check.EXIT_FAILED
-    assert lines == ["grafana: must not set cap_add or privileged, which undo the x-hardened block"]
+    assert lines == ["grafana: must not set cap_add or privileged"]
 
 
 @pytest.mark.parametrize(
@@ -789,11 +812,46 @@ def Given_an_x_hardened_block_missing_or_weakened_When_checked_Then_it_fails_say
     ]
 
 
-def Given_a_database_service_with_capabilities_of_its_own_When_checked_Then_it_passes(
+@pytest.mark.parametrize(
+    ("member", "value"),
+    [("cap_add", ["CHOWN"]), ("privileged", True)],
+    ids=["cap_add", "privileged"],
+)
+@pytest.mark.parametrize("service", ["db", "keycloak-db"])
+def Given_a_database_that_takes_privilege_When_checked_Then_it_is_named(
+    service: str, member: str, value: object, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service][member] = value
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: must not set cap_add or privileged"]
+
+
+def Given_a_service_the_check_does_not_name_When_checked_Then_it_must_take_the_hardening(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     resolved = _conforming()
-    resolved["services"]["db"]["cap_add"] = ["CHOWN"]
+    resolved["services"]["cache"] = _long_running(networks={"default": None})
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        "cache: needs cap_drop and security_opt as the x-hardened block sets them",
+        "cache: needs read_only: true",
+    ]
+
+
+def Given_a_service_the_check_does_not_name_taking_the_hardening_When_checked_Then_it_passes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["cache"] = _hardened(
+        _long_running(read_only=True, networks={"default": None})
+    )
 
     status, lines = _check(resolved, capsys)
 
@@ -801,8 +859,23 @@ def Given_a_database_service_with_capabilities_of_its_own_When_checked_Then_it_p
     assert lines == [PASSED]
 
 
+def Given_a_copy_of_the_ledger_that_is_privileged_When_checked_Then_it_is_named(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    copied = copy.deepcopy(resolved["services"]["ledger"])
+    # Off `books`, so the one line is the privilege rule's, not the database network's.
+    copied["networks"] = {"default": None}
+    resolved["services"]["ledger-worker"] = {**copied, "privileged": True}
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["ledger-worker: must not set cap_add or privileged"]
+
+
 @pytest.mark.parametrize("read_only", [None, False], ids=["unset", "false"])
-@pytest.mark.parametrize("service", sorted(compose_check.READ_ONLY_SERVICES))
+@pytest.mark.parametrize("service", READ_ONLY_SERVICES)
 def Given_a_read_only_service_with_a_writable_root_When_checked_Then_it_is_named(
     service: str, read_only: bool | None, capsys: pytest.CaptureFixture[str]
 ) -> None:

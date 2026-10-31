@@ -51,11 +51,13 @@ x-logging: &bounded-logs
 
 # Least privilege for every container whose image runs as a user of its own and needs no Linux
 # capability (ADR-063): every capability dropped, and no process may gain privileges through a
-# setuid or file-capability binary. Applied with `<<: *hardened`; `make check-compose` holds each
-# such service to it, and those it names to `read_only: true` too. Not on `db` or `keycloak-db`:
-# the PostgreSQL image's entrypoint starts as root, takes ownership of its data and socket
-# directories, then drops to the `postgres` user itself; with every capability dropped, its
-# `chmod` and `chown` are refused and it exits.
+# setuid or file-capability binary. Applied with `<<: *hardened`; `make check-compose` holds every
+# service to it but the two it exempts by name, and every one but those and Keycloak to
+# `read_only: true`, so a service added later is held to both unless exempted on purpose. Not on
+# `db` or `keycloak-db`: the PostgreSQL image's entrypoint starts as root, takes ownership of its
+# data and socket directories, then drops to the `postgres` user itself; with every capability
+# dropped, its `chmod` and `chown` are refused and it exits. No service, a database included, may
+# set `cap_add` or `privileged`.
 x-hardened: &hardened
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]

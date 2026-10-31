@@ -10,8 +10,9 @@ log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, the
 must take neither, and four healthchecks must probe readiness (#142, ADR-039). Every published port
 must bind `127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit
 behind exactly the `smoke` profile and `secret-check` behind none (ADR-034, ADR-044). Every
-service named hardened must take the `x-hardened` block's `cap_drop` and `security_opt`, and no
-`cap_add` or `privileged`; every service named read-only must set `read_only`; and each database
+service but the two databases must take the `x-hardened` block's `cap_drop` and `security_opt`,
+and every one but those and Keycloak must set `read_only`; no service, a database included, may
+set `cap_add` or `privileged`; and each database
 must attach to one network alone, shared with its one client and nothing else (ADR-063). No
 service may set `network_mode` but `secret-check`, whose must be exactly `none`, and Prometheus's
 `command` must carry exactly `--web.cors.origin=`, the empty regex, which grants no origin
@@ -80,9 +81,8 @@ UNPUBLISHED_SERVICES: Final = frozenset({"keycloak-db"})
 # `auth-smoke` runs only by hand (ADR-034); `secret-check` runs on every `up`, since the databases
 # and Grafana wait on it (ADR-044). A service missing from the file has no profiles.
 PINNED_PROFILES: Final = {"auth-smoke": ("smoke",), "secret-check": ()}
-# Least privilege for every container whose image runs as a user of its own and needs no Linux
-# capability (ADR-063). Not the two PostgreSQL services: their entrypoint starts as root, takes
-# ownership of its directories and drops to `postgres` itself, which a dropped capability refuses.
+# Least privilege for every container (ADR-063): the rules name the exemptions, never the services
+# held to them, so a service added later is hardened unless it is exempted here on purpose.
 HARDENED_BLOCK: Final = "x-hardened"
 NO_CAPABILITIES: Final = ("ALL",)
 NO_NEW_PRIVILEGES: Final = ("no-new-privileges:true",)
@@ -91,35 +91,14 @@ _HARDENED_MEMBERS: Final = {
     "cap_drop": list(NO_CAPABILITIES),
     "security_opt": list(NO_NEW_PRIVILEGES),
 }
-HARDENED_SERVICES: Final = frozenset(
-    {
-        "assistant",
-        "auth-smoke",
-        "gateway",
-        "grafana",
-        "keycloak",
-        "ledger",
-        "otel-collector",
-        "prometheus",
-        "secret-check",
-    }
-)
-# Either one hands back what `cap_drop` and `no-new-privileges` take away.
+# The PostgreSQL image's entrypoint starts as root, takes ownership of its directories and drops
+# to `postgres` itself, which a dropped capability refuses.
+UNHARDENED_SERVICES: Final = frozenset({"db", "keycloak-db"})
+# Every other service writes nothing outside a tmpfs or a volume, as a run of the whole stack
+# showed; Keycloak writes its transaction log under /opt/keycloak/data.
+WRITABLE_ROOT_SERVICES: Final = UNHARDENED_SERVICES | {"keycloak"}
+# Either one widens a container's privileges, a database's included, so no service may set one.
 PRIVILEGE_MEMBERS: Final = ("cap_add", "privileged")
-# Each writes nothing outside a tmpfs or a volume, as a run of the whole stack showed (ADR-063).
-# Keycloak is not among them: it writes its transaction log under /opt/keycloak/data.
-READ_ONLY_SERVICES: Final = frozenset(
-    {
-        "assistant",
-        "auth-smoke",
-        "gateway",
-        "grafana",
-        "ledger",
-        "otel-collector",
-        "prometheus",
-        "secret-check",
-    }
-)
 # Each database attaches to one network alone, shared with its one client, so no other container
 # can reach it (ADR-063).
 DATABASE_NETWORKS: Final = {"db": "books", "keycloak-db": "identity"}
@@ -216,16 +195,15 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
 
 def _hardening_problems(name: str, service: Mapping[str, object]) -> list[str]:
     found: list[str] = []
-    if name in HARDENED_SERVICES:
-        if any(service.get(member) != value for member, value in _HARDENED_MEMBERS.items()):
-            found.append(
-                f"{name}: needs cap_drop and security_opt as the {HARDENED_BLOCK} block sets them"
-            )
-        if any(service.get(member) for member in PRIVILEGE_MEMBERS):
-            found.append(
-                f"{name}: must not set cap_add or privileged, which undo the {HARDENED_BLOCK} block"
-            )
-    if name in READ_ONLY_SERVICES and service.get("read_only") is not True:
+    if name not in UNHARDENED_SERVICES and any(
+        service.get(member) != value for member, value in _HARDENED_MEMBERS.items()
+    ):
+        found.append(
+            f"{name}: needs cap_drop and security_opt as the {HARDENED_BLOCK} block sets them"
+        )
+    if any(service.get(member) for member in PRIVILEGE_MEMBERS):
+        found.append(f"{name}: must not set {' or '.join(PRIVILEGE_MEMBERS)}")
+    if name not in WRITABLE_ROOT_SERVICES and service.get("read_only") is not True:
         found.append(f"{name}: needs read_only: true")
     return found
 
