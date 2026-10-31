@@ -93,9 +93,9 @@ From `frontend/web`:
   rule is read without being listed. A rule that sets either as anything else - a `color-mix()`
   hover, `transparent` - is not measured and fails the build until its selector is in
   `UNMEASURED_PAIRS` with the reason its contrast holds. A pair a rule completes only by
-  inheritance, such as muted text on a surface, the focus ring and the open tab's inset ring, goes
-  in `INHERITED_PAIRS`. jsdom computes no styles, so no screen test can catch one. A restyle
-  (#230) keeps it green.
+  inheritance, such as muted text on a surface or the focus ring, goes in `INHERITED_PAIRS`; each
+  header tab's inset ring is measured against the tab it sits on. jsdom computes no styles, so no
+  screen test can catch one. A restyle (#230) keeps it green.
 
 ## Review conventions
 

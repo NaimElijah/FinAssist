@@ -92,13 +92,17 @@
     text-decoration: none;
 }
 
-/* The open tab joins the page beneath it, so an outset ring would draw its lower edge over the
-   page in the band's ring colour, which is white on near-white in the light theme. Inside the tab
-   the ring sits on the page's own colour instead, in the page's own ring colour; tests/contrast
-   measures that pair. */
+/* Every tab ends on the band's lower edge, where the page begins, so an outset ring would draw its
+   lower edge over the page in the band's ring colour, which is white on near-white in the light
+   theme. Inside the tab the ring sits on the tab's own colour instead; tests/contrast measures it
+   for a closed tab and for the open one. */
+.tab:focus-visible {
+    outline-offset: -4px;
+}
+
+/* The open tab takes the page's colour, so its ring takes the page's own ring colour. */
 .tab[aria-current='page']:focus-visible {
     outline-color: var(--color-focus);
-    outline-offset: -4px;
 }
 
 /* Forced-colours mode replaces the tab backgrounds with system colours, and background is all that

@@ -142,6 +142,51 @@ function ruleIn(file: string, selector: string): Rule {
     return rule;
 }
 
+/**
+ * What the first of `selectors` to declare a value gives it, read by `read`. The selectors are
+ * listed in the order the cascade prefers them, so the first to declare one is the one that wins.
+ */
+function cascaded(
+    file: string,
+    selectors: readonly string[],
+    read: (body: string) => string | undefined,
+): string | undefined {
+    const rules = rulesOf(readCss(file));
+    for (const selector of selectors) {
+        const body = rules.find((rule) => rule.selector === selector)?.body;
+        const value = body === undefined ? undefined : read(body);
+        if (value !== undefined) {
+            return value;
+        }
+    }
+    return undefined;
+}
+
+/** A header tab in one state: the rules drawing it and its focus ring, most specific first. */
+interface TabState {
+    readonly state: string;
+    readonly tab: readonly string[];
+    readonly ring: readonly string[];
+}
+
+/** A closed tab has no background of its own and shows the band; the open one shows the page. */
+const TAB_STATES: readonly TabState[] = [
+    {
+        state: 'closed',
+        tab: ['.tab', '.header'],
+        ring: ['.tab:focus-visible', '.header :focus-visible'],
+    },
+    {
+        state: 'open',
+        tab: [".tab[aria-current='page']"],
+        ring: [
+            ".tab[aria-current='page']:focus-visible",
+            '.tab:focus-visible',
+            '.header :focus-visible',
+        ],
+    },
+];
+
 function singleToken(value: string | undefined): string | undefined {
     return value === undefined ? undefined : SINGLE_TOKEN.exec(value)?.[1];
 }
@@ -199,8 +244,9 @@ interface UnmeasuredPair {
 }
 
 /**
- * Every rule setting both colours that the scan passes over, each with the reason it is safe to.
- * Kept by hand, so a new one fails the test below until someone has looked at it.
+ * Every rule setting a text colour or a background the scan cannot measure, each with the reason it
+ * is safe to pass over. Kept by hand, so a new one fails the test below until someone has looked
+ * at it.
  */
 const UNMEASURED_PAIRS: readonly UnmeasuredPair[] = [
     {
@@ -365,7 +411,7 @@ describe('colour contrast', () => {
         expect(pairsSetTogether().length).toBeGreaterThan(0);
     });
 
-    it('Given_rules_setting_both_colours_the_scan_cannot_measure_When_read_Then_they_are_exactly_the_ones_allowed_with_a_reason', () => {
+    it('Given_rules_setting_a_colour_the_scan_cannot_measure_When_read_Then_they_are_exactly_the_ones_allowed_with_a_reason', () => {
         // Passed over silently, a new color-mix() or a transparent background would never be
         // measured; listed here, each has been looked at once and says why it is safe.
         expect(pairsNotMeasured().sort()).toEqual(
@@ -436,23 +482,26 @@ describe('colour contrast', () => {
         });
     }
 
-    it('Given_the_open_tab_When_it_takes_keyboard_focus_Then_its_ring_is_drawn_inside_it_in_a_colour_measured_against_it', () => {
-        // The open tab takes the page's colour and joins the page beneath it, so a ring drawn
-        // outside it would run its lower edge over the page in the header band's ring colour.
-        const ring = ruleIn(LAYOUT_FILE, ".tab[aria-current='page']:focus-visible").body;
-        expect(declared(ring, 'outline-offset')).toMatch(/^-/);
-        const ringColour = singleToken(declared(ring, 'outline-color'));
-        const tabBackground = singleToken(
-            backgroundOf(ruleIn(LAYOUT_FILE, ".tab[aria-current='page']").body),
-        );
-        expect([ringColour, tabBackground]).not.toContain(undefined);
-        for (const themeName of THEME_NAMES) {
-            expect(
-                contrastRatio(themes[themeName], ringColour ?? '', tabBackground ?? ''),
-                `the open tab's focus ring in the ${themeName} theme`,
-            ).toBeGreaterThanOrEqual(NON_TEXT_MINIMUM);
-        }
-    });
+    // Every tab ends on the header band's lower edge, where the page begins, so a ring drawn outside
+    // a tab would run its lower edge over the page in the band's ring colour, white on near-white
+    // in the light theme. The open tab also takes the page's colour, so its ring needs the page's.
+    for (const { state, tab, ring } of TAB_STATES) {
+        it(`Given_the_${state}_tab_When_it_takes_keyboard_focus_Then_its_ring_is_drawn_inside_it_in_a_colour_measured_against_it`, () => {
+            const offset = cascaded(LAYOUT_FILE, ring, (body) => declared(body, 'outline-offset'));
+            expect(offset).toEqual(expect.stringMatching(/^-/));
+            const ringColour = singleToken(
+                cascaded(LAYOUT_FILE, ring, (body) => declared(body, 'outline-color')),
+            );
+            const tabBackground = singleToken(cascaded(LAYOUT_FILE, tab, backgroundOf));
+            expect([ringColour, tabBackground]).not.toContain(undefined);
+            for (const themeName of THEME_NAMES) {
+                expect(
+                    contrastRatio(themes[themeName], ringColour ?? '', tabBackground ?? ''),
+                    `the ${state} tab's focus ring in the ${themeName} theme`,
+                ).toBeGreaterThanOrEqual(NON_TEXT_MINIMUM);
+            }
+        });
+    }
 
     it('Given_forced_colours_When_backgrounds_are_dropped_Then_the_read_only_badge_keeps_an_edge_in_its_text_colour', () => {
         const border = declared(ruleIn(USER_MENU_FILE, '.badge').body, 'border') ?? '';

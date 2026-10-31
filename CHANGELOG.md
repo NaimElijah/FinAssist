@@ -321,8 +321,8 @@ history; write the commit message well and this file writes itself.
     session check, sign-in, outage and error screens have a `<main>`, a heading and a document
     title (`StandalonePage`). Focus on navigation lands on the page's heading, not an unnamed
     `<main>`, and each planning screen has an h1 of its own. A refused field is listed by its
-    form's label, not its wire path. A table is a named region only while it overflows, and the
-    open tab's focus ring is drawn inside it. The decisions are recorded in
+    form's label, not its wire path. A table is a named region only while it overflows, and each
+    header tab's focus ring is drawn inside it. The decisions are recorded in
     [ADR-069](docs/ADRs/ADR-069-the-web-client-targets-wcag-2-2-aa-and-holds-it-with-tests.md).
   - **Found in review of those fixes.** A projection paused offline no longer takes focus before
     its answer lands. The comparison states "Choose 2 to 10 scenarios." and the entry's
