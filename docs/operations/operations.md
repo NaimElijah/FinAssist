@@ -42,13 +42,13 @@ only what is left ([ADR-039](../ADRs/ADR-039-compose-restarts-services-and-bound
 
 ## Upgrading an existing ledger volume
 
-**Already have a `db-data` volume from before `V1_2`? Back it up before its first start on a
-newer ledger.** The release that added `V1_2` added a migration to the ledger's `accounting`
-schema and turned on `spring.flyway.out-of-order` so it applies to a database that already holds
-the books
-([ADR-035](../ADRs/ADR-035-flyway-runs-out-of-order.md)). `LedgerUpgradeIT` rehearses exactly
-that upgrade, and Flyway validates before it migrates, so nothing is expected to go wrong — a
-backup is cheap insurance, not a warning:
+**Already have a `db-data` volume? Back it up before its first start on a newer ledger.** The
+ledger applies every migration its volume has not yet run the moment it starts, and
+`spring.flyway.out-of-order` lets one numbered below a version already applied still run
+([ADR-035](../ADRs/ADR-035-flyway-runs-out-of-order.md)). `LedgerUpgradeIT` rehearses the
+upgrade from the oldest history a volume can hold, `1.1`, `2.1` and `3.1`, and Flyway validates
+before it migrates, so nothing is expected to go wrong — a backup is cheap insurance, not a
+warning:
 
 ```bash
 docker compose up -d --wait db keycloak-db
@@ -60,12 +60,25 @@ returns as soon as the container starts, and a dump of a starting server fails. 
 writes both databases into a git-ignored `backups/<UTC time>/`, and fails unless each dump reads
 back in full; see [Backing up and restoring](#backing-up-and-restoring).
 
+**`V1_3` to `V1_7` scan no journal row.** They add triggers, replace the balance check and add a
+foreign key, each of which checks only what is written from then on; the one index they build is
+on the chart of accounts. `V1_6`'s key, `journal_entry_in_account_currency`, is added
+`NOT VALID` and never validated, so an entry already stored in a currency its account no longer
+holds stays in place, unscanned.
+
 **`V2_2` and `V3_2` check what is already stored.** Each adds a foreign key that holds a budget
 limit, or a flow a strategy lists, to its parent's currency, and checks it against every existing
-row. The ledger never wrote a row either would refuse, so both are expected to apply cleanly. If
-one does refuse, PostgreSQL rolls that migration back whole, the ledger does not start, and its
-log names the constraint: `budget_limit_in_budget_currency` or
-`scenario_flow_in_scenario_currency`.
+row. `V3_2` also rewrites `planning.scenario_flow`: it adds a `currency` column, fills it from
+each listed plan with an `UPDATE`, then sets it `NOT NULL`. The ledger never wrote a row either
+would refuse, so both are expected to apply cleanly. If one does refuse, PostgreSQL rolls that
+migration back whole, the ledger does not start, and its log names the constraint:
+`budget_limit_in_budget_currency` or `scenario_flow_in_scenario_currency`.
+
+**If a migration refuses,** either correct the mismatched row and start the ledger again, or go
+back to where you were. `budgeting.budget_limit` and `planning.scenario_flow` are ordinary mutable
+tables, so a limit in another currency than its budget, or a link to a plan in another currency
+than its strategy, can be corrected or deleted in place. To go back instead,
+[restore](#backing-up-and-restoring) the backup you just took.
 
 ## Smoke-testing authentication
 

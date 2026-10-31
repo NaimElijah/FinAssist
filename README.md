@@ -202,8 +202,7 @@ ledger client ([#62](https://github.com/NaimElijah/FinAssist/issues/62)). Keyclo
 secrets into the realm at that first import, and only then
 ([details](docs/operations/operations.md#changing-the-realm-or-its-secrets)). So a secret changed
 later is [rotated in place](docs/operations/operations.md#rotating-a-secret), in Keycloak as well
-as in `.env`. Upgrading a
-`db-data` volume from before `V1_2`?
+as in `.env`. Starting a newer ledger on an existing `db-data` volume?
 [Back it up first](docs/operations/operations.md#upgrading-an-existing-ledger-volume).
 
 With every secret set, start the stack:
@@ -608,7 +607,7 @@ with dashboards provisioned from `ops/grafana/`.
 > Never run `docker compose down -v`: it deletes every volume the project has, the ledger's books
 > in `db-data` and the owner's identity in `keycloak-db-data` included. `make stop` keeps both.
 
-Running the stack day to day — restarts and logs, upgrading a ledger volume from before `V1_2`,
+Running the stack day to day — restarts and logs, upgrading an existing ledger volume,
 the authentication smoke check, realm changes, rotating a secret, letting a locked-out owner or
 admin back in, backups and restores, the telemetry backend — is in
 [docs/operations/operations.md](docs/operations/operations.md).
