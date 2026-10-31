@@ -280,7 +280,9 @@ a published or short secret (ADR-044, ADR-061); and `ops/compose_check/compose_c
   the order within a context ([ADR-035](../ADRs/ADR-035-flyway-runs-out-of-order.md), corrected by
   [ADR-047](../ADRs/ADR-047-accepted-records-reconciled-with-the-system-as-built.md)). Under
   Compose the two share the `books` network and no other container joins it, so no other service
-  can resolve or reach `db` (ADR-063).
+  can resolve `db` or reach it over a Compose network (ADR-063). `db`'s loopback-published port
+  is another path: on Docker Desktop any container with a route off its networks reaches it
+  through `host.docker.internal`, where only the password stands in the way.
 - **Browser to gateway** — HTTP, everything under `/bff/` — the OIDC login entry and callback,
   `GET /bff/me` and `POST /bff/logout` — and, once authenticated, `GET`/`POST` under
   `/ledger/api/v1/**` and `/assistant/api/v1/**`. **`HostAllowListFilter` runs first, ahead of
@@ -779,7 +781,10 @@ read-only root filesystem: the ledger, the gateway and Grafana with a tmpfs on `
 perf data and Tomcat's work directories; Grafana's plugin downloads), the rest with none,
 Prometheus and Grafana writing only to their volumes. Keycloak writes its transaction log under
 `/opt/keycloak/data`, so its root stays writable. Each database sits on a network of its own —
-`db` on `books` with the ledger, `keycloak-db` on `identity` with Keycloak. `identity` is
+`db` on `books` with the ledger, `keycloak-db` on `identity` with Keycloak — so no other
+container can resolve or reach either one over a Compose network. The host is another path: on
+Docker Desktop any container with a route off its networks reaches a loopback-published port,
+`db`'s included, through `host.docker.internal`, with only the password in the way. `identity` is
 `internal`, so `keycloak-db`, which publishes no port, has no route off it, while Keycloak keeps
 its egress through `default`. `books` is not, since `db` still publishes its port to the host's
 loopback, which Docker does not do from a container on an internal network alone. `make

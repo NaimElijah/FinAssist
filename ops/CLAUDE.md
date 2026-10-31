@@ -30,7 +30,10 @@ One directory per tool, none of them a deployable service of this repository's (
   root `user` or a bind mount of the Docker socket; `db` and `keycloak-db` each on a network of
   its own shared with its one client alone, `books` with the ledger and `identity` with Keycloak,
   compared by the Docker network each key resolves to, so no other key may resolve to either,
-  neither one `external`, and `identity` `internal` (ADR-063); no `network_mode` on any service
+  neither one `external`, and `identity` `internal` (ADR-063) — which keeps every other container
+  from resolving or reaching either over a Compose network, though on Docker Desktop any container
+  with a route off its networks still reaches `db`'s loopback-published port through
+  `host.docker.internal`, behind its password alone; no `network_mode` on any service
   but `secret-check`, whose is exactly `none`; exactly one `--web.cors.origin=` in Prometheus's
   `command`, the empty regex, and no `entrypoint` on it (ADR-057); and no
   `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON` key, in any

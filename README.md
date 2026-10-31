@@ -539,8 +539,8 @@ then lint, format check, typecheck, tests, production build and `npm audit`); an
 `make check-compose`, which runs `docker compose config` across every profile and fails a service
 without the shared restart and log policy, a healthcheck that probes anything but readiness, a
 published port not bound to `127.0.0.1`, a profile moved on `auth-smoke` or `secret-check`, a
-container that keeps a capability or a writable root it does not need, a database reachable
-from beyond its one client, a `network_mode` that shares the host's or another container's
+container that keeps a capability or a writable root it does not need, a database network
+shared beyond its one client, a `network_mode` that shares the host's or another container's
 network, or a Prometheus that grants another origin a cross-origin read.
 The compose job also runs `secret-check` against a published value, and requires it to refuse all
 eight secrets by name and keep `db` from starting; that step, with the `.env` seeding it needs,

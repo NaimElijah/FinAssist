@@ -9,7 +9,10 @@
 # assistant still bind loopback in front of a bearer-token check rather than none, so no port may
 # be reachable from another machine either way. Containers still reach one another by service
 # name on the Compose network, except the two databases: each sits on a network of its own, shared
-# with its one client alone (`books`, `identity` below).
+# with its one client alone (`books`, `identity` below), so no other container can resolve or
+# reach either one over a Compose network. That does not cover the host: on Docker Desktop any
+# container with a route off its networks still reaches a loopback-published port, `db`'s
+# included, through `host.docker.internal`, where only the password stands in the way.
 #
 # The monitoring services sit behind a `monitoring` profile, so `docker compose up` stays
 # database-and-every-service-only and `docker compose --profile monitoring up` adds the
@@ -110,7 +113,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-finassist}
       POSTGRES_USER: ${POSTGRES_USER:-finassist}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-    # On `books` alone, which only the ledger shares, so no other container can reach the books.
+    # On `books` alone, which only the ledger shares, so no other container can resolve or reach
+    # `db` over a Compose network. Its published port below is another matter: on Docker Desktop
+    # any container with a route off its networks reaches it through `host.docker.internal`, with
+    # only the password in the way.
     networks: [books]
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
