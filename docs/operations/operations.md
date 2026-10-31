@@ -589,7 +589,8 @@ on them. The first run builds both images under that project's name, so expect s
 2. Both dumps restore into empty databases, and the restored books match the digest the backup
    recorded: the same rows, so the same balances.
 3. The ledger becomes ready on the restored Flyway history.
-4. Both `recorded_by` checks exist and are still `NOT VALID`.
+4. Both `recorded_by` checks exist and are still `NOT VALID`. These two only: the entry-currency
+   key, `journal_entry_in_account_currency`, is not checked here.
 5. The ledger, asked with the assistant's read-only token, lists exactly the accounts the
    database holds, and answers every account's balance in its own currency. A backup with no
    account fails rather than passing on nothing.
@@ -627,9 +628,12 @@ restore (both, unless `DATABASE=` names one):
 
 Each database is then restored in one transaction, so it ends up either whole or still empty.
 After the books are restored, their digest must match the one the backup recorded, or `make
-restore` fails and says not to start the ledger on them. A restore never needs an `UPDATE` or a `VALIDATE CONSTRAINT`: the journal's triggers and the
-`recorded_by` checks come back exactly as they were dumped. `DATABASE=ledger` or
-`DATABASE=keycloak` restores that database alone; the raw form is `--database ledger`.
+restore` fails and says not to start the ledger on them. A restore never needs an `UPDATE` or a
+`VALIDATE CONSTRAINT`: the journal's triggers, the `recorded_by` checks and the entry-currency key
+`journal_entry_in_account_currency` come back exactly as they were dumped, and `pg_dump` re-emits
+that key `NOT VALID`, so the restore never scans the entries against it, as restoring a dump of
+2,000,000 entries confirmed. `DATABASE=ledger` or `DATABASE=keycloak` restores that database
+alone; the raw form is `--database ledger`.
 
 **Emptying a volume is a separate, deliberate step, never part of the restore.** If a volume still
 exists but holds data you mean to replace, remove that database's container and volume yourself,
