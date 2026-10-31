@@ -350,6 +350,6 @@ expresses, and few that span rows: a recorded transaction could gain entries, th
 took any state at any sequence, a header could stand without entries, an account's currency
 could change under its entries, and a budget limit or a strategy's flow could sit in another
 currency than its parent's. `V1_3` to `V1_7`, `V2_2` and `V3_2` now refuse each, by a composite
-foreign key where one can say it and a trigger where only a trigger can, and the balance
-refusal no longer prints the sum. The journal's new key stays `NOT VALID`, as ADR-033's checks
-do ([#343](https://github.com/NaimElijah/FinAssist/issues/343)).
+foreign key where one can say it without scanning the journal and a trigger otherwise, and the
+balance refusal no longer prints the sum. The journal's new key stays `NOT VALID`, as ADR-033's
+checks do ([#343](https://github.com/NaimElijah/FinAssist/issues/343)).

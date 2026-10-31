@@ -41,11 +41,11 @@ a restored dump, or a future adapter with a bug. That is the writer ADR-006's pa
 ## Decision
 
 **Each rule the domain holds across rows is held by the store too, by a constraint where one can
-express it and by a trigger where only a trigger can.** Every change is a new migration under its
-context's major version (ADR-035). Each is pinned by an IT that was red before the migration
-existed. One cross-row rule the domain holds is left open on purpose: `Budget` refuses an empty
-set of limits and the store does not, because whether an empty budget is legal is the owner's
-decision ([#401](https://github.com/NaimElijah/FinAssist/issues/401)).
+express it without scanning the journal, and by a trigger otherwise.** Every change is a new
+migration under its context's major version (ADR-035). Each is pinned by an IT that was red before
+the migration existed. One cross-row rule the domain holds is left open on purpose: `Budget` refuses
+an empty set of limits and the store does not, because whether an empty budget is legal is the
+owner's decision ([#401](https://github.com/NaimElijah/FinAssist/issues/401)).
 
 **The journal (`accounting`):**
 
@@ -128,6 +128,14 @@ decision ([#401](https://github.com/NaimElijah/FinAssist/issues/401)).
   nobody controls.
 - **Triggers instead of a currency column on `scenario_flow`.** Rejected: one trigger for each
   direction, written by hand, where two declarative keys do the same.
+- **A composite key from `journal_entry (transaction_id, currency)` to the header, in place of
+  `V1_7`'s trigger.** Rejected: the key needs a unique index on `journal_transaction (id,
+  currency)`, built over every header the owner has recorded. Flyway runs every script here in one
+  transaction, and a `CONCURRENTLY` build would need a script configured to run outside one, which
+  no ledger migration is; a plain build blocks writes to the journal for as long as it takes. The
+  trigger reads only the transaction being written. `V1_6`'s key needed its index on the small
+  account table alone. **Revisit when** a migration may run outside a transaction, as #178's
+  one-off migrator may allow.
 - **A write timestamp on every journal row.** Not adopted. ADR-020 defines "when" as the
   business date. The scan raised it as a question, not a finding.
 
