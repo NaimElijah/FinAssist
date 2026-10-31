@@ -6,6 +6,7 @@ import {
     type Column,
     DataTable,
     EmptyState,
+    LoadingNote,
     MoneyText,
     QueryErrorState,
     StateBadge,
@@ -205,7 +206,7 @@ function BudgetDetail({ budgetId }: { readonly budgetId: string }) {
                 </p>
                 <h1>Budget review</h1>
                 {budgets.isPending || listSettling ? (
-                    <p className={styles.placeholder}>Loading budget…</p>
+                    <LoadingNote message="Loading budget…" />
                 ) : (
                     budgetsFailure
                 )}
@@ -229,7 +230,7 @@ function BudgetDetail({ budgetId }: { readonly budgetId: string }) {
                 <p className={styles.meta}>{budget.currency}</p>
             </header>
             {review.isPending ? (
-                <p className={styles.placeholder}>Loading review…</p>
+                <LoadingNote message="Loading review…" />
             ) : (
                 <div ref={reviewRef} tabIndex={-1} className={styles.stack}>
                     <QueryErrorState

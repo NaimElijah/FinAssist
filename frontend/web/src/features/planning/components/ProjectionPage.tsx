@@ -65,7 +65,12 @@ function ShortfallCallout({ projection }: { readonly projection: Projection }) {
 function ProjectionResult({ params }: { readonly params: ProjectionParams }) {
     const query = useProjection(params);
     return (
-        <ReadResult heading="Projected balances" pendingMessage="Projecting…" query={query}>
+        <ReadResult
+            heading="Projected balances"
+            pendingMessage="Projecting…"
+            query={query}
+            submission={params}
+        >
             {(projection) => (
                 <>
                     <ShortfallCallout projection={projection} />

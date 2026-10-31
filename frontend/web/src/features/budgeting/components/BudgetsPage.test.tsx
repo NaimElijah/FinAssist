@@ -7,6 +7,7 @@ import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     fakeFetch,
     jsonResponse,
@@ -18,6 +19,8 @@ import {
 import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { nameStartingWith } from '@/shared/testing/names';
+import { statusMessages } from '@/shared/testing/status';
 
 import { budgetKeys } from '../hooks/budgetQueries';
 import { budgetingRoutes } from '../index';
@@ -87,9 +90,44 @@ describe('BudgetsPage', () => {
         expect(within(rowOf('1 Sept 2026 – 19 Sept 2026')).getByText('US$300.00')).toBeDefined();
         expect(
             screen
-                .getAllByRole('link', { name: 'Review' })
+                .getAllByRole('link', { name: nameStartingWith('Review') })
                 .map((link) => link.getAttribute('href')),
         ).toEqual([`/budgets/${SEPTEMBER_BUDGET.id}`, `/budgets/${CUSTOM_PERIOD_BUDGET.id}`]);
+    });
+
+    it('Given_two_budgets_When_the_page_renders_Then_each_Review_link_is_named_by_its_word_then_the_row', async () => {
+        // Out of the table, every "Review" sounds alike; the period and currency tell them apart,
+        // after the visible word so a voice command naming it still matches (WCAG 2.5.3).
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL
+                ? jsonResponse([SEPTEMBER_BUDGET, CUSTOM_PERIOD_BUDGET])
+                : unexpectedRequest(request),
+        );
+
+        renderBudgets();
+
+        expect(
+            (await screen.findByRole('link', { name: 'Review September 2026, ILS' })).getAttribute(
+                'href',
+            ),
+        ).toBe(`/budgets/${SEPTEMBER_BUDGET.id}`);
+        expect(
+            screen
+                .getByRole('link', { name: 'Review 1 Sept 2026 – 19 Sept 2026, USD' })
+                .getAttribute('href'),
+        ).toBe(`/budgets/${CUSTOM_PERIOD_BUDGET.id}`);
+    });
+
+    it('Given_the_budgets_still_loading_When_the_page_renders_Then_a_status_announces_it', async () => {
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL ? pendingResponse() : unexpectedRequest(request),
+        );
+
+        renderBudgets();
+
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Loading budgets…');
+        });
     });
 
     it('Given_a_read_only_session_When_the_page_renders_Then_the_define_form_is_not_offered_but_the_list_and_the_rules_link_stay', async () => {
@@ -104,7 +142,7 @@ describe('BudgetsPage', () => {
         await screen.findByRole('heading', { level: 1, name: 'Budgets' });
         expect(screen.queryByRole('button', { name: 'Define budget' })).toBeNull();
         expect(screen.queryByLabelText('Month')).toBeNull();
-        expect(await screen.findByRole('link', { name: 'Review' })).toBeDefined();
+        expect(await screen.findByRole('link', { name: nameStartingWith('Review') })).toBeDefined();
         expect(screen.getByRole('link', { name: 'Categorisation rules' })).toBeDefined();
     });
 
@@ -198,6 +236,22 @@ describe('BudgetsPage defining a budget', () => {
         await user.click(screen.getByRole('button', { name: 'Define budget' }));
     }
 
+    it('Given_the_form_When_rendered_Then_the_month_and_limit_amount_state_their_formats', async () => {
+        fakeFetch((request) => {
+            if (request.url === BUDGETS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderBudgets();
+
+        // A browser with no month picker renders the Month control as a bare text box.
+        expect(accessibleDescriptionOf(await screen.findByLabelText('Month'))).toBe(
+            'YYYY-MM, for example 2026-09',
+        );
+        expect(accessibleDescriptionOf(screen.getByLabelText('Limit amount 1'))).toBe(
+            'A number with no commas, for example 1250.50',
+        );
+    });
+
     it('Given_the_form_When_a_budget_with_two_limits_is_defined_Then_it_posts_the_exact_json_body_and_the_refetched_list_shows_it', async () => {
         const served: unknown[] = [];
         const requests = fakeFetch((request) => {
@@ -222,7 +276,7 @@ describe('BudgetsPage defining a budget', () => {
         await user.type(screen.getByLabelText('Limit amount 2'), '4000.00');
         await user.click(screen.getByRole('button', { name: 'Define budget' }));
 
-        expect(await screen.findByRole('link', { name: 'Review' })).toBeDefined();
+        expect(await screen.findByRole('link', { name: nameStartingWith('Review') })).toBeDefined();
         const posts = requests
             .filter((request) => request.method === 'POST')
             // Projected before comparing: RecordedRequest also carries headers, which this
@@ -273,7 +327,7 @@ describe('BudgetsPage defining a budget', () => {
 
         await defineSeptemberGroceries(user);
 
-        await screen.findByRole('link', { name: 'Review' });
+        await screen.findByRole('link', { name: nameStartingWith('Review') });
         const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
         expect(invalidatedKeys).toEqual([budgetKeys.list]);
         // Never actively observed on this page, so nothing refetches it and the flag stays put.
@@ -297,7 +351,7 @@ describe('BudgetsPage defining a budget', () => {
 
         await defineSeptemberGroceries(user);
 
-        const link = await screen.findByRole('link', { name: 'Review' });
+        const link = await screen.findByRole('link', { name: nameStartingWith('Review') });
         await waitFor(() => {
             expect(document.activeElement).toBe(link);
         });
@@ -462,7 +516,49 @@ describe('BudgetsPage defining a budget', () => {
 
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('Invalid request content.')).toBeDefined();
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['Category 1: must not be blank']);
         expect(screen.getByLabelText('Category 1').getAttribute('aria-invalid')).toBeNull();
+    });
+
+    it('Given_a_400_naming_every_limit_and_period_path_When_defined_Then_each_is_listed_under_the_forms_label', async () => {
+        // A limit on a later row, index 1, so a label numbered from the wrong end shows; the
+        // period is the Month the owner chose, and a limit's currency is the form's one Currency.
+        const paths = [
+            { field: 'limits[1].category', label: 'Category 2' },
+            { field: 'limits[1].limit', label: 'Limit amount 2' },
+            { field: 'limits[1].limit.amount', label: 'Limit amount 2' },
+            { field: 'limits[1].limit.currency', label: 'Currency' },
+            { field: 'period', label: 'Month' },
+            { field: 'period.start', label: 'Month' },
+            { field: 'period.end', label: 'Month' },
+        ] as const;
+        fakeFetch((request) => {
+            if (request.url === BUDGETS_URL && request.method === 'POST') {
+                return problemResponse({
+                    status: 400,
+                    code: 'MALFORMED_REQUEST',
+                    detail: 'Invalid request content.',
+                    errors: paths.map(({ field }) => ({ field, message: 'is invalid' })),
+                });
+            }
+            if (request.url === BUDGETS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderBudgets();
+        const user = userEvent.setup({ delay: null });
+
+        await defineSeptemberGroceries(user);
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(paths.map(({ label }) => `${label}: is invalid`));
     });
 
     it('Given_one_limit_row_When_rendered_Then_its_remove_control_is_disabled', async () => {
@@ -494,6 +590,66 @@ describe('BudgetsPage defining a budget', () => {
 
         expect(screen.queryByLabelText('Category 2')).toBeNull();
         expect(screen.getByLabelText('Category 1')).toHaveProperty('value', 'rent');
+    });
+
+    it('Given_two_limit_rows_When_Remove_limit_1_is_clicked_Then_focus_moves_to_the_row_now_first', async () => {
+        // The pressed button goes with its row; left alone, focus would fall to the page body.
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
+        renderBudgets();
+        const user = userEvent.setup({ delay: null });
+        await user.click(await screen.findByRole('button', { name: 'Add category' }));
+
+        await user.click(screen.getByRole('button', { name: 'Remove limit 1' }));
+
+        expect(document.activeElement).not.toBe(document.body);
+        expect(document.activeElement).toBe(screen.getByLabelText('Category 1'));
+    });
+
+    it('Given_two_limit_rows_When_the_last_is_removed_Then_focus_moves_to_Add_category', async () => {
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
+        renderBudgets();
+        const user = userEvent.setup({ delay: null });
+        await user.click(await screen.findByRole('button', { name: 'Add category' }));
+
+        await user.click(screen.getByRole('button', { name: 'Remove limit 2' }));
+
+        expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add category' }));
+    });
+
+    it('Given_the_form_When_Add_category_is_clicked_Then_a_status_says_limit_2_was_added', async () => {
+        // Focus stays on Add category, so without this nothing tells a screen reader user the
+        // fields appeared.
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
+        renderBudgets();
+        const user = userEvent.setup({ delay: null });
+
+        await user.click(await screen.findByRole('button', { name: 'Add category' }));
+
+        expect(statusMessages()).toContain('Limit 2 added.');
+    });
+
+    it('Given_limit_2_added_When_it_is_removed_and_added_again_Then_the_status_empties_and_then_says_so_again', async () => {
+        // The removal empties the line, so the same sentence arrives again as a change to it.
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
+        renderBudgets();
+        const user = userEvent.setup({ delay: null });
+        await user.click(await screen.findByRole('button', { name: 'Add category' }));
+        expect(statusMessages()).toContain('Limit 2 added.');
+
+        await user.click(screen.getByRole('button', { name: 'Remove limit 2' }));
+        expect(statusMessages()).not.toContain('Limit 2 added.');
+        expect(statusMessages()).toContain('');
+
+        await user.click(screen.getByRole('button', { name: 'Add category' }));
+        expect(statusMessages()).toContain('Limit 2 added.');
     });
 
     it('Given_an_invalid_month_bypassing_native_validation_When_submitted_Then_the_form_is_not_locked_and_nothing_is_posted', async () => {

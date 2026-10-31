@@ -34,7 +34,7 @@ append-only history: to change course, add a new record and mark the old one
 | [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted, extended by 030 |
 | [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
 | [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030, 056, 058 and 068 |
-| [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056, 057 and 062 |
+| [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056, 057, 062 and 069 |
 | [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, 053, 057, 058 and 067, corrected by 047 |
 | [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 and 060, corrected by 047 and 064 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted, corrected by 047 |
@@ -74,6 +74,7 @@ append-only history: to change course, add a new record and mark the old one
 | [066](ADR-066-the-store-holds-every-rule-the-domain-holds-across-rows.md) | The ledger's store holds every rule the domain holds across rows | Accepted |
 | [067](ADR-067-a-relay-that-times-out-answers-504-outcome-unknown.md) | A relay that times out answers 504, outcome unknown | Accepted |
 | [068](ADR-068-every-problem-carries-what-its-contract-requires.md) | Every problem carries what its contract requires | Accepted |
+| [069](ADR-069-the-web-client-targets-wcag-2-2-aa-and-holds-it-with-tests.md) | The web client targets WCAG 2.2 AA and holds it with tests | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -371,3 +372,15 @@ promises. Every problem now carries all four members and every `errors` entry a 
 `message`, and all three contracts require them; every malformed JSON body or parameter 400 names what
 it refused, in fixed text that quotes nothing sent; and `instance` says it is the path the answering
 service received ([#344](https://github.com/NaimElijah/FinAssist/issues/344)).
+
+069 extends 029 on 2026-10-31. Scan 8 reviewed the web client against WCAG 2.2 level AA, which the
+owner accepted the same day, and found no tooling behind a client that had only careful hand-made
+markup. jsdom computes no styles, so the level is held by Testing Library suites that assert role,
+name, description and focus, and by `tests/contrast.test.ts`, which reads the stylesheets and
+`tokens.css` and lists every pair it cannot measure. `Layout` owns focus and the document title,
+`StandalonePage` gives every screen outside it a `<main>`, an h1 and a title, and `LoadingNote` and
+`StatusLine` announce. An automated checker is rejected for now, to be revisited with
+[#78](https://github.com/NaimElijah/FinAssist/issues/78); WCAG 3.3.4 for writes into the
+append-only books awaits the owner ([#411](https://github.com/NaimElijah/FinAssist/issues/411)),
+and #412, #413 and a manual screen-reader pass are known gaps
+([#345](https://github.com/NaimElijah/FinAssist/issues/345)).

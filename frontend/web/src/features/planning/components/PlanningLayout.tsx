@@ -1,4 +1,6 @@
-import { NavLink, Outlet } from 'react-router';
+import { NavLink, Outlet, useMatches } from 'react-router';
+
+import { deepestRouteTitle } from '@/shared/lib/routeHandle';
 
 import styles from './PlanningLayout.module.css';
 import { COMPARISON_PATH, FLOWS_PATH, PROJECTION_PATH, SCENARIOS_PATH } from './paths';
@@ -7,13 +9,19 @@ import { COMPARISON_PATH, FLOWS_PATH, PROJECTION_PATH, SCENARIOS_PATH } from './
  * `/planning`: the area's shared frame - a heading, the secondary nav between its screens, and
  * the screen itself.
  *
+ * The heading names the open screen, taken from its route's `handle` title, the same words that
+ * title the document; the area's own route declares "Planning", so a title is always found.
+ * Moving between the screens moves focus to this heading (see the app's `Layout`), so it must say
+ * which screen arrived; one "Planning" over all four would announce the same word each time.
+ *
  * `NavLink` marks the open screen's link with `aria-current="page"`, the same convention the
  * app's own primary nav uses.
  */
 export function PlanningLayout() {
+    const screenTitle = deepestRouteTitle(useMatches());
     return (
         <>
-            <h1>Planning</h1>
+            <h1>{screenTitle}</h1>
             <nav aria-label="Planning" className={styles.nav}>
                 <ul className={styles.tabs}>
                     <li>

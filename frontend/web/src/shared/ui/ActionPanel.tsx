@@ -14,7 +14,7 @@ const HEADING_ELEMENTS = { 2: 'h2', 3: 'h3', 4: 'h4' } as const;
 
 /** The action's title, its fields, and what submitting or cancelling does. */
 export interface ActionPanelProps {
-    /** Names the panel, such as "Void transaction". */
+    /** Names the panel and the row it acts on, such as "Void transaction: Rent, 3 Sept 2026". */
     readonly title: string;
     /**
      * The title's heading level, so the panel fits the outline of the page around it. Defaults to

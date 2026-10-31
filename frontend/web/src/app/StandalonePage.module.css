@@ -1,0 +1,7 @@
+/* The width and spacing of the layout's own main region, so a screen shown before or instead of
+   the layout sits where a page would. */
+.main {
+    max-width: var(--content-max-width);
+    margin: 0 auto;
+    padding: var(--space-6) var(--space-5) var(--space-7);
+}

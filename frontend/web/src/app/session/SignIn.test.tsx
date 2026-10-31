@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Reads window.location.search and renders a link, both of which need a DOM.
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { SignIn } from './SignIn';
@@ -28,6 +28,25 @@ describe('SignIn', () => {
             writable: true,
             configurable: true,
         });
+        document.title = '';
+    });
+
+    it('Given_no_query_string_When_rendered_Then_a_main_region_headed_sign_in_titles_the_document', async () => {
+        setSearch('');
+        render(<SignIn />);
+
+        const main = screen.getByRole('main');
+        expect(within(main).getByRole('heading', { level: 1, name: 'Sign in' })).toBeDefined();
+        await waitFor(() => {
+            expect(document.title).toBe('Sign in · FinAssist');
+        });
+    });
+
+    it('Given_signin_failed_in_the_query_string_When_rendered_Then_the_explanation_is_inside_the_main_region', () => {
+        setSearch('?signin=failed');
+        render(<SignIn />);
+
+        expect(screen.getByRole('main').contains(screen.getByRole('alert'))).toBe(true);
     });
 
     it('Given_no_query_string_When_rendered_Then_it_links_to_the_gateways_login_entry', () => {

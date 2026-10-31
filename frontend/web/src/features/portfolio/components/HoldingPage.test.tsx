@@ -18,6 +18,7 @@ import {
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { portfolioKeys } from '../hooks/portfolioQueries';
 import { portfolioRoutes } from '../index';
@@ -160,13 +161,14 @@ describe('HoldingPage', () => {
         expect(screen.queryByText('Unrealised loss')).toBeNull();
     });
 
-    it('Given_both_reads_in_flight_When_the_page_renders_Then_each_section_says_it_is_loading', async () => {
+    it('Given_both_reads_in_flight_When_the_page_renders_Then_each_section_announces_it_is_loading', async () => {
         fakeFetch(assistant({ position: pendingResponse, valuation: pendingResponse }));
 
         renderHolding();
 
-        expect(await screen.findByText('Loading position…')).toBeDefined();
-        expect(screen.getByText('Loading valuation…')).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading position…', 'Loading valuation…']);
+        });
     });
 
     it('Given_nothing_held_When_the_page_renders_Then_it_says_so_calmly_and_shows_no_valuation', async () => {
@@ -208,13 +210,17 @@ describe('HoldingPage', () => {
         renderHolding();
 
         const valuation = await screen.findByRole('region', { name: 'Valuation' });
+        // The loading note's region, not its text: the note stays empty for its first moments,
+        // so a text check would pass while the valuation is still loading.
         await waitFor(() => {
-            expect(within(valuation).queryByText('Loading valuation…')).toBeNull();
+            expect(within(valuation).queryByRole('status')).toBeNull();
         });
         expect(screen.queryByRole('alert')).toBeNull();
         expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
         expect(within(valuation).getByText('Nothing is held under VOO')).toBeDefined();
-        expect(screen.getByText('Loading position…')).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Loading position…');
+        });
     });
 
     it('Given_no_usable_price_When_the_page_renders_Then_the_no_price_state_shows_while_the_position_still_renders', async () => {

@@ -7,6 +7,7 @@ import { type UserEvent, userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     fakeFetch,
     type FetchAnswer,
@@ -20,6 +21,8 @@ import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { pinClockJustAfterLocalMidnight } from '@/shared/testing/localClock';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { nameIsOrStartsWith, nameStartingWith } from '@/shared/testing/names';
+import { statusMessages } from '@/shared/testing/status';
 
 import { planKeys } from '../hooks/planQueries';
 import { planningRoutes } from '../index';
@@ -139,6 +142,17 @@ afterEach(() => {
 });
 
 describe('PlannedFlowsPage', () => {
+    it('Given_the_flows_still_loading_When_the_page_renders_Then_a_status_says_they_are_loading', async () => {
+        // A status region, so a screen reader hears the list is on its way (WCAG 4.1.3).
+        fakeFetch(() => pendingResponse());
+
+        renderFlows();
+
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading planned flows…']);
+        });
+    });
+
     it('Given_flows_served_in_an_order_When_the_page_renders_Then_rows_keep_that_order_with_positive_amounts_and_direction_labels', async () => {
         fakeFetch(ledger([RENT, SALARY]));
 
@@ -251,6 +265,42 @@ describe('PlannedFlowsPage', () => {
     });
 });
 
+describe('PlannedFlowsPage list heading', () => {
+    it('Given_planned_flows_When_rendered_Then_their_table_sits_under_its_own_heading', async () => {
+        fakeFetch(ledger([RENT]));
+        renderFlows();
+
+        const list = await screen.findByRole('region', { name: 'All planned flows' });
+        expect(
+            within(list).getByRole('heading', { level: 2, name: 'All planned flows' }),
+        ).toBeDefined();
+        expect(await within(list).findByRole('table', { name: 'Planned flows' })).toBeDefined();
+    });
+
+    it('Given_a_lifecycle_action_opened_When_its_panel_renders_Then_its_title_is_an_h3_inside_the_list_section', async () => {
+        // The panel opens inside "All planned flows", an h2, so an h2 of its own would leave the
+        // section's outline and stand beside it rather than under it (WCAG 1.3.1).
+        fakeFetch(ledger([RENT]));
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', {
+                name: 'Commit Rent, starting 1 Sept 2026',
+            }),
+        );
+
+        const list = screen.getByRole('region', { name: 'All planned flows' });
+        expect(
+            within(list).getByRole('heading', {
+                level: 3,
+                name: 'Commit planned flow: Rent, starting 1 Sept 2026',
+            }),
+        ).toBeDefined();
+    });
+});
+
 describe('PlannedFlowsPage lifecycle actions', () => {
     it('Given_a_planned_flow_When_rendered_Then_its_row_offers_Commit_and_Cancel_but_not_Realise', async () => {
         fakeFetch(ledger([RENT]));
@@ -259,9 +309,45 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         await screen.findByRole('table', { name: 'Planned flows' });
         const row = rowOf('Rent');
 
-        expect(within(row).getByRole('button', { name: 'Commit' })).toBeDefined();
-        expect(within(row).getByRole('button', { name: 'Cancel' })).toBeDefined();
-        expect(within(row).queryByRole('button', { name: 'Realise' })).toBeNull();
+        expect(within(row).getByRole('button', { name: nameStartingWith('Commit') })).toBeDefined();
+        expect(within(row).getByRole('button', { name: nameStartingWith('Cancel') })).toBeDefined();
+        expect(within(row).queryByRole('button', { name: nameStartingWith('Realise') })).toBeNull();
+    });
+
+    it('Given_a_planned_flow_When_rendered_Then_each_action_is_named_by_its_word_then_the_row', async () => {
+        // Out of the table, every row's "Commit" sounds alike; the flow's description and start
+        // tell them apart, after the visible word so a voice command naming it still matches.
+        fakeFetch(ledger([RENT]));
+        renderFlows();
+
+        await screen.findByRole('table', { name: 'Planned flows' });
+        const row = rowOf('Rent');
+
+        expect(
+            within(row).getByRole('button', { name: 'Commit Rent, starting 1 Sept 2026' }),
+        ).toBeDefined();
+        expect(
+            within(row).getByRole('button', { name: 'Cancel Rent, starting 1 Sept 2026' }),
+        ).toBeDefined();
+    });
+
+    it('Given_a_planned_flow_When_Cancel_is_opened_Then_the_panel_title_names_the_row', async () => {
+        fakeFetch(ledger([RENT]));
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', {
+                name: 'Cancel Rent, starting 1 Sept 2026',
+            }),
+        );
+
+        expect(
+            screen.getByRole('region', {
+                name: 'Cancel planned flow: Rent, starting 1 Sept 2026',
+            }),
+        ).toBeDefined();
     });
 
     it('Given_a_committed_flow_When_rendered_Then_its_row_offers_Realise_and_Cancel_but_not_Commit', async () => {
@@ -271,9 +357,11 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         await screen.findByRole('table', { name: 'Planned flows' });
         const row = rowOf('Salary');
 
-        expect(within(row).getByRole('button', { name: 'Realise' })).toBeDefined();
-        expect(within(row).getByRole('button', { name: 'Cancel' })).toBeDefined();
-        expect(within(row).queryByRole('button', { name: 'Commit' })).toBeNull();
+        expect(
+            within(row).getByRole('button', { name: nameStartingWith('Realise') }),
+        ).toBeDefined();
+        expect(within(row).getByRole('button', { name: nameStartingWith('Cancel') })).toBeDefined();
+        expect(within(row).queryByRole('button', { name: nameStartingWith('Commit') })).toBeNull();
     });
 
     it('Given_a_realised_or_a_cancelled_flow_When_rendered_Then_neither_row_offers_any_action', async () => {
@@ -297,9 +385,9 @@ describe('PlannedFlowsPage lifecycle actions', () => {
 
         await screen.findByRole('table', { name: 'Planned flows' });
 
-        expect(screen.queryByRole('button', { name: 'Commit' })).toBeNull();
-        expect(screen.queryByRole('button', { name: 'Realise' })).toBeNull();
-        expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+        expect(screen.queryByRole('button', { name: nameIsOrStartsWith('Commit') })).toBeNull();
+        expect(screen.queryByRole('button', { name: nameIsOrStartsWith('Realise') })).toBeNull();
+        expect(screen.queryByRole('button', { name: nameIsOrStartsWith('Cancel') })).toBeNull();
     });
 
     it('Given_a_planned_flow_When_committed_Then_it_posts_on_and_the_row_shows_the_Committed_badge_and_invalidates_only_flows', async () => {
@@ -328,7 +416,9 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Planned flows' });
 
-        await user.click(within(rowOf('Rent')).getByRole('button', { name: 'Commit' }));
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
         await user.click(screen.getByRole('button', { name: 'Commit' }));
 
         expect(await within(rowOf('Rent')).findByText('Committed')).toBeDefined();
@@ -372,7 +462,9 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Planned flows' });
 
-        await user.click(within(rowOf('Salary')).getByRole('button', { name: 'Realise' }));
+        await user.click(
+            within(rowOf('Salary')).getByRole('button', { name: nameStartingWith('Realise') }),
+        );
         await user.click(screen.getByRole('button', { name: 'Realise' }));
 
         expect(await within(rowOf('Salary')).findByText('Realised')).toBeDefined();
@@ -394,7 +486,9 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Planned flows' });
 
-        await user.click(within(rowOf('Rent')).getByRole('button', { name: 'Cancel' }));
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Cancel') }),
+        );
         await user.click(screen.getByRole('button', { name: 'Cancel flow' }));
 
         const reasonField = screen.getByLabelText('Reason');
@@ -431,7 +525,9 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Planned flows' });
 
-        await user.click(within(rowOf('Rent')).getByRole('button', { name: 'Cancel' }));
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Cancel') }),
+        );
         await user.type(screen.getByLabelText('Reason'), 'No longer needed');
         await user.click(screen.getByRole('button', { name: 'Cancel flow' }));
 
@@ -473,7 +569,9 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Planned flows' });
 
-        await user.click(within(rowOf('Rent')).getByRole('button', { name: 'Commit' }));
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
         await user.click(screen.getByRole('button', { name: 'Commit' }));
 
         const alert = await screen.findByRole('alert');
@@ -486,6 +584,37 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         await waitFor(() => {
             expect(document.activeElement).toBe(alert);
         });
+    });
+
+    it('Given_a_400_naming_the_panels_date_When_an_action_is_submitted_Then_the_error_state_lists_it_under_the_On_label', async () => {
+        fakeFetch(
+            ledger([RENT], (request) => {
+                if (request.url === `${FLOWS_URL}/${RENT_ID}/commit` && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: [{ field: 'on', message: 'must not be null' }],
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
+        await user.click(screen.getByRole('button', { name: 'Commit' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['On: must not be null']);
     });
 
     // Every field of the panel, since each calls clearSettledOutcome on its own (frontend/web
@@ -521,7 +650,9 @@ describe('PlannedFlowsPage lifecycle actions', () => {
             renderFlows();
             const user = userEvent.setup({ delay: null });
             await screen.findByRole('table', { name: 'Planned flows' });
-            await user.click(within(rowOf('Rent')).getByRole('button', { name: 'Cancel' }));
+            await user.click(
+                within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Cancel') }),
+            );
             await user.type(screen.getByLabelText('Reason'), 'No longer needed');
             await user.click(screen.getByRole('button', { name: 'Cancel flow' }));
             await screen.findByRole('alert');
@@ -537,14 +668,18 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         renderFlows();
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Planned flows' });
-        const commitButton = within(rowOf('Rent')).getByRole('button', { name: 'Commit' });
+        const commitButton = within(rowOf('Rent')).getByRole('button', {
+            name: nameStartingWith('Commit'),
+        });
 
         await user.click(commitButton);
         await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
         // Cancelling changes nothing about the flow, so PLANNED still offers Commit: the same
         // action is back, and focus returns to it.
-        const restoredButton = within(rowOf('Rent')).getByRole('button', { name: 'Commit' });
+        const restoredButton = within(rowOf('Rent')).getByRole('button', {
+            name: nameStartingWith('Commit'),
+        });
         expect(restoredButton).toBeDefined();
         await waitFor(() => {
             expect(document.activeElement).toBe(restoredButton);
@@ -574,7 +709,9 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Planned flows' });
 
-        await user.click(within(rowOf('Rent')).getByRole('button', { name: 'Commit' }));
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
         await user.click(screen.getByRole('button', { name: 'Commit' }));
 
         const committedText = await within(rowOf('Rent')).findByText('Committed');
@@ -583,7 +720,9 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         await waitFor(() => {
             expect(document.activeElement?.id).toBe(`flow-state-${RENT_ID}`);
         });
-        expect(within(rowOf('Rent')).queryByRole('button', { name: 'Commit' })).toBeNull();
+        expect(
+            within(rowOf('Rent')).queryByRole('button', { name: nameIsOrStartsWith('Commit') }),
+        ).toBeNull();
         expect(committedText).toBeDefined();
     });
 
@@ -603,7 +742,9 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         renderFlows();
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Planned flows' });
-        await user.click(within(rowOf('Rent')).getByRole('button', { name: 'Commit' }));
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
         const form = screen.getByLabelText('On').closest('form');
         if (form === null) {
             throw new Error('the On field is not inside a form');
@@ -628,6 +769,24 @@ describe('PlannedFlowsPage plan-flow form', () => {
         expect(await screen.findByText('Rent')).toBeDefined();
         expect(screen.queryByRole('heading', { level: 2, name: 'Plan a flow' })).toBeNull();
         expect(screen.queryByLabelText('Description')).toBeNull();
+    });
+
+    it('Given_a_number_of_times_chosen_When_the_form_renders_Then_amount_every_and_times_state_their_formats', async () => {
+        fakeFetch(ledger([]));
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+
+        await user.selectOptions(screen.getByLabelText('Repeats'), 'TIMES');
+
+        expect(accessibleDescriptionOf(screen.getByLabelText('Amount'))).toBe(
+            'A number with no commas, for example 1250.50',
+        );
+        for (const label of ['Every', 'Times']) {
+            expect(accessibleDescriptionOf(screen.getByLabelText(label))).toBe(
+                'A whole number, 1 or more',
+            );
+        }
     });
 
     it('Given_the_Repeats_field_When_Until_a_date_is_chosen_Then_cadence_interval_and_until_are_shown_but_not_times', async () => {
@@ -906,7 +1065,48 @@ describe('PlannedFlowsPage plan-flow form', () => {
 
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('Invalid request content.')).toBeDefined();
-        expect(within(alert).getByText(/recurrence\.completeForKind/)).toBeDefined();
+        // The rule is about the recurrence as a whole, which the Repeats field chooses.
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(["Repeats: must carry exactly its kind's members"]);
+    });
+
+    it('Given_a_400_naming_every_recurrence_member_When_planned_Then_each_is_listed_under_its_fields_label', async () => {
+        const paths = [
+            { field: 'recurrence.cadence', label: 'Cadence' },
+            { field: 'recurrence.interval', label: 'Every' },
+            { field: 'recurrence.until', label: 'Until' },
+            { field: 'recurrence.count', label: 'Times' },
+        ] as const;
+        fakeFetch(
+            ledger([], (request) => {
+                if (request.url === FLOWS_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: paths.map(({ field }) => ({ field, message: 'is invalid' })),
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+
+        await user.type(screen.getByLabelText('Description'), 'Salary');
+        await user.type(screen.getByLabelText('Amount'), '1000.00');
+        await user.click(screen.getByRole('button', { name: 'Plan flow' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(paths.map(({ label }) => `${label}: is invalid`));
     });
 
     it('Given_a_400_naming_amount_amount_When_planned_Then_the_message_is_on_the_Amount_field', async () => {
@@ -933,8 +1133,11 @@ describe('PlannedFlowsPage plan-flow form', () => {
         await user.type(screen.getByLabelText('Amount'), '1,000.00');
         await user.click(screen.getByRole('button', { name: 'Plan flow' }));
 
-        const error = await screen.findByText('must be a decimal number');
-        expect(screen.getByLabelText('Amount').getAttribute('aria-describedby')).toBe(error.id);
+        await screen.findByText('must be a decimal number');
+        // The format hint describes the field first, then the server's refusal.
+        expect(accessibleDescriptionOf(screen.getByLabelText('Amount'))).toBe(
+            'A number with no commas, for example 1250.50 must be a decimal number',
+        );
         expect(screen.queryByRole('alert')).toBeNull();
         await waitFor(() => {
             expect(document.activeElement).toBe(screen.getByLabelText('Amount'));

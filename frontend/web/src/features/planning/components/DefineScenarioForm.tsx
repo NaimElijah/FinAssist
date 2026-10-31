@@ -1,14 +1,18 @@
 import { type Ref, type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { indexedField } from '@/shared/api/fieldPath';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import {
     Button,
     ErrorState,
+    labelsByField,
+    LoadingNote,
     MoneyText,
     QueryErrorState,
     SelectField,
     type SelectOption,
+    StatusLine,
     TextField,
     useRetryFocus,
 } from '@/shared/ui';
@@ -52,6 +56,30 @@ const INVALID_CONTROL_SELECTOR = '[aria-invalid="true"]';
 const FIELD_NAMES = ['name', 'currency', 'growthRatePerStep'] as const;
 
 type FieldName = (typeof FIELD_NAMES)[number];
+
+/** Each field's label, keyed by the request member it fills. */
+const LABELS = {
+    name: 'Name',
+    currency: 'Currency',
+    growthRatePerStep: 'Growth rate per step',
+} as const satisfies Record<FieldName, string>;
+
+/** Names the group of flow checkboxes, which fills the request's `flows`. */
+const FLOWS_LABEL = 'Flows';
+
+const TOP_LEVEL_LABEL = labelsByField(LABELS);
+
+/**
+ * A failed request's field errors, listed under the form's own labels (WCAG 3.3.1).
+ *
+ * A chosen flow is named by its place in `flows`, which is the order of the checked boxes rather
+ * than anything the owner sees, so it is listed under the group's label.
+ */
+function fieldLabel(field: string): string | undefined {
+    return field === 'flows' || indexedField(field, 'flows') !== undefined
+        ? FLOWS_LABEL
+        : TOP_LEVEL_LABEL(field);
+}
 
 type FieldErrors = Partial<Record<FieldName, string>>;
 
@@ -147,19 +175,22 @@ function FlowsFieldset({
     currency,
     selectedFlowIds,
     onToggle,
+    status,
     ref,
 }: {
     readonly flows: readonly PlannedFlow[];
     readonly currency: Currency;
     readonly selectedFlowIds: ReadonlySet<string>;
     readonly onToggle: (flowId: string) => void;
+    /** What the last change of currency did to the selection, for `StatusLine`. */
+    readonly status: string;
     /** The group's element, where a retry that restored the flows moves focus. */
     readonly ref: Ref<HTMLFieldSetElement>;
 }) {
     const flowsInCurrency = flows.filter((flow) => flow.amount.currency === currency);
     return (
         <fieldset ref={ref} tabIndex={-1} className={groupStyles.group}>
-            <legend className={groupStyles.legend}>Flows</legend>
+            <legend className={groupStyles.legend}>{FLOWS_LABEL}</legend>
             {flowsInCurrency.length === 0 ? (
                 <p className={styles.noFlows}>{`No planned flows in ${currency} yet.`}</p>
             ) : (
@@ -178,8 +209,15 @@ function FlowsFieldset({
                     ))}
                 </div>
             )}
+            <StatusLine message={status} />
         </fieldset>
     );
+}
+
+/** What the status line says when a change to `currency` cleared `count` ticked flows. */
+function selectionClearedMessage(count: number, currency: Currency): string {
+    const flows = count === 1 ? 'flow' : 'flows';
+    return `${String(count)} ticked ${flows} cleared: a scenario in ${currency} takes flows in ${currency} only.`;
 }
 
 /** What happens once a scenario is defined. */
@@ -197,7 +235,8 @@ export interface DefineScenarioFormProps {
  *
  * Selecting no flow is legal: the do-nothing baseline is a scenario with no flows. Changing
  * currency clears the selection, since every flow it held was necessarily in the currency just
- * left - a client nicety; the server stays authoritative regardless.
+ * left - a client nicety; the server stays authoritative regardless. A change that clears any
+ * ticked flow says so on the Flows group's status line, since their boxes leave with the currency.
  *
  * Submit is disabled while the request is pending, and a submit event arriving anyway is ignored
  * (ADR-028: no double submit). On success the form resets and `onDefined` is called. A failure is
@@ -219,6 +258,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
     const [currency, setCurrency] = useState<Currency>(DEFAULT_CURRENCY);
     const [selectedFlowIds, setSelectedFlowIds] = useState<ReadonlySet<string>>(new Set());
     const [growthRatePerStep, setGrowthRatePerStep] = useState(DEFAULT_GROWTH_RATE);
+    const [flowsStatus, setFlowsStatus] = useState('');
 
     const flowsQuery = usePlannedFlows();
     const { targetRef: flowsRef, onRetry: retryFlows } = useRetryFocus<HTMLFieldSetElement>(
@@ -245,6 +285,9 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
 
     function toggleFlow(flowId: string) {
         clearSettledOutcome(defineScenario, submitting);
+        // A new selection makes the last report stale, and emptying the line lets the next one be
+        // announced even where its sentence is unchanged.
+        setFlowsStatus('');
         setSelectedFlowIds((previous) => toggled(previous, flowId));
     }
 
@@ -252,7 +295,13 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
         clearSettledOutcome(defineScenario, submitting);
         setCurrency(nextCurrency);
         // Every currently selected flow was offered under the currency just left, and a scenario
-        // admits no flow in another currency, so the whole selection is cleared.
+        // admits no flow in another currency, so the whole selection is cleared. Its boxes leave
+        // the page with that currency, so only the status line can say they were ticked.
+        setFlowsStatus(
+            selectedFlowIds.size === 0
+                ? ''
+                : selectionClearedMessage(selectedFlowIds.size, nextCurrency),
+        );
         setSelectedFlowIds(new Set());
     }
 
@@ -278,6 +327,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                     setName('');
                     setCurrency(DEFAULT_CURRENCY);
                     setSelectedFlowIds(new Set());
+                    setFlowsStatus('');
                     setGrowthRatePerStep(DEFAULT_GROWTH_RATE);
                     onDefined(scenario);
                 },
@@ -302,12 +352,12 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                 Define a scenario
             </h2>
             {errors.unplaced === null ? null : (
-                <ErrorState ref={errorStateRef} error={errors.unplaced} />
+                <ErrorState ref={errorStateRef} error={errors.unplaced} fieldLabel={fieldLabel} />
             )}
             <form ref={formRef} className={styles.form} onSubmit={submit}>
                 <div className={styles.fields}>
                     <TextField
-                        label="Name"
+                        label={LABELS.name}
                         required
                         autoComplete="off"
                         value={name}
@@ -318,7 +368,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                         }}
                     />
                     <SelectField
-                        label="Currency"
+                        label={LABELS.currency}
                         options={CURRENCY_OPTIONS}
                         value={currency}
                         error={errors.fields.currency}
@@ -327,7 +377,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                         }}
                     />
                     <TextField
-                        label="Growth rate per step"
+                        label={LABELS.growthRatePerStep}
                         inputMode="decimal"
                         required
                         autoComplete="off"
@@ -341,7 +391,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                     />
                 </div>
                 {flowsQuery.isPending ? (
-                    <p>Loading planned flows…</p>
+                    <LoadingNote message="Loading planned flows…" />
                 ) : flowsQuery.data === undefined ? (
                     flowsFailure
                 ) : (
@@ -356,6 +406,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                             currency={currency}
                             selectedFlowIds={selectedFlowIds}
                             onToggle={toggleFlow}
+                            status={flowsStatus}
                         />
                     </>
                 )}

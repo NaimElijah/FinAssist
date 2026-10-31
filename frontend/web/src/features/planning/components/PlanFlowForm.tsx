@@ -1,12 +1,14 @@
 import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { DECIMAL_HINT } from '@/shared/api/decimal';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { todayIsoDate } from '@/shared/lib/today';
 import {
     Button,
     DateField,
     ErrorState,
+    labelsByField,
     SelectField,
     type SelectOption,
     TextField,
@@ -67,6 +69,9 @@ const DEFAULT_INTERVAL = '1';
  */
 const POSITIVE_INTEGER_PATTERN = '[1-9][0-9]*';
 
+/** `POSITIVE_INTEGER_PATTERN` in words, shown on Every and Times before anything is typed. */
+const COUNT_HINT = 'A whole number, 1 or more';
+
 /** Shown on Every or Times when a submitted count is not a positive integer; see `submit`. */
 const COUNT_REFUSED_MESSAGE = 'Enter a whole number, 1 or more';
 
@@ -87,6 +92,38 @@ const INVALID_CONTROL_SELECTOR = '[aria-invalid="true"]';
 const FIELD_NAMES = ['description', 'amount', 'direction', 'startsOn'] as const;
 
 type FieldName = (typeof FIELD_NAMES)[number];
+
+/** Each field's label. */
+const LABELS = {
+    description: 'Description',
+    amount: 'Amount',
+    currency: 'Currency',
+    direction: 'Direction',
+    startsOn: 'Starts on',
+    repeats: 'Repeats',
+    cadence: 'Cadence',
+    every: 'Every',
+    until: 'Until',
+    times: 'Times',
+} as const;
+
+/** A failed request's field errors, listed under the form's own labels (WCAG 3.3.1). */
+const FIELD_LABEL = labelsByField({
+    description: LABELS.description,
+    amount: LABELS.amount,
+    'amount.amount': LABELS.amount,
+    'amount.currency': LABELS.currency,
+    direction: LABELS.direction,
+    startsOn: LABELS.startsOn,
+    recurrence: LABELS.repeats,
+    'recurrence.kind': LABELS.repeats,
+    // RecurrenceRequest's check that a recurrence carries exactly its kind's members.
+    'recurrence.completeForKind': LABELS.repeats,
+    'recurrence.cadence': LABELS.cadence,
+    'recurrence.interval': LABELS.every,
+    'recurrence.until': LABELS.until,
+    'recurrence.count': LABELS.times,
+});
 
 type FieldErrors = Partial<Record<FieldName, string>>;
 
@@ -310,12 +347,12 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                 Plan a flow
             </h2>
             {errors.unplaced === null ? null : (
-                <ErrorState ref={errorStateRef} error={errors.unplaced} />
+                <ErrorState ref={errorStateRef} error={errors.unplaced} fieldLabel={FIELD_LABEL} />
             )}
             <form ref={formRef} className={styles.form} onSubmit={submit}>
                 <div className={styles.fields}>
                     <TextField
-                        label="Description"
+                        label={LABELS.description}
                         required
                         autoComplete="off"
                         value={description}
@@ -326,7 +363,8 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         }}
                     />
                     <TextField
-                        label="Amount"
+                        label={LABELS.amount}
+                        hint={DECIMAL_HINT}
                         inputMode="decimal"
                         required
                         autoComplete="off"
@@ -338,7 +376,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         }}
                     />
                     <SelectField
-                        label="Currency"
+                        label={LABELS.currency}
                         options={CURRENCY_OPTIONS}
                         value={currency}
                         onChange={(event) => {
@@ -347,7 +385,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         }}
                     />
                     <SelectField
-                        label="Direction"
+                        label={LABELS.direction}
                         options={DIRECTION_OPTIONS}
                         value={direction}
                         error={errors.fields.direction}
@@ -357,7 +395,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         }}
                     />
                     <DateField
-                        label="Starts on"
+                        label={LABELS.startsOn}
                         required
                         value={startsOn}
                         error={errors.fields.startsOn}
@@ -367,7 +405,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                         }}
                     />
                     <SelectField
-                        label="Repeats"
+                        label={LABELS.repeats}
                         options={REPEATS_OPTIONS}
                         value={recurrenceKind}
                         onChange={(event) => {
@@ -379,7 +417,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                     {recurrenceKind === 'ONCE' ? null : (
                         <>
                             <SelectField
-                                label="Cadence"
+                                label={LABELS.cadence}
                                 options={CADENCE_OPTIONS}
                                 value={cadence}
                                 onChange={(event) => {
@@ -388,7 +426,8 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                                 }}
                             />
                             <TextField
-                                label="Every"
+                                label={LABELS.every}
+                                hint={COUNT_HINT}
                                 inputMode="numeric"
                                 pattern={POSITIVE_INTEGER_PATTERN}
                                 required
@@ -409,7 +448,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                     )}
                     {recurrenceKind === 'UNTIL' ? (
                         <DateField
-                            label="Until"
+                            label={LABELS.until}
                             required
                             value={until}
                             onChange={(event) => {
@@ -420,7 +459,8 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                     ) : null}
                     {recurrenceKind === 'TIMES' ? (
                         <TextField
-                            label="Times"
+                            label={LABELS.times}
+                            hint={COUNT_HINT}
                             inputMode="numeric"
                             pattern={POSITIVE_INTEGER_PATTERN}
                             required

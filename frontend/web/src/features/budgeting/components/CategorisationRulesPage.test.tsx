@@ -18,6 +18,7 @@ import {
 import type { FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { budgetKeys, categorisationRuleKeys } from '../hooks/budgetQueries';
 import { budgetingRoutes } from '../index';
@@ -63,6 +64,17 @@ describe('CategorisationRulesPage routing', () => {
 });
 
 describe('CategorisationRulesPage', () => {
+    it('Given_the_rules_still_loading_When_the_page_renders_Then_a_status_says_they_are_loading', async () => {
+        // A status region, so a screen reader hears the list is on its way (WCAG 4.1.3).
+        fakeFetch(() => pendingResponse());
+
+        renderRules();
+
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading rules…']);
+        });
+    });
+
     it('Given_rules_served_in_an_order_When_the_page_renders_Then_the_list_keeps_that_order', async () => {
         fakeFetch((request) =>
             request.url === RULES_URL ? jsonResponse(RULES) : unexpectedRequest(request),
@@ -268,6 +280,37 @@ describe('CategorisationRulesPage adding a rule', () => {
         await waitFor(() => {
             expect(document.activeElement).toBe(screen.getByLabelText('Fragment'));
         });
+    });
+
+    it('Given_a_400_naming_a_field_the_form_lacks_When_added_Then_the_error_state_lists_each_field_by_its_label_or_wire_name', async () => {
+        fakeFetch((request) => {
+            if (request.url === RULES_URL && request.method === 'POST') {
+                return problemResponse({
+                    status: 400,
+                    code: 'MALFORMED_REQUEST',
+                    detail: 'Invalid request content.',
+                    errors: [
+                        { field: 'category', message: 'must not be blank' },
+                        { field: 'addCategorisationRuleRequest', message: 'is not readable' },
+                    ],
+                });
+            }
+            if (request.url === RULES_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderRules();
+        const user = userEvent.setup({ delay: null });
+
+        await user.type(await screen.findByLabelText('Fragment'), 'cafe');
+        await user.type(screen.getByLabelText('Category'), ' ');
+        await user.click(screen.getByRole('button', { name: 'Add rule' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['Category: must not be blank', 'addCategorisationRuleRequest: is not readable']);
     });
 
     it('Given_a_400_naming_the_fragment_field_When_added_Then_its_message_is_the_Fragment_fields_error', async () => {

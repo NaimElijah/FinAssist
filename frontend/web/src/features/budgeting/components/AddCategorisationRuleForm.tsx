@@ -2,7 +2,7 @@ import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
-import { Button, ErrorState, TextField } from '@/shared/ui';
+import { Button, ErrorState, labelsByField, TextField } from '@/shared/ui';
 
 import { useAddCategorisationRule } from '../hooks/budgetQueries';
 import type { CategorisationRule } from '../types/rule';
@@ -24,6 +24,15 @@ const FIRST_FIELD_SELECTOR = 'input';
 const FIELD_NAMES = ['fragment', 'category'] as const;
 
 type FieldName = (typeof FIELD_NAMES)[number];
+
+/** Each field's label, keyed by the request member it fills. */
+const LABELS = { fragment: 'Fragment', category: 'Category' } as const satisfies Record<
+    FieldName,
+    string
+>;
+
+/** A failed request's field errors, listed under the form's own labels (WCAG 3.3.1). */
+const FIELD_LABEL = labelsByField(LABELS);
 
 type FieldErrors = Partial<Record<FieldName, string>>;
 
@@ -172,12 +181,12 @@ export function AddCategorisationRuleForm({
                 Add a rule
             </h2>
             {errors.unplaced === null ? null : (
-                <ErrorState ref={errorStateRef} error={errors.unplaced} />
+                <ErrorState ref={errorStateRef} error={errors.unplaced} fieldLabel={FIELD_LABEL} />
             )}
             <form ref={formRef} className={styles.form} onSubmit={submit}>
                 <div className={styles.fields}>
                     <TextField
-                        label="Fragment"
+                        label={LABELS.fragment}
                         required
                         autoComplete="off"
                         value={fragment}
@@ -188,7 +197,7 @@ export function AddCategorisationRuleForm({
                         }}
                     />
                     <TextField
-                        label="Category"
+                        label={LABELS.category}
                         required
                         autoComplete="off"
                         value={category}

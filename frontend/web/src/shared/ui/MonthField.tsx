@@ -18,20 +18,34 @@ export type MonthFieldProps = FieldLabelling &
  * Its `value` is a `YYYY-MM` string, the shape a budget's define form maps to a period with
  * `monthInputToPeriod`. Neither `TextField` nor `DateField` passes `type` through - both fix it
  * deliberately - so this is the smallest addition that offers a native month picker without
- * loosening either. Every other native input prop passes through to the input.
+ * loosening either. Every other native input prop passes through to the input; `required` also
+ * shows a marker beside the label.
  *
  * @param props - see `MonthFieldProps`.
  */
-export function MonthField({ label, hint, error, className, ...inputProps }: MonthFieldProps) {
+export function MonthField({
+    label,
+    required,
+    hint,
+    sharedHintId,
+    error,
+    sharedErrorId,
+    className,
+    ...inputProps
+}: MonthFieldProps) {
     return (
         <FieldFrame
             label={label}
+            required={required}
             hint={hint}
+            sharedHintId={sharedHintId}
             error={error}
+            sharedErrorId={sharedErrorId}
             renderControl={(control) => (
                 <input
                     {...inputProps}
                     {...control}
+                    required={required}
                     type="month"
                     className={joinClassNames(styles.control, className)}
                 />

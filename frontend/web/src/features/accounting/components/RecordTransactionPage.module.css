@@ -17,6 +17,20 @@
     gap: var(--space-3) var(--space-4);
 }
 
+/* The rule and the rows it governs, held closer together than the form's sections. */
+.entries {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+/* Read as a hint by every amount below it, so it looks like one: the shared field frame's hint. */
+.entryRule {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--color-muted);
+}
+
 .rows {
     display: flex;
     flex-direction: column;
@@ -33,7 +47,19 @@
     border-radius: var(--radius-panel);
 }
 
+/* On a line of its own beneath the row's fields, since it speaks for the debit and credit both. */
+.rowError {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-strong);
+    color: var(--color-negative);
+}
+
+/* The add control and the status line reporting what it did, side by side until the line wraps. */
 .actions {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: var(--space-3);
 }

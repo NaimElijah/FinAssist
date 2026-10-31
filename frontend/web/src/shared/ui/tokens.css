@@ -5,9 +5,9 @@
  *
  * The palette borrows from bookkeeping's own stationery: the pale green of an accountant's
  * analysis pad for the page, and spruce ink for the binding and the main action. Every text pair
- * meets WCAG AA at 4.5:1, and control edges and the focus ring meet 3:1, in both themes. The
- * *-tint colours are each tone mixed 14% into the raised surface, and their tone colour meets
- * 4.5:1 on them.
+ * meets WCAG AA at 4.5:1, and the focus ring and every edge that alone identifies a control meet
+ * 3:1, in both themes (tests/contrast.test.ts, ADR-069). The *-tint colours are each tone mixed
+ * 14% into the raised surface, and their tone colour meets 4.5:1 on them.
  */
 :root {
     color-scheme: light dark;

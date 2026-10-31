@@ -18,6 +18,7 @@ import {
 import type { FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { planKeys } from '../hooks/planQueries';
 import { planningRoutes } from '../index';
@@ -139,6 +140,28 @@ describe('ScenariosPage', () => {
         );
     });
 
+    it('Given_the_scenarios_still_loading_When_the_page_renders_Then_a_status_announces_it', async () => {
+        fakeFetch(() => pendingResponse());
+
+        renderScenarios();
+
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Loading scenarios…');
+        });
+    });
+
+    it('Given_the_planned_flows_still_loading_When_the_define_form_renders_Then_a_status_announces_it', async () => {
+        fakeFetch((request) =>
+            request.url === SCENARIOS_URL ? jsonResponse([]) : pendingResponse(),
+        );
+
+        renderScenarios();
+
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Loading planned flows…');
+        });
+    });
+
     it('Given_no_scenarios_When_the_page_renders_Then_the_empty_state_names_the_do_nothing_baseline', async () => {
         fakeFetch(ledger([], []));
 
@@ -206,6 +229,19 @@ describe('ScenariosPage', () => {
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('Try later.')).toBeDefined();
         expect(screen.getByRole('rowheader', { name: 'Baseline' })).toBeDefined();
+    });
+});
+
+describe('ScenariosPage list heading', () => {
+    it('Given_scenarios_When_rendered_Then_their_table_sits_under_its_own_heading', async () => {
+        fakeFetch(ledger([], [BASELINE]));
+        renderScenarios();
+
+        const list = await screen.findByRole('region', { name: 'All scenarios' });
+        expect(
+            within(list).getByRole('heading', { level: 2, name: 'All scenarios' }),
+        ).toBeDefined();
+        expect(await within(list).findByRole('table', { name: 'Scenarios' })).toBeDefined();
     });
 });
 
@@ -306,6 +342,54 @@ describe('ScenariosPage define-scenario form', () => {
 
         await user.selectOptions(screen.getByLabelText('Currency'), 'USD');
         expect(await screen.findByLabelText(/Salary/)).toHaveProperty('checked', false);
+    });
+
+    it('Given_a_USD_flow_ticked_When_the_currency_changes_to_ILS_Then_a_status_says_the_ticked_flow_was_cleared', async () => {
+        // The ticked box leaves the page with its currency, so nothing else says the selection
+        // was dropped.
+        fakeFetch(ledger([RENT_ILS, SALARY_USD], []));
+        renderScenarios();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText(/Rent/);
+        await user.selectOptions(screen.getByLabelText('Currency'), 'USD');
+        await user.click(await screen.findByLabelText(/Salary/));
+
+        await user.selectOptions(screen.getByLabelText('Currency'), 'ILS');
+
+        expect(statusMessages()).toContain(
+            '1 ticked flow cleared: a scenario in ILS takes flows in ILS only.',
+        );
+    });
+
+    it('Given_the_cleared_selection_reported_When_a_flow_is_ticked_Then_the_status_empties', async () => {
+        // A new selection makes the report stale, and emptying it lets the same sentence be
+        // announced again after the next currency change.
+        fakeFetch(ledger([RENT_ILS, SALARY_USD], []));
+        renderScenarios();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText(/Rent/);
+        await user.selectOptions(screen.getByLabelText('Currency'), 'USD');
+        await user.click(await screen.findByLabelText(/Salary/));
+        await user.selectOptions(screen.getByLabelText('Currency'), 'ILS');
+        const cleared = '1 ticked flow cleared: a scenario in ILS takes flows in ILS only.';
+        expect(statusMessages()).toContain(cleared);
+
+        await user.click(await screen.findByLabelText(/Rent/));
+
+        expect(statusMessages()).not.toContain(cleared);
+        expect(statusMessages()).toContain('');
+    });
+
+    it('Given_no_flow_ticked_When_the_currency_changes_Then_no_status_says_anything_was_cleared', async () => {
+        fakeFetch(ledger([RENT_ILS, SALARY_USD], []));
+        renderScenarios();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText(/Rent/);
+
+        await user.selectOptions(screen.getByLabelText('Currency'), 'USD');
+
+        await screen.findByLabelText(/Salary/);
+        expect(statusMessages().filter((message) => message !== '')).toEqual([]);
     });
 
     it('Given_zero_flows_selected_When_defined_Then_it_posts_an_empty_flows_array_for_the_do_nothing_baseline', async () => {
@@ -462,6 +546,35 @@ describe('ScenariosPage define-scenario form', () => {
             expect(screen.queryByRole('alert')).toBeNull();
         });
     }
+
+    it('Given_a_400_naming_one_of_the_chosen_flows_When_defined_Then_the_error_state_lists_it_under_the_Flows_label', async () => {
+        fakeFetch(
+            ledger([], [], (request) => {
+                if (request.url === SCENARIOS_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: [{ field: 'flows[0]', message: 'must not be null' }],
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderScenarios();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Define a scenario' });
+
+        await user.type(screen.getByLabelText('Name'), 'Do nothing');
+        await user.click(screen.getByRole('button', { name: 'Define scenario' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['Flows: must not be null']);
+    });
 
     it('Given_a_400_listing_a_name_error_When_defined_Then_the_message_is_on_the_Name_field', async () => {
         fakeFetch(
