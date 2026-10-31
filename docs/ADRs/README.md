@@ -54,12 +54,12 @@ append-only history: to change course, add a new record and mark the old one
 | [046](ADR-046-architecture-rules-read-the-code-never-load-it.md) | Architecture rules read the code and never load it | Accepted |
 | [047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) | Twelve passages of Accepted records reconciled with the system as built | Accepted |
 | [048](ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md) | Domain events stay in-process until a consumer exists, and production keeps no event log | Accepted |
-| [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted, extended by 061 |
+| [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted, extended by 061 and 063 |
 | [050](ADR-050-no-domain-metric-yet-decided-again.md) | No domain metric yet, decided again, with new triggers | Accepted |
 | [051](ADR-051-what-a-translation-may-decide.md) | What a translation may decide: choosing records stays in `composition`, a rule in the downstream's own words moves into it | Accepted |
 | [052](ADR-052-ops-holds-operator-code-one-directory-per-tool.md) | `ops/` holds operator code, one directory per tool | Accepted |
 | [053](ADR-053-the-gateways-outbound-calls-speak-http-1-1-under-one-time-budget.md) | The gateway's outbound calls speak HTTP/1.1, under one time budget | Accepted |
-| [054](ADR-054-each-service-ships-as-a-two-stage-image-run-as-a-non-root-user.md) | Each service ships as a two-stage image, built from source and run as a non-root user | Accepted |
+| [054](ADR-054-each-service-ships-as-a-two-stage-image-run-as-a-non-root-user.md) | Each service ships as a two-stage image, built from source and run as a non-root user | Accepted, extended by 063 |
 | [055](ADR-055-the-assistants-development-seed-lives-in-its-composition-root.md) | The assistant's development seed lives in its composition root, and is off by default | Accepted |
 | [056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md) | The web client retries a failed read once, and never a write | Accepted |
 | [057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md) | A page on another `localhost` port is treated as hostile | Accepted |
@@ -68,6 +68,7 @@ append-only history: to change course, add a new record and mark the old one
 | [060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md) | The `finassist` realm and the Keycloak image are configured, not defaulted | Accepted |
 | [061](ADR-061-the-stack-refuses-a-configuration-that-weakens-a-credential.md) | The stack refuses a configuration that weakens a credential | Accepted |
 | [062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md) | Every kept third-party dependency is justified, and each has a revisit trigger | Accepted |
+| [063](ADR-063-every-container-holds-only-the-privilege-it-uses.md) | Under Compose, every container holds only the privilege it uses, and `make check-compose` holds it there | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -305,3 +306,20 @@ the dev extra. No Maven lockfile is adopted: Boot's parent version is the Java s
 Java services override OpenTelemetry to 1.67.0 for GHSA-ccrj-gw8r-854m, until Boot manages it.
 Dependabot groups the React packages and holds `@types/node` on Node's major
 ([#341](https://github.com/NaimElijah/FinAssist/issues/341)).
+
+063 extends 049 and 054 on 2026-10-30. Scan 5 found that `make check-compose` did not check
+the loopback publication, `keycloak-db`'s lack of a port or the `smoke` profile, although the
+root `CLAUDE.md` listed them among the rules the build enforces. It also found every container
+on Docker's default privileges, on one network. Every service but the two databases now drops
+every capability and sets `no-new-privileges`, all but those and Keycloak run on a read-only
+root, and none takes `privileged`, `cap_add`, a shared namespace, a device, root or the
+Docker socket. Each database shares a network with its one client alone, `keycloak-db`'s
+internal. The Java images and Keycloak's leave their code owned by root, and Prometheus
+grants no CORS origin. The check refuses a break of any of these, naming its exemptions so
+that a new service is held too. Still open: the two PostgreSQL containers' capabilities
+([#386](https://github.com/NaimElijah/FinAssist/issues/386)), limits
+([#387](https://github.com/NaimElijah/FinAssist/issues/387)), whether `db` publishes its
+port, which any container on Docker Desktop reaches through `host.docker.internal`
+([#388](https://github.com/NaimElijah/FinAssist/issues/388)), and the routes to the host the
+check does not yet name ([#389](https://github.com/NaimElijah/FinAssist/issues/389),
+[#342](https://github.com/NaimElijah/FinAssist/issues/342)).
