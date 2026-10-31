@@ -207,20 +207,17 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
     }
 
     /**
-     * The trigger's other three refusals, each reached the same way: a header, two entries and the
-     * opening state written directly in one database transaction, so the deferred checks see them all
-     * at its commit. Each case is held to the
-     * message its branch raises, not only to a refusal: the mixed pair sums to zero and the unbalanced
-     * pair shares one currency, but the mixed pair also posts a USD entry to an ILS account, so it meets
-     * the account-currency condition as well, and only the message tells the two branches apart. A
-     * branch dropped from {@code refuse_unbalanced_transaction} therefore fails its own case rather
-     * than being masked by a neighbour.
+     * The trigger's other refusals, each reached the same way: a header, two entries and the opening
+     * state written directly in one database transaction, so the deferred checks see them all at its
+     * commit. Each entry is posted to an account held in its own currency, so the foreign key on {@code
+     * (account_id, currency)} admits every row and the trigger is what refuses. Each case is held to the
+     * message its branch raises, not only to a refusal, so a branch dropped from {@code
+     * refuse_unbalanced_transaction} fails its own case rather than being masked by a neighbour.
      */
     @ParameterizedTest(name = "{5}")
     @CsvSource({
         "ILS, 10.00, ILS, -10.00, USD, mixes 2 currencies",
-        "ILS, 10.00, ILS, -9.00, ILS, does not balance: its entries sum to 1.00",
-        "USD, 10.00, USD, -10.00, USD, posts 2 entries in a currency their account does not hold"
+        "ILS, 10.00, ILS, -9.00, ILS, does not balance: its entries sum to 1.00"
     })
     void Given_entries_the_trigger_refuses_When_written_directly_Then_the_database_refuses_them(
             String header,
@@ -230,6 +227,8 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
             String cashCurrency,
             String refusal) {
         TransactionId id = TransactionId.generate();
+        Account groceriesSide = accountIn(groceries, groceriesCurrency);
+        Account cashSide = accountIn(cash, cashCurrency);
 
         assertThatThrownBy(() -> inOneTransaction(() -> {
                     insertHeader(id, header, "Wrong");
@@ -239,10 +238,10 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                                         (:id, 1, :cash, CAST(:cashAmount AS numeric), :cashCurrency)
                                     """)
                             .param("id", id.value())
-                            .param("groceries", groceries.id().value())
+                            .param("groceries", groceriesSide.id().value())
                             .param("groceriesAmount", groceriesAmount)
                             .param("groceriesCurrency", groceriesCurrency)
-                            .param("cash", cash.id().value())
+                            .param("cash", cashSide.id().value())
                             .param("cashAmount", cashAmount)
                             .param("cashCurrency", cashCurrency)
                             .update();
@@ -251,6 +250,34 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                 .rootCause()
                 .hasMessageContaining("transaction " + id.value())
                 .hasMessageContaining(refusal);
+    }
+
+    /**
+     * An entry is posted in its account's currency (ADR-012). The service checks it before recording;
+     * the foreign key on {@code (account_id, currency)} holds it for every writer, and refuses the
+     * entries as they are written rather than at commit.
+     */
+    @Test
+    void
+            Given_accounts_in_one_currency_When_entries_in_another_are_written_to_them_directly_Then_the_foreign_key_refuses_them() {
+        TransactionId id = TransactionId.generate();
+
+        assertThatThrownBy(() -> inOneTransaction(() -> {
+                    insertHeader(id, "USD", "Wrong");
+                    jdbc().sql("""
+                                    INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency) VALUES
+                                        (:id, 0, :groceries, 10.00, 'USD'),
+                                        (:id, 1, :cash, -10.00, 'USD')
+                                    """)
+                            .param("id", id.value())
+                            .param("groceries", groceries.id().value())
+                            .param("cash", cash.id().value())
+                            .update();
+                    insertOpeningState(id);
+                }))
+                .rootCause()
+                .hasMessageContaining("journal_entry_in_account_currency");
+        assertThat(headers(id)).isZero();
     }
 
     /**
@@ -389,6 +416,16 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                 .param("id", id.value())
                 .param("recordedBy", RECORDER.subject())
                 .update();
+    }
+
+    /** {@code usual} when it is held in {@code currency}; otherwise a new account like it, opened in that currency. */
+    private Account accountIn(Account usual, String currency) {
+        if (usual.currency().name().equals(currency)) {
+            return usual;
+        }
+        Account other = Account.open(usual.name() + " " + currency, usual.type(), Currency.valueOf(currency));
+        accounts.save(other);
+        return other;
     }
 
     private int headers(TransactionId id) {

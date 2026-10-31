@@ -22,6 +22,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 
 /**
  * What {@code AccountRepository}'s Javadoc promises, asserted against the store that has to keep it.
@@ -172,6 +173,34 @@ class JdbcAccountRepositoryIT extends PostgresFixture {
 
         assertThat(accounts.findById(wallet.id())).contains(wallet);
         assertThat(transactions.findById(purchase.id())).contains(purchase);
+    }
+
+    /**
+     * An account's currency is fixed once an entry is posted to it: its entries would otherwise sit in
+     * a currency the account no longer holds, and every balance read of it would fail. {@code save}
+     * rewrites the row it finds, so the refusal is the foreign key on {@code journal_entry (account_id,
+     * currency)}, which no {@code NOT VALID} excuses on the referenced side.
+     */
+    @Test
+    void Given_an_account_with_entries_When_saved_again_in_another_currency_Then_it_is_refused_and_keeps_its_own() {
+        Account cash = Account.open("Cash", AccountType.ASSET, Currency.ILS);
+        Account groceries = Account.open("Groceries", AccountType.EXPENSE, Currency.ILS);
+        accounts.save(cash);
+        accounts.save(groceries);
+        transactions.save(
+                Transaction.record(
+                        LocalDate.of(2026, 3, 1),
+                        "Groceries",
+                        List.of(
+                                new Entry(groceries.id(), Money.of("12.50", Currency.ILS)),
+                                new Entry(cash.id(), Money.of("-12.50", Currency.ILS)))),
+                new Actor("owner-user"));
+        Account inDollars = new Account(cash.id(), cash.name(), cash.type(), Currency.USD);
+
+        assertThatThrownBy(() -> accounts.save(inDollars))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("journal_entry_in_account_currency");
+        assertThat(accounts.findById(cash.id())).contains(cash);
     }
 
     /**

@@ -727,8 +727,9 @@ of the books' rows. The digest is taken before and after the dumps, and a restor
 Nothing schedules it, because no recovery-point target has been set. Its `restore` writes only into
 a database that holds no table, with the service that uses it stopped (the ledger for `db`, Keycloak
 for `keycloak-db`), and it runs `pg_restore --single-transaction`. A full restore loads data with
-`COPY` before it creates triggers, and pg_dump re-adds a `NOT VALID` check as `NOT VALID`, so the
-journal's append-only triggers and the `recorded_by` checks never stand in its way. Its `check`
+`COPY` before it creates triggers, and pg_dump re-adds a `NOT VALID` check or foreign key as `NOT
+VALID`, so the journal's triggers, the `recorded_by` checks and the entry-currency key never stand in
+its way. Its `check`
 proves a backup end to end in the Compose project `finassist-restore-check`, the only project it can
 name, on ports of its own. It restores both dumps, reads the owner's OTP credentials from Keycloak's
 tables before Keycloak starts, then starts Keycloak and the ledger. It asks the ledger, over HTTP

@@ -92,7 +92,7 @@ class LedgerUpgradeIT {
         assertThat(jdbc.sql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank")
                         .query(String.class)
                         .list())
-                .containsExactly("1.1", "2.1", "3.1", "1.2", "1.3", "1.4", "1.5");
+                .containsExactly("1.1", "2.1", "3.1", "1.2", "1.3", "1.4", "1.5", "1.6");
     }
 
     @Test
@@ -126,6 +126,24 @@ class LedgerUpgradeIT {
                         "journal_transaction_recorded_by_shape", "journal_transaction_state_recorded_by_shape");
     }
 
+    /**
+     * The owner's database may already hold an entry in a currency its account no longer has: the
+     * account adapter's upsert rewrote a currency on a re-save until {@code 1.6} refused it. {@code
+     * 1.6}'s foreign key is {@code NOT VALID} so that it is added without scanning such rows; the
+     * context starting at all is the proof it applied, and {@code convalidated} false is the proof it
+     * never scanned.
+     */
+    @Test
+    void
+            Given_an_entry_whose_account_changed_currency_before_1_6_When_the_ledger_starts_Then_the_foreign_key_stays_unvalidated() {
+        assertThat(jdbc.sql("""
+                        SELECT convalidated
+                        FROM pg_constraint
+                        WHERE connamespace = 'accounting'::regnamespace
+                          AND conname = 'journal_entry_in_account_currency'
+                        """).query(Boolean.class).list()).containsExactly(false);
+    }
+
     @Test
     void Given_a_journal_row_written_before_1_2_When_the_ledger_has_started_Then_it_still_names_no_recorder() {
         assertThat(jdbc.sql("SELECT recorded_by FROM accounting.journal_transaction WHERE id = :id")
@@ -148,6 +166,7 @@ class LedgerUpgradeIT {
                 .load()
                 .migrate();
         seedTheTransactionThePreV1_2CodeWrote(JdbcClient.create(database));
+        seedAnAccountWhoseCurrencyChangedUnderItsEntries(JdbcClient.create(database));
         return database;
     }
 
@@ -199,6 +218,38 @@ class LedgerUpgradeIT {
         jdbc.sql("INSERT INTO accounting.journal_transaction_state (transaction_id, sequence, state, effective_on,"
                         + " reason) VALUES (:id, 0, 'PENDING', NULL, NULL)")
                 .param("id", HISTORICAL_TRANSACTION)
+                .update();
+    }
+
+    /**
+     * A transaction posted to a wallet in ILS, after which the wallet was re-saved in USD: the state
+     * the account adapter's upsert could leave, since nothing held an account's currency to its
+     * entries before {@code 1.6}.
+     */
+    private static void seedAnAccountWhoseCurrencyChangedUnderItsEntries(JdbcClient jdbc) {
+        UUID wallet = seedAccount(jdbc, "Wallet", "ASSET");
+        UUID travel = seedAccount(jdbc, "Travel", "EXPENSE");
+        UUID transaction = UUID.randomUUID();
+        jdbc.sql("INSERT INTO accounting.journal_transaction (id, occurred_on, description, currency)"
+                        + " VALUES (:id, :on, 'Train', 'ILS')")
+                .param("id", transaction)
+                .param("on", MARCH_1)
+                .update();
+        jdbc.sql("""
+                        INSERT INTO accounting.journal_entry VALUES
+                            (:id, 0, :travel, 30.00, 'ILS'),
+                            (:id, 1, :wallet, -30.00, 'ILS')
+                        """)
+                .param("id", transaction)
+                .param("travel", travel)
+                .param("wallet", wallet)
+                .update();
+        jdbc.sql("INSERT INTO accounting.journal_transaction_state (transaction_id, sequence, state, effective_on,"
+                        + " reason) VALUES (:id, 0, 'PENDING', NULL, NULL)")
+                .param("id", transaction)
+                .update();
+        jdbc.sql("UPDATE accounting.account SET currency = 'USD' WHERE id = :id")
+                .param("id", wallet)
                 .update();
     }
 

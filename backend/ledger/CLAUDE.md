@@ -127,6 +127,12 @@ bounded context (ADR-006, ADR-024).
   `INSERT`. Never run
   `ALTER TABLE ... VALIDATE CONSTRAINT` on either: it would scan the historical `NULL` rows and
   fail, and the append-only triggers forbid the `UPDATE` a fix would need (ADR-033).
+- **An entry stays in its account's currency; never validate that key either.** `V1_6` adds
+  `journal_entry_in_account_currency`, a `NOT VALID` foreign key from `journal_entry (account_id,
+  currency)` to a unique index on `account (id, currency)`. It checks every new entry, and refuses a
+  change of currency on an account with entries, so `JdbcAccountRepository.save` throws
+  `DataIntegrityViolationException` for one; it never scanned the entries already stored. Never
+  validate it, for the reason `V1_2`'s checks are never validated.
 - **`logServerErrorDetail=false` stays on the data source** (`application.yml`, under
   `hikari.data-source-properties`; ADR-058). pgjdbc otherwise appends the server's `Detail` line to
   an exception's message, and for a constraint violation that line quotes the failing row, which

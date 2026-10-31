@@ -77,7 +77,10 @@ class ReleasedMigrationsTest {
                     "1c8e880d5755659b57f28ca0f5e3b42667b61f74319a65ec8dbca70bdbc4b9d6"),
             new Released(
                     "accounting/V1_5__journal_transaction_is_complete.sql",
-                    "d88de8f4c964c22e60178212650ef8d0528035ca5bd0297e04f9bc99dac0c2d8"));
+                    "d88de8f4c964c22e60178212650ef8d0528035ca5bd0297e04f9bc99dac0c2d8"),
+            new Released(
+                    "accounting/V1_6__journal_entry_in_its_account_currency.sql",
+                    "2addf2609ed6239a5640e71b2fc16956e3d7c7e44a63132e3b9d8a1cc00b3a96"));
 
     @Test
     void Given_the_migrations_on_the_classpath_When_each_is_hashed_Then_each_matches_the_digest_it_was_released_with()
