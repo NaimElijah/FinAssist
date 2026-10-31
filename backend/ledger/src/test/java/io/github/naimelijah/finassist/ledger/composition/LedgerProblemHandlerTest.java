@@ -72,6 +72,9 @@ class LedgerProblemHandlerTest {
     /** Stands in for a value the caller sent that the ledger cannot read; no type here accepts it. */
     private static final String REJECTED = "rejected-input-4b2d";
 
+    /** A whole number one past what a Java {@code int} holds, {@code Integer.MAX_VALUE + 1}. */
+    private static final String OVERFLOWING_INT = "2147483648";
+
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new FailingController())
             .setControllerAdvice(new LedgerProblemHandler())
             .build();
@@ -292,6 +295,49 @@ class LedgerProblemHandlerTest {
                 .getContentAsString();
 
         assertThat(body).doesNotContain(REJECTED);
+    }
+
+    /**
+     * A whole number too large for its member is valid JSON, so the member is named like any other value
+     * Jackson refuses, never the body as unparseable. Jackson 3 raises it as a stream-read failure, the
+     * type it also uses for text that is not JSON at all, which is why both an {@code Integer} and an
+     * {@code int}, nested in an element, are pinned.
+     */
+    @ParameterizedTest
+    @CsvSource(
+            delimiter = '|',
+            value = {
+                "{\"kind\": \"ONE\", \"count\": " + OVERFLOWING_INT + "} | count",
+                "{\"kind\": \"ONE\", \"tallies\": [{\"times\": " + OVERFLOWING_INT + "}]} | tallies[0].times"
+            })
+    void Given_a_whole_number_too_large_for_its_member_When_posted_Then_the_400_names_the_member_as_an_invalid_value(
+            String json, String field) throws Exception {
+        String body = mvc.perform(
+                        post("/shaped").contentType(MediaType.APPLICATION_JSON).content(json))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value(field))
+                .andExpect(jsonPath("$.errors[0].message").value("is not a valid value"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(body).doesNotContain(OVERFLOWING_INT);
+    }
+
+    /** The same overflow with no member to name, the body itself being the number, names the body. */
+    @Test
+    void Given_a_body_that_is_a_number_too_large_for_it_When_posted_Then_the_400_names_the_body_as_an_invalid_value()
+            throws Exception {
+        mvc.perform(post("/counted").contentType(MediaType.APPLICATION_JSON).content(OVERFLOWING_INT))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("body"))
+                .andExpect(jsonPath("$.errors[0].message").value("is not a valid value"));
     }
 
     /** Spring's own detail for a type mismatch quotes the value, so it is replaced. */
@@ -517,8 +563,14 @@ class LedgerProblemHandlerTest {
     /** An element of a list, so a failure inside it has an index in its path. */
     record Line(UUID id) {}
 
+    /**
+     * An element holding a primitive, apart from {@link Line}: Jackson refuses a primitive left out, which
+     * would otherwise fail every body that sends a line without it.
+     */
+    record Tally(int times) {}
+
     /** A body whose members Jackson itself refuses, before bean validation runs. */
-    record Shaped(Kind kind, List<Line> lines) {}
+    record Shaped(Kind kind, Integer count, List<Line> lines, List<Tally> tallies) {}
 
     /**
      * Fails on demand, one way per route.
@@ -606,6 +658,11 @@ class LedgerProblemHandlerTest {
 
         @PostMapping(value = "/shaped", consumes = MediaType.APPLICATION_JSON_VALUE)
         ResponseEntity<Void> shaped(@RequestBody Shaped body) {
+            return ResponseEntity.noContent().build();
+        }
+
+        @PostMapping(value = "/counted", consumes = MediaType.APPLICATION_JSON_VALUE)
+        ResponseEntity<Void> counted(@RequestBody Integer count) {
             return ResponseEntity.noContent().build();
         }
     }

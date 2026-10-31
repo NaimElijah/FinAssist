@@ -30,6 +30,7 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.exc.InputCoercionException;
 import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.databind.DatabindException;
 
@@ -327,24 +328,29 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * The entry for a body that could not be read, from what the converter wrapped. A member Jackson
-     * refused is named by its path; a failure with no member to name, unparseable JSON or no body at all,
-     * names {@link #BODY_FIELD}.
+     * The entry for a body that could not be read, from what the converter wrapped. A value Jackson
+     * refused is named by its path, or as {@link #BODY_FIELD} when the body itself is that value; text
+     * that is not JSON, or no body at all, names {@link #BODY_FIELD}.
      *
-     * <p>A {@link StreamReadException} is checked first because it means the text is not JSON at all,
-     * whatever member the parser had reached.
+     * <p>An {@link InputCoercionException}, a whole number too large for its member, is a refused value
+     * like a {@link DatabindException}, though in Jackson 3 it extends {@link StreamReadException}, so it is
+     * checked first. Any other {@link StreamReadException} means the text is not JSON at all, whatever
+     * member the parser had reached.
      */
     private static Map<String, String> unreadableBody(Throwable cause) {
+        if (cause instanceof JacksonException rejection && refusesAValue(rejection)) {
+            List<JacksonException.Reference> path = rejection.getPath();
+            return violation(path.isEmpty() ? BODY_FIELD : wirePath(path), INVALID_VALUE);
+        }
         if (cause instanceof StreamReadException) {
             return violation(BODY_FIELD, NOT_JSON);
         }
-        if (cause instanceof DatabindException rejection && !rejection.getPath().isEmpty()) {
-            return violation(wirePath(rejection.getPath()), INVALID_VALUE);
-        }
-        if (cause instanceof DatabindException) {
-            return violation(BODY_FIELD, INVALID_VALUE);
-        }
         return violation(BODY_FIELD, UNREADABLE);
+    }
+
+    /** Whether Jackson read the JSON but refused a value in it, rather than failing to read the text. */
+    private static boolean refusesAValue(JacksonException failure) {
+        return failure instanceof DatabindException || failure instanceof InputCoercionException;
     }
 
     /**
