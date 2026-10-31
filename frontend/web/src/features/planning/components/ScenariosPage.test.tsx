@@ -232,6 +232,19 @@ describe('ScenariosPage', () => {
     });
 });
 
+describe('ScenariosPage list heading', () => {
+    it('Given_scenarios_When_rendered_Then_their_table_sits_under_its_own_heading', async () => {
+        fakeFetch(ledger([], [BASELINE]));
+        renderScenarios();
+
+        const list = await screen.findByRole('region', { name: 'All scenarios' });
+        expect(
+            within(list).getByRole('heading', { level: 2, name: 'All scenarios' }),
+        ).toBeDefined();
+        expect(await within(list).findByRole('table', { name: 'Scenarios' })).toBeDefined();
+    });
+});
+
 describe('ScenariosPage define-scenario form', () => {
     it('Given_a_read_only_session_When_the_page_renders_Then_the_define_form_is_not_offered_but_the_list_stays', async () => {
         fakeFetch(ledger([], [BASELINE]));

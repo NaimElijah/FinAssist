@@ -24,7 +24,7 @@ import { routes } from './routes';
 const AREAS = [
     { heading: 'Accounts', path: '/accounts' },
     { heading: 'Budgets', path: '/budgets' },
-    { heading: 'Planning', path: '/planning' },
+    { heading: 'Planning', path: '/planning', screenHeading: 'Planned flows' },
     { heading: 'Portfolio', path: '/portfolio' },
 ] as const;
 
@@ -153,13 +153,44 @@ describe('App', () => {
         ).toEqual([null, 'page', null, null]);
     });
 
-    for (const { heading, path } of AREAS) {
-        it(`Given_the_path_${path.slice(1)}_When_rendered_Then_its_heading_names_the_area`, async () => {
+    for (const area of AREAS) {
+        const { heading, path } = area;
+        // An area with several screens opens on one, which its heading names instead.
+        const screenHeading = 'screenHeading' in area ? area.screenHeading : heading;
+        it(`Given_the_path_${path.slice(1)}_When_rendered_Then_its_heading_names_the_area_or_its_first_screen`, async () => {
             renderAt(path);
 
-            expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeDefined();
+            expect(
+                await screen.findByRole('heading', { level: 1, name: screenHeading }),
+            ).toBeDefined();
         });
     }
+
+    for (const { path, heading } of [
+        { path: '/planning/flows', heading: 'Planned flows' },
+        { path: '/planning/scenarios', heading: 'Scenarios' },
+        { path: '/planning/projection', heading: 'Scenario projection' },
+        { path: '/planning/compare', heading: 'Scenario comparison' },
+    ]) {
+        it(`Given_the_planning_screen_${path.slice('/planning/'.length)}_When_rendered_Then_its_level_1_heading_names_the_screen`, async () => {
+            renderAt(path, () => pendingResponse());
+
+            expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeDefined();
+            expect(screen.queryByRole('heading', { level: 1, name: 'Planning' })).toBeNull();
+        });
+    }
+
+    it('Given_planned_flows_When_the_Scenarios_tab_is_clicked_Then_focus_moves_to_a_heading_naming_scenarios', async () => {
+        // Moving between the planning screens focuses the page's heading, so the heading itself
+        // must say which screen arrived; four screens all headed "Planning" would not.
+        renderAt('/planning/flows', () => pendingResponse());
+        const tabs = await screen.findByRole('navigation', { name: 'Planning' });
+
+        await userEvent.setup().click(within(tabs).getByRole('link', { name: 'Scenarios' }));
+
+        const heading = await screen.findByRole('heading', { level: 1, name: 'Scenarios' });
+        expect(document.activeElement).toBe(heading);
+    });
 
     it('Given_an_unknown_path_When_rendered_Then_the_not_found_page_is_shown', async () => {
         renderAt('/nope');
@@ -424,7 +455,7 @@ describe('App', () => {
         expect(screen.queryByRole('button', { name: 'Add rule' })).toBeNull();
 
         await user.click(screen.getByRole('link', { name: 'Planning' }));
-        await screen.findByRole('heading', { level: 1, name: 'Planning' });
+        await screen.findByRole('heading', { level: 1, name: 'Planned flows' });
         expect(screen.queryByRole('button', { name: 'Plan flow' })).toBeNull();
 
         await user.click(screen.getByRole('link', { name: 'Scenarios' }));

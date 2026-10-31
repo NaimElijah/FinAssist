@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { useWriteAccess } from '@/shared/lib/writeAccess';
 import {
@@ -128,6 +128,7 @@ function ScenariosList({
             ) : (
                 <DataTable
                     caption="Scenarios"
+                    captionHidden
                     columns={scenarioColumns(focusedScenarioId, onFocused)}
                     rows={scenarios.data}
                     rowKey={(scenario) => scenario.id}
@@ -148,6 +149,7 @@ function ScenariosList({
  */
 export function ScenariosPage() {
     const { canWrite } = useWriteAccess();
+    const listHeadingId = useId();
     const [definedScenarioId, setDefinedScenarioId] = useState<string | undefined>(undefined);
     // Stable, so the row's focus effect does not run again on every render of the page.
     const clearDefinedScenario = useCallback(() => {
@@ -156,7 +158,15 @@ export function ScenariosPage() {
 
     return (
         <>
-            <ScenariosList focusedScenarioId={definedScenarioId} onFocused={clearDefinedScenario} />
+            <section aria-labelledby={listHeadingId} className={styles.list}>
+                <h2 id={listHeadingId} className={styles.listHeading}>
+                    All scenarios
+                </h2>
+                <ScenariosList
+                    focusedScenarioId={definedScenarioId}
+                    onFocused={clearDefinedScenario}
+                />
+            </section>
             {canWrite ? (
                 <DefineScenarioForm
                     onDefined={(scenario) => {

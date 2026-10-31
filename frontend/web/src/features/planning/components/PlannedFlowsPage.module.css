@@ -29,3 +29,17 @@
     gap: var(--space-3);
     min-width: 16rem;
 }
+
+/* The list's heading over its table, spaced like the form section that follows it. */
+.list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.listHeading {
+    margin: 0;
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-strong);
+    line-height: var(--line-height-tight);
+}

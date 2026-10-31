@@ -253,6 +253,19 @@ describe('PlannedFlowsPage', () => {
     });
 });
 
+describe('PlannedFlowsPage list heading', () => {
+    it('Given_planned_flows_When_rendered_Then_their_table_sits_under_its_own_heading', async () => {
+        fakeFetch(ledger([RENT]));
+        renderFlows();
+
+        const list = await screen.findByRole('region', { name: 'All planned flows' });
+        expect(
+            within(list).getByRole('heading', { level: 2, name: 'All planned flows' }),
+        ).toBeDefined();
+        expect(await within(list).findByRole('table', { name: 'Planned flows' })).toBeDefined();
+    });
+});
+
 describe('PlannedFlowsPage lifecycle actions', () => {
     it('Given_a_planned_flow_When_rendered_Then_its_row_offers_Commit_and_Cancel_but_not_Realise', async () => {
         fakeFetch(ledger([RENT]));

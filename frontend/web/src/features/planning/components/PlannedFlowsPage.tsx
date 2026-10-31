@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { todayIsoDate } from '@/shared/lib/today';
@@ -520,6 +520,7 @@ function PlannedFlowsList({
             ) : (
                 <DataTable
                     caption="Planned flows"
+                    captionHidden
                     columns={flowColumns(focusedFlowId, onFocused, active, openAction, closeAction)}
                     rows={flows.data}
                     rowKey={(flow) => flow.id}
@@ -542,6 +543,7 @@ function PlannedFlowsList({
  */
 export function PlannedFlowsPage() {
     const { canWrite } = useWriteAccess();
+    const listHeadingId = useId();
     const [plannedFlowId, setPlannedFlowId] = useState<string | undefined>(undefined);
     // Stable, so the row's focus effect does not run again on every render of the page.
     const clearPlannedFlow = useCallback(() => {
@@ -550,7 +552,12 @@ export function PlannedFlowsPage() {
 
     return (
         <>
-            <PlannedFlowsList focusedFlowId={plannedFlowId} onFocused={clearPlannedFlow} />
+            <section aria-labelledby={listHeadingId} className={styles.list}>
+                <h2 id={listHeadingId} className={styles.listHeading}>
+                    All planned flows
+                </h2>
+                <PlannedFlowsList focusedFlowId={plannedFlowId} onFocused={clearPlannedFlow} />
+            </section>
             {canWrite ? (
                 <PlanFlowForm
                     onPlanned={(flow) => {
