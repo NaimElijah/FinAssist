@@ -222,9 +222,9 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
     }
 
     /**
-     * {@code Budget} refuses a budget with no limits, and the schema cannot, because the limits sit in a
-     * table of their own. A stored budget with none is a server fault naming the budget, not a rule the
-     * caller broke.
+     * {@code Budget} refuses a budget with no limits, and no constraint holds that yet (#401). A stored
+     * budget with none is a server fault naming the budget, not a rule the caller broke, and it carries
+     * no cause, so the domain's refusal is never chained into what the log records.
      */
     @Test
     void Given_a_budget_stored_with_no_limits_When_read_Then_it_is_a_server_fault() {
@@ -233,7 +233,8 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
         assertThatThrownBy(() -> budgets.findById(id))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("budgeting.budget")
-                .hasMessageContaining(id.value().toString());
+                .hasMessageContaining(id.value().toString())
+                .hasNoCause();
     }
 
     /** An ILS budget for March with no limits yet, written past the aggregate so a test can add a bad one. */
