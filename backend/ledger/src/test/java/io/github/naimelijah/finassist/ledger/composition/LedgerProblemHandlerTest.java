@@ -72,6 +72,9 @@ class LedgerProblemHandlerTest {
     /** Stands in for a value the caller sent that the ledger cannot read; no type here accepts it. */
     private static final String REJECTED = "rejected-input-4b2d";
 
+    /** A well-formed id, fixed so every run sends the same body; only the line beside it is refused. */
+    private static final String READABLE_ID = "3f2c8a1e-6b4d-4e7a-9c05-d1b2a3f4e5c6";
+
     /** A whole number one past what a Java {@code int} holds, {@code Integer.MAX_VALUE + 1}. */
     private static final String OVERFLOWING_INT = "2147483648";
 
@@ -284,7 +287,7 @@ class LedgerProblemHandlerTest {
                         post("/shaped").contentType(MediaType.APPLICATION_JSON).content("""
                         {"kind": "ONE", "lines": [{"id": "%s"}, {"id": "%s"}]}
                         """.formatted(
-                                        UUID.randomUUID(), REJECTED)))
+                                        READABLE_ID, REJECTED)))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
