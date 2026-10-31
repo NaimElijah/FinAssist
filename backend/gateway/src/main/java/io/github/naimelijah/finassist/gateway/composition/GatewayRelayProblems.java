@@ -150,7 +150,8 @@ final class GatewayRelayProblems {
      * everything nothing more specific claimed, at the lowest precedence Spring gives an
      * {@code @ExceptionHandler} match.
      *
-     * <p>A framework refusal is peeled off first, at its own status and at WARN. Everything left
+     * <p>A framework refusal is peeled off first, at its own status, with its own headers ({@code
+     * Allow} on a 405) and at WARN. Everything left
      * is a 500, logged at ERROR by class name alone — never the message, never the stack trace —
      * because that branch cannot enumerate what an arbitrary exception's text might quote. A
      * status is read only from an {@link ErrorResponse}, whose contract is to carry one; the
@@ -165,6 +166,10 @@ final class GatewayRelayProblems {
             byte[] refusal = status == null ? null : FRAMEWORK_REFUSALS.get(status);
             if (refusal != null) {
                 LOG.warn("Refused a request no handler here answers: {}", status.value());
+                // The framework's headers are part of the refusal: a 405 must carry Allow (RFC 9110 §15.5.6).
+                framework
+                        .getHeaders()
+                        .forEach((name, values) -> values.forEach(value -> response.addHeader(name, value)));
                 GatewayProblems.send(response, status, refusal);
                 return;
             }
