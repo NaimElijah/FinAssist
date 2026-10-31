@@ -58,7 +58,7 @@ append-only history: to change course, add a new record and mark the old one
 | [050](ADR-050-no-domain-metric-yet-decided-again.md) | No domain metric yet, decided again, with new triggers | Accepted |
 | [051](ADR-051-what-a-translation-may-decide.md) | What a translation may decide: choosing records stays in `composition`, a rule in the downstream's own words moves into it | Accepted |
 | [052](ADR-052-ops-holds-operator-code-one-directory-per-tool.md) | `ops/` holds operator code, one directory per tool | Accepted |
-| [053](ADR-053-the-gateways-outbound-calls-speak-http-1-1-under-one-time-budget.md) | The gateway's outbound calls speak HTTP/1.1, under one time budget | Accepted, extended by 067 |
+| [053](ADR-053-the-gateways-outbound-calls-speak-http-1-1-under-one-time-budget.md) | The gateway's outbound calls speak HTTP/1.1, under one time budget | Accepted, extended by 067, which supersedes its 502-on-timeout line |
 | [054](ADR-054-each-service-ships-as-a-two-stage-image-run-as-a-non-root-user.md) | Each service ships as a two-stage image, built from source and run as a non-root user | Accepted, extended by 063 and 064 |
 | [055](ADR-055-the-assistants-development-seed-lives-in-its-composition-root.md) | The assistant's development seed lives in its composition root, and is off by default | Accepted |
 | [056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md) | The web client retries a failed read once, and never a write | Accepted |
