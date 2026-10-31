@@ -180,7 +180,8 @@ function LifecycleButtons({
 
 /**
  * The inline panel for one lifecycle action: a date defaulting to today, and a reason when
- * cancelling. Mirrors `AccountDetailPage`'s own `LifecycleActionPanel` exactly.
+ * cancelling. Mirrors `AccountDetailPage`'s own `LifecycleActionPanel`, but for its heading level,
+ * which follows this page's outline.
  *
  * On success it refetches what the transition can change (see `planQueries.ts`) and closes. On
  * failure - including a 409 `ILLEGAL_TRANSITION` when the server no longer agrees this row's
@@ -249,7 +250,8 @@ function LifecycleActionPanel({
     return (
         <ActionPanel
             title={`${ACTION_TITLES[kind]}: ${rowName}`}
-            headingLevel={2}
+            // An h3: the panel opens inside the list's "All planned flows" section, an h2.
+            headingLevel={3}
             submitLabel={SUBMIT_LABELS[kind]}
             onSubmit={submit}
             onCancel={() => {

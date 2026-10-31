@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '@/shared/api/client';
 import { type LogRecord, setLogSink } from '@/shared/lib/logger';
+import type { RouteHandle } from '@/shared/lib/routeHandle';
+
 import { RouteError } from './RouteError';
 
 const DETAIL = 'Account "Joint savings" is closed.';
@@ -28,9 +30,25 @@ function Home() {
     return <p>home</p>;
 }
 
-/** Render a one-route router whose component throws, with RouteError as its boundary. */
-function renderRoute(Component: () => never) {
-    const router = createMemoryRouter([{ path: '/', Component, ErrorBoundary: RouteError }]);
+/**
+ * Render a one-route router whose component throws, with RouteError as its boundary, the route
+ * declaring `handle` when one is given.
+ */
+function renderRoute(Component: () => never, handle?: RouteHandle) {
+    const router = createMemoryRouter([
+        { path: '/', Component, ErrorBoundary: RouteError, handle },
+    ]);
+    render(<RouterProvider router={router} />);
+}
+
+/**
+ * Render a titled area's pathless boundary over a child route that throws, as routes.tsx mounts
+ * every area: the title the screen would have had belongs to the matched child.
+ */
+function renderAreaRoute(Component: () => never, handle: RouteHandle) {
+    const router = createMemoryRouter([
+        { ErrorBoundary: RouteError, children: [{ path: '/', Component, handle }] },
+    ]);
     render(<RouterProvider router={router} />);
 }
 
@@ -69,6 +87,21 @@ describe('RouteError', () => {
         expect((await screen.findByRole('alert')).textContent).toBe(
             'Something went wrong. Try again, and reload the page if it keeps happening.',
         );
+    });
+
+    it('Given_a_titled_route_that_throws_When_rendered_Then_a_level_1_heading_names_the_route', async () => {
+        // The layout moves focus to the page's h1 on navigation; a failed page needs one too, so
+        // focus lands on a heading naming where the person is rather than on an unnamed main.
+        renderAreaRoute(ExplodingWithError, { title: 'Budgets' });
+
+        expect(await screen.findByRole('heading', { level: 1, name: 'Budgets' })).toBeDefined();
+        expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    });
+
+    it('Given_an_untitled_route_that_throws_When_rendered_Then_a_level_1_heading_says_the_page_failed', async () => {
+        renderRoute(ExplodingWithError);
+
+        expect(await screen.findByRole('heading', { level: 1, name: 'Page error' })).toBeDefined();
     });
 
     it('Given_a_route_that_throws_an_ApiError_When_rendered_Then_the_problem_detail_is_shown', async () => {

@@ -264,6 +264,29 @@ describe('PlannedFlowsPage list heading', () => {
         ).toBeDefined();
         expect(await within(list).findByRole('table', { name: 'Planned flows' })).toBeDefined();
     });
+
+    it('Given_a_lifecycle_action_opened_When_its_panel_renders_Then_its_title_is_an_h3_inside_the_list_section', async () => {
+        // The panel opens inside "All planned flows", an h2, so an h2 of its own would leave the
+        // section's outline and stand beside it rather than under it (WCAG 1.3.1).
+        fakeFetch(ledger([RENT]));
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', {
+                name: 'Commit Rent, starting 1 Sept 2026',
+            }),
+        );
+
+        const list = screen.getByRole('region', { name: 'All planned flows' });
+        expect(
+            within(list).getByRole('heading', {
+                level: 3,
+                name: 'Commit planned flow: Rent, starting 1 Sept 2026',
+            }),
+        ).toBeDefined();
+    });
 });
 
 describe('PlannedFlowsPage lifecycle actions', () => {
