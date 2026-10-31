@@ -40,7 +40,7 @@ interface TitleClaim {
 
 /**
  * The page's level-1 heading inside `main`, made focusable by script if its page did not already
- * do so, or `main` itself when the page has none, such as a route's error.
+ * do so, or `main` itself when a page has none, which no screen does today.
  *
  * Every page opens with one h1 naming it, so focus on it tells a screen reader where it is, where
  * an unnamed main region would say only "main". The attribute is set here rather than on every
@@ -86,7 +86,7 @@ function documentTitle(
  *   such as `/` to `/accounts`, and leaves focus alone, so on first load a keyboard user's first
  *   Tab still reaches the skip link. A page that swaps its heading for another once its data
  *   loads, such as an account's "Account" for the account's name, takes focus along to the new
- *   one while it still rests nowhere. The same heading is named to `SessionGate`, through
+ *   one while focus still rests on the old. The same heading is named to `SessionGate`, through
  *   `PageFocusTargetContext`, as where a retried session check that succeeds puts focus.
  */
 export function Layout() {
