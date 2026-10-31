@@ -312,6 +312,33 @@ describe('App', () => {
         expect(document.activeElement).toBe(heading);
     });
 
+    it('Given_the_Accounts_area_When_Planning_is_clicked_Then_the_heading_names_planned_flows_as_it_takes_focus', async () => {
+        // /planning redirects to its flows screen. A screen reader speaks the heading as focus
+        // lands on it, so it must already name the screen then, not "Planning" renamed a moment
+        // later, which nothing would announce.
+        renderAt('/accounts');
+        const primary = await screen.findByRole('navigation', { name: 'Primary' });
+        const headingTextsOnFocus: (string | null)[] = [];
+        const noteHeadingFocus = (event: FocusEvent) => {
+            if (event.target instanceof HTMLHeadingElement) {
+                headingTextsOnFocus.push(event.target.textContent);
+            }
+        };
+        document.addEventListener('focusin', noteHeadingFocus);
+
+        try {
+            await userEvent.setup().click(within(primary).getByRole('link', { name: 'Planning' }));
+            const heading = await screen.findByRole('heading', { level: 1, name: 'Planned flows' });
+            await waitFor(() => {
+                expect(document.activeElement).toBe(heading);
+            });
+        } finally {
+            document.removeEventListener('focusin', noteHeadingFocus);
+        }
+
+        expect(headingTextsOnFocus).toEqual(['Planned flows']);
+    });
+
     it('Given_a_page_whose_heading_is_replaced_once_its_data_loads_When_navigated_to_Then_focus_follows_to_the_new_heading', async () => {
         // Starting on Budgets leaves the accounts list uncached, so the account page first
         // renders its loading heading and then replaces it with the account's own.
