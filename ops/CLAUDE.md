@@ -28,8 +28,9 @@ One directory per tool, none of them a deployable service of this repository's (
   script naming the exemptions so that a new service is held to both; no `cap_add` or
   `privileged` on any service, the databases included; `db` and `keycloak-db` each on a network
   of its own shared with its one client alone, `books` with the ledger and `identity` with
-  Keycloak (ADR-063); no
-  `network_mode` on any service but `secret-check`, whose is exactly `none`; exactly one
+  Keycloak, compared by the Docker network each key resolves to, so no other key may resolve to
+  either, and neither one `external` (ADR-063); no `network_mode` on any service but
+  `secret-check`, whose is exactly `none`; exactly one
   `--web.cors.origin=` in Prometheus's `command`, the empty regex (ADR-057); and no
   `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON` key, in any
   spelling, nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS`, in the ledger's or the

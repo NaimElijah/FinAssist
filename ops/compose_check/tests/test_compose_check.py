@@ -195,6 +195,11 @@ def _conforming() -> dict[str, Any]:
                 }
             ),
         },
+        "networks": {
+            "books": {"name": "finassist_books", "ipam": {}},
+            "default": {"name": "finassist_default", "ipam": {}},
+            "identity": {"name": "finassist_identity", "ipam": {}},
+        },
     }
 
 
@@ -953,6 +958,61 @@ def Given_another_service_on_a_databases_network_When_checked_Then_it_is_named(
     assert lines == [f"{service}: must not attach to the {network} network"]
 
 
+@pytest.mark.parametrize("external", [False, True], ids=["project", "external"])
+@pytest.mark.parametrize(("network", "service"), [("books", "assistant"), ("identity", "gateway")])
+def Given_another_network_key_resolving_to_a_databases_network_When_checked_Then_both_are_named(
+    network: str, service: str, external: bool, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    alias: dict[str, Any] = {"name": resolved["networks"][network]["name"], "ipam": {}}
+    if external:
+        alias["external"] = True
+    resolved["networks"]["shared"] = alias
+    resolved["services"][service]["networks"]["shared"] = None
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        f"the shared network must not resolve to the same network as {network}",
+        f"{service}: must not attach to the {network} network",
+    ]
+
+
+def Given_books_resolving_to_the_default_networks_name_When_checked_Then_each_joiner_is_named(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    resolved["networks"]["books"]["name"] = resolved["networks"]["default"]["name"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        "the default network must not resolve to the same network as books",
+        "assistant: must not attach to the books network",
+        "auth-smoke: must not attach to the books network",
+        "gateway: must not attach to the books network",
+        "grafana: must not attach to the books network",
+        "keycloak: must not attach to the books network",
+        "otel-collector: must not attach to the books network",
+        "prometheus: must not attach to the books network",
+    ]
+
+
+@pytest.mark.parametrize("network", ["books", "identity"])
+def Given_a_databases_network_declared_external_When_checked_Then_it_is_named(
+    network: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["networks"][network]["external"] = True
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"the {network} network must not be external"]
+
+
 # --- Prometheus grants no origin (ADR-057), and no namespace is shared --------------------------
 
 
@@ -1086,6 +1146,31 @@ def Given_input_that_is_not_json_When_checked_Then_it_is_refused_without_quoting
             "x-logging": BOUNDED_LOGS,
             "services": {"assistant": _long_running(networks=SECRET)},
         },
+        # `config` resolves the top-level networks to mappings, each with the name Docker uses.
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {},
+            "networks": [SECRET],
+        },
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {},
+            "networks": {"books": SECRET},
+        },
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {},
+            "networks": {"books": {"external": True}},
+        },
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {"assistant": _long_running(networks={"undeclared": None})},
+            "networks": {},
+        },
     ],
     ids=[
         "not-a-mapping",
@@ -1097,6 +1182,10 @@ def Given_input_that_is_not_json_When_checked_Then_it_is_refused_without_quoting
         "ports-a-mapping",
         "port-a-string",
         "networks-a-string",
+        "top-level-networks-a-list",
+        "network-a-string",
+        "network-without-a-name",
+        "network-undeclared",
     ],
 )
 def Given_json_not_shaped_like_a_resolved_file_When_checked_Then_it_is_refused_without_a_value(

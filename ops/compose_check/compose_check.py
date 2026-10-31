@@ -12,8 +12,9 @@ must bind `127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `a
 behind exactly the `smoke` profile and `secret-check` behind none (ADR-034, ADR-044). Every
 service but the two databases must take the `x-hardened` block's `cap_drop` and `security_opt`,
 and every one but those and Keycloak must set `read_only`; no service, a database included, may
-set `cap_add` or `privileged`; and each database
-must attach to one network alone, shared with its one client and nothing else (ADR-063). No
+set `cap_add` or `privileged`; and each database must attach to one network alone, shared with
+its one client and nothing else, judged by the Docker network each key resolves to, so that no
+other key may resolve to it, and neither database network may be `external` (ADR-063). No
 service may set `network_mode` but `secret-check`, whose must be exactly `none`, and Prometheus's
 `command` must carry exactly `--web.cors.origin=`, the empty regex, which grants no origin
 (ADR-057). Neither the ledger nor the gateway may set, in its environment, a key that reopens
@@ -125,8 +126,10 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
     """Every way `resolved`, the output of `docker compose config --format json`, breaks a
     convention: one line per problem, services in name order, and none when it follows them all.
 
-    :raises ComposeCheckError: when `services`, a service, an environment, a healthcheck, a port or
-        a service's networks is not a mapping, or a service's `ports` is not a list.
+    :raises ComposeCheckError: when `services`, a service, an environment, a healthcheck, a port,
+        a service's networks, the top-level `networks` or a network in it is not a mapping, a
+        service's `ports` is not a list, a network has no name, or a service names a network the
+        file does not declare.
     """
     services = _mapping(resolved.get("services"), "services")
     policy = resolved.get(RESTART_BLOCK)
@@ -139,6 +142,9 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
             f"the resolved file's {HARDENED_BLOCK} block must drop {', '.join(NO_CAPABILITIES)} "
             f"and set {', '.join(NO_NEW_PRIVILEGES)}"
         )
+    declared_networks = _mapping(resolved.get("networks") or {}, "networks")
+    networks = _network_names(declared_networks)
+    found.extend(_database_network_problems(declared_networks, networks))
     for name, definition in sorted(services.items()):
         service = _mapping(definition, "a service")
         if name in ONE_SHOT_SERVICES:
@@ -165,7 +171,7 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
         if name in UNPUBLISHED_SERVICES and ports:
             found.append(f"{name}: must publish no ports")
         found.extend(_hardening_problems(name, service))
-        found.extend(_network_problems(name, service))
+        found.extend(_network_problems(name, service, networks))
         found.extend(_network_mode_problems(name, service))
     for name, profiles in sorted(PINNED_PROFILES.items()):
         service = _mapping(services.get(name) or {}, "a service")
@@ -208,18 +214,56 @@ def _hardening_problems(name: str, service: Mapping[str, object]) -> list[str]:
     return found
 
 
-def _network_problems(name: str, service: Mapping[str, object]) -> list[str]:
+def _network_names(declared: Mapping[str, object]) -> dict[str, str]:
+    """Each top-level network key mapped to the Docker network it resolves to.
+
+    Two keys naming one Docker network are one network, so the database rules compare these names,
+    never the keys.
+    """
+    names: dict[str, str] = {}
+    for key, definition in declared.items():
+        name = _mapping(definition, "a network").get("name")
+        if not isinstance(name, str):
+            raise ComposeCheckError("a network has no name")
+        names[key] = name
+    return names
+
+
+def _database_network_problems(
+    declared: Mapping[str, object], names: Mapping[str, str]
+) -> list[str]:
+    found: list[str] = []
+    for own in sorted(DATABASE_NETWORK_MEMBERS):
+        if own not in names:
+            continue
+        # An external network is one another project, or anything on the host, can also join.
+        if _mapping(declared[own], "a network").get("external"):
+            found.append(f"the {own} network must not be external")
+        found.extend(
+            f"the {key} network must not resolve to the same network as {own}"
+            for key in sorted(names)
+            if key != own and names[key] == names[own]
+        )
+    return found
+
+
+def _network_problems(
+    name: str, service: Mapping[str, object], names: Mapping[str, str]
+) -> list[str]:
     # `config` leaves `networks` out under `network_mode`, so a database moved onto the host's
     # network, or another container's, attaches to none of its own and fails here.
-    networks = set(_mapping(service.get("networks") or {}, "a service's networks"))
+    keys = _mapping(service.get("networks") or {}, "a service's networks")
+    if any(key not in names for key in keys):
+        raise ComposeCheckError("a service's network is not declared")
+    attached = {names[key] for key in keys}
     found: list[str] = []
     own = DATABASE_NETWORKS.get(name)
-    if own is not None and networks != {own}:
+    if own is not None and attached != {names.get(own)}:
         found.append(f"{name}: must attach to the {own} network alone")
     found.extend(
         f"{name}: must not attach to the {network} network"
         for network, members in sorted(DATABASE_NETWORK_MEMBERS.items())
-        if network in networks and name not in members
+        if network in names and names[network] in attached and name not in members
     )
     return found
 
