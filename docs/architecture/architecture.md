@@ -389,7 +389,12 @@ hand rather than by a Jackson polymorphism annotation (ADR-028): HTTP → `HostA
 answered 409, each by its own context's advice, which runs at the highest precedence. Spring
 MVC's own failures — an unknown route, a non-JSON body, a malformed decimal or UUID — keep their
 own statuses (404, 415, 400) through the composition root's fallback, `LedgerProblemHandler`, at
-the lowest precedence, which answers everything no context's advice claimed. **A body declared as
+the lowest precedence, which answers everything no context's advice claimed. **A 400 for a body,
+a parameter or a constraint lists `errors`**, each a `field` and a `message`: a constraint's
+field, a body member Jackson refused by its path (`entries[1].amount.currency`), a path or query
+parameter of the wrong type or left out by its name, and `body` for unparseable JSON or no body.
+Neither the entry nor the detail quotes what was sent, as on the assistant
+([ADR-028](../ADRs/ADR-028-http-wire-conventions.md)). **A body declared as
 multipart that cannot be parsed, one whose type names no boundary say, is 400
 `MALFORMED_REQUEST`**: Spring MVC parses multipart before it chooses a route, a `GET`'s included,
 and nothing in the ledger takes multipart, so the fallback treats the failure as the request's ([ADR-058](../ADRs/ADR-058-each-service-bounds-what-one-request-can-cost.md)). **A path Spring Security's

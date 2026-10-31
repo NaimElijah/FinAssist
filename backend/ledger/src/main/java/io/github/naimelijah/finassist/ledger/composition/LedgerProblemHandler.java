@@ -2,9 +2,11 @@ package io.github.naimelijah.finassist.ledger.composition;
 
 import io.github.naimelijah.finassist.ledger.shared.CurrencyMismatchException;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.core.Ordered;
@@ -14,10 +16,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
@@ -25,6 +29,9 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.exc.StreamReadException;
+import tools.jackson.databind.DatabindException;
 
 /**
  * Answers every failure no context claims as an RFC 9457 problem with a stable {@code code} (ADR-028).
@@ -42,8 +49,13 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * <ul>
  *   <li>a failure Spring MVC raised is coded from its status: 400 {@code MALFORMED_REQUEST}, 404
  *       {@code NOT_FOUND}, 405 {@code METHOD_NOT_ALLOWED}, 406 {@code NOT_ACCEPTABLE}, 409 {@code
- *       CONFLICT}, 413 {@code CONTENT_TOO_LARGE} and 415 {@code UNSUPPORTED_MEDIA_TYPE}. Bean-validation
- *       failures also list each rejection under {@code errors};
+ *       CONFLICT}, 413 {@code CONTENT_TOO_LARGE} and 415 {@code UNSUPPORTED_MEDIA_TYPE}. A malformed
+ *       request also lists what was rejected under {@code errors}, each entry a {@code field} and a
+ *       {@code message}: every bean-validation failure; a body member Jackson refused, by its path
+ *       ({@code entries[1].amount.currency}); a path or query parameter of the wrong type, or a
+ *       required one left out, by its name; and unparseable JSON or a missing body as {@code body}.
+ *       For the last three, the message and the detail are fixed, never Jackson's or Spring's, which
+ *       can quote what was sent (ADR-019);
  *   <li>{@link IllegalArgumentException} is 422 {@code RULE_VIOLATED}, with the exception's message as
  *       the detail. It signals that a well-formed request broke a rule: the domain raises it for its own
  *       invariants, and an inbound adapter for a rule about the request itself, such as a period that
@@ -78,6 +90,22 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
 
     private static final String UNPARSEABLE_MULTIPART_DETAIL =
             "The request declares a multipart body that cannot be parsed; the ledger reads JSON only.";
+
+    /** The assistant's detail for the same problem, so the two services read alike. */
+    private static final String MALFORMED_REQUEST_DETAIL =
+            "The request could not be read; each entry in errors names why.";
+
+    /**
+     * The {@code field} of an entry that blames the whole body, as the assistant's does when it cannot
+     * take a body whole. Unparseable JSON has no member to name.
+     */
+    private static final String BODY_FIELD = "body";
+
+    // Each reason is fixed, never the parser's or the converter's message, which quote what was sent.
+    private static final String INVALID_VALUE = "is not a valid value";
+    private static final String REQUIRED_VALUE = "is required";
+    private static final String NOT_JSON = "is not valid JSON";
+    private static final String UNREADABLE = "could not be read";
 
     /**
      * The code for each status Spring MVC can raise on its own. Keyed by status value, so a status with no
@@ -169,6 +197,35 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
                 exception, ProblemDetail.forStatus(HttpStatus.INTERNAL_SERVER_ERROR), Problems.INTERNAL_ERROR, request);
     }
 
+    /**
+     * A body that cannot be read into the handler's parameter. Jackson's message quotes the input, so
+     * neither it nor the converter's detail, which repeats it, reaches the wire.
+     */
+    @Override
+    protected ResponseEntity<Object> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException exception, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        return malformed(exception, unreadableBody(exception.getCause()), headers, status, request);
+    }
+
+    /**
+     * A path or query parameter that cannot be converted to its type. Spring's own detail quotes the
+     * value, so it is replaced.
+     */
+    @Override
+    protected ResponseEntity<Object> handleTypeMismatch(
+            TypeMismatchException exception, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        return malformed(exception, violation(exception.getPropertyName(), INVALID_VALUE), headers, status, request);
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleMissingServletRequestParameter(
+            MissingServletRequestParameterException exception,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request) {
+        return malformed(exception, violation(exception.getParameterName(), REQUIRED_VALUE), headers, status, request);
+    }
+
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException exception, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
@@ -247,6 +304,60 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
                 exception, problem, new HttpHeaders(), HttpStatusCode.valueOf(problem.getStatus()), request);
     }
 
+    /** A malformed request that one input explains, answered with a fixed detail and that one entry. */
+    private ResponseEntity<Object> malformed(
+            Exception exception,
+            Map<String, String> violation,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, MALFORMED_REQUEST_DETAIL);
+        problem.setProperty(Problems.ERRORS_MEMBER, List.of(violation));
+        return handleExceptionInternal(exception, problem, headers, status, request);
+    }
+
+    /**
+     * The entry for a body that could not be read, from what the converter wrapped. A member Jackson
+     * refused is named by its path; a failure with no member to name, unparseable JSON or no body at all,
+     * names {@link #BODY_FIELD}.
+     *
+     * <p>A {@link StreamReadException} is checked first because it means the text is not JSON at all,
+     * whatever member the parser had reached.
+     */
+    private static Map<String, String> unreadableBody(Throwable cause) {
+        if (cause instanceof StreamReadException) {
+            return violation(BODY_FIELD, NOT_JSON);
+        }
+        if (cause instanceof DatabindException rejection && !rejection.getPath().isEmpty()) {
+            return violation(wirePath(rejection.getPath()), INVALID_VALUE);
+        }
+        if (cause instanceof DatabindException) {
+            return violation(BODY_FIELD, INVALID_VALUE);
+        }
+        return violation(BODY_FIELD, UNREADABLE);
+    }
+
+    /**
+     * Jackson's path in the form bean validation names a field, {@code entries[1].amount.currency}, so a
+     * client finds a member under one name whichever of the two refused it. Jackson builds each reference
+     * from either a member's wire name or an element's index.
+     */
+    private static String wirePath(List<JacksonException.Reference> path) {
+        StringBuilder field = new StringBuilder();
+        for (JacksonException.Reference reference : path) {
+            String name = reference.getPropertyName();
+            if (name == null) {
+                field.append('[').append(reference.getIndex()).append(']');
+            } else {
+                if (!field.isEmpty()) {
+                    field.append('.');
+                }
+                field.append(name);
+            }
+        }
+        return field.toString();
+    }
+
     /**
      * A status outside the table, a 5xx or a 4xx alike, is {@code INTERNAL_ERROR}: the ledger never means to
      * send one. A code is never derived from an {@link HttpStatus} constant's name, because a code is
@@ -261,9 +372,13 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
      * wire, and because Spring may have no message to give where {@code Map.of} refuses a null.
      */
     private static Map<String, String> violation(MessageSourceResolvable error, String subject) {
+        return violation(error instanceof FieldError field ? field.getField() : subject, error.getDefaultMessage());
+    }
+
+    private static Map<String, String> violation(String field, String message) {
         Map<String, String> violation = new LinkedHashMap<>();
-        violation.put(Problems.FIELD_MEMBER, error instanceof FieldError field ? field.getField() : subject);
-        violation.put(Problems.MESSAGE_MEMBER, error.getDefaultMessage());
+        violation.put(Problems.FIELD_MEMBER, field);
+        violation.put(Problems.MESSAGE_MEMBER, message);
         return violation;
     }
 }
