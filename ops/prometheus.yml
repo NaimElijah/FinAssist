@@ -1,8 +1,12 @@
 # Scrape configuration for the local monitoring profile.
 #
-# The ledger is scraped directly rather than pushing metrics through the collector: Actuator
-# already serves /actuator/prometheus, and one hop is easier to debug than two. The collector is
-# scraped as well, for anything a service pushes over OTLP.
+# The ledger is scraped directly: Actuator already serves /actuator/prometheus, and one hop is
+# easier to debug than two. The collector is scraped as well, for anything a service pushes over
+# OTLP. With OTEL_EXPORT_ENABLED=true the ledger pushes its metrics too, so they arrive twice: as
+# job="finassist-ledger" from the scrape, and as job="otel-collector" with
+# exported_job="finassist-ledger" from the push. The provisioned dashboard selects
+# job="finassist-ledger" alone, so it counts nothing twice; an ad-hoc query must select by `job`
+# as well, or it sums both copies.
 
 global:
   scrape_interval: 15s
