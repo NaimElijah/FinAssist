@@ -274,7 +274,9 @@ class GatewayRelayProblemsTest {
 
     /**
      * The two failures are logged apart, at WARN, by a fixed line: the exception's message names
-     * the relayed URL and its query, and is never written, nor the exception attached.
+     * the relayed URL and its query, and is never written, nor the exception attached. Each line
+     * says what its own failure means to whoever reads it, so swapping them would mislead: a
+     * timeout's outcome is unknown, while a connection never opened sent nothing (ADR-067).
      */
     @Test
     void Given_a_read_timeout_and_a_connection_never_opened_When_each_is_logged_Then_each_is_a_distinct_fixed_warn()
@@ -291,6 +293,14 @@ class GatewayRelayProblemsTest {
             assertThat(line.getThrowableProxy()).isNull();
         });
         assertThat(captured.list.get(0).getFormattedMessage())
-                .isNotEqualTo(captured.list.get(1).getFormattedMessage());
+                .as("the read timeout's line")
+                .contains("did not answer in time")
+                .contains("outcome is unknown")
+                .doesNotContain("could not be reached");
+        assertThat(captured.list.get(1).getFormattedMessage())
+                .as("the unopened connection's line")
+                .contains("could not be reached")
+                .doesNotContain("in time")
+                .doesNotContain("outcome is unknown");
     }
 }
