@@ -58,6 +58,8 @@ READ_ONLY_SERVICES = [
     "prometheus",
     "secret-check",
 ]
+# Each database and the one network it may attach to.
+DATABASE_NETWORKS = [("db", "books"), ("keycloak-db", "identity")]
 PROMETHEUS_COMMAND = [
     "--config.file=/etc/prometheus/prometheus.yml",
     "--storage.tsdb.retention.time=7d",
@@ -891,7 +893,7 @@ def Given_a_read_only_service_with_a_writable_root_When_checked_Then_it_is_named
     assert lines == [f"{service}: needs read_only: true"]
 
 
-@pytest.mark.parametrize(("service", "network"), sorted(compose_check.DATABASE_NETWORKS.items()))
+@pytest.mark.parametrize(("service", "network"), DATABASE_NETWORKS)
 @pytest.mark.parametrize(
     "networks",
     [{"default": None}, "both", {}],
