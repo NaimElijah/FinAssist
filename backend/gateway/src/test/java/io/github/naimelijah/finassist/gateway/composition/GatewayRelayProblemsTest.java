@@ -35,8 +35,8 @@ import tools.jackson.databind.json.JsonMapper;
  * What {@link GatewayRelayProblems#relayFailed} answers for a failure that is neither an {@code
  * OAuth2AuthorizationException} nor a {@code ResourceAccessException} — the one branch
  * {@code GatewayLoginFlowIT}'s relay tests never reach, so this is its standing regression test —
- * and how {@link GatewayRelayProblems#upstreamFailed} tells a request the upstream never received
- * from one whose outcome is unknown (ADR-067).
+ * and how {@link GatewayRelayProblems#upstreamFailed} tells a connection never opened from a
+ * request whose outcome is unknown (ADR-067).
  *
  * <p>Called directly rather than through a running gateway and a fault-injecting fake: each
  * handler takes only the exception and the response, so it needs neither a route nor a Spring

@@ -25,7 +25,7 @@ import tools.jackson.databind.json.JsonMapper;
  * A relayed request to an upstream that accepts it and then never answers is given up on, and
  * answered {@code 504 UPSTREAM_TIMEOUT}, rather than holding a Tomcat thread for ever (ADR-067).
  * The upstream received the request, so the gateway cannot say it was not applied, and the answer
- * is not the {@code 502 UPSTREAM_UNAVAILABLE} that tells the owner nothing arrived.
+ * is not the {@code 502 UPSTREAM_UNAVAILABLE} of a connection never opened.
  *
  * <p>{@code GatewayLoginFlowIT.UpstreamsDown} covers an upstream that refuses the connection, which
  * fails at once, says nothing about a read timeout, and stays a {@code 502}. {@code GatewayApplicationIT} pins the
