@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // Renders a data router whose route throws, so it needs a DOM.
 
-import { render, screen } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { render, screen, waitFor } from '@testing-library/react';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,8 +10,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/shared/api/client';
 import { type LogRecord, setLogSink } from '@/shared/lib/logger';
 import type { RouteHandle } from '@/shared/lib/routeHandle';
+import { fakeFetch, pendingResponse } from '@/shared/testing/fakeFetch';
 
+import { createQueryClient } from './queryClient';
 import { RouteError } from './RouteError';
+import { routes } from './routes';
 
 const DETAIL = 'Account "Joint savings" is closed.';
 
@@ -139,5 +143,51 @@ describe('RouteError', () => {
         expect(failures).toHaveLength(1);
         expect(failures[0]).toMatchObject({ level: 'error', status: 409, code: 'ACCOUNT_CLOSED' });
         expect(JSON.stringify(failures[0])).not.toContain('Joint savings');
+    });
+});
+
+describe('RootRouteError', () => {
+    let written: LogRecord[] = [];
+    let restoreSink: () => void = () => undefined;
+
+    beforeEach(() => {
+        written = [];
+        restoreSink = setLogSink((record) => written.push(record));
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+        restoreSink();
+        vi.restoreAllMocks();
+    });
+
+    /**
+     * Render the app's real route table with no session provider: `Layout`'s user menu then
+     * throws, so the failure is the layout's own and only the root route's boundary can catch it.
+     */
+    function renderWithFailingLayout(path: string) {
+        fakeFetch(() => pendingResponse());
+        const router = createMemoryRouter(routes, { initialEntries: [path] });
+        render(
+            <QueryClientProvider client={createQueryClient()}>
+                <RouterProvider router={router} />
+            </QueryClientProvider>,
+        );
+    }
+
+    it('Given_the_layout_itself_throws_When_rendered_Then_the_failure_has_a_main_one_h1_naming_the_route_and_a_document_title', async () => {
+        // Layout's own <main>, heading and title went with it, so the boundary must bring its own
+        // (WCAG 1.3.1, 2.4.2, 2.4.6), and one h1 only: the page frame's, not a second of its own.
+        renderWithFailingLayout('/budgets');
+
+        const main = await screen.findByRole('main');
+        expect(main.contains(screen.getByRole('alert'))).toBe(true);
+        const headings = screen.getAllByRole('heading', { level: 1 });
+        expect(headings.map((heading) => heading.textContent)).toEqual(['Budgets']);
+        await waitFor(() => {
+            expect(document.title).toBe('Budgets · FinAssist');
+        });
+        expect(written.filter((record) => record.event === 'route failed')).toHaveLength(1);
     });
 });
