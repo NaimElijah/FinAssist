@@ -268,8 +268,9 @@ services:
     restart: *restart-policy
     logging: *bounded-logs
     <<: *hardened
-    # Not `read_only`, unlike the other hardened services: it writes its transaction log under
-    # /opt/keycloak/data/transaction-logs, which a tmpfs would lose on every restart (ADR-063).
+    # Not `read_only`, unlike the other hardened services: it writes its transaction store under
+    # /opt/keycloak/data/transaction-logs, and a read-only root with that store on a tmpfs is
+    # untested against every kc.sh recipe in operations.md (ADR-063, #394).
     # `default` for the services that fetch tokens and keys, `identity` for its database.
     networks: [default, identity]
     depends_on:

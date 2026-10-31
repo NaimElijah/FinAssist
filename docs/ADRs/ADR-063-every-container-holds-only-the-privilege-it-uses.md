@@ -81,8 +81,11 @@ entrypoint uses, and set `no-new-privileges`.
   - Grafana, for the plugin archives it downloads at start-up.
 - **Everything else these services write goes to a named volume:** Prometheus's TSDB and Grafana's
   database.
-- **Keycloak and the two databases stay writable.** Keycloak writes its transaction log under
-  `/opt/keycloak/data/transaction-logs`, and a tmpfs there would lose it on every restart.
+- **Keycloak and the two databases stay writable.** Keycloak writes its transaction store under
+  `/opt/keycloak/data/transaction-logs`. With XA off, its default, the store holds nothing to
+  recover, so a tmpfs there is probably safe, but a read-only Keycloak is untested against the
+  `kc.sh` recipes in `docs/operations/operations.md`
+  ([#394](https://github.com/NaimElijah/FinAssist/issues/394)).
 
 **Each database shares a network with its one client alone.**
 
@@ -191,8 +194,9 @@ As every one of its reports does, each refusal names the service and the member,
 
 - **Make `books` `internal: true` too.** Rejected while `db` publishes a loopback port, since an
   internal-only network cannot publish one. **Revisit with** #388.
-- **Read-only Keycloak with a tmpfs over its data directory.** Rejected: its transaction log would
-  not survive a restart. **Revisit when** Keycloak's data directory moves to a volume of its own.
+- **Read-only Keycloak with a tmpfs over its transaction store.** Deferred, not rejected: the store
+  holds nothing to recover with XA off, and `docker compose down` discards it anyway, but nothing
+  has yet run Keycloak's recipes against a read-only root (#394).
 - **Harden the databases with five capabilities added back.** The scan's run showed that
   PostgreSQL 18 starts with `CHOWN`, `SETUID`, `SETGID`, `DAC_OVERRIDE` and `FOWNER` alone. Not
   done here; tracked by #386, which first finds the smallest set.

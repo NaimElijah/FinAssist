@@ -780,20 +780,20 @@ namespace through `pid`, `ipc`, `userns_mode` or `uts`, takes a host device, run
 yet, such as a bind of its directory, are #389. Every service but those two and Keycloak also runs
 on a read-only root filesystem: the ledger, the gateway and Grafana with a tmpfs on `/tmp` (the
 JVMs' perf data and Tomcat's work directories; Grafana's plugin downloads), the rest with none,
-Prometheus and Grafana writing only to their volumes. Keycloak writes its transaction log to
-`/opt/keycloak/data/transaction-logs`, so its root stays writable; its image gives the runtime user
-that one directory, with no group-write anywhere, and leaves the rest of `/opt/keycloak`, its code,
-configuration and realm file, owned by root and read-only to it (`ops/keycloak/Dockerfile`). The
-Java images likewise leave their jar owned by root. Each database sits on a network of its own —
-`db` on `books` with the ledger, `keycloak-db` on `identity` with Keycloak — so no other container
-can resolve or reach either one over a Compose network. The host is another path: on Docker Desktop
-any container with a route off its networks reaches a loopback-published port, `db`'s included,
-through `host.docker.internal`, with only the password in the way. `identity` is `internal`, so
-`keycloak-db`, which publishes no port, has no route off it, while Keycloak keeps its egress through
-`default`. `books` is not, since `db` still publishes its port to the host's loopback, which Docker
-does not do from a container on an internal network alone. `make check-compose` holds all three,
-naming only the exemptions, so a service added later is held to the hardening and the read-only root
-as well.
+Prometheus and Grafana writing only to their volumes. Keycloak writes its transaction store to
+`/opt/keycloak/data/transaction-logs`, and its root stays writable until #394 proves it read-only;
+its image gives the runtime user that one directory, with no group-write anywhere, and leaves the
+rest of `/opt/keycloak`, its code, configuration and realm file, owned by root and read-only to it
+(`ops/keycloak/Dockerfile`). The Java images likewise leave their jar owned by root. Each database
+sits on a network of its own — `db` on `books` with the ledger, `keycloak-db` on `identity` with
+Keycloak — so no other container can resolve or reach either one over a Compose network. The host is
+another path: on Docker Desktop any container with a route off its networks reaches a
+loopback-published port, `db`'s included, through `host.docker.internal`, with only the password in
+the way. `identity` is `internal`, so `keycloak-db`, which publishes no port, has no route off it,
+while Keycloak keeps its egress through `default`. `books` is not, since `db` still publishes its
+port to the host's loopback, which Docker does not do from a container on an internal network alone.
+`make check-compose` holds all three, naming only the exemptions, so a service added later is held
+to the hardening and the read-only root as well.
 
 **Redaction is a property of the boundary, not a duty of the caller.** Every event passes
 through a processor that removes secret-named keys, so a new call site inherits it. This is what
