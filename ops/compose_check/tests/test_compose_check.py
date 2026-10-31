@@ -1150,9 +1150,20 @@ def Given_keycloak_db_setting_network_mode_When_checked_Then_it_is_named(
 # --- No service takes the host's privilege, the databases included ------------------------------
 
 
-# Each form `config` resolved a socket mount to: the short form's source as written, `//` included.
+# Each form `config` resolved a socket mount to: the short form's source as written, `//` and a
+# trailing slash included, which the daemon still binds to the socket, and a Windows path, a
+# relative one among them, with backslashes and a trailing one kept.
 @pytest.mark.parametrize(
-    "source", ["/var/run/docker.sock", "//var/run/docker.sock", "/run/docker.sock"]
+    "source",
+    [
+        "/var/run/docker.sock",
+        "//var/run/docker.sock",
+        "/run/docker.sock",
+        "/var/run/docker.sock/",
+        "//var/run/docker.sock//",
+        "C:\\finassist\\docker.sock",
+        "C:\\finassist\\docker.sock\\",
+    ],
 )
 @pytest.mark.parametrize("service", ["db", "grafana"])
 def Given_a_service_mounting_the_docker_socket_When_checked_Then_it_is_named(
