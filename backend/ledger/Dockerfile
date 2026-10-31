@@ -8,6 +8,9 @@
 FROM eclipse-temurin:21.0.13_9-jdk-noble AS build
 WORKDIR /build
 
+# A build-stage tool only, never shipped: without unzip, mvnw fetches Maven's .tar.gz instead and
+# checks it against the zip's distributionSha256Sum, which fails.
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
 COPY mvnw pom.xml ./
 COPY .mvn/ .mvn/
 RUN ./mvnw -B dependency:go-offline

@@ -222,3 +222,6 @@ bounded context (ADR-006, ADR-024).
 - **On every Spring Boot parent bump, read Boot's managed `opentelemetry.version`.** `pom.xml`
   overrides it to 1.67.0 for GHSA-ccrj-gw8r-854m, and an override lower than Boot's own
   downgrades it. Delete the property once Boot manages 1.67.0 or later (ADR-062).
+- **The Maven distribution is SHA-256-pinned** by `distributionSha256Sum` in
+  `.mvn/wrapper/maven-wrapper.properties`. Dependabot recomputes it when it bumps the wrapper; a
+  hand edit of `distributionUrl` must update it too, or `mvnw` refuses to run.
