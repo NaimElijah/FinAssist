@@ -2,8 +2,9 @@
 
 - **Status:** Accepted, extended by [ADR-037](ADR-037-an-unusable-key-set-is-an-outage.md),
   [ADR-053](ADR-053-the-gateways-outbound-calls-speak-http-1-1-under-one-time-budget.md),
-  [ADR-057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md) and
-  [ADR-058](ADR-058-each-service-bounds-what-one-request-can-cost.md), corrected by
+  [ADR-057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md),
+  [ADR-058](ADR-058-each-service-bounds-what-one-request-can-cost.md) and
+  [ADR-067](ADR-067-a-relay-that-times-out-answers-504-outcome-unknown.md), corrected by
   [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md). Two
   details were corrected by what was built, both described as built in
   `docs/architecture/architecture.md`: the `key_source` log level, and the gateway's unreachable

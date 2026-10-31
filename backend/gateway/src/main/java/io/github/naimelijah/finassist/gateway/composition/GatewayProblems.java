@@ -27,10 +27,10 @@ import tools.jackson.databind.json.JsonMapper;
  * registration that does not exist, answers {@code UNAUTHENTICATED} through that same entry point
  * and {@code INTERNAL_ERROR} for anything else that stops a sign-in being started; and {@code
  * GatewayRelayProblems} answers {@code UNAUTHENTICATED} for a refused refresh,
- * {@code UPSTREAM_UNAVAILABLE} and {@code INTERNAL_ERROR} for a relay's other failures, and
- * {@code METHOD_NOT_ALLOWED} or {@code NOT_ACCEPTABLE} for the two refusals Spring MVC itself can
- * raise here. Each is spelled exactly as the ledger spells the same code, so a client branching on
- * one reads either service.
+ * {@code UPSTREAM_UNAVAILABLE}, {@code UPSTREAM_TIMEOUT} and {@code INTERNAL_ERROR} for a relay's
+ * other failures, and {@code METHOD_NOT_ALLOWED} or {@code NOT_ACCEPTABLE} for the two refusals
+ * Spring MVC itself can raise here. Each is spelled exactly as the ledger spells the same code, so
+ * a client branching on one reads either service.
  * Keeping the whole vocabulary in one class, rather than a constant beside each caller, is what
  * stops a second name being invented for a code already fixed.
  *
@@ -78,8 +78,17 @@ final class GatewayProblems {
     /** A write arrived with a missing or wrong CSRF token. */
     static final String CSRF_TOKEN_INVALID = "CSRF_TOKEN_INVALID";
 
-    /** A relayed request's upstream service — the ledger or the assistant — could not be reached. */
+    /**
+     * A relayed request's upstream service — the ledger or the assistant — could not be reached: no
+     * connection was opened, so the request was never sent.
+     */
     static final String UPSTREAM_UNAVAILABLE = "UPSTREAM_UNAVAILABLE";
+
+    /**
+     * A relayed request was sent, and its upstream service did not answer within the read budget,
+     * so whether it took effect is unknown (ADR-067).
+     */
+    static final String UPSTREAM_TIMEOUT = "UPSTREAM_TIMEOUT";
 
     /** The path exists here, but no handler answers this method. */
     static final String METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED";
