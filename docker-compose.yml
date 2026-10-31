@@ -386,7 +386,7 @@ services:
   # touches their code.
   otel-collector:
     profiles: [monitoring]
-    image: otel/opentelemetry-collector-contrib:0.139.0
+    image: otel/opentelemetry-collector-contrib:0.164.0
     restart: *restart-policy
     logging: *bounded-logs
     <<: *hardened
