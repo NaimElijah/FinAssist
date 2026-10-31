@@ -130,14 +130,18 @@ class AccountControllerTest {
         verifyNoInteractions(opener);
     }
 
+    /** The entry names the member, so the form can place the error on it (ADR-028). */
     @Test
-    void Given_an_unknown_account_type_When_opening_an_account_Then_it_is_a_400_problem() throws Exception {
+    void Given_an_unknown_account_type_When_opening_an_account_Then_it_is_a_400_problem_naming_the_type()
+            throws Exception {
         mvc.perform(post(ACCOUNTS).contentType(MediaType.APPLICATION_JSON).content("""
                         {"name": "Cash", "type": "PIGGY_BANK", "currency": "ILS"}
                         """))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("type"))
+                .andExpect(jsonPath("$.errors[0].message").isNotEmpty());
 
         verifyNoInteractions(opener);
     }

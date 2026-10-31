@@ -45,10 +45,13 @@ final class Problems {
     /** The extension member carrying a problem's code. */
     static final String CODE_MEMBER = "code";
 
-    /** The extension member listing what bean validation rejected, one entry per field or parameter. */
+    /** The extension member listing what a malformed request had rejected, one entry per field or parameter. */
     static final String ERRORS_MEMBER = "errors";
 
-    /** Within an {@code errors} entry: the rejected field, or the parameter when there is no field. */
+    /**
+     * Within an {@code errors} entry: the rejected field's path, the parameter when there is no field, or
+     * {@code body} when the body could not be read at all.
+     */
     static final String FIELD_MEMBER = "field";
 
     /** Within an {@code errors} entry: why it was rejected. */
