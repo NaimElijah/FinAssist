@@ -323,6 +323,26 @@ class PlannedFlowControllerTest {
     }
 
     /**
+     * An interval past what an integer holds is valid JSON naming a known member, so the problem names that
+     * member, as it would any value Jackson refuses, rather than calling the body unparseable.
+     */
+    @Test
+    void Given_an_interval_too_large_for_an_integer_When_planned_Then_it_is_a_400_problem_naming_the_interval()
+            throws Exception {
+        mvc.perform(post(PLANNED_FLOWS).contentType(MediaType.APPLICATION_JSON).content(carRequest("60000.00", """
+                                {"kind": "UNTIL", "cadence": "MONTHLY", "interval": 3000000000, "until": "2027-01-01"}
+                                """)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("recurrence.interval"))
+                .andExpect(jsonPath("$.errors[0].message").value("is not a valid value"));
+
+        verifyNoInteractions(planner);
+    }
+
+    /**
      * A recurrence's numbers are the domain's to refuse, as the amount's sign is: a well-formed request
      * breaking a rule is 422, and it is refused before the port is called.
      */
