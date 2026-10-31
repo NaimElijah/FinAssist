@@ -121,11 +121,17 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
                         FEB_10, "too expensive"));
     }
 
+    /**
+     * The flows are listed in another order than they were stored in, so a read that followed the plans'
+     * storage order rather than the scenario's own would fail this.
+     */
     @Test
     void Given_a_scenario_over_flows_When_it_is_read_back_Then_its_flows_come_back_in_order() {
         PlannedFlow car = stored("New car", "40000.00");
         PlannedFlow tuition = stored("Tuition", "20000.00");
-        Scenario scenario = Scenario.of("Spend it all", Currency.ILS, List.of(car, tuition), GrowthAssumption.none());
+        PlannedFlow holiday = stored("Holiday", "8000.00");
+        Scenario scenario =
+                Scenario.of("Spend it all", Currency.ILS, List.of(holiday, car, tuition), GrowthAssumption.none());
 
         scenarios.save(scenario);
 
