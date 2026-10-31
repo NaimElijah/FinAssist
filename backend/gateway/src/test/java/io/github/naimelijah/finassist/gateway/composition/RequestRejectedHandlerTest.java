@@ -48,6 +48,9 @@ class RequestRejectedHandlerTest {
         });
     }
 
+    // The scope is opened for its effect alone, making the request's observation current while the
+    // handler runs, so javac's "try" lint, which wants the resource used, does not apply.
+    @SuppressWarnings("try")
     @Test
     void
             Given_a_request_the_firewall_rejects_When_it_is_handled_Then_the_current_observation_is_marked_failed_and_a_400_problem_is_written()
