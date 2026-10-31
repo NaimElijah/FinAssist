@@ -301,6 +301,25 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **The three HTTP contracts now promise what their services do, and a relay timeout no longer
+  invites a duplicate write.** Scan 7 of 12 in M0
+  ([#344](https://github.com/NaimElijah/FinAssist/issues/344)) read the ledger's, the
+  assistant's and the gateway's contracts as one API:
+  - **A relayed request that times out is 504 `UPSTREAM_TIMEOUT`, outcome unknown.** It was 502
+    "could not be reached", though the ledger may have committed it; resending it duplicated the
+    write in the append-only journal. A connection never opened stays 502
+    ([ADR-067](docs/ADRs/ADR-067-a-relay-that-times-out-answers-504-outcome-unknown.md)).
+  - **Every malformed-request 400 lists `errors[]`.** On the ledger, an unreadable body, a
+    parameter of the wrong type and a missing parameter now name the field, as ADR-028 says, and
+    none of them echoes what was sent. The assistant names `body`, not a character offset, for
+    unparseable JSON.
+  - **`Problem` requires `type`, `title`, `status` and `code`** in all three contracts, and
+    `field` and `message` on each `errors` entry, because every writer sends them and the web
+    client relies on `status`. `instance` says it is the path the answering service received.
+  - **The gateway's 405 carries `Allow`**, as RFC 9110 requires and the other two services do.
+  - **The ledger's contract describes its dates.** Each date parameter and member says whether
+    its bound is inclusive or exclusive, so `to` on the transactions list no longer reads like
+    `to` on a projection.
 - **The gateway's relay test no longer fails once in a thousand runs.** It sent bodiless requests
   as MockMvc builds them, with a body stream not yet read, so the relay streamed an empty body,
   which can trip a race in the JDK's HTTP client whose `NullPointerException` the gateway answers
