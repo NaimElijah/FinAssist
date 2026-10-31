@@ -2,6 +2,7 @@ package io.github.naimelijah.finassist.ledger.planning.adapter.in.web;
 
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Cadence;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Recurrence;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
 import java.time.LocalDate;
@@ -27,7 +28,16 @@ import java.time.LocalDate;
  * @param count how many occurrences in total; {@code TIMES} only
  */
 public record RecurrenceRequest(
-        @NotNull RecurrenceKind kind, Cadence cadence, Integer interval, LocalDate until, Integer count) {
+        @NotNull RecurrenceKind kind,
+        Cadence cadence,
+        Integer interval,
+
+        @Schema(
+                description =
+                        "UNTIL only. Exclusive: occurrences fall before it, never on it. Must come after startsOn.")
+        LocalDate until,
+
+        Integer count) {
 
     /**
      * Whether exactly the members this kind needs are present.

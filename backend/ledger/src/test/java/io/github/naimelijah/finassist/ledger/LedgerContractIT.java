@@ -197,9 +197,9 @@ class LedgerContractIT extends PostgresFixture {
      * Root {@code CLAUDE.md}, "The wire": no money amount travels in a URL, where it would be logged,
      * cached and kept in history. No path or query parameter of any operation may be a {@code MoneyDto},
      * carry the decimal-text pattern a request's decimals are published with, or be named after a
-     * monetary quantity. The name is checked as well as the schema because the pattern is not on every
-     * decimal — {@code ScenarioResponse.growthRatePerStep} is a bare string — and a {@code @RequestParam
-     * String amount} would carry neither a {@code $ref} nor a pattern.
+     * monetary quantity. The name is checked as well as the schema because the pattern is published only
+     * where a constraint or an annotation puts it, and a {@code @RequestParam String amount} would carry
+     * neither a {@code $ref} nor a pattern.
      */
     @Test
     void Given_the_generated_document_When_url_parameters_are_read_Then_none_carries_money_or_a_decimal()
@@ -229,6 +229,125 @@ class LedgerContractIT extends PostgresFixture {
         assertThat(parameters)
                 .as("URL parameters carrying money or a decimal; price by POST with a JSON body")
                 .isEmpty();
+    }
+
+    /**
+     * The ledger's ranges do not share one convention — a transaction listing's {@code to} and a budget
+     * period's {@code end} are exclusive, a projection reports a point on its {@code to} — and a date's
+     * type says nothing of which. So every date a client sends or reads describes itself.
+     */
+    @Test
+    void Given_the_generated_document_When_date_parameters_and_members_are_read_Then_each_describes_itself()
+            throws Exception {
+        JsonNode document = JSON.readTree(served(API_DOCS_PATH));
+        List<String> dateParameters = document.path("paths")
+                .propertyStream()
+                .flatMap(path -> path.getValue()
+                        .valueStream()
+                        .flatMap(operation -> operation.path("parameters").valueStream())
+                        .filter(parameter -> DATE_FORMAT.equals(
+                                parameter.path("schema").path("format").asString()))
+                        .map(parameter ->
+                                path.getKey() + " " + parameter.path("name").asString() + describedAs(parameter)))
+                .toList();
+        List<String> dateMembers = document.path("components")
+                .path("schemas")
+                .propertyStream()
+                .flatMap(schema -> schema.getValue()
+                        .path("properties")
+                        .propertyStream()
+                        .filter(member -> DATE_FORMAT.equals(
+                                member.getValue().path("format").asString()))
+                        .map(member -> schema.getKey() + "." + member.getKey() + describedAs(member.getValue())))
+                .toList();
+
+        assertThat(dateParameters).hasSize(6).noneMatch(each -> each.endsWith(UNDESCRIBED));
+        assertThat(dateMembers).isNotEmpty().noneMatch(each -> each.endsWith(UNDESCRIBED));
+    }
+
+    /**
+     * The bounds a consumer most easily gets wrong, pinned by the word that settles them: October's
+     * transactions are asked for with {@code to=2026-11-01}, not {@code 2026-10-31}.
+     */
+    @Test
+    void Given_the_generated_document_When_exclusive_bounds_are_read_Then_each_says_so() throws Exception {
+        JsonNode document = JSON.readTree(served(API_DOCS_PATH));
+        JsonNode schemas = document.path("components").path("schemas");
+
+        assertThat(parameterDescription(document, "/api/v1/transactions", "from"))
+                .containsIgnoringCase("inclusive");
+        assertThat(parameterDescription(document, "/api/v1/transactions", "to")).containsIgnoringCase("exclusive");
+        assertThat(memberDescription(schemas, "BudgetPeriodDto", "start")).containsIgnoringCase("inclusive");
+        assertThat(memberDescription(schemas, "BudgetPeriodDto", "end")).containsIgnoringCase("exclusive");
+        assertThat(memberDescription(schemas, "RecurrenceRequest", "until")).containsIgnoringCase("exclusive");
+        assertThat(memberDescription(schemas, "RecurrenceResponse", "until")).containsIgnoringCase("exclusive");
+        assertThat(parameterDescription(document, "/api/v1/scenarios/{id}/projection", "to"))
+                .contains("not counted");
+        assertThat(parameterDescription(document, "/api/v1/scenario-comparisons", "to"))
+                .contains("not counted");
+    }
+
+    /**
+     * {@code @Size(min = 2)} leaves its maximum at {@link Integer#MAX_VALUE}, which swagger-core
+     * publishes as though it were a bound. The real one is the 64 KiB body limit.
+     */
+    @Test
+    void Given_the_generated_document_When_a_transactions_entries_are_read_Then_only_their_minimum_is_bounded()
+            throws Exception {
+        JsonNode entries = JSON.readTree(served(API_DOCS_PATH))
+                .path("components")
+                .path("schemas")
+                .path("RecordTransactionRequest")
+                .path("properties")
+                .path("entries");
+
+        assertThat(entries.path("minItems").asInt()).isEqualTo(2);
+        assertThat(entries.has("maxItems")).as("maxItems").isFalse();
+    }
+
+    /** A response's decimal states the same shape its request twin is held to. */
+    @Test
+    void Given_the_generated_document_When_a_scenarios_growth_rate_is_read_Then_it_carries_the_decimal_pattern()
+            throws Exception {
+        JsonNode schemas =
+                JSON.readTree(served(API_DOCS_PATH)).path("components").path("schemas");
+
+        assertThat(memberOf(schemas, "ScenarioResponse", "growthRatePerStep")
+                        .path("pattern")
+                        .asString())
+                .isEqualTo(DECIMAL_TEXT_PATTERN);
+        assertThat(memberOf(schemas, "DefineScenarioRequest", "growthRatePerStep")
+                        .path("pattern")
+                        .asString())
+                .isEqualTo(DECIMAL_TEXT_PATTERN);
+    }
+
+    private static final String DATE_FORMAT = "date";
+    private static final String UNDESCRIBED = ": <no description>";
+
+    private static String describedAs(JsonNode node) {
+        String description = node.path("description").asString();
+        return description.isBlank() ? UNDESCRIBED : ": " + description;
+    }
+
+    private static String parameterDescription(JsonNode document, String path, String name) {
+        return document.path("paths")
+                .path(path)
+                .path("get")
+                .path("parameters")
+                .valueStream()
+                .filter(parameter -> name.equals(parameter.path("name").asString()))
+                .map(parameter -> parameter.path("description").asString())
+                .findFirst()
+                .orElse("");
+    }
+
+    private static String memberDescription(JsonNode schemas, String schema, String member) {
+        return memberOf(schemas, schema, member).path("description").asString();
+    }
+
+    private static JsonNode memberOf(JsonNode schemas, String schema, String member) {
+        return schemas.path(schema).path("properties").path(member);
     }
 
     private static final Set<String> URL_PARAMETER_LOCATIONS = Set.of("path", "query");

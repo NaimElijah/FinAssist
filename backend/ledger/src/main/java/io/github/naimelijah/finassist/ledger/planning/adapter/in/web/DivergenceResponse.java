@@ -14,7 +14,12 @@ import java.time.LocalDate;
  * negative.
  */
 public record DivergenceResponse(
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) LocalDate date,
+        @Schema(
+                requiredMode = Schema.RequiredMode.REQUIRED,
+                description =
+                        "The step boundary it is measured on: the date of the matching point in both projections.")
+        LocalDate date,
+
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) MoneyDto cash,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) MoneyDto invested,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) MoneyDto total) {

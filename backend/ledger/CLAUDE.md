@@ -207,8 +207,12 @@ bounded context (ADR-006, ADR-024).
 - **The contract snapshot is regenerated with every endpoint change**, or `LedgerContractIT` fails
   the build. It also refuses an `operationId` ending `_<digits>` (a springdoc collision) and a
   response schema missing `required` for an always-present member, a schema that is a JSON
-  number, and a path or query parameter that carries money or a decimal, by `$ref`, pattern or
-  name.
+  number, a path or query parameter that carries money or a decimal, by `$ref`, pattern or
+  name, and a date parameter or member with no `description`. The ledger's ranges mix inclusive
+  and exclusive bounds, so each date says which it is: `@Parameter` on a controller argument,
+  `@Schema` on a record component, the horizon's wording shared through `HorizonDescriptions`.
+  `OpenApiConfiguration.unboundedSizes` drops the `Integer.MAX_VALUE` maximum a minimum-only
+  `@Size` publishes.
 
 ## Security
 

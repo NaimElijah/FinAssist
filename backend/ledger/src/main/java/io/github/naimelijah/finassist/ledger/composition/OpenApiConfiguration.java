@@ -36,6 +36,9 @@ import org.springframework.context.annotation.Configuration;
  *       that cannot return either.
  * </ul>
  *
+ * <p>{@link #unboundedSizes()} corrects one thing swagger-core gets wrong: the maximum a minimum-only
+ * {@code @Size} never set.
+ *
  * <p>{@code springdoc.writer-with-order-by-keys} and {@code springdoc.paths-to-match} in {@code
  * application.yml} make up the rest: stable key order, and nothing outside {@code /api/v1} in the
  * contract.
@@ -108,6 +111,37 @@ public class OpenApiConfiguration {
                         .forEach(OpenApiConfiguration::answerProblemsByDefault);
             }
         };
+    }
+
+    /**
+     * Drops the maximum a minimum-only {@code @Size} publishes. Bean validation defaults {@code max} to
+     * {@link Integer#MAX_VALUE}, and swagger-core copies it into {@code maxItems} or {@code maxLength}
+     * whether or not it was set, so {@code RecordTransactionRequest.entries} claimed a bound nothing
+     * enforces; the real one is the 64 KiB body limit. Only that default is dropped, never a maximum a
+     * constraint states, and validation is untouched.
+     */
+    @Bean
+    OpenApiCustomizer unboundedSizes() {
+        return document -> {
+            if (document.getComponents() != null && document.getComponents().getSchemas() != null) {
+                document.getComponents().getSchemas().values().forEach(OpenApiConfiguration::dropDefaultMaximum);
+            }
+        };
+    }
+
+    private static void dropDefaultMaximum(Schema<?> schema) {
+        if (Integer.valueOf(Integer.MAX_VALUE).equals(schema.getMaxItems())) {
+            schema.setMaxItems(null);
+        }
+        if (Integer.valueOf(Integer.MAX_VALUE).equals(schema.getMaxLength())) {
+            schema.setMaxLength(null);
+        }
+        if (schema.getProperties() != null) {
+            schema.getProperties().values().forEach(OpenApiConfiguration::dropDefaultMaximum);
+        }
+        if (schema.getItems() != null) {
+            dropDefaultMaximum(schema.getItems());
+        }
     }
 
     private static void answerProblemsByDefault(Operation operation) {

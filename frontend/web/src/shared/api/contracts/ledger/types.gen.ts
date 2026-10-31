@@ -18,6 +18,9 @@ export type AddCategorisationRuleRequest = {
 
 export type BalancePointResponse = {
     cash: MoneyDto;
+    /**
+     * A step boundary: the horizon's start advanced by a whole number of steps. The point counts the horizon's flows dated before it, not one dated on it.
+     */
     date: string;
     invested: MoneyDto;
     total: MoneyDto;
@@ -29,7 +32,13 @@ export type BalanceResponse = {
 };
 
 export type BudgetPeriodDto = {
+    /**
+     * The end of the period, exclusive: the first date after it. For a calendar month, the first day of the next month. Must come after start.
+     */
     end: string;
+    /**
+     * The first date in the period, inclusive.
+     */
     start: string;
 };
 
@@ -99,6 +108,9 @@ export type DefineScenarioRequest = {
 
 export type DivergenceResponse = {
     cash: MoneyDto;
+    /**
+     * The step boundary it is measured on: the date of the matching point in both projections.
+     */
     date: string;
     invested: MoneyDto;
     total: MoneyDto;
@@ -110,7 +122,13 @@ export type EntryDto = {
 };
 
 export type HorizonResponse = {
+    /**
+     * The horizon's start, inclusive, and the date of its first point.
+     */
     from: string;
+    /**
+     * The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted.
+     */
     to: string;
 };
 
@@ -126,6 +144,9 @@ export type OpenAccountRequest = {
 };
 
 export type PlanCancelRequest = {
+    /**
+     * The date of the cancellation. For a committed plan, it may not be before the commitment.
+     */
     on: string;
     reason: string;
 };
@@ -135,16 +156,25 @@ export type PlanFlowRequest = {
     description: string;
     direction: 'INFLOW' | 'OUTFLOW' | 'INVESTMENT';
     recurrence: RecurrenceRequest;
+    /**
+     * The date of the first occurrence; every later one is counted from it.
+     */
     startsOn: string;
 };
 
 export type PlanStateResponse = {
+    /**
+     * The date the plan reached this status; absent while it is planned.
+     */
     on?: string;
     reason?: string;
     status: 'PLANNED' | 'COMMITTED' | 'REALISED' | 'CANCELLED';
 };
 
 export type PlanTransitionRequest = {
+    /**
+     * The date the plan was committed or realised, sent because no server reads a clock. Realising may not be dated before the commitment.
+     */
     on: string;
 };
 
@@ -154,6 +184,9 @@ export type PlannedFlowResponse = {
     direction: 'INFLOW' | 'OUTFLOW' | 'INVESTMENT';
     id: string;
     recurrence: RecurrenceResponse;
+    /**
+     * The date of the first occurrence; every later one is counted from it.
+     */
     startsOn: string;
     state: PlanStateResponse;
 };
@@ -176,6 +209,9 @@ export type Problem = {
 
 export type ProjectionResponse = {
     currency: 'ILS' | 'USD' | 'EUR' | 'GBP' | 'JPY';
+    /**
+     * The date of the first point at which projected cash is negative; absent when none is. Only points are checked, so a dip that recovers within one step is not reported.
+     */
     firstShortfall?: string;
     horizon: HorizonResponse;
     points: Array<BalancePointResponse>;
@@ -186,6 +222,9 @@ export type ProjectionResponse = {
 export type RecordTransactionRequest = {
     description: string;
     entries: Array<EntryDto>;
+    /**
+     * The date the transaction occurred, which a listing's from and to select on. No lifecycle change may be dated before it.
+     */
     occurredOn: string;
 };
 
@@ -194,6 +233,9 @@ export type RecurrenceRequest = {
     count?: number;
     interval?: number;
     kind: 'ONCE' | 'UNTIL' | 'TIMES';
+    /**
+     * UNTIL only. Exclusive: occurrences fall before it, never on it. Must come after startsOn.
+     */
     until?: string;
 };
 
@@ -202,6 +244,9 @@ export type RecurrenceResponse = {
     count?: number;
     interval?: number;
     kind: 'ONCE' | 'UNTIL' | 'TIMES';
+    /**
+     * UNTIL only. Exclusive: occurrences fall before it, never on it. Must come after startsOn.
+     */
     until?: string;
 };
 
@@ -217,17 +262,26 @@ export type TransactionResponse = {
     description: string;
     entries: Array<EntryDto>;
     id: string;
+    /**
+     * The date the transaction occurred, which a listing's from and to select on.
+     */
     occurredOn: string;
     state: TransactionStateResponse;
 };
 
 export type TransactionStateResponse = {
+    /**
+     * The date the transaction reached this status; absent while it is pending.
+     */
     on?: string;
     reason?: string;
     status: 'PENDING' | 'CLEARED' | 'RECONCILED' | 'VOIDED';
 };
 
 export type TransitionRequest = {
+    /**
+     * The date the change took effect, sent because no server reads a clock. Clearing may not be dated before the transaction occurred, nor reconciling before it cleared.
+     */
     on: string;
 };
 
@@ -237,6 +291,9 @@ export type UnbudgetedSpendResponse = {
 };
 
 export type VoidRequest = {
+    /**
+     * The date of the void. It may not be before the transaction occurred, nor, for a cleared one, before it cleared.
+     */
     on: string;
     reason: string;
 };
@@ -609,8 +666,17 @@ export type CompareScenariosData = {
     query: {
         scenario: Array<string>;
         baseline: string;
+        /**
+         * The horizon's start, inclusive, and the date of its first point. That point is the opening position, before any flow or growth.
+         */
         from: string;
+        /**
+         * The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted. It must fall a whole number of steps after from, and at most 100 years after it.
+         */
         to: string;
+        /**
+         * The spacing of the points: each is the horizon's start advanced by a whole number of steps.
+         */
         step: 'WEEKLY' | 'MONTHLY' | 'YEARLY';
         cash?: Array<string>;
         invested?: Array<string>;
@@ -692,8 +758,17 @@ export type ProjectScenarioData = {
         id: string;
     };
     query: {
+        /**
+         * The horizon's start, inclusive, and the date of its first point. That point is the opening position, before any flow or growth.
+         */
         from: string;
+        /**
+         * The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted. It must fall a whole number of steps after from, and at most 100 years after it.
+         */
         to: string;
+        /**
+         * The spacing of the points: each is the horizon's start advanced by a whole number of steps.
+         */
         step: 'WEEKLY' | 'MONTHLY' | 'YEARLY';
         cash?: Array<string>;
         invested?: Array<string>;
@@ -723,7 +798,13 @@ export type ListTransactionsData = {
     body?: never;
     path?: never;
     query: {
+        /**
+         * The first date listed, inclusive: transactions that occurred on or after it.
+         */
         from: string;
+        /**
+         * The end of the range, exclusive: transactions that occurred before it, not on it. For a whole month, the first day of the next month. Must come after from.
+         */
         to: string;
     };
     url: '/api/v1/transactions';

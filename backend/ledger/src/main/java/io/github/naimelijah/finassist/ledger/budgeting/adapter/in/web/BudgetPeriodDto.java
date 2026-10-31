@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger.budgeting.adapter.in.web;
 
 import io.github.naimelijah.finassist.ledger.budgeting.domain.budget.BudgetPeriod;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import java.time.LocalDate;
 
@@ -16,7 +17,14 @@ import java.time.LocalDate;
  * here as a class-level constraint.
  */
 public record BudgetPeriodDto(
-        @NotNull LocalDate start, @NotNull LocalDate end) {
+        @NotNull @Schema(description = "The first date in the period, inclusive.")
+        LocalDate start,
+
+        @NotNull
+        @Schema(
+                description = "The end of the period, exclusive: the first date after it. For a calendar month,"
+                        + " the first day of the next month. Must come after start.")
+        LocalDate end) {
 
     static BudgetPeriodDto from(BudgetPeriod period) {
         return new BudgetPeriodDto(period.start(), period.end());

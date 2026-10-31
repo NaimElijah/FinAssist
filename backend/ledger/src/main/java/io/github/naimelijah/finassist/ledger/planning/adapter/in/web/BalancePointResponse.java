@@ -13,7 +13,12 @@ import java.time.LocalDate;
  * are in one currency (ADR-016).
  */
 public record BalancePointResponse(
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) LocalDate date,
+        @Schema(
+                requiredMode = Schema.RequiredMode.REQUIRED,
+                description = "A step boundary: the horizon's start advanced by a whole number of steps."
+                        + " The point counts the horizon's flows dated before it, not one dated on it.")
+        LocalDate date,
+
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) MoneyDto cash,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) MoneyDto invested,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) MoneyDto total) {

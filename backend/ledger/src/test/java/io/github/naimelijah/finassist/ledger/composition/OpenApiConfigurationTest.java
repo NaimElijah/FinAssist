@@ -2,9 +2,11 @@ package io.github.naimelijah.finassist.ledger.composition;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
+import io.swagger.v3.oas.models.media.JsonSchema;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.responses.ApiResponses;
@@ -82,6 +84,36 @@ class OpenApiConfigurationTest {
                     .isEqualTo(PROBLEM_REF);
         }
         assertThat(read.getResponses()).containsKey("200");
+    }
+
+    /**
+     * {@code @Size(min = 2)} leaves its maximum at {@link Integer#MAX_VALUE}, which swagger-core publishes
+     * as a bound nothing enforces. A real maximum, and every minimum, stay.
+     */
+    @Test
+    void Given_schemas_sized_by_a_minimum_only_When_customised_Then_the_default_maximum_is_dropped() {
+        Schema<?> entries = new JsonSchema().minItems(2).maxItems(Integer.MAX_VALUE);
+        Schema<?> named = new JsonSchema().minLength(1).maxLength(Integer.MAX_VALUE);
+        Schema<?> bounded = new JsonSchema().minItems(2).maxItems(10);
+        Schema<?> nested = new JsonSchema().maxItems(Integer.MAX_VALUE);
+        OpenAPI document = new OpenAPI()
+                .components(new Components()
+                        .addSchemas(
+                                "Request",
+                                new JsonSchema()
+                                        .addProperty("entries", entries)
+                                        .addProperty("name", named)
+                                        .addProperty("bounded", bounded)
+                                        .addProperty("wrapper", new JsonSchema().items(nested))));
+
+        configuration.unboundedSizes().customise(document);
+
+        assertThat(entries.getMinItems()).isEqualTo(2);
+        assertThat(entries.getMaxItems()).isNull();
+        assertThat(named.getMinLength()).isEqualTo(1);
+        assertThat(named.getMaxLength()).isNull();
+        assertThat(bounded.getMaxItems()).isEqualTo(10);
+        assertThat(nested.getMaxItems()).isNull();
     }
 
     @Test
