@@ -13,6 +13,8 @@ import io.github.naimelijah.finassist.ledger.shared.Currency;
  */
 public class EntryCurrencyMismatchException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     public EntryCurrencyMismatchException(Account account, Currency entryCurrency) {
         super("Entry for account '" + account.name() + "' is in " + entryCurrency + " but the account is in "
                 + account.currency() + "; FinAssist performs no conversion");

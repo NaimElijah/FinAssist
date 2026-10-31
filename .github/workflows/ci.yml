@@ -11,22 +11,37 @@ on:
 permissions:
   contents: read
 
+# A pull request's runs share its ref's group, so a new commit cancels the superseded run. A push
+# to dev or main is grouped by its own commit, since a shared group would still cancel a run left
+# pending by a third push: every commit that lands there keeps a complete run.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Every action is pinned to a full commit SHA, since a tag can be moved to other code after review
+# (#161). The trailing `# vX.Y.Z` names the release; Dependabot's github-actions entry moves the
+# SHA and that comment together, so keep both on the same line.
 jobs:
   ledger:
     name: Ledger (Java)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No step authenticates to git, so git is not left configured with the job token.
+          persist-credentials: false
 
-      - uses: actions/setup-java@v6.1.0
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
+          # Each service's own files key its own cache. The default globs the whole repository, so
+          # the ledger and the gateway shared one key, and whichever job saved second could not
+          # save the Maven repository its own build had filled.
+          cache-dependency-path: |
+            backend/ledger/pom.xml
+            backend/ledger/.mvn/wrapper/maven-wrapper.properties
 
       - name: Format check
         run: make lint-ledger
@@ -40,7 +55,7 @@ jobs:
       # produces none, and a second red step there would obscure the real failure.
       - name: Publish coverage
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-ledger
           path: backend/ledger/target/site/jacoco
@@ -50,13 +65,19 @@ jobs:
     name: Gateway (Java)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v6.1.0
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
+          # Its own key, apart from the ledger's: see the ledger job.
+          cache-dependency-path: |
+            backend/gateway/pom.xml
+            backend/gateway/.mvn/wrapper/maven-wrapper.properties
 
       - name: Format check
         run: make lint-gateway
@@ -70,7 +91,7 @@ jobs:
       # produces none, and a second red step there would obscure the real failure.
       - name: Publish coverage
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-gateway
           path: backend/gateway/target/site/jacoco
@@ -80,9 +101,11 @@ jobs:
     name: Assistant (Python)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: true
           # The interpreter is deliberately not pinned here: `uv sync` resolves it from
@@ -129,7 +152,7 @@ jobs:
       # produces none, and a second red step there would obscure the real failure.
       - name: Publish coverage
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-assistant
           path: backend/assistant/coverage.xml
@@ -142,11 +165,14 @@ jobs:
     name: Web (TypeScript)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
-
-      - uses: actions/setup-node@v7.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 24
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # The file a developer's nvm reads, so CI and a local install name the same Node major.
+          node-version-file: frontend/web/.nvmrc
           cache: npm
           cache-dependency-path: frontend/web/package-lock.json
 
@@ -168,7 +194,7 @@ jobs:
       # produces none, and a second red step there would obscure the real failure.
       - name: Publish coverage
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-web
           path: frontend/web/coverage
@@ -184,16 +210,22 @@ jobs:
     name: Compose config
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # For ops/compose_check/compose_check.py: uv fetches the Python the target pins with
       # --python, backend/assistant/.python-version, since the PEP 723 block states only a minimum.
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          # This job installs no dependency, and its cache key is the assistant job's: saved here
+          # first, an all but empty cache took the key the assistant's full one needed.
+          enable-cache: false
 
       # Never reads .env: the target resolves the file over .env.example, with
       # ops/compose_check/placeholders.env exported, and the Makefile says why each profile is
       # validated.
-      - name: Validate docker-compose.yml and require its restart, log and readiness conventions
+      - name: Validate docker-compose.yml and its conventions (ADR-049, ADR-063)
         run: make check-compose
 
       # Inline, not a Make target (ADR-049): the step below starts containers on these published

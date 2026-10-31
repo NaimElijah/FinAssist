@@ -58,9 +58,10 @@ From `frontend/web`:
   to ignore `typescript >=6.1.0` so it stops proposing the bump every week. Lift the pin and that
   ignore entry together, once typescript-eslint supports 7.
 - **`@types/node` follows the runtime's major, Node 24**, and Dependabot ignores `>=25`: lift that
-  entry in the change that moves `.nvmrc`, `engines` and CI's `setup-node`. **The four React
-  packages move as one group** (`react`, `react-dom`, `@types/react`, `@types/react-dom`), because
-  each peer-depends on the same minor of its partner; a lone bump fails `npm ci` (ADR-062).
+  entry in the change that moves `.nvmrc`, which CI's `setup-node` reads, and `engines`. **The
+  four React packages move as one group** (`react`, `react-dom`, `@types/react`,
+  `@types/react-dom`), because each peer-depends on the same minor of its partner; a lone bump
+  fails `npm ci` (ADR-062).
 - **A feature's layers point inward**: `types`, then `api`, `hooks`, `components`, each importing
   only those before it. A feature's root holds only its entry files, `index.ts` and `routes.tsx`,
   every other source file sitting in a layer, and `src/features/` itself holds only feature

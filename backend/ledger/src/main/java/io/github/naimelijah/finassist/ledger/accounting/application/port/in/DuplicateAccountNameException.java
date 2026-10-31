@@ -8,6 +8,8 @@ package io.github.naimelijah.finassist.ledger.accounting.application.port.in;
  */
 public class DuplicateAccountNameException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     public DuplicateAccountNameException(String name) {
         super("An account named '" + name + "' is already open; names are unique in the chart of accounts");
     }

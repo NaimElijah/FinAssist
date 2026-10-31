@@ -51,7 +51,11 @@ From `backend/gateway`:
 - **Test** — `make test-gateway`: `./mvnw -B verify`. **Docker must be running**:
   `KeycloakRealmIT` builds `ops/keycloak/Dockerfile` and runs it against a real PostgreSQL, and
   fails rather than skips without Docker (ADR-025).
-- **Lint / format** — `./mvnw -B spotless:check` / `./mvnw -B spotless:apply`.
+- **Lint / format** — `./mvnw -B spotless:check` / `./mvnw -B spotless:apply`. javac's own lint
+  runs on every compile, main and test: `pom.xml` passes `-Xlint:all -Werror`, so any warning
+  fails `test`, `verify`, `package` and the image build, while `spotless:check` alone compiles
+  nothing. Fix the warning rather than excluding its category; a suppression names its category
+  and says why on the line above.
 - **Regenerate the contract after every endpoint change** — `./mvnw -B verify -Dtest=NONE
   -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=GatewayContractIT` (no container needed). On a
   mismatch, copy `target/contracts/gateway-v1.openapi.json` over
@@ -64,6 +68,9 @@ From `backend/gateway`:
 - **On every Spring Boot parent bump, read Boot's managed `opentelemetry.version`.** `pom.xml`
   overrides it to 1.67.0 for GHSA-ccrj-gw8r-854m, and an override lower than Boot's own
   downgrades it. Delete the property once Boot manages 1.67.0 or later (ADR-062).
+- **The Maven distribution is SHA-256-pinned** by `distributionSha256Sum` in
+  `.mvn/wrapper/maven-wrapper.properties`. Dependabot recomputes it when it bumps the wrapper; a
+  hand edit of `distributionUrl` must update it too, or `mvnw` refuses to run.
 - **A relayed method is named twice, and both must admit every operation in `contracts/`**: the
   routes' `Method=` in `application.yml` and the chain's relay matchers in
   `GatewaySecurityConfiguration`. `GatewayRelayRoutesTest` holds the routes, and
@@ -108,4 +115,6 @@ From `backend/gateway`:
   service; a native run has no guard. To diagnose a failed sign-in, read `SignInFailureHandler`'s
   WARN line, which names the OAuth2 error code. Keycloak records no sign-in event
   (`eventsListeners: []`), so for an account that may be locked out ask its brute-force detector:
-  `kcadm.sh get attack-detection/brute-force/users/<user-id> -r finassist`.
+  `kcadm.sh get attack-detection/brute-force/users/<user-id> -r finassist --config
+  /tmp/kcadm.config`, signed in as `docs/operations/operations.md` does: the image's home
+  directory is root-owned, so `kcadm.sh` cannot write its default `~/.keycloak` there (ADR-063).

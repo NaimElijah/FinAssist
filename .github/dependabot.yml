@@ -1,10 +1,9 @@
 # Java has no `pip-audit` equivalent wired into CI; Dependabot is what keeps the Maven
 # tree, the Python tree and the workflows themselves current.
 #
-# The ledger's, the gateway's and the assistant's Dockerfile base images are covered below. The
-# image tags in docker-compose.yml (postgres, the monitoring services) are NOT: Dependabot's
-# `docker` ecosystem fetches Dockerfiles, Containerfiles and Kubernetes manifests only, and there
-# is no `docker-compose` ecosystem. Bump those tags by hand.
+# The `docker` entries cover the base images in the ledger's, the gateway's, the assistant's and
+# Keycloak's Dockerfiles. The `docker-compose` entry covers the image tags docker-compose.yml names
+# itself: the two PostgreSQL databases, the two Python one-shots and the monitoring services.
 version: 2
 
 # Every update targets `dev`, not the default branch. Dependabot defaults to `main`, which
@@ -57,10 +56,9 @@ updates:
       - dependency-name: "eclipse-temurin"
         versions: [">= 22"]
 
-  # Bumps the quay.io/keycloak/keycloak tag in ops/keycloak/Dockerfile. The keycloak-db tag in
-  # docker-compose.yml is a plain image reference, which this ecosystem does not fetch (see the
-  # header comment above), so it is bumped by hand (#80). Keycloak is a runtime security
-  # dependency: its PR goes to the owner before it merges (ADR-045).
+  # Bumps the quay.io/keycloak/keycloak tag in ops/keycloak/Dockerfile; keycloak-db's PostgreSQL
+  # tag is the docker-compose entry's. Keycloak is a runtime security dependency: its PR goes to
+  # the owner before it merges (ADR-045).
   - package-ecosystem: docker
     directory: /ops/keycloak
     schedule:
@@ -94,6 +92,33 @@ updates:
       # in that change. 3.13.x patch releases still arrive.
       - dependency-name: "python"
         versions: [">= 3.14"]
+
+  # The image tags docker-compose.yml names itself. The services it builds from a Dockerfile are
+  # the `docker` entries'.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: dev
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    ignore:
+      # auth-smoke and secret-check run the assistant's Python, held for the same reason as its
+      # image above (ADR-003, ADR-045); delete this entry in the same change as that one. Their tag
+      # tracks backend/assistant/Dockerfile's, which the entry above bumps in a PR of its own, so
+      # the two are applied together by hand.
+      - dependency-name: "python"
+        versions: [">= 3.14"]
+      # A new PostgreSQL major cannot start on the old one's data: moving `db` or `keycloak-db` to
+      # one is a backup, a new volume and a restore (ADR-038), by docs/operations/operations.md's
+      # "Backing up and restoring", not a tag change. `update-types` rather than `versions`,
+      # because the two run different majors under one name; minor releases still arrive. The
+      # ledger's PostgresFixture and the gateway's KeycloakRealmIT pin the same tags for
+      # Testcontainers, and nothing compares them (#80), so a postgres PR is applied by hand with
+      # both.
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /frontend/web
@@ -140,9 +165,9 @@ updates:
       # Delete this entry the moment typescript-eslint declares support for 7 (ADR-009).
       - dependency-name: "typescript"
         versions: [">=6.1.0"]
-      # The types describe the runtime: .nvmrc, CI's setup-node and package.json's engines all
-      # run Node 24, so @types/node stays on 24.x. Move it, and this entry, with the runtime's
-      # major (ADR-062).
+      # The types describe the runtime: .nvmrc, which CI's setup-node reads, and package.json's
+      # engines both name Node 24, so @types/node stays on 24.x. Move it, and this entry, with the
+      # runtime's major (ADR-062).
       - dependency-name: "@types/node"
         versions: [">=25"]
 

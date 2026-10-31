@@ -135,12 +135,12 @@ Rationale: [docs/ADRs/](docs/ADRs/).
 | Assistant tooling | uv, Ruff, mypy `--strict`, PyJWT `crypto` | 0.12.7 in the image / 0.17.3 / 2.4.1 / 2.15.0 | One tool resolves, locks and fetches the interpreter; RS256 tokens checked against the injected clock |
 | Web | React + Vite + TypeScript | 19.3 / 8.3 / 6.0.3 | A static bundle, no Node server to run; TypeScript held below 6.1 because `typescript-eslint` caps there |
 | Web data | React Router, TanStack Query, @hey-api/openapi-ts | 8.3.1 / 5.102.8 / 0.99.0 | Deep links, cached server state, and types generated from all three contracts ([ADR-029](docs/ADRs/ADR-029-web-client-stack.md)) |
-| Web runtime | Node | 24 | Pinned in `.nvmrc` and `engines`, because tests pin dates and amounts as that major's ICU data formats them |
+| Web runtime | Node | 24 | Pinned in `.nvmrc`, which CI's `setup-node` reads, and in `engines`, because tests pin dates and amounts as that major's ICU data formats them |
 | Contracts | springdoc-openapi (API starter only) | 3.2.0 | Each service's OpenAPI document is generated, then pinned by a test to `contracts/` |
 | Architecture tests | ArchUnit | 1.5.1 | Layering, context isolation, no floating-point money, a one-way composition root |
 | Tests | JUnit + Testcontainers, pytest + Hypothesis, Vitest + Testing Library | Boot-managed / 9.1.1 + 6.170.14 / 5.0 + 16.3 | Integration tests against a real PostgreSQL and a real Keycloak image; property tests seeded on both sides |
 | Coverage, mutation | JaCoCo, pytest-cov, coverage-v8; PIT | 0.8.16 / 7.1.0 / 5.0.5; 1.30.1 | Measured and gating nothing; mutation testing answers whether a test would notice ([ADR-017](docs/ADRs/ADR-017-test-strategy.md)) |
-| Format and lint | Spotless + palantir-java-format, ESLint + Prettier | 3.10.4 / 2.103.0, 10.13 / 3.9 | One authoritative formatter per language, checked in CI |
+| Format and lint | Spotless + palantir-java-format, javac `-Xlint:all -Werror`, ESLint + Prettier | 3.10.4 / 2.103.0, the JDK's, 10.13 / 3.9 | One authoritative formatter per language, checked in CI; any javac warning fails a Java build ([ADR-065](docs/ADRs/ADR-065-javac-lint-is-the-java-lint-gate.md)) |
 | Telemetry | OpenTelemetry + Micrometer; Collector, Prometheus, Grafana | 1.45.1 (Python) / 1.67.0 (Java, over the Boot 4.1.2 starter); 0.139.0 / v3.7.3 / 12.3.1 | Vendor-neutral: the backend is an environment variable, not a rewrite ([ADR-019](docs/ADRs/ADR-019-opentelemetry-and-structured-logging.md)) |
 
 Every version above is pinned in `backend/ledger/pom.xml`, `backend/gateway/pom.xml`,
@@ -157,6 +157,9 @@ Every version above is pinned in `backend/ledger/pom.xml`, `backend/gateway/pom.
 - **Node 24 and npm**, for the web client (`frontend/web/.nvmrc`).
 - **A JDK 21 and [uv](https://docs.astral.sh/uv/)**, for the native inner loop and the tests. uv
   fetches its own Python 3.13, so no system Python upgrade is needed.
+- **`unzip`**, which `./mvnw` needs to unpack the Maven distribution it pins by SHA-256. Without
+  it, `mvnw` fetches the `.tar.gz` instead, which fails that check
+  ([ADR-064](docs/ADRs/ADR-064-what-the-build-fetches-is-pinned-by-content.md)).
 
 ```bash
 git clone https://github.com/NaimElijah/FinAssist.git
@@ -459,7 +462,7 @@ make audit     # pip-audit and npm audit --audit-level=high
 | Check the web client's contract types are current | `make check-web-api` | `cd frontend/web && npm run generate:api`, then `git status --porcelain -- src/shared/api/contracts`, which must list nothing, untracked files included; CI's `web` job runs it. It rewrites the types in place, so `make lint` leaves it out |
 | Check docker-compose.yml | `make check-compose` | `sh -c 'set -a && . ./ops/compose_check/placeholders.env && set +a && docker compose --env-file .env.example <arguments>'`, a shell of its own each time so the exports never reach yours, with `--profile monitoring`, `--profile smoke` and both, each `config --quiet`; then the same with both profiles and `config --format json`, piped into `uv run --python "$(cat backend/assistant/.python-version)" ops/compose_check/compose_check.py`, the assistant's pinned Python. Never reads `.env`, and each variable `docker-compose.yml` requires through `:?` resolves to its placeholder even when exported in the shell; any other exported variable still outranks `.env.example`. CI's `compose` job runs it |
 | Mutation-test the ledger | `make mutation-ledger` | `cd backend/ledger && ./mvnw -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
-| Lint and types | `make lint` | `./mvnw -B spotless:check` (ledger and gateway); `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; for the smoke check (`make lint-smoke`), the backup CLI (`make lint-backup`), the secret check (`make lint-secret-check`) and the Compose check (`make lint-compose-check`), `uv run ruff check`, `ruff format --check` and `mypy --strict` over `../../ops/smoke`, `../../ops/backup`, `../../ops/secret_check` and `../../ops/compose_check` respectively, all from `backend/assistant`; `npm run lint`, `format:check`, `typecheck` |
+| Lint and types | `make lint` | `./mvnw -B spotless:check` (ledger and gateway), which compiles nothing: javac's lint, `-Xlint:all -Werror` in each `pom.xml`, fails any ledger or gateway compile that warns, so `make test` gates it; `uv run ruff check .`, `ruff format --check .`, `mypy src tests`; for the smoke check (`make lint-smoke`), the backup CLI (`make lint-backup`), the secret check (`make lint-secret-check`) and the Compose check (`make lint-compose-check`), `uv run ruff check`, `ruff format --check` and `mypy --strict` over `../../ops/smoke`, `../../ops/backup`, `../../ops/secret_check` and `../../ops/compose_check` respectively, all from `backend/assistant`; `npm run lint`, `format:check`, `typecheck` |
 | Format | `make format` | `./mvnw -B spotless:apply` (ledger and gateway); `uv run ruff format . ../../ops/smoke ../../ops/backup ../../ops/secret_check ../../ops/compose_check`, `uv run ruff check --fix . ../../ops/smoke ../../ops/backup ../../ops/secret_check ../../ops/compose_check`; `npm run format` |
 | Audit | `make audit` | `cd backend/assistant && uv run pip-audit`; `cd frontend/web && npm audit --audit-level=high` |
 | Re-lock Python deps | `make lock` | `cd backend/assistant && uv lock` |
@@ -521,7 +524,7 @@ take each bump in one PR, and Temurin and Python stay on 21 and 3.13 until an AD
 | Assistant | Source-parsing architecture rules; FIFO cost basis, grounding, staleness and Money, with Hypothesis; token verification and authorization, including a removed key, an outage past the key set's lifespan and the fetch backoff, and every route of every type declaring a permission; the 64 KiB body limit; the bounded `h11` header block, no WebSocket upgrade, no proxy or `server` header, and a registered secret scrubbed from a log line; Money past a million digits; the problem shape; the OpenAPI contract | `make test-assistant` |
 | Backup CLI | Redaction, the manifest checks, every restore precondition, a backup's refusals, the command line and the owner-project guard, without Docker | `make test-backup` |
 | Secret check | It reads exactly the files git does not ignore, matches a value literally and only as a whole token, refuses a value shorter than 32 characters, and refuses by variable name, never by value | `make test-secret-check` |
-| Compose check | Each restart, log-bound and readiness rule fails on a crafted resolved file, a missing `x-` block fails, an Actuator-exposure key in the ledger's or the gateway's environment fails, a `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key on the gateway fails in any spelling, input that is not a resolved file exits 2, the script run as a process exits 0, 1 and 2 as `make check-compose` reads them, and no report quotes a resolved value | `make test-compose-check` |
+| Compose check | Each restart, log-bound and readiness rule fails on a crafted resolved file, a missing `x-` block fails, a published port not bound to exactly `127.0.0.1`, a port on `keycloak-db`, `auth-smoke` outside exactly the `smoke` profile, `secret-check` behind any profile, a service missing the `x-hardened` block or a read-only root, a new service included, any service taking `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts`, `devices`, a root `user` or a bind of a file named `docker.sock`, an `entrypoint` on Prometheus, a database network shared beyond its one client, under any key that resolves to it, or declared `external`, an `identity` network that is not `internal`, a `network_mode` on any service but `secret-check` or anything but `none` on it, and Prometheus's `command` without exactly `--web.cors.origin=` each fail, an Actuator-exposure key in the ledger's or the gateway's environment fails, a `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key on the gateway fails in any spelling, input that is not a resolved file exits 2, the script run as a process exits 0, 1 and 2 as `make check-compose` reads them, and no report quotes a resolved value | `make test-compose-check` |
 | Web | The file-tree architecture rules; the shared primitives; the sign-in gate; the read-only viewer; every screen end to end against a faked `fetch` | `make test-web` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
 
@@ -537,13 +540,21 @@ the secret check's and the Compose check's lint and tests);
 the web client (`make check-web-api`, which regenerates the contract types and fails on any diff,
 then lint, format check, typecheck, tests, production build and `npm audit`); and
 `make check-compose`, which runs `docker compose config` across every profile and fails a service
-without the shared restart and log policy, or a healthcheck that probes anything but readiness.
-The compose job also runs `secret-check` against a published value, and requires it to refuse all
-eight secrets by name and keep `db` from starting; that step, with the `.env` seeding it needs,
-stays inline in `ci.yml` because it starts containers under the default Compose project name
-([ADR-049](docs/ADRs/ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md)). No CI job
-starts the rest of the Compose stack. The branch rules on `main` and `dev` require a
-pull request but no status check, so a green run before merging is practice, not enforcement
+without the shared restart and log policy, a healthcheck that probes anything but readiness, a
+published port not bound to `127.0.0.1`, a profile moved on `auth-smoke` or `secret-check`, a
+container that keeps a capability or a writable root it does not need (a new service included),
+one that takes the host's privilege (`cap_add`, `privileged`, a shared namespace, a device, root,
+a bind of a file named `docker.sock`), a database network shared beyond its one client under any key
+or declared `external`, an `identity` network that is not `internal`, a `network_mode` that shares
+the host's or another container's network, a Prometheus that grants another origin a cross-origin
+read or takes an `entrypoint`, or an environment key that reopens the ledger's or the gateway's
+Actuator exposure or lowers the gateway's log level. The compose job also runs `secret-check`
+against a published value, and requires it to refuse all eight secrets by name and keep `db` from
+starting; that step, with the `.env` seeding it needs, stays inline in `ci.yml` because it starts
+containers under the default Compose project name
+([ADR-049](docs/ADRs/ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md)). No CI job starts
+the rest of the Compose stack. The branch rules on `main` and `dev` require a pull request but no
+status check, so a green run before merging is practice, not enforcement
 ([#134](https://github.com/NaimElijah/FinAssist/issues/134)).
 
 **What GitHub watches, beyond CI**
@@ -763,9 +774,13 @@ ledger client behind its own `LedgerPort`.
   until an ADR moves them, so Dependabot ignores their next lines
   ([ADR-045](docs/ADRs/ADR-045-dependabot-triage-and-toolchain-holds.md)). TypeScript is held at
   6.0.3 until `typescript-eslint` supports 7, and `@types/node` follows Node 24, the runtime's
-  major. The image tags named directly in `docker-compose.yml` have no Dependabot ecosystem, so
-  they move by hand: the two Python one-shots' with the assistant's Dockerfile. palantir-java-format
-  is bumped by hand in both poms too, and uv is pinned in the assistant's image but not in CI
+  major. Dependabot also proposes the image tags named directly in `docker-compose.yml`, but never
+  a new PostgreSQL major, which takes a backup and a restore into a new volume
+  ([Backing up and restoring](docs/operations/operations.md#backing-up-and-restoring)). Two of
+  its proposals are applied by hand: the Python one-shots' tag with the assistant's Dockerfile, and
+  a PostgreSQL tag with the Testcontainers tag the ledger's or the gateway's tests pin, which
+  nothing compares with Compose's. palantir-java-format is bumped by hand in both poms, and uv is
+  pinned in the assistant's image but not in CI
   ([ADR-062](docs/ADRs/ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md)).
 
 </details>

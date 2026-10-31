@@ -28,7 +28,12 @@ From `backend/ledger`:
   PostgreSQL in Testcontainers and fail rather than skip without it (ADR-025). Surefire (the unit
   suites) needs no Docker; failsafe does. `ApplicationYmlPlaceholdersTest` is a surefire test, so
   the `@Value` placeholder guard runs without Docker.
-- **Lint / format** — `./mvnw -B spotless:check` / `./mvnw -B spotless:apply`.
+- **Lint / format** — `./mvnw -B spotless:check` / `./mvnw -B spotless:apply`. javac's own lint
+  runs on every compile, main and test: `pom.xml` passes `-Xlint:all -Werror`, so any warning
+  fails `test`, `verify`, `package` and the image build, while `spotless:check` alone compiles
+  nothing. Fix the warning rather than excluding its category; a suppression names its category
+  and says why on the line above. An exception in the domain, the application layer or `shared`
+  declares `serialVersionUID` without `@Serial`, which is `java.io`.
 - **Regenerate the contract after every endpoint change** — `./mvnw -B verify -Dtest=NONE
   -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running). On a
   mismatch, copy `target/contracts/ledger-v1.openapi.json` over
@@ -217,3 +222,6 @@ bounded context (ADR-006, ADR-024).
 - **On every Spring Boot parent bump, read Boot's managed `opentelemetry.version`.** `pom.xml`
   overrides it to 1.67.0 for GHSA-ccrj-gw8r-854m, and an override lower than Boot's own
   downgrades it. Delete the property once Boot manages 1.67.0 or later (ADR-062).
+- **The Maven distribution is SHA-256-pinned** by `distributionSha256Sum` in
+  `.mvn/wrapper/maven-wrapper.properties`. Dependabot recomputes it when it bumps the wrapper; a
+  hand edit of `distributionUrl` must update it too, or `mvnw` refuses to run.

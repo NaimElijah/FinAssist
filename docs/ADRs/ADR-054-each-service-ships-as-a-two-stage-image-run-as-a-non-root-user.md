@@ -1,6 +1,8 @@
 # ADR-054: Each service ships as a two-stage image, built from source, run as a non-root user
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-063](ADR-063-every-container-holds-only-the-privilege-it-uses.md) and
+  [ADR-064](ADR-064-what-the-build-fetches-is-pinned-by-content.md)
 - **Date:** 2026-10-29
 
 Records a decision three Dockerfiles already embody. It extends

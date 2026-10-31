@@ -9,6 +9,8 @@ package io.github.naimelijah.finassist.ledger.planning.domain.plan;
  */
 public class IllegalPlanTransitionException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     public IllegalPlanTransitionException(PlanState from, String attempted) {
         super("Cannot " + attempted + " a plan that is " + from.name());
     }

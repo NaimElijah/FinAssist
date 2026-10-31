@@ -8,6 +8,9 @@
 FROM eclipse-temurin:21.0.13_9-jdk-noble AS build
 WORKDIR /build
 
+# A build-stage tool only, never shipped: without unzip, mvnw fetches Maven's .tar.gz instead and
+# checks it against the zip's distributionSha256Sum, which fails.
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
 COPY mvnw pom.xml ./
 COPY .mvn/ .mvn/
 RUN ./mvnw -B dependency:go-offline
@@ -23,8 +26,9 @@ RUN groupadd --system ledger && useradd --system --gid ledger --no-create-home l
 WORKDIR /app
 # The narrower glob matters: spring-boot-maven-plugin repackages the artifact in place and
 # renames the pre-repackage jar to *.jar.original, and a bare *.jar would match both.
+# The jar and /app stay root-owned and read-only to the service user, so code running in the JVM
+# cannot replace what every restart runs, as the assistant leaves its .venv (ADR-054).
 COPY --from=build /build/target/ledger-*.jar app.jar
-RUN chown ledger:ledger app.jar
 USER ledger
 
 EXPOSE 8080
