@@ -12,15 +12,17 @@ must bind `127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `a
 behind exactly the `smoke` profile and `secret-check` behind none (ADR-034, ADR-044). Every
 service but the two databases must take the `x-hardened` block's `cap_drop` and `security_opt`,
 and every one but those and Keycloak must set `read_only`; no service, a database included, may
-set `cap_add` or `privileged`; and each database must attach to one network alone, shared with
-its one client and nothing else, judged by the Docker network each key resolves to, so that no
-other key may resolve to it, and neither database network may be `external` (ADR-063). No
-service may set `network_mode` but `secret-check`, whose must be exactly `none`, and Prometheus's
-`command` must carry exactly `--web.cors.origin=`, the empty regex, which grants no origin
-(ADR-057). Neither the ledger nor the gateway may set, in its environment, a key that reopens
-the Actuator exposure their code pins, nor a `command` or `entrypoint`, whose arguments would
-reach Spring as properties; nor may the gateway set a log level, a log group, a logging
-configuration or Spring Boot's `debug` or `trace` switch, since below INFO it logs credentials.
+set `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as root by
+`user`, or bind-mount the Docker socket; and each database must attach to one network alone,
+shared with its one client and nothing else, judged by the Docker network each key resolves to,
+so that no other key may resolve to it, and neither database network may be `external`
+(ADR-063). No service may set `network_mode` but `secret-check`, whose must be exactly `none`,
+and Prometheus's `command` must carry exactly `--web.cors.origin=`, the empty regex, which
+grants no origin, with no `entrypoint` to run it otherwise (ADR-057). Neither the ledger nor the
+gateway may set, in its environment, a key that reopens the Actuator exposure their code pins,
+nor a `command` or `entrypoint`, whose arguments would reach Spring as properties; nor may the
+gateway set a log level, a log group, a logging configuration or Spring Boot's `debug` or `trace`
+switch, since below INFO it logs credentials.
 
 It reads the resolved file, not its text, so an alias that stops resolving fails as surely as a
 service that never took one, and a block copied in with other values fails too.
@@ -100,6 +102,16 @@ UNHARDENED_SERVICES: Final = frozenset({"db", "keycloak-db"})
 WRITABLE_ROOT_SERVICES: Final = UNHARDENED_SERVICES | {"keycloak"}
 # Either one widens a container's privileges, a database's included, so no service may set one.
 PRIVILEGE_MEMBERS: Final = ("cap_add", "privileged")
+# Each of these hands a container the host's privilege, whatever it drops, so none may be set on
+# any service. Every namespace member set at all shares one, the host's or another container's.
+NAMESPACE_MEMBERS: Final = ("pid", "ipc", "userns_mode", "uts")
+DEVICES_MEMBER: Final = "devices"
+# `user` is `<user>[:<group>]`; uid 0 by name or number is root, whatever the group.
+ROOT_USERS: Final = frozenset({"root"})
+ROOT_UID: Final = 0
+# The daemon's socket by its file name, so `/var/run/…`, `/run/…` and `//var/run/…` all match.
+DOCKER_SOCKET: Final = "docker.sock"
+BIND_MOUNT: Final = "bind"
 # Each database attaches to one network alone, shared with its one client, so no other container
 # can reach it (ADR-063).
 DATABASE_NETWORKS: Final = {"db": "books", "keycloak-db": "identity"}
@@ -127,9 +139,9 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
     convention: one line per problem, services in name order, and none when it follows them all.
 
     :raises ComposeCheckError: when `services`, a service, an environment, a healthcheck, a port,
-        a service's networks, the top-level `networks` or a network in it is not a mapping, a
-        service's `ports` is not a list, a network has no name, or a service names a network the
-        file does not declare.
+        a volume, a service's networks, the top-level `networks` or a network in it is not a
+        mapping, a service's `ports` or `volumes` is not a list, its `user` is not a string, a
+        network has no name, or a service names a network the file does not declare.
     """
     services = _mapping(resolved.get("services"), "services")
     policy = resolved.get(RESTART_BLOCK)
@@ -171,6 +183,7 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
         if name in UNPUBLISHED_SERVICES and ports:
             found.append(f"{name}: must publish no ports")
         found.extend(_hardening_problems(name, service))
+        found.extend(_host_privilege_problems(name, service))
         found.extend(_network_problems(name, service, networks))
         found.extend(_network_mode_problems(name, service))
     for name, profiles in sorted(PINNED_PROFILES.items()):
@@ -190,6 +203,12 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
     if cors != [NO_CORS_ORIGIN]:
         found.append(
             f"{CORS_PINNED_SERVICE}: its command must set {CORS_ORIGIN_FLAG} to the empty regex"
+        )
+    # An entrypoint runs in the command's place, or ahead of it, where this rule cannot read it.
+    if prometheus.get("entrypoint"):
+        found.append(
+            f"{CORS_PINNED_SERVICE}: must not set entrypoint, which could run it without its "
+            "CORS flag"
         )
     for name, path in READINESS_PROBES.items():
         service = _mapping(services.get(name) or {}, "a service")
@@ -212,6 +231,37 @@ def _hardening_problems(name: str, service: Mapping[str, object]) -> list[str]:
     if name not in WRITABLE_ROOT_SERVICES and service.get("read_only") is not True:
         found.append(f"{name}: needs read_only: true")
     return found
+
+
+def _host_privilege_problems(name: str, service: Mapping[str, object]) -> list[str]:
+    found = [
+        f"{name}: must not set {member}, which shares a namespace"
+        for member in NAMESPACE_MEMBERS
+        if service.get(member) is not None
+    ]
+    if service.get(DEVICES_MEMBER):
+        found.append(f"{name}: must not set {DEVICES_MEMBER}")
+    if _is_root(service.get("user")):
+        found.append(f"{name}: must not run as root")
+    if any(
+        mount.get("type") == BIND_MOUNT and _file_name(mount.get("source")) == DOCKER_SOCKET
+        for mount in _volumes(service.get("volumes"))
+    ):
+        found.append(f"{name}: must not mount the Docker socket")
+    return found
+
+
+def _is_root(user: object) -> bool:
+    if user is None:
+        return False
+    if not isinstance(user, str):
+        raise ComposeCheckError("a service's user is not a string")
+    uid = user.split(":", 1)[0]
+    return uid in ROOT_USERS or (uid.isdigit() and int(uid) == ROOT_UID)
+
+
+def _file_name(path: object) -> str:
+    return path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1] if isinstance(path, str) else ""
 
 
 def _network_names(declared: Mapping[str, object]) -> dict[str, str]:
@@ -288,6 +338,14 @@ def _ports(value: object) -> list[Mapping[str, object]]:
     if not isinstance(value, list):
         raise ComposeCheckError("a service's ports is not a list")
     return [_mapping(port, "a port") for port in value]
+
+
+def _volumes(value: object) -> list[Mapping[str, object]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ComposeCheckError("a service's volumes is not a list")
+    return [_mapping(volume, "a volume") for volume in value]
 
 
 def _canonical(key: str) -> str:

@@ -57,7 +57,8 @@ x-logging: &bounded-logs
 # `db` or `keycloak-db`: the PostgreSQL image's entrypoint starts as root, takes ownership of its
 # data and socket directories, then drops to the `postgres` user itself; with every capability
 # dropped, its `chmod` and `chown` are refused and it exits. No service, a database included, may
-# set `cap_add` or `privileged`.
+# set `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as root by
+# `user`, or mount the Docker socket.
 x-hardened: &hardened
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]

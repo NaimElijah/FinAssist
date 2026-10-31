@@ -25,13 +25,14 @@ One directory per tool, none of them a deployable service of this repository's (
   `auth-smoke` behind exactly `profiles: [smoke]` and `secret-check` behind none (ADR-034,
   ADR-044); the `x-hardened` block's `cap_drop: [ALL]` and `no-new-privileges:true` on every
   service but the two databases, and `read_only: true` on every one but those and Keycloak, the
-  script naming the exemptions so that a new service is held to both; no `cap_add` or
-  `privileged` on any service, the databases included; `db` and `keycloak-db` each on a network
-  of its own shared with its one client alone, `books` with the ledger and `identity` with
-  Keycloak, compared by the Docker network each key resolves to, so no other key may resolve to
-  either, and neither one `external` (ADR-063); no `network_mode` on any service but
-  `secret-check`, whose is exactly `none`; exactly one
-  `--web.cors.origin=` in Prometheus's `command`, the empty regex (ADR-057); and no
+  script naming the exemptions so that a new service is held to both; on no service, the
+  databases included, `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts`, `devices`, a
+  root `user` or a bind mount of the Docker socket; `db` and `keycloak-db` each on a network of
+  its own shared with its one client alone, `books` with the ledger and `identity` with Keycloak,
+  compared by the Docker network each key resolves to, so no other key may resolve to either,
+  and neither one `external` (ADR-063); no `network_mode` on any service but `secret-check`,
+  whose is exactly `none`; exactly one `--web.cors.origin=` in Prometheus's `command`, the empty
+  regex, and no `entrypoint` on it (ADR-057); and no
   `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON` key, in any
   spelling, nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS`, in the ledger's or the
   gateway's environment, and no `command` or `entrypoint` on either, each of which would reopen

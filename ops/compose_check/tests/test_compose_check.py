@@ -34,6 +34,7 @@ BOUNDED_LOGS = {"driver": "json-file", "options": {"max-file": "3", "max-size": 
 LOOPBACK = "127.0.0.1"
 NO_CAPABILITIES = ["ALL"]
 NO_NEW_PRIVILEGES = ["no-new-privileges:true"]
+NOBODY = "65534:65534"
 NO_CORS_GRANT = "--web.cors.origin="
 # Each list below is written out rather than read from the check, so a name dropped from the
 # check's own, or added to an exemption, fails here instead of taking its cases with it.
@@ -91,6 +92,11 @@ def _port(target: int, host_ip: str | None = LOOPBACK) -> dict[str, Any]:
     if host_ip is not None:
         port["host_ip"] = host_ip
     return port
+
+
+def _bind(source: str, target: str) -> dict[str, Any]:
+    """A bind mount as `config` resolves `<source>:<target>:ro`."""
+    return {"type": "bind", "source": source, "target": target, "read_only": True, "bind": {}}
 
 
 def _long_running(**members: Any) -> dict[str, Any]:
@@ -177,6 +183,10 @@ def _conforming() -> dict[str, Any]:
                     ports=[_port(3000)],
                     read_only=True,
                     networks={"default": None},
+                    volumes=[
+                        _bind("/repo/ops/grafana/provisioning", "/etc/grafana/provisioning"),
+                        {"type": "volume", "source": "grafana-data", "target": "/var/lib/grafana"},
+                    ],
                 )
             ),
             "secret-check": _hardened(
@@ -184,11 +194,14 @@ def _conforming() -> dict[str, Any]:
                     "environment": {"POSTGRES_PASSWORD": SECRET},
                     "network_mode": "none",
                     "read_only": True,
+                    "user": NOBODY,
+                    "volumes": [_bind("/repo", "/repo")],
                 }
             ),
             "auth-smoke": _hardened(
                 {
                     "environment": {"ASSISTANT_CLIENT_SECRET": SECRET},
+                    "user": NOBODY,
                     "profiles": ["smoke"],
                     "read_only": True,
                     "networks": {"default": None},
@@ -1085,6 +1098,126 @@ def Given_secret_check_not_on_network_mode_none_When_checked_Then_it_is_named(
     assert lines == ["secret-check: its network_mode must be exactly none"]
 
 
+def Given_keycloak_db_setting_network_mode_When_checked_Then_it_is_named(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    del resolved["services"]["keycloak-db"]["networks"]
+    resolved["services"]["keycloak-db"]["network_mode"] = "service:keycloak"
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        "keycloak-db: must attach to the identity network alone",
+        "keycloak-db: must not set network_mode",
+    ]
+
+
+# --- No service takes the host's privilege, the databases included ------------------------------
+
+
+# Each form `config` resolved a socket mount to: the short form's source as written, `//` included.
+@pytest.mark.parametrize(
+    "source", ["/var/run/docker.sock", "//var/run/docker.sock", "/run/docker.sock"]
+)
+@pytest.mark.parametrize("service", ["db", "grafana"])
+def Given_a_service_mounting_the_docker_socket_When_checked_Then_it_is_named(
+    service: str, source: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    mount = {"type": "bind", "source": source, "target": "/var/run/docker.sock", "bind": {}}
+    resolved["services"][service].setdefault("volumes", []).append(mount)
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: must not mount the Docker socket"]
+
+
+@pytest.mark.parametrize(
+    ("member", "value"),
+    [
+        ("pid", "host"),
+        ("pid", "service:db"),
+        ("ipc", "host"),
+        ("ipc", "shareable"),
+        ("userns_mode", "host"),
+        ("uts", "host"),
+    ],
+)
+@pytest.mark.parametrize("service", ["keycloak-db", "assistant"])
+def Given_a_service_setting_a_namespace_member_When_checked_Then_it_is_named(
+    service: str, member: str, value: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service][member] = value
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: must not set {member}, which shares a namespace"]
+
+
+@pytest.mark.parametrize("service", ["db", "otel-collector"])
+def Given_a_service_given_a_host_device_When_checked_Then_it_is_named(
+    service: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["devices"] = [
+        {"source": "/dev/fuse", "target": "/dev/fuse", "permissions": "rwm"}
+    ]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: must not set devices"]
+
+
+@pytest.mark.parametrize("user", ["0", "root", "0:0", "root:root", "0:65534", "000"])
+@pytest.mark.parametrize("service", ["keycloak-db", "secret-check"])
+def Given_a_service_running_as_root_When_checked_Then_it_is_named(
+    service: str, user: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["user"] = user
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: must not run as root"]
+
+
+@pytest.mark.parametrize("user", ["65534:65534", "1000", "postgres", "100:0", "10"])
+def Given_a_service_running_as_a_user_other_than_root_When_checked_Then_it_passes(
+    user: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["auth-smoke"]["user"] = user
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_PASSED
+    assert lines == [PASSED]
+
+
+def Given_prometheus_with_an_entrypoint_When_checked_Then_it_is_named(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["prometheus"]["entrypoint"] = [
+        "/bin/prometheus",
+        "--web.cors.origin=.*",
+    ]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        "prometheus: must not set entrypoint, which could run it without its CORS flag"
+    ]
+
+
 # --- Input that is not a resolved Compose file ----------------------------------------------------
 
 
@@ -1171,6 +1304,24 @@ def Given_input_that_is_not_json_When_checked_Then_it_is_refused_without_quoting
             "services": {"assistant": _long_running(networks={"undeclared": None})},
             "networks": {},
         },
+        # `config` resolves every volume to a mapping in a list, so anything else would hide a
+        # mount from the Docker-socket rule.
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {"grafana": _long_running(volumes={"/var/run/docker.sock": SECRET})},
+        },
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {"grafana": _long_running(volumes=[f"/var/run/docker.sock:/{SECRET}"])},
+        },
+        # Compose refuses a `user` that is not a string, so a number is not `config`'s output.
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {"grafana": _long_running(user=0)},
+        },
     ],
     ids=[
         "not-a-mapping",
@@ -1186,6 +1337,9 @@ def Given_input_that_is_not_json_When_checked_Then_it_is_refused_without_quoting
         "network-a-string",
         "network-without-a-name",
         "network-undeclared",
+        "volumes-a-mapping",
+        "volume-a-string",
+        "user-a-number",
     ],
 )
 def Given_json_not_shaped_like_a_resolved_file_When_checked_Then_it_is_refused_without_a_value(
