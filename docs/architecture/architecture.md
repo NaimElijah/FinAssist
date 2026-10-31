@@ -895,7 +895,7 @@ the classes and tests that enforce them in
 | **No ledger domain field is named after a derived quantity** — a balance, a spend, a remainder or a projection — except `AccountType.normalBalance` and `Comparison.projections`, held by a value itself derived; no column of a table or a materialized view in any migrated schema is either | `LedgerArchitectureTest.derived_quantities_are_never_stored`; `SchemaBoundariesIT.Given_the_migrated_schema_When_its_columns_are_read_Then_none_stores_a_derived_quantity` |
 | No cycles between aggregates in a context | `LedgerArchitectureTest.aggregates_are_free_of_cycles` |
 | **No foreign key crosses a schema**, so context isolation holds in the database too | `SchemaBoundariesIT` |
-| **The journal is append-only**: no `UPDATE` or `DELETE` on a transaction, its entries or its states | `V1_1__accounting_schema.sql` triggers; `JournalIsAppendOnlyIT` |
+| **The journal is append-only**: no `UPDATE` or `DELETE` on a transaction, its entries or its states, and no new entry for a transaction already recorded | `V1_1__accounting_schema.sql` and `V1_3__journal_entries_close_once_recorded.sql` triggers; `JournalIsAppendOnlyIT` |
 | **Nothing outside the ledger's composition root depends on it** | `LedgerArchitectureTest.no_context_depends_on_the_composition_root` |
 | **A ledger translation reaches its upstream context only through its in-ports**: a `composition` class that implements a consumer's out-port names no `application.service` class, no adapter, and no out-port interface it does not implement | `LedgerArchitectureTest.translations_reach_the_upstream_context_only_through_its_in_ports` |
 | **No `composition` class calls, or takes a reference to, a method of an out-port interface, an `application.service` class or an adapter**, so a lambda `@Bean` or a helper class cannot be a translation that skips the rule above; `LedgerConfiguration` constructs them and never calls them | `LedgerArchitectureTest.composition_calls_no_out_port_service_or_adapter` |
@@ -1064,7 +1064,8 @@ transactional outbox waits for the first consumer
 lifecycle change is stored by saving the aggregate in its new state. ADR-020's append-only
 obligation is therefore honoured as a port contract, and the durable adapter inherited it when
 ADR-006 was ratified; [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md) then put
-the journal's half of it in the database too, where a trigger refuses an `UPDATE` or a `DELETE`.
+the journal's half of it in the database too, where a trigger refuses an `UPDATE` or a `DELETE`,
+and another an entry added to a transaction already recorded.
 
 **The database is private to the ledger.** The assistant has no connection string, by design.
 

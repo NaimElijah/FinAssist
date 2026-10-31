@@ -107,11 +107,13 @@ PostgreSQL, through hand-written SQL over `JdbcClient`, Flyway migrations, and a
 bounded context (ADR-006, ADR-024).
 
 - **The journal is append-only in the database.** Triggers on `accounting.journal_transaction`,
-  `journal_entry` and `journal_transaction_state` refuse an `UPDATE` or a `DELETE`; a lifecycle
-  change is an `INSERT` whose highest `sequence` is the current state. Do not add an `UPDATE` to
-  `JdbcTransactionRepository` — the database will refuse it, which is the point (ADR-020,
-  ADR-024). `budgeting` and `planning` are ordinary mutable tables: ADR-020 binds the record of
-  what happened, and ADR-015 puts intent in another context.
+  `journal_entry` and `journal_transaction_state` refuse an `UPDATE` or a `DELETE`, and `V1_3`'s
+  refuses an entry for a transaction that already has a state row, so a recorded transaction's
+  entries are closed: write the header, then the entries, then the opening state, as the adapter
+  does. A lifecycle change is an `INSERT` whose highest `sequence` is the current state. Do not
+  add an `UPDATE` to `JdbcTransactionRepository` — the database will refuse it, which is the point
+  (ADR-020, ADR-024). `budgeting` and `planning` are ordinary mutable tables: ADR-020 binds the
+  record of what happened, and ADR-015 puts intent in another context.
 - **Every journal insert names `recorded_by`; never validate the constraints.** `V1_2` added a
   nullable `recorded_by` and a `CHECK (...) NOT VALID` on `journal_transaction` and
   `journal_transaction_state`, so a row written before it honestly stays `NULL` while every new one

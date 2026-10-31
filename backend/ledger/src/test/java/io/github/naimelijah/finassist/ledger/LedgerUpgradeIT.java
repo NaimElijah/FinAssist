@@ -25,10 +25,10 @@ import org.springframework.test.context.DynamicPropertySource;
  * The ledger must start against the database the owner already has, not only against an empty one.
  *
  * <p>Every other {@code *IT} — and every Compose run, and every smoke check — begins on a volume
- * with nothing in it, where Flyway applies {@code 1.1}, {@code 1.2}, {@code 2.1} and {@code 3.1} in
- * version order and nothing can be out of order. A real database is not in that state. {@code
- * V1_1}, {@code V2_1} and {@code V3_1} all entered git in one commit, so the owner's history is
- * {@code 1.1}, {@code 2.1}, {@code 3.1}, and {@code V1_2} arrives <em>below</em> the highest version
+ * with nothing in it, where Flyway applies every script in version order and nothing can be out of
+ * order. A real database is not in that state. {@code V1_1}, {@code V2_1} and {@code V3_1} all
+ * entered git in one commit, so the owner's history is {@code 1.1}, {@code 2.1}, {@code 3.1}, and
+ * {@code V1_2} and every accounting script after it arrive <em>below</em> the highest version
  * already applied. Flyway classes such a migration {@code IGNORED} and refuses to start unless it is
  * configured to run out of order (ADR-035), which is the one thing no fresh-volume test can notice.
  *
@@ -82,16 +82,17 @@ class LedgerUpgradeIT {
 
     /**
      * {@code installed_rank} order rather than version order on purpose: it records the order the
-     * migrations were actually run in, so this asserts that {@code 1.2} ran last, after a version
-     * higher than itself — the out-of-order application the owner's database needs and a fresh one
-     * never performs.
+     * migrations were actually run in, so this asserts that every accounting migration released
+     * since {@code 1.1} ran last, in version order, after a version higher than itself — the
+     * out-of-order application the owner's database needs and a fresh one never performs.
      */
     @Test
-    void Given_a_database_already_at_1_1_2_1_and_3_1_When_the_ledger_starts_Then_1_2_is_applied_after_them() {
+    void
+            Given_a_database_already_at_1_1_2_1_and_3_1_When_the_ledger_starts_Then_the_later_accounting_migrations_are_applied_after_them() {
         assertThat(jdbc.sql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank")
                         .query(String.class)
                         .list())
-                .containsExactly("1.1", "2.1", "3.1", "1.2");
+                .containsExactly("1.1", "2.1", "3.1", "1.2", "1.3");
     }
 
     @Test

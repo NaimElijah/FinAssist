@@ -85,6 +85,35 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
     }
 
     /**
+     * The case above guards the entries a transaction already has; this guards the set itself. A
+     * balanced pair added to a recorded transaction passes every balance check, yet it moves the
+     * balance of each account it touches with no state row saying anything happened: a rewrite by
+     * addition rather than by overwrite. Refused from the opening state on, so it holds for every later
+     * one, and the entries recorded stay the only ones.
+     */
+    @Test
+    void Given_a_recorded_transaction_When_a_balanced_pair_of_entries_is_inserted_Then_the_database_refuses_it() {
+        Transaction recorded = record("12.50");
+
+        assertThatThrownBy(() -> jdbc().sql("""
+                                INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency)
+                                VALUES (:id, 2, :debited, 100.00, 'ILS'),
+                                       (:id, 3, :credited, -100.00, 'ILS')
+                                """)
+                        .param("id", recorded.id().value())
+                        .param(
+                                "debited",
+                                recorded.entries().getFirst().account().value())
+                        .param(
+                                "credited",
+                                recorded.entries().getLast().account().value())
+                        .update())
+                .hasMessageContaining("the journal is append-only: transaction "
+                        + recorded.id().value() + " is already recorded and its entries are closed (ADR-020)");
+        assertThat(entryCount(recorded)).isEqualTo(recorded.entries().size());
+    }
+
+    /**
      * The other half of ADR-020's sentence. A transition must leave the earlier states readable, or
      * the journal records only where a transaction ended up and not what happened to it.
      */
@@ -232,6 +261,13 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
 
     private int states(Transaction transaction) {
         return jdbc().sql("SELECT count(*) FROM accounting.journal_transaction_state WHERE transaction_id = :id")
+                .param("id", transaction.id().value())
+                .query(Integer.class)
+                .single();
+    }
+
+    private int entryCount(Transaction transaction) {
+        return jdbc().sql("SELECT count(*) FROM accounting.journal_entry WHERE transaction_id = :id")
                 .param("id", transaction.id().value())
                 .query(Integer.class)
                 .single();
