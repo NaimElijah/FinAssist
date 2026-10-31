@@ -38,8 +38,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * later row takes the next sequence, moves only along a transition {@link Transaction} allows, and
  * never dates itself before the transaction occurred or before the state it follows.
  *
- * <p>The refused rows are written directly, as {@code JournalIsAppendOnlyIT} writes its own: through
- * the repository, the aggregate would refuse them first, and the test would prove only the Java.
+ * <p>Most refused rows are written directly, as {@code JournalIsAppendOnlyIT} writes its own, because
+ * the adapter cannot write them: it always appends at the stored sequence plus one, and an aggregate
+ * {@link Transaction} refuses never reaches it. Two refusals are reachable through the repository,
+ * from aggregates {@link Transaction} allows, and are tested through it: a first save that is not
+ * {@code Pending}, and a save two moves ahead of the state stored.
  */
 @SpringBootTest
 class JournalStateHistoryIT extends PostgresFixture {
@@ -208,6 +211,44 @@ class JournalStateHistoryIT extends PostgresFixture {
         assertThat(history(cleared.id())).containsExactly("0:PENDING", "1:CLEARED", "2:VOIDED");
     }
 
+    /**
+     * The port's save contract, held through the port: {@link Transaction} allows clearing and then
+     * reconciling in memory, but a save that stores both at once would record a clear nobody saved, so
+     * the history refuses it and stays as it was.
+     */
+    @Test
+    void Given_a_pending_transaction_When_saved_cleared_and_reconciled_at_once_Then_it_is_refused() {
+        Transaction recorded = record();
+        Transaction twoMovesAhead = recorded.clear(MARCH_3).reconcile(MARCH_5);
+
+        assertThatThrownBy(() -> transactions.save(twoMovesAhead, RECORDER))
+                .rootCause()
+                .hasMessageContaining(
+                        "transaction " + recorded.id().value() + " cannot move from PENDING to RECONCILED");
+        assertThat(history(recorded.id())).containsExactly("0:PENDING");
+    }
+
+    /**
+     * A transaction first saved already cleared would open its history confirmed, with no record of the
+     * pending state it was entered in, so nothing of it is stored: the header and entries roll back
+     * with the refused state.
+     */
+    @Test
+    void Given_a_new_transaction_When_its_first_save_is_cleared_Then_nothing_is_recorded() {
+        Transaction cleared = Transaction.record(
+                        MARCH_1,
+                        "Groceries",
+                        List.of(new Entry(groceries.id(), ils("12.50")), new Entry(cash.id(), ils("-12.50"))))
+                .clear(MARCH_3);
+
+        assertThatThrownBy(() -> transactions.save(cleared, RECORDER))
+                .rootCause()
+                .hasMessageContaining(
+                        "transaction " + cleared.id().value() + " opens PENDING at sequence 0, not CLEARED at 0");
+        assertThat(rows(cleared.id())).isZero();
+        assertThat(headers(cleared.id())).isZero();
+    }
+
     /** Recorded on {@code MARCH_1}, then moved through the domain to {@code state}, a step at a time. */
     private Transaction recordIn(String state) {
         Transaction current = record();
@@ -273,6 +314,13 @@ class JournalStateHistoryIT extends PostgresFixture {
 
     private int rows(TransactionId id) {
         return jdbc().sql("SELECT count(*) FROM accounting.journal_transaction_state WHERE transaction_id = :id")
+                .param("id", id.value())
+                .query(Integer.class)
+                .single();
+    }
+
+    private int headers(TransactionId id) {
+        return jdbc().sql("SELECT count(*) FROM accounting.journal_transaction WHERE id = :id")
                 .param("id", id.value())
                 .query(Integer.class)
                 .single();
