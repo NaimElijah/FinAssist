@@ -955,9 +955,26 @@ def Given_a_database_on_the_host_network_When_checked_Then_it_is_named(
     ]
 
 
+# Every service that is neither a network's database nor its one client, written out rather than
+# derived from the script's own lists, so a client added there fails here.
 @pytest.mark.parametrize(
     ("service", "network"),
-    [("assistant", "books"), ("gateway", "identity"), ("ledger", "identity")],
+    [
+        ("assistant", "books"),
+        ("auth-smoke", "books"),
+        ("gateway", "books"),
+        ("grafana", "books"),
+        ("keycloak", "books"),
+        ("otel-collector", "books"),
+        ("prometheus", "books"),
+        ("assistant", "identity"),
+        ("auth-smoke", "identity"),
+        ("gateway", "identity"),
+        ("grafana", "identity"),
+        ("ledger", "identity"),
+        ("otel-collector", "identity"),
+        ("prometheus", "identity"),
+    ],
 )
 def Given_another_service_on_a_databases_network_When_checked_Then_it_is_named(
     service: str, network: str, capsys: pytest.CaptureFixture[str]
