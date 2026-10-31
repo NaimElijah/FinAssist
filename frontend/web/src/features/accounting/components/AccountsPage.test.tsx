@@ -770,7 +770,7 @@ describe('AccountsPage opening an account', () => {
             within(alert)
                 .getAllByRole('listitem')
                 .map((item) => item.textContent),
-        ).toEqual(['name: must not be blank', 'openAccountRequest: is not readable']);
+        ).toEqual(['Name: must not be blank', 'openAccountRequest: is not readable']);
         expect(screen.getByLabelText('Name').getAttribute('aria-invalid')).toBeNull();
     });
 

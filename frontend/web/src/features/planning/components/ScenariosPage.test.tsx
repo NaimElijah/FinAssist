@@ -515,6 +515,35 @@ describe('ScenariosPage define-scenario form', () => {
         });
     }
 
+    it('Given_a_400_naming_one_of_the_chosen_flows_When_defined_Then_the_error_state_lists_it_under_the_Flows_label', async () => {
+        fakeFetch(
+            ledger([], [], (request) => {
+                if (request.url === SCENARIOS_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: [{ field: 'flows[0]', message: 'must not be null' }],
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderScenarios();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Define a scenario' });
+
+        await user.type(screen.getByLabelText('Name'), 'Do nothing');
+        await user.click(screen.getByRole('button', { name: 'Define scenario' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['Flows: must not be null']);
+    });
+
     it('Given_a_400_listing_a_name_error_When_defined_Then_the_message_is_on_the_Name_field', async () => {
         fakeFetch(
             ledger([], [], (request) => {

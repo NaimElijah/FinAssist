@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ApiError, type Problem } from '../api/client';
 import { ErrorState } from './ErrorState';
+import { labelsByField } from './fieldLabels';
 
 const GENERIC_SENTENCE =
     'Something went wrong. Try again, and reload the page if it keeps happening.';
@@ -41,6 +42,56 @@ describe('ErrorState', () => {
                 .getAllByRole('listitem')
                 .map((item) => item.textContent),
         ).toEqual(['entries: must hold at least two entries', 'memo: must not be blank']);
+    });
+
+    it('Given_field_errors_and_the_forms_labels_When_rendered_Then_a_known_field_shows_its_label_and_an_unknown_one_its_wire_name', () => {
+        const labels = new Map([['entries[0].amount', 'Debit 1 or Credit 1']]);
+        render(
+            <ErrorState
+                error={apiError({
+                    status: 400,
+                    code: 'MALFORMED_REQUEST',
+                    detail: 'Invalid request content.',
+                    errors: [
+                        { field: 'entries[0].amount', message: 'must not be negative' },
+                        { field: 'recordTransactionRequest', message: 'is not readable' },
+                    ],
+                })}
+                fieldLabel={(field) => labels.get(field)}
+            />,
+        );
+
+        expect(
+            within(screen.getByRole('alert'))
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual([
+            'Debit 1 or Credit 1: must not be negative',
+            'recordTransactionRequest: is not readable',
+        ]);
+    });
+
+    it('Given_labels_by_field_and_a_field_named_like_an_object_member_When_rendered_Then_only_a_listed_field_takes_a_label', () => {
+        render(
+            <ErrorState
+                error={apiError({
+                    status: 400,
+                    code: 'MALFORMED_REQUEST',
+                    detail: 'Invalid request content.',
+                    errors: [
+                        { field: 'name', message: 'must not be blank' },
+                        { field: 'constructor', message: 'is not readable' },
+                    ],
+                })}
+                fieldLabel={labelsByField({ name: 'Name' })}
+            />,
+        );
+
+        expect(
+            within(screen.getByRole('alert'))
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['Name: must not be blank', 'constructor: is not readable']);
     });
 
     it('Given_a_problem_with_a_title_and_no_detail_When_rendered_Then_the_title_is_shown', () => {

@@ -12,6 +12,7 @@ import {
     DateText,
     EmptyState,
     ErrorState,
+    labelsByField,
     formatCalendarDate,
     LoadingNote,
     MoneyText,
@@ -39,6 +40,12 @@ import { PlanFlowForm } from './PlanFlowForm';
 import styles from './PlannedFlowsPage.module.css';
 
 const EMPTY_MESSAGE = 'No planned flows yet';
+
+/** A lifecycle panel's labels, keyed by the request member each field fills. */
+const PANEL_LABELS = { on: 'On', reason: 'Reason' } as const;
+
+/** A failed request's field errors, listed under the form's own labels (WCAG 3.3.1). */
+const PANEL_FIELD_LABEL = labelsByField(PANEL_LABELS);
 
 /** Each direction's colour role. The label always carries the meaning; tone only reinforces it. */
 const DIRECTION_TONES: Readonly<Record<PlannedFlow['direction'], Tone>> = {
@@ -254,9 +261,15 @@ function LifecycleActionPanel({
             pending={mutation.isPending}
         >
             <div className={styles.panelFields}>
-                {failure === null ? null : <ErrorState ref={errorStateRef} error={failure} />}
+                {failure === null ? null : (
+                    <ErrorState
+                        ref={errorStateRef}
+                        error={failure}
+                        fieldLabel={PANEL_FIELD_LABEL}
+                    />
+                )}
                 <DateField
-                    label="On"
+                    label={PANEL_LABELS.on}
                     required
                     value={on}
                     onChange={(event) => {
@@ -266,7 +279,7 @@ function LifecycleActionPanel({
                 />
                 {kind === 'CANCEL' ? (
                     <TextField
-                        label="Reason"
+                        label={PANEL_LABELS.reason}
                         required
                         value={reason}
                         onChange={(event) => {

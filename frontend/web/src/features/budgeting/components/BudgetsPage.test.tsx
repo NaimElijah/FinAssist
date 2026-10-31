@@ -516,6 +516,11 @@ describe('BudgetsPage defining a budget', () => {
 
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('Invalid request content.')).toBeDefined();
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['Category 1: must not be blank']);
         expect(screen.getByLabelText('Category 1').getAttribute('aria-invalid')).toBeNull();
     });
 

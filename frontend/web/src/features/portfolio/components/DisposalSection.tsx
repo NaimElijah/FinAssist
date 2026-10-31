@@ -3,7 +3,14 @@ import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
 import { DECIMAL_HINT } from '@/shared/api/decimal';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
-import { Button, ErrorState, SelectField, type SelectOption, TextField } from '@/shared/ui';
+import {
+    Button,
+    ErrorState,
+    labelsByField,
+    SelectField,
+    type SelectOption,
+    TextField,
+} from '@/shared/ui';
 
 import { usePriceDisposal } from '../hooks/portfolioQueries';
 import type { DisposalInput } from '../types/disposal';
@@ -35,6 +42,21 @@ const FIELD_MESSAGE_SEPARATOR = '; ';
 type FieldName = 'quantity' | 'amount';
 
 type FieldErrors = Partial<Record<FieldName, string>>;
+
+/** Each field's label. */
+const LABELS = {
+    quantity: 'Quantity',
+    proceedsAmount: 'Proceeds amount',
+    currency: 'Currency',
+} as const;
+
+/** A failed request's field errors, listed under the form's own labels (WCAG 3.3.1). */
+const FIELD_LABEL = labelsByField({
+    quantity: LABELS.quantity,
+    proceeds: LABELS.proceedsAmount,
+    'proceeds.amount': LABELS.proceedsAmount,
+    'proceeds.currency': LABELS.currency,
+});
 
 /** A failed calculation, split into what can be shown on a field and what cannot. */
 interface SubmissionErrors {
@@ -197,12 +219,12 @@ export function DisposalSection({ symbol, initialCurrency }: DisposalSectionProp
                 Calculation only — nothing is recorded.
             </p>
             {errors.unplaced === null ? null : (
-                <ErrorState ref={errorStateRef} error={errors.unplaced} />
+                <ErrorState ref={errorStateRef} error={errors.unplaced} fieldLabel={FIELD_LABEL} />
             )}
             <form ref={formRef} aria-describedby={noteId} className={styles.form} onSubmit={submit}>
                 <div className={styles.fields}>
                     <TextField
-                        label="Quantity"
+                        label={LABELS.quantity}
                         name="quantity"
                         hint={DECIMAL_HINT}
                         inputMode="decimal"
@@ -216,7 +238,7 @@ export function DisposalSection({ symbol, initialCurrency }: DisposalSectionProp
                         }}
                     />
                     <TextField
-                        label="Proceeds amount"
+                        label={LABELS.proceedsAmount}
                         name="proceedsAmount"
                         hint={DECIMAL_HINT}
                         inputMode="decimal"
@@ -230,7 +252,7 @@ export function DisposalSection({ symbol, initialCurrency }: DisposalSectionProp
                         }}
                     />
                     <SelectField
-                        label="Currency"
+                        label={LABELS.currency}
                         name="currency"
                         options={CURRENCY_OPTIONS}
                         value={currency}

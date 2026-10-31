@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
 import { DECIMAL_HINT } from '@/shared/api/decimal';
+import { indexedField } from '@/shared/api/fieldPath';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { todayIsoDate } from '@/shared/lib/today';
 import { useWriteAccess } from '@/shared/lib/writeAccess';
@@ -18,6 +19,7 @@ import {
     Button,
     DateField,
     ErrorState,
+    labelsByField,
     LoadingNote,
     QueryErrorState,
     SelectField,
@@ -56,6 +58,53 @@ const CHOOSE_ACCOUNT_OPTION: SelectOption = { value: '', label: 'Choose an accou
 const FIELD_NAMES = ['description', 'occurredOn'] as const;
 
 type FieldName = (typeof FIELD_NAMES)[number];
+
+/** The labels of the fields outside the entry rows, keyed by the request member each fills. */
+const LABELS = { occurredOn: 'Date', description: 'Description' } as const satisfies Record<
+    FieldName,
+    string
+>;
+
+/** Entry row `position`'s Account label, numbered from one as the rows are shown. */
+function accountLabel(position: number): string {
+    return `Account ${String(position)}`;
+}
+
+/** Entry row `position`'s Debit label. */
+function debitLabel(position: number): string {
+    return `Debit ${String(position)}`;
+}
+
+/** Entry row `position`'s Credit label. */
+function creditLabel(position: number): string {
+    return `Credit ${String(position)}`;
+}
+
+const TOP_LEVEL_LABEL = labelsByField(LABELS);
+
+/**
+ * A failed request's field errors, listed under the form's own labels (WCAG 3.3.1).
+ *
+ * An entry is named by its index in `entries`, which follows the rows' order; a failure is
+ * cleared by any edit to the rows, so the rows cannot have moved while it is shown. An entry's
+ * amount is typed as a debit or a credit, and its currency is its account's own.
+ */
+function fieldLabel(field: string): string | undefined {
+    const entry = indexedField(field, 'entries');
+    if (entry === undefined) {
+        return TOP_LEVEL_LABEL(field);
+    }
+    switch (entry.member) {
+        case 'account':
+        case 'amount.currency':
+            return accountLabel(entry.position);
+        case 'amount':
+        case 'amount.amount':
+            return `${debitLabel(entry.position)} or ${creditLabel(entry.position)}`;
+        default:
+            return undefined;
+    }
+}
 
 type FieldErrors = Partial<Record<FieldName, string>>;
 
@@ -174,7 +223,7 @@ function EntryRowFields({
     return (
         <div className={styles.row}>
             <SelectField
-                label={`Account ${String(label)}`}
+                label={accountLabel(label)}
                 required
                 options={accountOptions(accounts)}
                 value={row.accountId}
@@ -183,7 +232,7 @@ function EntryRowFields({
                 }}
             />
             <TextField
-                label={`Debit ${String(label)}`}
+                label={debitLabel(label)}
                 hint={ENTRY_AMOUNT_HINT}
                 inputMode="decimal"
                 autoComplete="off"
@@ -194,7 +243,7 @@ function EntryRowFields({
                 }}
             />
             <TextField
-                label={`Credit ${String(label)}`}
+                label={creditLabel(label)}
                 hint={ENTRY_AMOUNT_HINT}
                 inputMode="decimal"
                 autoComplete="off"
@@ -398,12 +447,12 @@ function RecordTransactionForm({
             </h1>
             {accountsFailure}
             {errors.unplaced === null ? null : (
-                <ErrorState ref={errorStateRef} error={errors.unplaced} />
+                <ErrorState ref={errorStateRef} error={errors.unplaced} fieldLabel={fieldLabel} />
             )}
             <form ref={formRef} className={styles.form} onSubmit={submit}>
                 <div className={styles.fields}>
                     <DateField
-                        label="Date"
+                        label={LABELS.occurredOn}
                         required
                         value={occurredOn}
                         error={errors.fields.occurredOn}
@@ -413,7 +462,7 @@ function RecordTransactionForm({
                         }}
                     />
                     <TextField
-                        label="Description"
+                        label={LABELS.description}
                         required
                         autoComplete="off"
                         value={description}

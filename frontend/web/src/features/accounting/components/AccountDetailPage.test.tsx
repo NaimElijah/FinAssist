@@ -702,6 +702,46 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         expectOnlyItsAccountsInvalidated(invalidateSpy);
     });
 
+    it('Given_a_400_naming_the_panels_reason_When_voided_Then_the_error_state_lists_it_under_the_Reason_label', async () => {
+        fakeFetch(
+            lifecycleLedger(
+                () => [PENDING_TX],
+                (request) => {
+                    if (
+                        request.url === `${RECORD_URL}/${PENDING_TX.id}/void` &&
+                        request.method === 'POST'
+                    ) {
+                        return problemResponse({
+                            status: 400,
+                            code: 'MALFORMED_REQUEST',
+                            detail: 'Invalid request content.',
+                            errors: [{ field: 'reason', message: 'must not be blank' }],
+                        });
+                    }
+                    return unexpectedRequest(request);
+                },
+            ),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Transactions' });
+
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Void'),
+            }),
+        );
+        await user.type(screen.getByLabelText('Reason'), ' ');
+        await user.click(screen.getByRole('button', { name: 'Void' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['Reason: must not be blank']);
+    });
+
     it('Given_a_409_response_When_an_action_is_submitted_Then_the_server_detail_is_shown_in_the_panel_and_it_stays_open', async () => {
         fakeFetch(
             lifecycleLedger(

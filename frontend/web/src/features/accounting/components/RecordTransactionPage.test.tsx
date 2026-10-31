@@ -831,7 +831,7 @@ describe('RecordTransactionPage 400 field-error routing', () => {
             within(alert)
                 .getAllByRole('listitem')
                 .map((item) => item.textContent),
-        ).toEqual(['entries[0].amount: must not be negative']);
+        ).toEqual(['Debit 1 or Credit 1: must not be negative']);
         expect(screen.getByLabelText('Description').getAttribute('aria-invalid')).toBeNull();
         await waitFor(() => {
             expect(document.activeElement).toBe(alert);

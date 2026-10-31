@@ -549,7 +549,7 @@ describe('DisposalSection', () => {
             within(alert)
                 .getAllByRole('listitem')
                 .map((item) => item.textContent),
-        ).toEqual(['quantity: Field required', 'proceeds: Field required']);
+        ).toEqual(['Quantity: Field required', 'Proceeds amount: Field required']);
         expect(screen.getByLabelText('Quantity').getAttribute('aria-invalid')).toBeNull();
     });
 

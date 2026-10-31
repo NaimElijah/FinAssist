@@ -13,6 +13,7 @@ export { formatCalendarDate } from './calendarDate';
 export { DateText, type DateTextProps } from './DateText';
 export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { ErrorState, type ErrorStateProps } from './ErrorState';
+export { type FieldLabelLookup, labelsByField } from './fieldLabels';
 export { LoadingNote, type LoadingNoteProps } from './LoadingNote';
 export { MoneyText, type MoneyTextProps } from './MoneyText';
 export { MonthField, type MonthFieldProps } from './MonthField';

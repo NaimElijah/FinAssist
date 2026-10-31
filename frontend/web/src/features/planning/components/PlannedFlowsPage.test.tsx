@@ -538,6 +538,37 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         });
     });
 
+    it('Given_a_400_naming_the_panels_date_When_an_action_is_submitted_Then_the_error_state_lists_it_under_the_On_label', async () => {
+        fakeFetch(
+            ledger([RENT], (request) => {
+                if (request.url === `${FLOWS_URL}/${RENT_ID}/commit` && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: [{ field: 'on', message: 'must not be null' }],
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
+        await user.click(screen.getByRole('button', { name: 'Commit' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['On: must not be null']);
+    });
+
     // Every field of the panel, since each calls clearSettledOutcome on its own (frontend/web
     // CLAUDE.md: editing any field of a settled form clears its answer).
     for (const { field, edit } of [
@@ -986,7 +1017,12 @@ describe('PlannedFlowsPage plan-flow form', () => {
 
         const alert = await screen.findByRole('alert');
         expect(within(alert).getByText('Invalid request content.')).toBeDefined();
-        expect(within(alert).getByText(/recurrence\.completeForKind/)).toBeDefined();
+        // The rule is about the recurrence as a whole, which the Repeats field chooses.
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(["Repeats: must carry exactly its kind's members"]);
     });
 
     it('Given_a_400_naming_amount_amount_When_planned_Then_the_message_is_on_the_Amount_field', async () => {

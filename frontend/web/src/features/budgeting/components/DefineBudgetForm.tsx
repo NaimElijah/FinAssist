@@ -1,11 +1,13 @@
 import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { indexedField } from '@/shared/api/fieldPath';
 import { DECIMAL_HINT } from '@/shared/api/decimal';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import {
     Button,
     ErrorState,
+    labelsByField,
     MonthField,
     SelectField,
     type SelectOption,
@@ -64,6 +66,51 @@ const INVALID_CONTROL_SELECTOR = '[aria-invalid="true"]';
 const FIELD_NAMES = ['currency'] as const;
 
 type FieldName = (typeof FIELD_NAMES)[number];
+
+/** The labels of the fields outside the limit rows. */
+const LABELS = { month: 'Month', currency: 'Currency' } as const;
+
+/** Limit row `position`'s Category label, numbered from one as the rows are shown. */
+function categoryLabel(position: number): string {
+    return `Category ${String(position)}`;
+}
+
+/** Limit row `position`'s Limit amount label, numbered from one as the rows are shown. */
+function limitAmountLabel(position: number): string {
+    return `Limit amount ${String(position)}`;
+}
+
+/** The request's members outside `limits`; the Month fills `period` with its two dates. */
+const TOP_LEVEL_LABEL = labelsByField({
+    period: LABELS.month,
+    'period.start': LABELS.month,
+    'period.end': LABELS.month,
+    currency: LABELS.currency,
+});
+
+/**
+ * A failed request's field errors, listed under the form's own labels (WCAG 3.3.1).
+ *
+ * A limit is named by its index in `limits`, which follows the rows' order; a failure is cleared
+ * by any edit to the rows, so the rows cannot have moved while it is shown.
+ */
+function fieldLabel(field: string): string | undefined {
+    const limit = indexedField(field, 'limits');
+    if (limit === undefined) {
+        return TOP_LEVEL_LABEL(field);
+    }
+    switch (limit.member) {
+        case 'category':
+            return categoryLabel(limit.position);
+        case 'limit':
+        case 'limit.amount':
+            return limitAmountLabel(limit.position);
+        case 'limit.currency':
+            return LABELS.currency;
+        default:
+            return undefined;
+    }
+}
 
 type FieldErrors = Partial<Record<FieldName, string>>;
 
@@ -187,7 +234,7 @@ function LimitRowFields({
     return (
         <div className={styles.row}>
             <TextField
-                label={`Category ${String(label)}`}
+                label={categoryLabel(label)}
                 required
                 autoComplete="off"
                 value={row.category}
@@ -196,7 +243,7 @@ function LimitRowFields({
                 }}
             />
             <TextField
-                label={`Limit amount ${String(label)}`}
+                label={limitAmountLabel(label)}
                 hint={DECIMAL_HINT}
                 inputMode="decimal"
                 required
@@ -357,12 +404,12 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                 Define a budget
             </h2>
             {errors.unplaced === null ? null : (
-                <ErrorState ref={errorStateRef} error={errors.unplaced} />
+                <ErrorState ref={errorStateRef} error={errors.unplaced} fieldLabel={fieldLabel} />
             )}
             <form ref={formRef} className={styles.form} onSubmit={submit}>
                 <div className={styles.fields}>
                     <MonthField
-                        label="Month"
+                        label={LABELS.month}
                         required
                         pattern={MONTH_INPUT_PATTERN}
                         hint={MONTH_HINT}
@@ -375,7 +422,7 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                         }}
                     />
                     <SelectField
-                        label="Currency"
+                        label={LABELS.currency}
                         options={CURRENCY_OPTIONS}
                         value={currency}
                         error={errors.fields.currency}

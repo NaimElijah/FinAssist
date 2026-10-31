@@ -1,10 +1,12 @@
 import { type Ref, type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { indexedField } from '@/shared/api/fieldPath';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import {
     Button,
     ErrorState,
+    labelsByField,
     LoadingNote,
     MoneyText,
     QueryErrorState,
@@ -54,6 +56,30 @@ const INVALID_CONTROL_SELECTOR = '[aria-invalid="true"]';
 const FIELD_NAMES = ['name', 'currency', 'growthRatePerStep'] as const;
 
 type FieldName = (typeof FIELD_NAMES)[number];
+
+/** Each field's label, keyed by the request member it fills. */
+const LABELS = {
+    name: 'Name',
+    currency: 'Currency',
+    growthRatePerStep: 'Growth rate per step',
+} as const satisfies Record<FieldName, string>;
+
+/** Names the group of flow checkboxes, which fills the request's `flows`. */
+const FLOWS_LABEL = 'Flows';
+
+const TOP_LEVEL_LABEL = labelsByField(LABELS);
+
+/**
+ * A failed request's field errors, listed under the form's own labels (WCAG 3.3.1).
+ *
+ * A chosen flow is named by its place in `flows`, which is the order of the checked boxes rather
+ * than anything the owner sees, so it is listed under the group's label.
+ */
+function fieldLabel(field: string): string | undefined {
+    return field === 'flows' || indexedField(field, 'flows') !== undefined
+        ? FLOWS_LABEL
+        : TOP_LEVEL_LABEL(field);
+}
 
 type FieldErrors = Partial<Record<FieldName, string>>;
 
@@ -164,7 +190,7 @@ function FlowsFieldset({
     const flowsInCurrency = flows.filter((flow) => flow.amount.currency === currency);
     return (
         <fieldset ref={ref} tabIndex={-1} className={groupStyles.group}>
-            <legend className={groupStyles.legend}>Flows</legend>
+            <legend className={groupStyles.legend}>{FLOWS_LABEL}</legend>
             {flowsInCurrency.length === 0 ? (
                 <p className={styles.noFlows}>{`No planned flows in ${currency} yet.`}</p>
             ) : (
@@ -326,12 +352,12 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                 Define a scenario
             </h2>
             {errors.unplaced === null ? null : (
-                <ErrorState ref={errorStateRef} error={errors.unplaced} />
+                <ErrorState ref={errorStateRef} error={errors.unplaced} fieldLabel={fieldLabel} />
             )}
             <form ref={formRef} className={styles.form} onSubmit={submit}>
                 <div className={styles.fields}>
                     <TextField
-                        label="Name"
+                        label={LABELS.name}
                         required
                         autoComplete="off"
                         value={name}
@@ -342,7 +368,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                         }}
                     />
                     <SelectField
-                        label="Currency"
+                        label={LABELS.currency}
                         options={CURRENCY_OPTIONS}
                         value={currency}
                         error={errors.fields.currency}
@@ -351,7 +377,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                         }}
                     />
                     <TextField
-                        label="Growth rate per step"
+                        label={LABELS.growthRatePerStep}
                         inputMode="decimal"
                         required
                         autoComplete="off"

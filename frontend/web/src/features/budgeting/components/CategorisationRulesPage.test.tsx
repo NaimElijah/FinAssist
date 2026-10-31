@@ -270,6 +270,37 @@ describe('CategorisationRulesPage adding a rule', () => {
         });
     });
 
+    it('Given_a_400_naming_a_field_the_form_lacks_When_added_Then_the_error_state_lists_each_field_by_its_label_or_wire_name', async () => {
+        fakeFetch((request) => {
+            if (request.url === RULES_URL && request.method === 'POST') {
+                return problemResponse({
+                    status: 400,
+                    code: 'MALFORMED_REQUEST',
+                    detail: 'Invalid request content.',
+                    errors: [
+                        { field: 'category', message: 'must not be blank' },
+                        { field: 'addCategorisationRuleRequest', message: 'is not readable' },
+                    ],
+                });
+            }
+            if (request.url === RULES_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderRules();
+        const user = userEvent.setup({ delay: null });
+
+        await user.type(await screen.findByLabelText('Fragment'), 'cafe');
+        await user.type(screen.getByLabelText('Category'), ' ');
+        await user.click(screen.getByRole('button', { name: 'Add rule' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['Category: must not be blank', 'addCategorisationRuleRequest: is not readable']);
+    });
+
     it('Given_a_400_naming_the_fragment_field_When_added_Then_its_message_is_the_Fragment_fields_error', async () => {
         fakeFetch((request) => {
             if (request.url === RULES_URL && request.method === 'POST') {
