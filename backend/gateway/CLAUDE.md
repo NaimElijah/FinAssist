@@ -51,7 +51,11 @@ From `backend/gateway`:
 - **Test** — `make test-gateway`: `./mvnw -B verify`. **Docker must be running**:
   `KeycloakRealmIT` builds `ops/keycloak/Dockerfile` and runs it against a real PostgreSQL, and
   fails rather than skips without Docker (ADR-025).
-- **Lint / format** — `./mvnw -B spotless:check` / `./mvnw -B spotless:apply`.
+- **Lint / format** — `./mvnw -B spotless:check` / `./mvnw -B spotless:apply`. javac's own lint
+  runs on every compile, main and test: `pom.xml` passes `-Xlint:all -Werror`, so any warning
+  fails `test`, `verify`, `package` and the image build, while `spotless:check` alone compiles
+  nothing. Fix the warning rather than excluding its category; a suppression names its category
+  and says why on the line above.
 - **Regenerate the contract after every endpoint change** — `./mvnw -B verify -Dtest=NONE
   -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=GatewayContractIT` (no container needed). On a
   mismatch, copy `target/contracts/gateway-v1.openapi.json` over

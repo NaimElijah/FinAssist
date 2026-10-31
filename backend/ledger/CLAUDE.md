@@ -28,7 +28,12 @@ From `backend/ledger`:
   PostgreSQL in Testcontainers and fail rather than skip without it (ADR-025). Surefire (the unit
   suites) needs no Docker; failsafe does. `ApplicationYmlPlaceholdersTest` is a surefire test, so
   the `@Value` placeholder guard runs without Docker.
-- **Lint / format** — `./mvnw -B spotless:check` / `./mvnw -B spotless:apply`.
+- **Lint / format** — `./mvnw -B spotless:check` / `./mvnw -B spotless:apply`. javac's own lint
+  runs on every compile, main and test: `pom.xml` passes `-Xlint:all -Werror`, so any warning
+  fails `test`, `verify`, `package` and the image build, while `spotless:check` alone compiles
+  nothing. Fix the warning rather than excluding its category; a suppression names its category
+  and says why on the line above. An exception in the domain, the application layer or `shared`
+  declares `serialVersionUID` without `@Serial`, which is `java.io`.
 - **Regenerate the contract after every endpoint change** — `./mvnw -B verify -Dtest=NONE
   -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=LedgerContractIT` (Docker running). On a
   mismatch, copy `target/contracts/ledger-v1.openapi.json` over
