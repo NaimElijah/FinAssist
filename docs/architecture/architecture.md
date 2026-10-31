@@ -770,7 +770,7 @@ two one-shots, `auth-smoke` and `secret-check`, carry neither.
 **Under Compose every container holds only the privilege it uses** (ADR-063). Every service but
 `db` and `keycloak-db` merges the `x-hardened` block, `cap_drop: [ALL]` and
 `no-new-privileges:true`: each runs as a user of its own — the ledger, the gateway and the
-assistant as system users their images create, Keycloak as 1000, the collector as 10001,
+assistant as system users their images create, Keycloak as 1000:1000, the collector as 10001,
 Prometheus as `nobody`, Grafana as 472, and the two one-shots as `nobody` by `user:` — and none
 needs a capability. The PostgreSQL image's entrypoint starts as root, takes ownership of its
 directories and drops to `postgres` itself, so the databases keep Docker's default capabilities,
@@ -779,8 +779,11 @@ namespace through `pid`, `ipc`, `userns_mode` or `uts`, takes a host device, run
 `user`, or mounts the Docker socket. Every service but those two and Keycloak also runs on a
 read-only root filesystem: the ledger, the gateway and Grafana with a tmpfs on `/tmp` (the JVMs'
 perf data and Tomcat's work directories; Grafana's plugin downloads), the rest with none,
-Prometheus and Grafana writing only to their volumes. Keycloak writes its transaction log under
-`/opt/keycloak/data`, so its root stays writable. Each database sits on a network of its own —
+Prometheus and Grafana writing only to their volumes. Keycloak writes its transaction log to
+`/opt/keycloak/data/transaction-logs`, so its root stays writable; its image gives the runtime user
+that one directory, with no group-write anywhere, and leaves the rest of `/opt/keycloak`, its code,
+configuration and realm file, owned by root and read-only to it (`ops/keycloak/Dockerfile`). The
+Java images likewise leave their jar owned by root. Each database sits on a network of its own —
 `db` on `books` with the ledger, `keycloak-db` on `identity` with Keycloak — so no other
 container can resolve or reach either one over a Compose network. The host is another path: on
 Docker Desktop any container with a route off its networks reaches a loopback-published port,
