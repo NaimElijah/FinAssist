@@ -109,7 +109,9 @@ DEVICES_MEMBER: Final = "devices"
 # `user` is `<user>[:<group>]`; uid 0 by name or number is root, whatever the group.
 ROOT_USERS: Final = frozenset({"root"})
 ROOT_UID: Final = 0
-# The daemon's socket by its file name, so `/var/run/…`, `/run/…` and `//var/run/…` all match.
+# The daemon's socket by its file name, so `/var/run/…`, `/run/…` and `//var/run/…` all match,
+# with or without a trailing separator, and in a Windows path's backslashes too: `config` keeps
+# both as written, and the daemon binds the socket through a trailing slash.
 DOCKER_SOCKET: Final = "docker.sock"
 BIND_MOUNT: Final = "bind"
 # Each database attaches to one network alone, shared with its one client, so no other container
