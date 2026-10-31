@@ -677,7 +677,8 @@ Run the telemetry backend with `docker compose --profile monitoring up`: Grafana
 on `127.0.0.1` only. Prometheus answers no other origin's script: query it from its own UI or
 through Grafana, never from a page served elsewhere. Point the
 ledger at it with `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-OTEL_EXPORT_ENABLED=true ./mvnw spring-boot:run`. Traces are printed by the collector
-(`docker compose logs otel-collector`) rather than stored — there is no trace backend, which
+OTEL_EXPORT_ENABLED=true ./mvnw spring-boot:run`. Traces are counted in the collector's log,
+one line per batch and never a span's attributes (`docker compose logs otel-collector`), rather
+than stored — there is no trace backend, which
 [ADR-019](../ADRs/ADR-019-opentelemetry-and-structured-logging.md) records as a deliberate
 limit.
