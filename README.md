@@ -767,9 +767,13 @@ ledger client behind its own `LedgerPort`.
   until an ADR moves them, so Dependabot ignores their next lines
   ([ADR-045](docs/ADRs/ADR-045-dependabot-triage-and-toolchain-holds.md)). TypeScript is held at
   6.0.3 until `typescript-eslint` supports 7, and `@types/node` follows Node 24, the runtime's
-  major. The image tags named directly in `docker-compose.yml` have no Dependabot ecosystem, so
-  they move by hand: the two Python one-shots' with the assistant's Dockerfile. palantir-java-format
-  is bumped by hand in both poms too, and uv is pinned in the assistant's image but not in CI
+  major. Dependabot also proposes the image tags named directly in `docker-compose.yml`, but never
+  a new PostgreSQL major, which takes a backup and a restore into a new volume
+  ([Backing up and restoring](docs/operations/operations.md#backing-up-and-restoring)). Two of
+  its proposals are applied by hand: the Python one-shots' tag with the assistant's Dockerfile, and
+  a PostgreSQL tag with the Testcontainers tag the ledger's or the gateway's tests pin, which
+  nothing compares with Compose's. palantir-java-format is bumped by hand in both poms, and uv is
+  pinned in the assistant's image but not in CI
   ([ADR-062](docs/ADRs/ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md)).
 
 </details>

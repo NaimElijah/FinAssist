@@ -846,15 +846,15 @@ from `V1_2` onward name who wrote it.
 
 | Dependency | Used for | Pinned in |
 |---|---|---|
-| PostgreSQL 18.6 | Ledger store | `docker-compose.yml` (by hand — Dependabot covers no Compose file) |
+| PostgreSQL 18.6 | Ledger store | `docker-compose.yml` (Dependabot, which holds the major), and by hand in the ledger's `PostgresFixture` for Testcontainers |
 | Keycloak 26.8.1 | The identity provider (ADR-031): issues the tokens the gateway's OIDC login and the assistant's own client-credentials call both use, and serves the signing keys the ledger and the assistant verify them against. The browser reaches it at its public URL to sign in and out; the gateway, the ledger and the assistant reach it at a separate backchannel URL — its own Compose service name — for the token, refresh and JWK-set requests only they make. The issuer is always the public one | `ops/keycloak/Dockerfile` (Dependabot); `ops/keycloak/finassist-realm.json`, pinned by `KeycloakRealmTest` and proved against the real image by `KeycloakRealmIT` |
-| PostgreSQL 17.11 | Keycloak's own store, `keycloak-db` — a separate database, role, volume and failure domain from the ledger's (ADR-031) | `docker-compose.yml` (by hand) |
+| PostgreSQL 17.11 | Keycloak's own store, `keycloak-db` — a separate database, role, volume and failure domain from the ledger's (ADR-031) | `docker-compose.yml` (Dependabot, which holds the major), and by hand in the gateway's `KeycloakRealmIT` for Testcontainers |
 | Anthropic API | The LLM behind `assistance`. **Not wired**: `LlmPort` has no adapter, and no Anthropic SDK is declared; it arrives with the adapter that imports it | Nothing yet |
 | Price feed | `marketdata` | **Not chosen** — see the open questions |
 | Maven Central / PyPI / npm | Dependencies | `pom.xml`, `uv.lock`, `package-lock.json` |
-| Docker base images | Every runtime: Eclipse Temurin 21 (ledger, gateway), Python 3.13 (assistant, `auth-smoke`, `secret-check`), Keycloak, PostgreSQL, the collector, Prometheus and Grafana | The Dockerfiles and `docker-compose.yml`. Dependabot bumps Dockerfile tags only, so Compose tags are bumped by hand, and the Temurin and Python lines move only by ADR (ADR-045) |
+| Docker base images | Every runtime: Eclipse Temurin 21 (ledger, gateway), Python 3.13 (assistant, `auth-smoke`, `secret-check`), Keycloak, PostgreSQL, the collector, Prometheus and Grafana | The Dockerfiles and `docker-compose.yml`, both bumped by Dependabot. The Temurin and Python lines move only by ADR (ADR-045), and a PostgreSQL major only by a backup and a restore into a new volume (ADR-038) |
 | GitHub | The repository host: CI on GitHub Actions, Dependabot, and secret scanning with push protection (ADR-043) | `.github/workflows/ci.yml`, `.github/dependabot.yml` |
-| OTel Collector, Prometheus, Grafana | Local telemetry backend, `monitoring` Compose profile | `docker-compose.yml` (by hand), configured in `ops/` |
+| OTel Collector, Prometheus, Grafana | Local telemetry backend, `monitoring` Compose profile | `docker-compose.yml` (Dependabot), configured in `ops/` |
 
 ## Structural decisions not visible from the file layout
 
