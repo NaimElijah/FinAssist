@@ -140,9 +140,9 @@ updates:
       # Delete this entry the moment typescript-eslint declares support for 7 (ADR-009).
       - dependency-name: "typescript"
         versions: [">=6.1.0"]
-      # The types describe the runtime: .nvmrc, CI's setup-node and package.json's engines all
-      # run Node 24, so @types/node stays on 24.x. Move it, and this entry, with the runtime's
-      # major (ADR-062).
+      # The types describe the runtime: .nvmrc, which CI's setup-node reads, and package.json's
+      # engines both name Node 24, so @types/node stays on 24.x. Move it, and this entry, with the
+      # runtime's major (ADR-062).
       - dependency-name: "@types/node"
         versions: [">=25"]
 
