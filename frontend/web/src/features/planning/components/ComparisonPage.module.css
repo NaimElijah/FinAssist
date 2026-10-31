@@ -25,6 +25,13 @@
     gap: var(--space-3) var(--space-4);
 }
 
+/* Matches the shared field frame's own hint, so a group's rule reads like a field's. */
+.hint {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--color-muted);
+}
+
 /* Matches the shared field frame's own error, so a group's error reads like a field's. */
 .error {
     margin: 0;

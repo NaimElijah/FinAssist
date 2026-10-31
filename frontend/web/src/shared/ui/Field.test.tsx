@@ -10,6 +10,8 @@ import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
+
 import { DateField } from './DateField';
 import { MonthField } from './MonthField';
 import { SelectField } from './SelectField';
@@ -19,7 +21,13 @@ interface CommonFieldProps {
     readonly label: string;
     readonly hint?: string;
     readonly error?: string;
+    readonly required?: boolean;
+    readonly sharedErrorId?: string;
+    readonly sharedHintId?: string;
 }
+
+/** The visible text that marks a field the form cannot be submitted without. */
+const REQUIRED_MARKER = '(required)';
 
 const FIELDS: readonly {
     readonly name: string;
@@ -35,12 +43,6 @@ const FIELDS: readonly {
         ),
     },
 ];
-
-/** The text of every element the control's `aria-describedby` names, in order. */
-function descriptionsOf(control: HTMLElement): (string | null | undefined)[] {
-    const ids = (control.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
-    return ids.map((id) => document.getElementById(id)?.textContent);
-}
 
 describe('labelled fields', () => {
     // A plain loop rather than it.each, as in tests/architecture.test.ts: one named test per
@@ -62,10 +64,9 @@ describe('labelled fields', () => {
             );
 
             const control = screen.getByLabelText('Account');
-            expect(descriptionsOf(control)).toEqual([
-                'The account the money moves through.',
-                'Choose an account.',
-            ]);
+            expect(accessibleDescriptionOf(control)).toBe(
+                'The account the money moves through. Choose an account.',
+            );
             expect(control.getAttribute('aria-invalid')).toBe('true');
         });
 
@@ -75,6 +76,87 @@ describe('labelled fields', () => {
             const control = screen.getByLabelText('Account');
             expect(control.hasAttribute('aria-describedby')).toBe(false);
             expect(control.hasAttribute('aria-invalid')).toBe(false);
+        });
+
+        it(`Given_a_required_${name}_When_rendered_Then_a_visible_marker_says_so_and_the_control_is_required`, () => {
+            render(renderField({ label: 'Account', required: true }));
+
+            // The label alone still names the control: the native attribute already announces
+            // the state, so the marker is hidden from assistive technology rather than read twice.
+            const control = screen.getByLabelText('Account');
+            expect(control).toHaveProperty('required', true);
+            const marker = screen.getByText(REQUIRED_MARKER);
+            expect(marker.closest('[aria-hidden="true"]')).not.toBeNull();
+            expect(marker.closest('[hidden]')).toBeNull();
+        });
+
+        it(`Given_a_${name}_sharing_an_error_shown_elsewhere_When_rendered_Then_it_is_invalid_and_described_by_that_one_message`, () => {
+            render(
+                <>
+                    <p id="pair-error">Enter a debit or a credit</p>
+                    {renderField({
+                        label: 'Account',
+                        hint: 'The account the money moves through.',
+                        sharedErrorId: 'pair-error',
+                    })}
+                </>,
+            );
+
+            const control = screen.getByLabelText('Account');
+            expect(accessibleDescriptionOf(control)).toBe(
+                'The account the money moves through. Enter a debit or a credit',
+            );
+            expect(control.getAttribute('aria-invalid')).toBe('true');
+            // The field renders no copy of its own, so the message is shown and read once.
+            expect(screen.getAllByText('Enter a debit or a credit')).toHaveLength(1);
+        });
+
+        it(`Given_a_${name}_sharing_a_hint_shown_elsewhere_When_rendered_Then_it_is_described_by_its_own_hint_that_hint_then_its_errors_and_shown_once`, () => {
+            render(
+                <>
+                    <p id="rows-hint">Each entry is a debit or a credit, not both.</p>
+                    <p id="pair-error">Enter a debit or a credit</p>
+                    {renderField({
+                        label: 'Account',
+                        hint: 'The account the money moves through.',
+                        sharedHintId: 'rows-hint',
+                        error: 'Choose an account.',
+                        sharedErrorId: 'pair-error',
+                    })}
+                </>,
+            );
+
+            // Guidance before errors, the field's own first: a screen reader reads what the
+            // field takes, then what is wrong with it.
+            expect(accessibleDescriptionOf(screen.getByLabelText('Account'))).toBe(
+                'The account the money moves through. Each entry is a debit or a credit, not both. ' +
+                    'Choose an account. Enter a debit or a credit',
+            );
+            expect(
+                screen.getAllByText('Each entry is a debit or a credit, not both.'),
+            ).toHaveLength(1);
+        });
+
+        it(`Given_a_${name}_sharing_only_a_hint_When_rendered_Then_it_is_described_by_it_and_not_invalid`, () => {
+            render(
+                <>
+                    <p id="rows-hint">Each entry is a debit or a credit, not both.</p>
+                    {renderField({ label: 'Account', sharedHintId: 'rows-hint' })}
+                </>,
+            );
+
+            const control = screen.getByLabelText('Account');
+            expect(accessibleDescriptionOf(control)).toBe(
+                'Each entry is a debit or a credit, not both.',
+            );
+            expect(control.hasAttribute('aria-invalid')).toBe(false);
+        });
+
+        it(`Given_an_optional_${name}_When_rendered_Then_no_required_marker_shows`, () => {
+            render(renderField({ label: 'Account' }));
+
+            expect(screen.getByLabelText('Account')).toHaveProperty('required', false);
+            expect(screen.queryByText(REQUIRED_MARKER)).toBeNull();
         });
     }
 

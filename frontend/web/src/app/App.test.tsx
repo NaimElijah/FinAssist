@@ -2,7 +2,7 @@
 // Renders the routed shell and clicks through it, so it needs a DOM. The router is an in-memory
 // one over the real route table, so no test depends on the jsdom URL.
 
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
 import { describe, expect, it } from 'vitest';
@@ -19,12 +19,13 @@ import {
 import { App } from './App';
 import { createQueryClient } from './queryClient';
 import { routes } from './routes';
+import { sessionKeys } from './session/sessionQueries';
 
 /** The four areas, in the order the primary navigation lists them, with their paths. */
 const AREAS = [
     { heading: 'Accounts', path: '/accounts' },
     { heading: 'Budgets', path: '/budgets' },
-    { heading: 'Planning', path: '/planning' },
+    { heading: 'Planning', path: '/planning', screenHeading: 'Planned flows' },
     { heading: 'Portfolio', path: '/portfolio' },
 ] as const;
 
@@ -150,13 +151,44 @@ describe('App', () => {
         ).toEqual([null, 'page', null, null]);
     });
 
-    for (const { heading, path } of AREAS) {
-        it(`Given_the_path_${path.slice(1)}_When_rendered_Then_its_heading_names_the_area`, async () => {
+    for (const area of AREAS) {
+        const { heading, path } = area;
+        // An area with several screens opens on one, which its heading names instead.
+        const screenHeading = 'screenHeading' in area ? area.screenHeading : heading;
+        it(`Given_the_path_${path.slice(1)}_When_rendered_Then_its_heading_names_the_area_or_its_first_screen`, async () => {
             renderAt(path);
 
-            expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeDefined();
+            expect(
+                await screen.findByRole('heading', { level: 1, name: screenHeading }),
+            ).toBeDefined();
         });
     }
+
+    for (const { path, heading } of [
+        { path: '/planning/flows', heading: 'Planned flows' },
+        { path: '/planning/scenarios', heading: 'Scenarios' },
+        { path: '/planning/projection', heading: 'Scenario projection' },
+        { path: '/planning/compare', heading: 'Scenario comparison' },
+    ]) {
+        it(`Given_the_planning_screen_${path.slice('/planning/'.length)}_When_rendered_Then_its_level_1_heading_names_the_screen`, async () => {
+            renderAt(path, () => pendingResponse());
+
+            expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeDefined();
+            expect(screen.queryByRole('heading', { level: 1, name: 'Planning' })).toBeNull();
+        });
+    }
+
+    it('Given_planned_flows_When_the_Scenarios_tab_is_clicked_Then_focus_moves_to_a_heading_naming_scenarios', async () => {
+        // Moving between the planning screens focuses the page's heading, so the heading itself
+        // must say which screen arrived; four screens all headed "Planning" would not.
+        renderAt('/planning/flows', () => pendingResponse());
+        const tabs = await screen.findByRole('navigation', { name: 'Planning' });
+
+        await userEvent.setup().click(within(tabs).getByRole('link', { name: 'Scenarios' }));
+
+        const heading = await screen.findByRole('heading', { level: 1, name: 'Scenarios' });
+        expect(document.activeElement).toBe(heading);
+    });
 
     it('Given_an_unknown_path_When_rendered_Then_the_not_found_page_is_shown', async () => {
         renderAt('/nope');
@@ -269,13 +301,115 @@ describe('App', () => {
         expect(document.activeElement).toBe(document.body);
     });
 
-    it('Given_the_Accounts_area_When_a_nav_link_is_clicked_Then_focus_moves_to_the_main_region', async () => {
+    it('Given_the_Accounts_area_When_a_nav_link_is_clicked_Then_focus_moves_to_the_pages_heading', async () => {
         renderAt('/accounts');
 
         await userEvent.setup().click(await screen.findByRole('link', { name: 'Budgets' }));
 
+        // The heading names the page, so a screen reader announces where the link led; an
+        // unnamed main region would announce only "main".
+        const heading = await screen.findByRole('heading', { level: 1, name: 'Budgets' });
+        expect(document.activeElement).toBe(heading);
+    });
+
+    it('Given_the_Accounts_area_When_Planning_is_clicked_Then_the_heading_names_planned_flows_as_it_takes_focus', async () => {
+        // /planning redirects to its flows screen. A screen reader speaks the heading as focus
+        // lands on it, so it must already name the screen then, not "Planning" renamed a moment
+        // later, which nothing would announce.
+        renderAt('/accounts');
+        const primary = await screen.findByRole('navigation', { name: 'Primary' });
+        const headingTextsOnFocus: (string | null)[] = [];
+        const noteHeadingFocus = (event: FocusEvent) => {
+            if (event.target instanceof HTMLHeadingElement) {
+                headingTextsOnFocus.push(event.target.textContent);
+            }
+        };
+        document.addEventListener('focusin', noteHeadingFocus);
+
+        try {
+            await userEvent.setup().click(within(primary).getByRole('link', { name: 'Planning' }));
+            const heading = await screen.findByRole('heading', { level: 1, name: 'Planned flows' });
+            await waitFor(() => {
+                expect(document.activeElement).toBe(heading);
+            });
+        } finally {
+            document.removeEventListener('focusin', noteHeadingFocus);
+        }
+
+        expect(headingTextsOnFocus).toEqual(['Planned flows']);
+    });
+
+    it('Given_a_page_whose_heading_is_replaced_once_its_data_loads_When_navigated_to_Then_focus_follows_to_the_new_heading', async () => {
+        // Starting on Budgets leaves the accounts list uncached, so the account page first
+        // renders its loading heading and then replaces it with the account's own.
+        const router = renderAt('/budgets', (request) =>
+            request.url === BUDGETS_URL ? jsonResponse([]) : CHECKING_ONLY(request),
+        );
         await screen.findByRole('heading', { level: 1, name: 'Budgets' });
-        expect(document.activeElement).toBe(screen.getByRole('main'));
+
+        await act(() => router.navigate(`/accounts/${CHECKING.id}`));
+
+        const heading = await screen.findByRole('heading', { level: 1, name: 'Checking' });
+        await waitFor(() => {
+            expect(document.activeElement).toBe(heading);
+        });
+    });
+
+    it('Given_focus_moved_elsewhere_while_a_page_loads_When_its_heading_is_replaced_Then_focus_stays_where_the_person_put_it', async () => {
+        let releaseAccounts: () => void = () => undefined;
+        const accountsHeld = new Promise<void>((resolve) => {
+            releaseAccounts = resolve;
+        });
+        const router = renderAt('/budgets', (request) => {
+            if (request.url === BUDGETS_URL) return jsonResponse([]);
+            if (request.url === ACCOUNTS_URL) {
+                return accountsHeld.then(() => CHECKING_ONLY(request));
+            }
+            return CHECKING_ONLY(request);
+        });
+        await screen.findByRole('heading', { level: 1, name: 'Budgets' });
+        await act(() => router.navigate(`/accounts/${CHECKING.id}`));
+        await screen.findByRole('heading', { level: 1, name: 'Account' });
+
+        // The person moves on before the account arrives; its new heading must not pull them back.
+        const budgetsLink = screen.getByRole('link', { name: 'Budgets' });
+        act(() => {
+            budgetsLink.focus();
+        });
+        releaseAccounts();
+
+        await screen.findByRole('heading', { level: 1, name: 'Checking' });
+        expect(document.activeElement).toBe(budgetsLink);
+    });
+
+    it('Given_the_session_check_fails_with_a_5xx_When_try_again_succeeds_Then_focus_moves_to_the_pages_heading', async () => {
+        // Failing until the outage shows, since the app's own client retries a 5xx once first.
+        let failing = true;
+        const requests = fakeFetch((request) => {
+            if (request.url === ME_URL) {
+                return failing
+                    ? problemResponse({ status: 500, code: 'INTERNAL' })
+                    : jsonResponse(OWNER_SESSION);
+            }
+            return NO_ACCOUNTS(request);
+        });
+        const router = createMemoryRouter(routes, { initialEntries: ['/accounts'] });
+        // The app's own retry still runs, but without TanStack's real backoff of about a second,
+        // which would otherwise outlast findByRole's default wait.
+        const queryClient = createQueryClient();
+        queryClient.setQueryDefaults(sessionKeys.me, { retryDelay: 0 });
+        render(<App router={router} queryClient={queryClient} />);
+        const tryAgain = await screen.findByRole('button', { name: 'Try again' });
+        expect(requests.filter((request) => request.url === ME_URL)).toHaveLength(2);
+        failing = false;
+
+        await userEvent.setup().click(tryAgain);
+
+        // The same target a route change takes, since the retry button went with the outage.
+        const heading = await screen.findByRole('heading', { level: 1, name: 'Accounts' });
+        await waitFor(() => {
+            expect(document.activeElement).toBe(heading);
+        });
     });
 
     it('Given_nobody_is_signed_in_When_the_shell_renders_Then_the_sign_in_screen_shows_instead_of_any_area', async () => {
@@ -347,7 +481,7 @@ describe('App', () => {
         expect(screen.queryByRole('button', { name: 'Add rule' })).toBeNull();
 
         await user.click(screen.getByRole('link', { name: 'Planning' }));
-        await screen.findByRole('heading', { level: 1, name: 'Planning' });
+        await screen.findByRole('heading', { level: 1, name: 'Planned flows' });
         expect(screen.queryByRole('button', { name: 'Plan flow' })).toBeNull();
 
         await user.click(screen.getByRole('link', { name: 'Scenarios' }));

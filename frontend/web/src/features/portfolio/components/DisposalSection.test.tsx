@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import type { WriteAccess } from '@/shared/lib/writeAccess';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -20,6 +21,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import type { FieldEdit } from '@/shared/testing/fieldEdits';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { portfolioRoutes } from '../index';
 
@@ -181,6 +183,18 @@ describe('DisposalSection', () => {
         expect(disposalForm().getAttribute('aria-describedby')).toBe(note.id);
     });
 
+    it('Given_a_holding_page_When_rendered_Then_quantity_and_proceeds_state_their_format', async () => {
+        fakeFetch(assistant());
+
+        await renderSettledHolding();
+
+        for (const label of ['Quantity', 'Proceeds amount']) {
+            expect(accessibleDescriptionOf(screen.getByLabelText(label))).toBe(
+                'A number with no commas, for example 1250.50',
+            );
+        }
+    });
+
     it('Given_a_quantity_and_proceeds_When_priced_Then_it_posts_the_body_and_shows_cost_of_sale_realised_gain_and_remaining_lots_exactly', async () => {
         const requests = fakeFetch(assistant(() => jsonResponse(DISPOSITION)));
         await renderSettledHolding();
@@ -244,7 +258,9 @@ describe('DisposalSection', () => {
 
         await screen.findByText('US$5,250.00');
 
-        expect(screen.getByText('Loading position…')).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Loading position…');
+        });
         expect(screen.queryByRole('region', { name: SECTION })).toBeNull();
     });
 
@@ -533,8 +549,34 @@ describe('DisposalSection', () => {
             within(alert)
                 .getAllByRole('listitem')
                 .map((item) => item.textContent),
-        ).toEqual(['quantity: Field required', 'proceeds: Field required']);
+        ).toEqual(['Quantity: Field required', 'Proceeds amount: Field required']);
         expect(screen.getByLabelText('Quantity').getAttribute('aria-invalid')).toBeNull();
+    });
+
+    it('Given_a_400_naming_the_proceeds_currency_When_priced_Then_it_is_listed_under_Currency', async () => {
+        // No field takes it - the Currency select offers only codes the assistant accepts - so it
+        // falls to the error state, still under the label the owner sees.
+        fakeFetch(
+            assistant(() =>
+                problemResponse({
+                    status: 400,
+                    code: 'MALFORMED_REQUEST',
+                    detail: 'The request could not be read; each entry in errors names why.',
+                    errors: [{ field: 'proceeds.currency', message: 'Input should be ILS or USD' }],
+                }),
+            ),
+        );
+        await renderSettledHolding();
+
+        await price(userEvent.setup({ delay: null }));
+
+        const section = screen.getByRole('region', { name: SECTION });
+        const alert = await within(section).findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['Currency: Input should be ILS or USD']);
     });
 
     it('Given_a_filled_form_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {

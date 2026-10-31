@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useWriteAccess } from '@/shared/lib/writeAccess';
-import { EmptyState, QueryErrorState, useRetryFocus } from '@/shared/ui';
+import { EmptyState, LoadingNote, QueryErrorState, useRetryFocus } from '@/shared/ui';
 
 import { useCategorisationRules } from '../hooks/budgetQueries';
 import styles from './CategorisationRulesPage.module.css';
@@ -58,7 +58,7 @@ function RulesList({
     }, [awaitingFocus, rules.data, rules.isError, onAdded]);
 
     if (rules.isPending) {
-        return <p className={styles.loading}>Loading rules…</p>;
+        return <LoadingNote message="Loading rules…" />;
     }
     const failure = (
         <QueryErrorState error={rules.error} retrying={rules.isFetching} onRetry={onRetry} />

@@ -3,6 +3,7 @@
 // faked, so the feature's real api/ module and its mapping run under test; the account choices
 // src/app would provide are provided here directly, in planning's own terms.
 
+import { onlineManager } from '@tanstack/react-query';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { Outlet, type RouteObject } from 'react-router';
@@ -21,6 +22,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { AccountOptionsContext } from '../hooks/accountOptions';
 import { planKeys } from '../hooks/planQueries';
@@ -248,13 +250,27 @@ describe('ProjectionPage', () => {
         expect(within(rows[1] ?? table).getByText('-₪12,500.00')).toBeDefined();
     });
 
-    it('Given_a_projection_in_flight_When_projected_Then_pending_is_shown', async () => {
+    it('Given_the_scenarios_still_loading_When_the_page_renders_Then_a_status_says_they_are_loading', async () => {
+        // ScenarioChoice's note, a status region, so a screen reader hears the form is on its
+        // way (WCAG 4.1.3).
+        fakeFetch(() => pendingResponse());
+
+        renderProjection();
+
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading scenarios…']);
+        });
+    });
+
+    it('Given_a_projection_in_flight_When_projected_Then_a_status_announces_it_is_pending', async () => {
         fakeFetch(ledger([SAVING], () => pendingResponse()));
         renderProjection();
 
         await project(userEvent.setup({ delay: null }));
 
-        expect(await screen.findByText('Projecting…')).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Projecting…');
+        });
     });
 
     it('Given_a_horizon_the_ledger_refuses_When_projected_Then_the_server_detail_is_shown_and_takes_focus', async () => {
@@ -323,6 +339,154 @@ describe('ProjectionPage', () => {
         const urls = requests.filter(isProjection).map((request) => request.url);
         expect(urls).toHaveLength(2);
         expect(urls[1]).toBe(urls[0]);
+    });
+
+    it('Given_a_scenario_When_projected_Then_the_result_heading_takes_focus_once_the_projection_lands', async () => {
+        // Project keeps focus and the answer mounts below the form, so without this a screen
+        // reader user hears nothing of what came back.
+        fakeFetch(ledger([SAVING], () => jsonResponse(WITH_SHORTFALL)));
+        renderProjection();
+
+        await project(userEvent.setup({ delay: null }));
+
+        await screen.findByRole('table', { name: 'Projection' });
+        await waitFor(() => {
+            expect(document.activeElement).toBe(
+                screen.getByRole('heading', { level: 2, name: 'Projected balances' }),
+            );
+        });
+    });
+
+    it('Given_a_projection_shown_When_its_fields_are_submitted_again_unchanged_Then_the_result_heading_takes_focus_once_the_new_answer_lands', async () => {
+        // The answer refreshes in place, so nothing new mounts to announce it. The second answer
+        // is held, to show focus waits for it rather than following the answer already on screen.
+        let release: (response: Response) => void = () => undefined;
+        let held = false;
+        fakeFetch(
+            ledger([SAVING], () =>
+                held
+                    ? new Promise<Response>((resolve) => {
+                          release = resolve;
+                      })
+                    : jsonResponse(WITH_SHORTFALL),
+            ),
+        );
+        renderProjection();
+        const user = userEvent.setup({ delay: null });
+        await project(user);
+        await screen.findByRole('table', { name: 'Projection' });
+
+        held = true;
+        const projectButton = screen.getByRole('button', { name: 'Project' });
+        await user.click(projectButton);
+        expect(document.activeElement).toBe(projectButton);
+
+        act(() => {
+            release(jsonResponse({ ...WITH_SHORTFALL, firstShortfall: undefined }));
+        });
+        await screen.findByText(paragraph('Cash never falls below zero at a monthly cadence.'));
+        await waitFor(() => {
+            expect(document.activeElement).toBe(
+                screen.getByRole('heading', { level: 2, name: 'Projected balances' }),
+            );
+        });
+    });
+
+    it('Given_the_browser_offline_When_projected_Then_the_result_heading_takes_focus_only_once_the_paused_projection_lands', async () => {
+        // Offline, TanStack pauses the read rather than fetching it: it is unanswered, yet not
+        // fetching, so focus must wait for the answer rather than take that pause for one.
+        const requests = fakeFetch(ledger([SAVING], () => jsonResponse(WITH_SHORTFALL)));
+        renderProjection();
+        await screen.findByRole('option', { name: 'Aggressive saving (ILS)' });
+        try {
+            act(() => {
+                onlineManager.setOnline(false);
+            });
+            await project(userEvent.setup({ delay: null }));
+            await waitFor(() => {
+                expect(statusMessages()).toContain('Projecting…');
+            });
+            const heading = screen.getByRole('heading', { level: 2, name: 'Projected balances' });
+            expect(requests.filter(isProjection)).toHaveLength(0);
+            expect(document.activeElement).not.toBe(heading);
+
+            act(() => {
+                onlineManager.setOnline(true);
+            });
+
+            await screen.findByRole('table', { name: 'Projection' });
+            await waitFor(() => {
+                expect(document.activeElement).toBe(heading);
+            });
+        } finally {
+            onlineManager.setOnline(true);
+        }
+    });
+
+    it('Given_focus_moved_to_a_field_while_projecting_When_the_projection_lands_Then_focus_stays_on_that_field', async () => {
+        let release: (response: Response) => void = () => undefined;
+        fakeFetch(
+            ledger(
+                [SAVING],
+                () =>
+                    new Promise<Response>((resolve) => {
+                        release = resolve;
+                    }),
+            ),
+        );
+        renderProjection();
+        await project(userEvent.setup({ delay: null }));
+        await screen.findByText('Projecting…');
+
+        const to = screen.getByLabelText('To');
+        act(() => {
+            to.focus();
+        });
+        act(() => {
+            release(jsonResponse(WITH_SHORTFALL));
+        });
+
+        await screen.findByRole('table', { name: 'Projection' });
+        expect(document.activeElement).toBe(to);
+    });
+
+    it('Given_a_projection_shown_When_it_is_refetched_without_a_submit_Then_focus_stays_where_it_was', async () => {
+        // Focus on the body is the case a submit would move it from, so it proves the refetch
+        // alone is not mistaken for one. The refetch's answer is held until its request is out,
+        // so the page renders it in flight and then settled, as a real one would.
+        let release: (response: Response) => void = () => undefined;
+        let held = false;
+        const requests = fakeFetch(
+            ledger([SAVING], () =>
+                held
+                    ? new Promise<Response>((resolve) => {
+                          release = resolve;
+                      })
+                    : jsonResponse(WITH_SHORTFALL),
+            ),
+        );
+        const { queryClient } = renderProjection();
+        await project(userEvent.setup({ delay: null }));
+        await screen.findByRole('table', { name: 'Projection' });
+        act(() => {
+            if (document.activeElement instanceof HTMLElement) {
+                document.activeElement.blur();
+            }
+        });
+
+        held = true;
+        act(() => {
+            void queryClient.invalidateQueries({ queryKey: planKeys.projections });
+        });
+        await waitFor(() => {
+            expect(requests.filter(isProjection)).toHaveLength(2);
+        });
+        act(() => {
+            release(jsonResponse({ ...WITH_SHORTFALL, firstShortfall: undefined }));
+        });
+
+        await screen.findByText(paragraph('Cash never falls below zero at a monthly cadence.'));
+        expect(document.activeElement).toBe(document.body);
     });
 
     it('Given_a_projection_shown_When_it_is_requested_again_and_fails_Then_the_failure_shows_above_the_projection_it_kept', async () => {
@@ -485,7 +649,9 @@ describe('ProjectionPage', () => {
 
         renderProjection({ status: 'loading' });
 
-        expect(await screen.findByText('Loading accounts…')).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Loading accounts…');
+        });
     });
 
     it('Given_the_accounts_failed_to_load_When_the_page_renders_Then_only_the_pickers_show_the_failure_with_a_retry', async () => {

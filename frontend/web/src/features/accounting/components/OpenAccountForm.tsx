@@ -2,7 +2,14 @@ import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
-import { Button, ErrorState, SelectField, type SelectOption, TextField } from '@/shared/ui';
+import {
+    Button,
+    ErrorState,
+    labelsByField,
+    SelectField,
+    type SelectOption,
+    TextField,
+} from '@/shared/ui';
 
 import { DUPLICATE_ACCOUNT_NAME } from '../api/accountingApi';
 import { useOpenAccount } from '../hooks/accountQueries';
@@ -45,6 +52,15 @@ const INVALID_CONTROL_SELECTOR = '[aria-invalid="true"]';
 const FIELD_NAMES = ['name', 'type', 'currency'] as const;
 
 type FieldName = (typeof FIELD_NAMES)[number];
+
+/** Each field's label, keyed by the request member it fills. */
+const LABELS = { name: 'Name', type: 'Type', currency: 'Currency' } as const satisfies Record<
+    FieldName,
+    string
+>;
+
+/** A failed request's field errors, listed under the form's own labels (WCAG 3.3.1). */
+const FIELD_LABEL = labelsByField(LABELS);
 
 type FieldErrors = Partial<Record<FieldName, string>>;
 
@@ -204,12 +220,12 @@ export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
                 Open an account
             </h2>
             {errors.unplaced === null ? null : (
-                <ErrorState ref={errorStateRef} error={errors.unplaced} />
+                <ErrorState ref={errorStateRef} error={errors.unplaced} fieldLabel={FIELD_LABEL} />
             )}
             <form ref={formRef} className={styles.form} onSubmit={submit}>
                 <div className={styles.fields}>
                     <TextField
-                        label="Name"
+                        label={LABELS.name}
                         name="name"
                         required
                         autoComplete="off"
@@ -221,7 +237,7 @@ export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
                         }}
                     />
                     <SelectField
-                        label="Type"
+                        label={LABELS.type}
                         name="type"
                         options={TYPE_OPTIONS}
                         value={type}
@@ -232,7 +248,7 @@ export function OpenAccountForm({ onOpened }: OpenAccountFormProps) {
                         }}
                     />
                     <SelectField
-                        label="Currency"
+                        label={LABELS.currency}
                         name="currency"
                         options={CURRENCY_OPTIONS}
                         value={currency}

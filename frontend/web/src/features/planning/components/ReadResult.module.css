@@ -12,8 +12,3 @@
     font-weight: var(--font-weight-strong);
     line-height: var(--line-height-tight);
 }
-
-.pending {
-    margin: 0;
-    color: var(--color-muted);
-}

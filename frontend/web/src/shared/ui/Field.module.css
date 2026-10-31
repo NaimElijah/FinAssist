@@ -5,10 +5,23 @@
     min-width: 0;
 }
 
+/* The label and its required marker on one line, wrapping beneath it only when space runs out. */
+.labelRow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: var(--space-1);
+}
+
 .label {
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-strong);
     color: var(--color-text);
+}
+
+.required {
+    font-size: var(--font-size-sm);
+    color: var(--color-muted);
 }
 
 .hint {

@@ -9,7 +9,7 @@ import type { RouteHandle } from '@/shared/lib/routeHandle';
 import { Layout } from './Layout';
 import { NotFound } from './NotFound';
 import { PlanningAccountsBridge } from './PlanningAccountsBridge';
-import { RouteError } from './RouteError';
+import { RootRouteError, RouteError } from './RouteError';
 
 /** Where the root path sends the owner: the books come first. */
 const LANDING_PATH = '/accounts';
@@ -29,15 +29,16 @@ function area(children: RouteObject[]): RouteObject {
  * Planning's routes render beneath `PlanningAccountsBridge`, a pathless layout route providing the
  * account choices planning declares, adapted from accounting's accounts.
  *
- * Exported so tests mount the real table in a memory router. The layout route carries the same
- * boundary as the areas, so a failure in the layout or the not-found page is logged and shown
- * rather than falling through to React Router's built-in error screen.
+ * Exported so tests mount the real table in a memory router. The layout route carries a boundary
+ * too, so a failure in the layout or the not-found page is logged and shown rather than falling
+ * through to React Router's built-in error screen; `RootRouteError`, since the layout that would
+ * give the failure its `<main>` and document title is the thing that failed.
  */
 export const routes: RouteObject[] = [
     {
         path: '/',
         Component: Layout,
-        ErrorBoundary: RouteError,
+        ErrorBoundary: RootRouteError,
         children: [
             { index: true, element: <Navigate to={LANDING_PATH} replace /> },
             area(accountingRoutes),

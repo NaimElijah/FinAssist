@@ -12,14 +12,28 @@ export interface RouteHandle {
 }
 
 /**
- * The title a route's `handle` declares.
- *
- * @param handle - one match's `handle`, typed `unknown` because React Router leaves it untyped.
- * @returns the title, or `undefined` when the handle is absent or declares no string title.
+ * The title a route's `handle` declares: `undefined` when the handle is absent or declares no
+ * string title. The handle is `unknown` because React Router leaves it untyped.
  */
-export function titleOf(handle: unknown): string | undefined {
+function titleOf(handle: unknown): string | undefined {
     if (typeof handle !== 'object' || handle === null || !('title' in handle)) {
         return undefined;
     }
     return typeof handle.title === 'string' ? handle.title : undefined;
+}
+
+/**
+ * The title of the deepest matched route that declares one, so a screen's title replaces its
+ * area's and a route declaring none, such as a pathless layout or boundary, is passed over.
+ *
+ * @param matches - the matched routes from the root down, as `useMatches()` returns them.
+ * @returns that title, or `undefined` when no match declares a string title.
+ */
+export function deepestRouteTitle(
+    matches: readonly { readonly handle: unknown }[],
+): string | undefined {
+    return matches
+        .map((match) => titleOf(match.handle))
+        .filter((title) => title !== undefined)
+        .at(-1);
 }

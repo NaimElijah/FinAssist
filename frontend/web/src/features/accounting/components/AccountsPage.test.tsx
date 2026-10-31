@@ -19,6 +19,7 @@ import {
 import type { FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { accountKeys } from '../hooks/accountQueries';
 import { accountingRoutes } from '../index';
@@ -120,6 +121,18 @@ describe('AccountsPage', () => {
         expect(
             (await screen.findByRole('link', { name: 'Record transaction' })).getAttribute('href'),
         ).toBe('/accounts/transactions/new');
+    });
+
+    it('Given_the_accounts_still_loading_When_the_page_renders_Then_a_status_announces_it', async () => {
+        fakeFetch((request) =>
+            request.url === ACCOUNTS_URL ? pendingResponse() : unexpectedRequest(request),
+        );
+
+        renderAccounts();
+
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading accounts…']);
+        });
     });
 
     it('Given_no_accounts_When_the_page_renders_Then_the_empty_state_invites_opening_one', async () => {
@@ -757,7 +770,7 @@ describe('AccountsPage opening an account', () => {
             within(alert)
                 .getAllByRole('listitem')
                 .map((item) => item.textContent),
-        ).toEqual(['name: must not be blank', 'openAccountRequest: is not readable']);
+        ).toEqual(['Name: must not be blank', 'openAccountRequest: is not readable']);
         expect(screen.getByLabelText('Name').getAttribute('aria-invalid')).toBeNull();
     });
 

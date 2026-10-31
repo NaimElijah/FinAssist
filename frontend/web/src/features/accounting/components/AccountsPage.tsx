@@ -6,6 +6,7 @@ import {
     type Column,
     DataTable,
     EmptyState,
+    LoadingNote,
     MoneyText,
     QueryErrorState,
     useRetryFocus,
@@ -120,7 +121,7 @@ function AccountsList({
     );
 
     if (accounts.isPending) {
-        return <p className={styles.loading}>Loading accounts…</p>;
+        return <LoadingNote message="Loading accounts…" />;
     }
     const failure = (
         <QueryErrorState error={accounts.error} retrying={accounts.isFetching} onRetry={onRetry} />

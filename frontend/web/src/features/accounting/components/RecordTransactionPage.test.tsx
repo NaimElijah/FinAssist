@@ -7,6 +7,7 @@ import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -18,6 +19,7 @@ import {
 import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { pinClockJustAfterLocalMidnight } from '@/shared/testing/localClock';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { accountKeys } from '../hooks/accountQueries';
 import { accountingRoutes } from '../index';
@@ -25,6 +27,9 @@ import { accountingRoutes } from '../index';
 const ACCOUNTS_URL = '/ledger/api/v1/accounts';
 const RECORD_URL = '/ledger/api/v1/transactions';
 const RECORD_TRANSACTION_PATH = '/accounts/transactions/new';
+
+/** The one statement of what every entry row's amounts take, above the rows. */
+const ENTRY_RULE = 'Each entry is a debit or a credit, not both.';
 
 const CHECKING = {
     id: '0b7d2a4e-4d8c-4f3a-9a61-2f1c5e0d9b11',
@@ -148,6 +153,42 @@ describe('RecordTransactionPage routing', () => {
     });
 });
 
+describe('RecordTransactionPage field guidance', () => {
+    it('Given_the_form_When_rendered_Then_exactly_its_required_fields_show_a_required_marker', async () => {
+        fakeFetch(ledger());
+        renderForm();
+        await screen.findByLabelText('Description');
+
+        const required = ['Date', 'Description', 'Account 1', 'Account 2'];
+        for (const label of required) {
+            expect(screen.getByLabelText(label)).toHaveProperty('required', true);
+        }
+        // A row takes a debit or a credit, so neither alone is required.
+        for (const label of ['Debit 1', 'Credit 1', 'Debit 2', 'Credit 2']) {
+            expect(screen.getByLabelText(label)).toHaveProperty('required', false);
+        }
+        expect(screen.getAllByText('(required)')).toHaveLength(required.length);
+    });
+
+    it('Given_entry_rows_When_rendered_and_one_added_Then_the_debit_or_credit_rule_is_shown_once_and_describes_every_amount_after_its_own_decimal_hint', async () => {
+        // The rule binds every row alike, so it is stated once rather than beside each of the
+        // amounts (WCAG 3.3.2); each amount keeps the format it takes as its own hint.
+        fakeFetch(ledger());
+        renderForm();
+        await screen.findByLabelText('Debit 1');
+        await userEvent
+            .setup({ delay: null })
+            .click(screen.getByRole('button', { name: 'Add entry' }));
+
+        expect(screen.getAllByText(ENTRY_RULE)).toHaveLength(1);
+        for (const label of ['Debit 1', 'Credit 1', 'Debit 2', 'Credit 2', 'Debit 3', 'Credit 3']) {
+            expect(accessibleDescriptionOf(screen.getByLabelText(label))).toBe(
+                `A number with no commas, for example 1250.50 ${ENTRY_RULE}`,
+            );
+        }
+    });
+});
+
 describe('RecordTransactionPage entry rows', () => {
     it('Given_two_rows_When_a_debit_is_typed_on_row_1_Then_the_same_string_mirrors_into_row_2s_credit', async () => {
         fakeFetch(ledger());
@@ -258,6 +299,63 @@ describe('RecordTransactionPage entry rows', () => {
         await user.type(screen.getByLabelText('Debit 1'), '10.00');
 
         expect(screen.getByLabelText('Credit 2')).toHaveProperty('value', '');
+    });
+
+    it('Given_three_rows_When_Remove_entry_2_is_clicked_Then_focus_moves_to_the_row_now_second', async () => {
+        // The pressed button goes with its row; left alone, focus would fall to the page body and
+        // a keyboard user would start again from the top.
+        fakeFetch(ledger());
+        renderForm();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText('Account 1');
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+
+        await user.click(screen.getByRole('button', { name: 'Remove entry 2' }));
+
+        expect(document.activeElement).not.toBe(document.body);
+        expect(document.activeElement).toBe(screen.getByLabelText('Account 2'));
+    });
+
+    it('Given_three_rows_When_the_last_is_removed_Then_focus_moves_to_Add_entry', async () => {
+        fakeFetch(ledger());
+        renderForm();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText('Account 1');
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+
+        await user.click(screen.getByRole('button', { name: 'Remove entry 3' }));
+
+        expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add entry' }));
+    });
+
+    it('Given_the_form_When_Add_entry_is_clicked_Then_a_status_says_entry_3_was_added', async () => {
+        // Focus stays on Add entry, so without this nothing tells a screen reader user the
+        // fields appeared.
+        fakeFetch(ledger());
+        renderForm();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText('Account 1');
+
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+
+        expect(statusMessages()).toContain('Entry 3 added.');
+    });
+
+    it('Given_entry_3_added_When_it_is_removed_and_added_again_Then_the_status_empties_and_then_says_so_again', async () => {
+        // The removal empties the line, so the same sentence arrives again as a change to it; a
+        // region whose text never changes announces nothing the second time.
+        fakeFetch(ledger());
+        renderForm();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText('Account 1');
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+        expect(statusMessages()).toEqual(['Entry 3 added.']);
+
+        await user.click(screen.getByRole('button', { name: 'Remove entry 3' }));
+        expect(statusMessages()).toEqual(['']);
+
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+        expect(statusMessages()).toEqual(['Entry 3 added.']);
     });
 });
 
@@ -536,7 +634,7 @@ describe('RecordTransactionPage submission', () => {
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
 
-    it('Given_a_row_with_both_a_debit_and_a_credit_When_submitted_Then_nothing_is_sent_and_the_row_shows_a_field_error', async () => {
+    it('Given_a_row_with_both_a_debit_and_a_credit_When_submitted_Then_nothing_is_sent_and_the_row_shows_its_error_once_on_both_fields', async () => {
         const requests = fakeFetch(ledger());
         renderForm();
         const user = userEvent.setup({ delay: null });
@@ -552,8 +650,17 @@ describe('RecordTransactionPage submission', () => {
 
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));
 
-        // Both sides of row 2 carry the same message, since either one could be the fix.
-        expect(await screen.findAllByText('Enter a debit or a credit')).toHaveLength(2);
+        // Either side could be the fix, so both are invalid and described by the row's one
+        // message, which is shown and read once rather than once per field.
+        expect(await screen.findAllByText('Enter a debit or a credit')).toHaveLength(1);
+        for (const label of ['Debit 2', 'Credit 2']) {
+            const control = screen.getByLabelText(label);
+            expect(control.getAttribute('aria-invalid')).toBe('true');
+            expect(accessibleDescriptionOf(control)).toMatch(/Enter a debit or a credit$/);
+        }
+        await waitFor(() => {
+            expect(document.activeElement).toBe(screen.getByLabelText('Debit 2'));
+        });
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(0);
     });
 
@@ -599,7 +706,9 @@ describe('RecordTransactionPage accounts read', () => {
 
         renderForm();
 
-        expect(await screen.findByText('Loading accounts…')).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading accounts…']);
+        });
         expect(screen.queryByLabelText('Description')).toBeNull();
     });
 
@@ -749,10 +858,47 @@ describe('RecordTransactionPage 400 field-error routing', () => {
             within(alert)
                 .getAllByRole('listitem')
                 .map((item) => item.textContent),
-        ).toEqual(['entries[0].amount: must not be negative']);
+        ).toEqual(['Debit 1 or Credit 1: must not be negative']);
         expect(screen.getByLabelText('Description').getAttribute('aria-invalid')).toBeNull();
         await waitFor(() => {
             expect(document.activeElement).toBe(alert);
         });
+    });
+
+    it('Given_a_400_naming_every_entry_path_on_a_later_row_When_submitted_Then_each_is_listed_under_that_rows_label', async () => {
+        // Index 1, not 0, so a label numbered from the wrong end, or not from the index at all,
+        // shows. The amount arrives typed as a debit or a credit, and its currency is the
+        // account's own, so each path names the field the owner can change.
+        const paths = [
+            { field: 'entries[1].account', label: 'Account 2' },
+            { field: 'entries[1].amount', label: 'Debit 2 or Credit 2' },
+            { field: 'entries[1].amount.amount', label: 'Debit 2 or Credit 2' },
+            { field: 'entries[1].amount.currency', label: 'Account 2' },
+        ] as const;
+        fakeFetch(
+            ledger((request) => {
+                if (request.url === RECORD_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: paths.map(({ field }) => ({ field, message: 'is invalid' })),
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderForm();
+        const user = userEvent.setup({ delay: null });
+
+        await fillValidTransaction(user);
+        await user.click(screen.getByRole('button', { name: 'Record transaction' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(paths.map(({ label }) => `${label}: is invalid`));
     });
 });

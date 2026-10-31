@@ -49,11 +49,11 @@ export interface DataTableProps<Row> {
  * on. An empty `rows` renders the header row alone; show an `EmptyState` instead when there is
  * nothing to tabulate.
  *
- * A table wider than the screen scrolls inside a `role="region"` wrapper rather than making the
- * whole page scroll sideways. The wrapper is named by the caption, so what it holds is announced.
- * It is a Tab stop only while the table overflows it, so a keyboard user can scroll it with the
- * arrow keys: a region with nothing to scroll would only be one more key press before the table's
- * own links and buttons.
+ * A table wider than the screen scrolls inside its own wrapper rather than making the whole page
+ * scroll sideways. Only while the table overflows it is the wrapper a Tab stop, so a keyboard user
+ * can scroll it with the arrow keys, and a `region` named by the caption, so what that stop holds
+ * is announced. A wrapper with nothing to scroll is neither: it would only be one more key press,
+ * and one more landmark named like the table, before the table itself.
  *
  * @param props - see `DataTableProps`.
  */
@@ -96,8 +96,8 @@ export function DataTable<Row>({
     return (
         <div
             ref={regionRef}
-            role="region"
-            aria-labelledby={captionId}
+            role={overflowing ? 'region' : undefined}
+            aria-labelledby={overflowing ? captionId : undefined}
             tabIndex={overflowing ? 0 : undefined}
             className={styles.region}
         >

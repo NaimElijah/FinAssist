@@ -1,14 +1,19 @@
 import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { DECIMAL_HINT } from '@/shared/api/decimal';
+import { indexedField } from '@/shared/api/fieldPath';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import {
     Button,
     ErrorState,
+    labelsByField,
     MonthField,
     SelectField,
     type SelectOption,
+    StatusLine,
     TextField,
+    useRowRemovalFocus,
 } from '@/shared/ui';
 
 import { useDefineBudget } from '../hooks/budgetQueries';
@@ -34,6 +39,12 @@ const DEFAULT_CURRENCY: Currency = 'ILS';
  */
 const MONTH_INPUT_PATTERN = '\\d{4}-(0[1-9]|1[0-2])';
 
+/**
+ * `MONTH_INPUT_PATTERN` in words, for a browser that renders the Month control as a bare text box
+ * and gives no clue what it takes.
+ */
+const MONTH_HINT = 'YYYY-MM, for example 2026-09';
+
 /** Shown on the Month field when a submitted value is not `YYYY-MM`; see `submit`. */
 const MONTH_REFUSED_MESSAGE = 'Enter a month as YYYY-MM';
 
@@ -55,6 +66,51 @@ const INVALID_CONTROL_SELECTOR = '[aria-invalid="true"]';
 const FIELD_NAMES = ['currency'] as const;
 
 type FieldName = (typeof FIELD_NAMES)[number];
+
+/** The labels of the fields outside the limit rows. */
+const LABELS = { month: 'Month', currency: 'Currency' } as const;
+
+/** Limit row `position`'s Category label, numbered from one as the rows are shown. */
+function categoryLabel(position: number): string {
+    return `Category ${String(position)}`;
+}
+
+/** Limit row `position`'s Limit amount label, numbered from one as the rows are shown. */
+function limitAmountLabel(position: number): string {
+    return `Limit amount ${String(position)}`;
+}
+
+/** The request's members outside `limits`; the Month fills `period` with its two dates. */
+const TOP_LEVEL_LABEL = labelsByField({
+    period: LABELS.month,
+    'period.start': LABELS.month,
+    'period.end': LABELS.month,
+    currency: LABELS.currency,
+});
+
+/**
+ * A failed request's field errors, listed under the form's own labels (WCAG 3.3.1).
+ *
+ * A limit is named by its index in `limits`, which follows the rows' order; a failure is cleared
+ * by any edit to the rows, so the rows cannot have moved while it is shown.
+ */
+function fieldLabel(field: string): string | undefined {
+    const limit = indexedField(field, 'limits');
+    if (limit === undefined) {
+        return TOP_LEVEL_LABEL(field);
+    }
+    switch (limit.member) {
+        case 'category':
+            return categoryLabel(limit.position);
+        case 'limit':
+        case 'limit.amount':
+            return limitAmountLabel(limit.position);
+        case 'limit.currency':
+            return LABELS.currency;
+        default:
+            return undefined;
+    }
+}
 
 type FieldErrors = Partial<Record<FieldName, string>>;
 
@@ -136,6 +192,9 @@ interface LimitRowState {
 
 const NEW_ROW: Omit<LimitRowState, 'key'> = { category: '', amount: '' };
 
+/** A budget limits at least one category. */
+const MINIMUM_ROWS = 1;
+
 /** The one row the form starts with. */
 function initialRows(): LimitRowState[] {
     return [{ key: 0, ...NEW_ROW }];
@@ -175,7 +234,7 @@ function LimitRowFields({
     return (
         <div className={styles.row}>
             <TextField
-                label={`Category ${String(label)}`}
+                label={categoryLabel(label)}
                 required
                 autoComplete="off"
                 value={row.category}
@@ -184,7 +243,8 @@ function LimitRowFields({
                 }}
             />
             <TextField
-                label={`Limit amount ${String(label)}`}
+                label={limitAmountLabel(label)}
+                hint={DECIMAL_HINT}
                 inputMode="decimal"
                 required
                 autoComplete="off"
@@ -218,6 +278,9 @@ export interface DefineBudgetFormProps {
  * request, and focus moves to it. Editing any field, or adding or removing a limit, clears a
  * failure that has settled, since it answered the budget as it was sent.
  *
+ * Adding a limit is reported on a status line beside Add category, and removing one moves focus
+ * as `RecordTransactionForm` does, through `useRowRemovalFocus`.
+ *
  * @param props - see `DefineBudgetFormProps`.
  */
 export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
@@ -234,6 +297,8 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
     const [monthRefusals, setMonthRefusals] = useState(0);
     const [currency, setCurrency] = useState<Currency>(DEFAULT_CURRENCY);
     const [rows, setRows] = useState<LimitRowState[]>(initialRows);
+    const [rowsStatus, setRowsStatus] = useState('');
+    const { rowsRef, addRowRef, onRowRemoved } = useRowRemovalFocus(rows.length);
     const defineBudget = useDefineBudget();
     const failure = defineBudget.error;
     const errors = submissionErrors(failure);
@@ -279,12 +344,20 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
         const key = nextKey.current;
         nextKey.current += 1;
         setRows((previous) => [...previous, { key, ...NEW_ROW }]);
+        setRowsStatus(`Limit ${String(rows.length + 1)} added.`);
     }
 
     function removeRow(key: number) {
         clearSettledOutcome(defineBudget, submitting);
+        // A removal recorded but never made would move focus on the next change of row count.
+        if (rows.length <= MINIMUM_ROWS) {
+            return;
+        }
+        onRowRemoved(rows.findIndex((row) => row.key === key));
+        // Emptied so that adding a row again is announced, even where its sentence is unchanged.
+        setRowsStatus('');
         setRows((previous) =>
-            previous.length <= 1 ? previous : previous.filter((row) => row.key !== key),
+            previous.length <= MINIMUM_ROWS ? previous : previous.filter((row) => row.key !== key),
         );
     }
 
@@ -314,6 +387,7 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                     setMonth('');
                     setCurrency(DEFAULT_CURRENCY);
                     setRows(initialRows());
+                    setRowsStatus('');
                     nextKey.current = 1;
                     onDefined(budget);
                 },
@@ -330,14 +404,15 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                 Define a budget
             </h2>
             {errors.unplaced === null ? null : (
-                <ErrorState ref={errorStateRef} error={errors.unplaced} />
+                <ErrorState ref={errorStateRef} error={errors.unplaced} fieldLabel={fieldLabel} />
             )}
             <form ref={formRef} className={styles.form} onSubmit={submit}>
                 <div className={styles.fields}>
                     <MonthField
-                        label="Month"
+                        label={LABELS.month}
                         required
                         pattern={MONTH_INPUT_PATTERN}
+                        hint={MONTH_HINT}
                         value={month}
                         error={monthRefusals === 0 ? undefined : MONTH_REFUSED_MESSAGE}
                         onChange={(event) => {
@@ -347,7 +422,7 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                         }}
                     />
                     <SelectField
-                        label="Currency"
+                        label={LABELS.currency}
                         options={CURRENCY_OPTIONS}
                         value={currency}
                         error={errors.fields.currency}
@@ -357,13 +432,13 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                         }}
                     />
                 </div>
-                <div className={styles.rows}>
+                <div ref={rowsRef} className={styles.rows}>
                     {rows.map((row, index) => (
                         <LimitRowFields
                             key={row.key}
                             index={index}
                             row={row}
-                            removable={rows.length > 1}
+                            removable={rows.length > MINIMUM_ROWS}
                             onCategoryChange={(category) => {
                                 updateCategory(row.key, category);
                             }}
@@ -377,9 +452,10 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                     ))}
                 </div>
                 <div className={styles.actions}>
-                    <Button type="button" variant="secondary" onClick={addRow}>
+                    <Button ref={addRowRef} type="button" variant="secondary" onClick={addRow}>
                         Add category
                     </Button>
+                    <StatusLine message={rowsStatus} />
                 </div>
                 <div>
                     <Button type="submit" pending={defineBudget.isPending}>

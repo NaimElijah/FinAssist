@@ -16,6 +16,9 @@ import {
     DateText,
     EmptyState,
     ErrorState,
+    formatCalendarDate,
+    labelsByField,
+    LoadingNote,
     MoneyText,
     QueryErrorState,
     StateBadge,
@@ -40,6 +43,12 @@ import styles from './AccountDetailPage.module.css';
 import { ACCOUNTS_PATH } from './paths';
 
 const NO_TRANSACTIONS_MESSAGE = 'No transactions touch this account yet';
+
+/** A lifecycle panel's labels, keyed by the request member each field fills. */
+const PANEL_LABELS = { on: 'On', reason: 'Reason' } as const;
+
+/** A failed request's field errors, listed under the form's own labels (WCAG 3.3.1). */
+const PANEL_FIELD_LABEL = labelsByField(PANEL_LABELS);
 
 /** Each status's colour role. The label always carries the meaning; tone only reinforces it. */
 const STATUS_TONES: Readonly<Record<TransactionStatus, Tone>> = {
@@ -103,6 +112,15 @@ const ACTION_TITLES: Readonly<Record<LifecycleKind, string>> = {
 };
 
 /**
+ * A transaction as the row shows it - its description and date - for the accessible names of the
+ * controls acting on it, so each says which row it acts on out of the table's context. Two
+ * transactions sharing both on one account share it.
+ */
+function transactionName(transaction: Transaction): string {
+    return `${transaction.description}, ${formatCalendarDate(transaction.occurredOn)}`;
+}
+
+/**
  * The id of one transaction's actions cell, so focus can be restored to it after its panel closes.
  */
 function actionsCellId(transactionId: string): string {
@@ -124,9 +142,12 @@ function stateCellId(transactionId: string): string {
  */
 function LifecycleButtons({
     status,
+    rowName,
     onOpen,
 }: {
     readonly status: TransactionStatus;
+    /** The row the buttons act on, from `transactionName`, after each button's own word. */
+    readonly rowName: string;
     readonly onOpen: (kind: LifecycleKind) => void;
 }) {
     const { canWrite } = useWriteAccess();
@@ -140,6 +161,9 @@ function LifecycleButtons({
                 <Button
                     key={kind}
                     data-action={kind}
+                    // The visible word comes first, so a voice command naming it still matches
+                    // (WCAG 2.5.3).
+                    aria-label={`${ACTION_LABELS[kind]} ${rowName}`}
                     variant={kind === 'VOID' ? 'danger' : 'secondary'}
                     onClick={() => {
                         onOpen(kind);
@@ -169,10 +193,13 @@ function LifecycleButtons({
 function LifecycleActionPanel({
     kind,
     transactionId,
+    rowName,
     onClose,
 }: {
     readonly kind: LifecycleKind;
     readonly transactionId: string;
+    /** The row the panel acts on, from `transactionName`, so its title says which. */
+    readonly rowName: string;
     /** Called with the transaction's new status on success, or with none on cancel. */
     readonly onClose: (newStatus?: TransactionStatus) => void;
 }) {
@@ -220,7 +247,7 @@ function LifecycleActionPanel({
 
     return (
         <ActionPanel
-            title={ACTION_TITLES[kind]}
+            title={`${ACTION_TITLES[kind]}: ${rowName}`}
             headingLevel={2}
             submitLabel={ACTION_LABELS[kind]}
             onSubmit={submit}
@@ -233,9 +260,15 @@ function LifecycleActionPanel({
             pending={mutation.isPending}
         >
             <div className={styles.panelFields}>
-                {failure === null ? null : <ErrorState ref={errorStateRef} error={failure} />}
+                {failure === null ? null : (
+                    <ErrorState
+                        ref={errorStateRef}
+                        error={failure}
+                        fieldLabel={PANEL_FIELD_LABEL}
+                    />
+                )}
                 <DateField
-                    label="On"
+                    label={PANEL_LABELS.on}
                     required
                     value={on}
                     onChange={(event) => {
@@ -245,7 +278,7 @@ function LifecycleActionPanel({
                 />
                 {kind === 'VOID' ? (
                     <TextField
-                        label="Reason"
+                        label={PANEL_LABELS.reason}
                         required
                         value={reason}
                         onChange={(event) => {
@@ -277,11 +310,13 @@ function TransactionActionsCell({
                 <LifecycleActionPanel
                     kind={active.kind}
                     transactionId={transaction.id}
+                    rowName={transactionName(transaction)}
                     onClose={onClose}
                 />
             ) : (
                 <LifecycleButtons
                     status={transaction.state.status}
+                    rowName={transactionName(transaction)}
                     onOpen={(kind) => {
                         onOpen(transaction.id, kind);
                     }}
@@ -428,7 +463,7 @@ function Balance({ balance }: { readonly balance: UseQueryResult<Money> }) {
     );
 
     if (balance.isPending) {
-        return <p className={styles.placeholder}>Loading balance…</p>;
+        return <LoadingNote message="Loading balance…" />;
     }
     const failure = (
         <QueryErrorState error={balance.error} retrying={balance.isFetching} onRetry={onRetry} />
@@ -508,7 +543,7 @@ function Transactions({
     }
 
     if (transactions.isPending) {
-        return <p className={styles.placeholder}>Loading transactions…</p>;
+        return <LoadingNote message="Loading transactions…" />;
     }
     const failure = (
         <QueryErrorState
@@ -579,11 +614,7 @@ function AccountDetail({ accountId }: { readonly accountId: string }) {
                     <BackToAccounts />
                 </p>
                 <h1>Account</h1>
-                {accounts.isPending ? (
-                    <p className={styles.placeholder}>Loading account…</p>
-                ) : (
-                    accountsFailure
-                )}
+                {accounts.isPending ? <LoadingNote message="Loading account…" /> : accountsFailure}
             </>
         );
     }

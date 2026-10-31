@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { todayIsoDate } from '@/shared/lib/today';
@@ -12,6 +12,9 @@ import {
     DateText,
     EmptyState,
     ErrorState,
+    formatCalendarDate,
+    labelsByField,
+    LoadingNote,
     MoneyText,
     QueryErrorState,
     StateBadge,
@@ -37,6 +40,12 @@ import { PlanFlowForm } from './PlanFlowForm';
 import styles from './PlannedFlowsPage.module.css';
 
 const EMPTY_MESSAGE = 'No planned flows yet';
+
+/** A lifecycle panel's labels, keyed by the request member each field fills. */
+const PANEL_LABELS = { on: 'On', reason: 'Reason' } as const;
+
+/** A failed request's field errors, listed under the form's own labels (WCAG 3.3.1). */
+const PANEL_FIELD_LABEL = labelsByField(PANEL_LABELS);
 
 /** Each direction's colour role. The label always carries the meaning; tone only reinforces it. */
 const DIRECTION_TONES: Readonly<Record<PlannedFlow['direction'], Tone>> = {
@@ -114,6 +123,15 @@ function actionsCellId(flowId: string): string {
     return `flow-actions-${flowId}`;
 }
 
+/**
+ * A flow as the row shows it - its description and start - for the accessible names of the
+ * controls acting on it, so each says which row it acts on out of the table's context. Two flows
+ * sharing both share it.
+ */
+function flowName(flow: PlannedFlow): string {
+    return `${flow.description}, starting ${formatCalendarDate(flow.startsOn)}`;
+}
+
 /** The id of one flow's state cell, the fallback focus target when its own action is gone. */
 function stateCellId(flowId: string): string {
     return `flow-state-${flowId}`;
@@ -126,9 +144,12 @@ function stateCellId(flowId: string): string {
  */
 function LifecycleButtons({
     status,
+    rowName,
     onOpen,
 }: {
     readonly status: PlanStatus;
+    /** The row the buttons act on, from `flowName`, after each button's own word. */
+    readonly rowName: string;
     readonly onOpen: (kind: LifecycleKind) => void;
 }) {
     const { canWrite } = useWriteAccess();
@@ -142,6 +163,9 @@ function LifecycleButtons({
                 <Button
                     key={kind}
                     data-action={kind}
+                    // The visible word comes first, so a voice command naming it still matches
+                    // (WCAG 2.5.3).
+                    aria-label={`${ACTION_LABELS[kind]} ${rowName}`}
                     variant={kind === 'CANCEL' ? 'danger' : 'secondary'}
                     onClick={() => {
                         onOpen(kind);
@@ -156,7 +180,8 @@ function LifecycleButtons({
 
 /**
  * The inline panel for one lifecycle action: a date defaulting to today, and a reason when
- * cancelling. Mirrors `AccountDetailPage`'s own `LifecycleActionPanel` exactly.
+ * cancelling. Mirrors `AccountDetailPage`'s own `LifecycleActionPanel`, but for its heading level,
+ * which follows this page's outline.
  *
  * On success it refetches what the transition can change (see `planQueries.ts`) and closes. On
  * failure - including a 409 `ILLEGAL_TRANSITION` when the server no longer agrees this row's
@@ -170,10 +195,13 @@ function LifecycleButtons({
 function LifecycleActionPanel({
     kind,
     flowId,
+    rowName,
     onClose,
 }: {
     readonly kind: LifecycleKind;
     readonly flowId: string;
+    /** The row the panel acts on, from `flowName`, so its title says which. */
+    readonly rowName: string;
     /** Called with the flow's new status on success, or with none on cancel. */
     readonly onClose: (newStatus?: PlanStatus) => void;
 }) {
@@ -221,8 +249,9 @@ function LifecycleActionPanel({
 
     return (
         <ActionPanel
-            title={ACTION_TITLES[kind]}
-            headingLevel={2}
+            title={`${ACTION_TITLES[kind]}: ${rowName}`}
+            // An h3: the panel opens inside the list's "All planned flows" section, an h2.
+            headingLevel={3}
             submitLabel={SUBMIT_LABELS[kind]}
             onSubmit={submit}
             onCancel={() => {
@@ -234,9 +263,15 @@ function LifecycleActionPanel({
             pending={mutation.isPending}
         >
             <div className={styles.panelFields}>
-                {failure === null ? null : <ErrorState ref={errorStateRef} error={failure} />}
+                {failure === null ? null : (
+                    <ErrorState
+                        ref={errorStateRef}
+                        error={failure}
+                        fieldLabel={PANEL_FIELD_LABEL}
+                    />
+                )}
                 <DateField
-                    label="On"
+                    label={PANEL_LABELS.on}
                     required
                     value={on}
                     onChange={(event) => {
@@ -246,7 +281,7 @@ function LifecycleActionPanel({
                 />
                 {kind === 'CANCEL' ? (
                     <TextField
-                        label="Reason"
+                        label={PANEL_LABELS.reason}
                         required
                         value={reason}
                         onChange={(event) => {
@@ -275,10 +310,16 @@ function FlowActionsCell({
     return (
         <div id={actionsCellId(flow.id)}>
             {active?.flowId === flow.id ? (
-                <LifecycleActionPanel kind={active.kind} flowId={flow.id} onClose={onClose} />
+                <LifecycleActionPanel
+                    kind={active.kind}
+                    flowId={flow.id}
+                    rowName={flowName(flow)}
+                    onClose={onClose}
+                />
             ) : (
                 <LifecycleButtons
                     status={flow.state.status}
+                    rowName={flowName(flow)}
                     onOpen={(kind) => {
                         onOpen(flow.id, kind);
                     }}
@@ -465,7 +506,7 @@ function PlannedFlowsList({
     }
 
     if (flows.isPending) {
-        return <p className={styles.loading}>Loading planned flows…</p>;
+        return <LoadingNote message="Loading planned flows…" />;
     }
     const failure = (
         <QueryErrorState error={flows.error} retrying={flows.isFetching} onRetry={onRetry} />
@@ -481,6 +522,7 @@ function PlannedFlowsList({
             ) : (
                 <DataTable
                     caption="Planned flows"
+                    captionHidden
                     columns={flowColumns(focusedFlowId, onFocused, active, openAction, closeAction)}
                     rows={flows.data}
                     rowKey={(flow) => flow.id}
@@ -503,6 +545,7 @@ function PlannedFlowsList({
  */
 export function PlannedFlowsPage() {
     const { canWrite } = useWriteAccess();
+    const listHeadingId = useId();
     const [plannedFlowId, setPlannedFlowId] = useState<string | undefined>(undefined);
     // Stable, so the row's focus effect does not run again on every render of the page.
     const clearPlannedFlow = useCallback(() => {
@@ -511,7 +554,12 @@ export function PlannedFlowsPage() {
 
     return (
         <>
-            <PlannedFlowsList focusedFlowId={plannedFlowId} onFocused={clearPlannedFlow} />
+            <section aria-labelledby={listHeadingId} className={styles.list}>
+                <h2 id={listHeadingId} className={styles.listHeading}>
+                    All planned flows
+                </h2>
+                <PlannedFlowsList focusedFlowId={plannedFlowId} onFocused={clearPlannedFlow} />
+            </section>
             {canWrite ? (
                 <PlanFlowForm
                     onPlanned={(flow) => {

@@ -45,6 +45,18 @@ function layOut({ scrollWidth, clientWidth }: { scrollWidth: number; clientWidth
     vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(clientWidth);
 }
 
+/**
+ * The element the table scrolls inside. Found through the table, since it is a landmark only while
+ * the table overflows it.
+ */
+function scrollContainer(): HTMLElement {
+    const container = screen.getByRole('table', { name: 'Accounts' }).parentElement;
+    if (container === null) {
+        throw new Error('the table has no scroll container');
+    }
+    return container;
+}
+
 afterEach(() => {
     vi.restoreAllMocks();
 });
@@ -62,40 +74,44 @@ describe('DataTable', () => {
         expect(screen.getByRole('table', { name: 'Accounts' })).toBeDefined();
     });
 
-    it('Given_a_table_that_fits_its_region_When_rendered_Then_the_region_is_named_by_its_caption_and_is_not_a_Tab_stop', () => {
+    it('Given_a_table_that_fits_its_container_When_rendered_Then_it_is_neither_a_region_nor_a_Tab_stop', () => {
         // With nothing to scroll, a Tab stop would be one more key press before the table's own
-        // links and buttons, for a scroll affordance nobody can use.
+        // links and buttons, and a landmark one more stop, named like the table, before it.
         layOut({ scrollWidth: 300, clientWidth: 300 });
 
         renderAccounts();
 
-        const region = screen.getByRole('region', { name: 'Accounts' });
-        expect(within(region).getByRole('table', { name: 'Accounts' })).toBeDefined();
-        expect(region.hasAttribute('tabindex')).toBe(false);
+        expect(screen.queryByRole('region')).toBeNull();
+        expect(scrollContainer().hasAttribute('tabindex')).toBe(false);
+        expect(screen.getByRole('table', { name: 'Accounts' })).toBeDefined();
     });
 
-    it('Given_a_table_wider_than_its_region_When_rendered_Then_the_region_is_a_Tab_stop', () => {
-        // Focusable, so a keyboard user can scroll a table wider than the screen with arrow keys.
+    it('Given_a_table_wider_than_its_container_When_rendered_Then_it_is_a_region_named_by_its_caption_and_a_Tab_stop', () => {
+        // Focusable, so a keyboard user can scroll a table wider than the screen with arrow keys,
+        // and named, so what they are scrolling is announced.
         layOut({ scrollWidth: 900, clientWidth: 300 });
 
         renderAccounts();
 
-        expect(screen.getByRole('region', { name: 'Accounts' }).tabIndex).toBe(0);
+        const region = screen.getByRole('region', { name: 'Accounts' });
+        expect(region.tabIndex).toBe(0);
+        expect(within(region).getByRole('table', { name: 'Accounts' })).toBeDefined();
     });
 
-    it('Given_a_table_that_fits_When_its_region_narrows_until_it_overflows_Then_the_region_becomes_a_Tab_stop', () => {
-        // A narrower window, a zoom, or a sibling taking room all reach the table as its region
+    it('Given_a_table_that_fits_When_its_container_narrows_until_it_overflows_Then_it_becomes_a_named_region_and_a_Tab_stop', () => {
+        // A narrower window, a zoom, or a sibling taking room all reach the table as its container
         // shrinking.
         layOut({ scrollWidth: 300, clientWidth: 300 });
         renderAccounts();
-        const region = screen.getByRole('region', { name: 'Accounts' });
+        const container = scrollContainer();
 
         layOut({ scrollWidth: 900, clientWidth: 300 });
         act(() => {
-            resizeElement(region);
+            resizeElement(container);
         });
 
-        expect(region.tabIndex).toBe(0);
+        expect(screen.getByRole('region', { name: 'Accounts' })).toBe(container);
+        expect(container.tabIndex).toBe(0);
     });
 
     it('Given_a_table_that_fits_When_its_content_reflows_wider_without_a_window_resize_Then_the_region_becomes_a_Tab_stop', () => {
@@ -103,17 +119,18 @@ describe('DataTable', () => {
         // own size is unchanged, and no window resize is fired.
         layOut({ scrollWidth: 300, clientWidth: 300 });
         renderAccounts();
-        const region = screen.getByRole('region', { name: 'Accounts' });
+        const container = scrollContainer();
 
         layOut({ scrollWidth: 900, clientWidth: 300 });
         act(() => {
             resizeElement(screen.getByRole('table', { name: 'Accounts' }));
         });
 
-        expect(region.tabIndex).toBe(0);
+        expect(screen.getByRole('region', { name: 'Accounts' })).toBe(container);
+        expect(container.tabIndex).toBe(0);
     });
 
-    it('Given_a_table_that_overflows_When_its_region_widens_until_it_fits_Then_the_region_is_no_longer_a_Tab_stop', () => {
+    it('Given_a_table_that_overflows_When_its_container_widens_until_it_fits_Then_it_is_no_longer_a_region_or_a_Tab_stop', () => {
         layOut({ scrollWidth: 900, clientWidth: 300 });
         renderAccounts();
         const region = screen.getByRole('region', { name: 'Accounts' });
@@ -123,28 +140,31 @@ describe('DataTable', () => {
             resizeElement(region);
         });
 
+        expect(screen.queryByRole('region')).toBeNull();
         expect(region.hasAttribute('tabindex')).toBe(false);
     });
 
     it('Given_a_rendered_table_When_it_unmounts_Then_neither_the_region_nor_the_table_is_observed', () => {
         const { unmount } = renderAccounts();
-        const region = screen.getByRole('region', { name: 'Accounts' });
+        const container = scrollContainer();
         const table = screen.getByRole('table', { name: 'Accounts' });
-        expect([isObserved(region), isObserved(table)]).toEqual([true, true]);
+        expect([isObserved(container), isObserved(table)]).toEqual([true, true]);
 
         unmount();
 
-        expect(isObserved(region)).toBe(false);
+        expect(isObserved(container)).toBe(false);
         expect(isObserved(table)).toBe(false);
     });
 
-    it('Given_a_visually_hidden_caption_When_rendered_Then_it_still_names_the_scroll_region', () => {
+    it('Given_a_visually_hidden_caption_When_the_table_overflows_Then_it_still_names_the_scroll_region', () => {
+        layOut({ scrollWidth: 900, clientWidth: 300 });
         renderAccounts(true);
 
         expect(screen.getByRole('region', { name: 'Accounts' })).toBeDefined();
     });
 
-    it('Given_two_tables_When_rendered_Then_each_scroll_region_is_named_by_its_own_caption', () => {
+    it('Given_two_tables_that_overflow_When_rendered_Then_each_scroll_region_is_named_by_its_own_caption', () => {
+        layOut({ scrollWidth: 900, clientWidth: 300 });
         render(
             <>
                 <DataTable

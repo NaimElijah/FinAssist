@@ -1,7 +1,17 @@
-import { type ReactNode, type Ref, type SubmitEvent, useEffect, useRef, useState } from 'react';
+import {
+    type ReactNode,
+    type Ref,
+    type SubmitEvent,
+    useEffect,
+    useId,
+    useRef,
+    useState,
+} from 'react';
 import { useNavigate } from 'react-router';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { DECIMAL_HINT } from '@/shared/api/decimal';
+import { indexedField } from '@/shared/api/fieldPath';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { todayIsoDate } from '@/shared/lib/today';
 import { useWriteAccess } from '@/shared/lib/writeAccess';
@@ -9,11 +19,15 @@ import {
     Button,
     DateField,
     ErrorState,
+    labelsByField,
+    LoadingNote,
     QueryErrorState,
     SelectField,
     type SelectOption,
+    StatusLine,
     TextField,
     useRetryFocus,
+    useRowRemovalFocus,
 } from '@/shared/ui';
 
 import { useAccounts, useRecordTransaction } from '../hooks/accountQueries';
@@ -31,6 +45,12 @@ const MINIMUM_ROWS = 2;
  */
 const INVALID_CONTROL_SELECTOR = '[aria-invalid="true"]';
 
+/**
+ * What `entryRowAmount` holds every row to: one of its two amounts filled, never both or neither.
+ * Stated once above the rows, since it binds them all alike, and read after each amount's own hint.
+ */
+const ENTRY_RULE = 'Each entry is a debit or a credit, not both.';
+
 /** The offered option for a row whose account is not yet chosen. */
 const CHOOSE_ACCOUNT_OPTION: SelectOption = { value: '', label: 'Choose an account' };
 
@@ -38,6 +58,53 @@ const CHOOSE_ACCOUNT_OPTION: SelectOption = { value: '', label: 'Choose an accou
 const FIELD_NAMES = ['description', 'occurredOn'] as const;
 
 type FieldName = (typeof FIELD_NAMES)[number];
+
+/** The labels of the fields outside the entry rows, keyed by the request member each fills. */
+const LABELS = { occurredOn: 'Date', description: 'Description' } as const satisfies Record<
+    FieldName,
+    string
+>;
+
+/** Entry row `position`'s Account label, numbered from one as the rows are shown. */
+function accountLabel(position: number): string {
+    return `Account ${String(position)}`;
+}
+
+/** Entry row `position`'s Debit label. */
+function debitLabel(position: number): string {
+    return `Debit ${String(position)}`;
+}
+
+/** Entry row `position`'s Credit label. */
+function creditLabel(position: number): string {
+    return `Credit ${String(position)}`;
+}
+
+const TOP_LEVEL_LABEL = labelsByField(LABELS);
+
+/**
+ * A failed request's field errors, listed under the form's own labels (WCAG 3.3.1).
+ *
+ * An entry is named by its index in `entries`, which follows the rows' order; a failure is
+ * cleared by any edit to the rows, so the rows cannot have moved while it is shown. An entry's
+ * amount is typed as a debit or a credit, and its currency is its account's own.
+ */
+function fieldLabel(field: string): string | undefined {
+    const entry = indexedField(field, 'entries');
+    if (entry === undefined) {
+        return TOP_LEVEL_LABEL(field);
+    }
+    switch (entry.member) {
+        case 'account':
+        case 'amount.currency':
+            return accountLabel(entry.position);
+        case 'amount':
+        case 'amount.amount':
+            return `${debitLabel(entry.position)} or ${creditLabel(entry.position)}`;
+        default:
+            return undefined;
+    }
+}
 
 type FieldErrors = Partial<Record<FieldName, string>>;
 
@@ -126,10 +193,13 @@ interface EntryRowFieldsProps {
     readonly row: EntryRowState;
     readonly accounts: readonly Account[];
     /**
-     * The row's amount-field error, if any - an account error is never possible (see
-     * `buildEntries`).
+     * The row's amount error, if any - an account error is never possible (see `buildEntries`).
+     * It belongs to the debit/credit pair, so it is shown once beneath the row and both fields
+     * are marked invalid and described by it.
      */
     readonly error: string | undefined;
+    /** The id of `ENTRY_RULE`, shown once above the rows, which describes both amounts. */
+    readonly ruleId: string;
     readonly removable: boolean;
     readonly onAccountChange: (accountId: string) => void;
     readonly onDebitChange: (value: string) => void;
@@ -137,12 +207,13 @@ interface EntryRowFieldsProps {
     readonly onRemove: () => void;
 }
 
-/** One entry row: an account, a debit, a credit, and a remove button. */
+/** One entry row: an account, a debit, a credit, a remove button, and the row's error if any. */
 function EntryRowFields({
     index,
     row,
     accounts,
     error,
+    ruleId,
     removable,
     onAccountChange,
     onDebitChange,
@@ -150,10 +221,12 @@ function EntryRowFields({
     onRemove,
 }: EntryRowFieldsProps) {
     const label = index + 1;
+    const errorId = useId();
+    const sharedErrorId = error === undefined ? undefined : errorId;
     return (
         <div className={styles.row}>
             <SelectField
-                label={`Account ${String(label)}`}
+                label={accountLabel(label)}
                 required
                 options={accountOptions(accounts)}
                 value={row.accountId}
@@ -162,21 +235,25 @@ function EntryRowFields({
                 }}
             />
             <TextField
-                label={`Debit ${String(label)}`}
+                label={debitLabel(label)}
+                hint={DECIMAL_HINT}
+                sharedHintId={ruleId}
                 inputMode="decimal"
                 autoComplete="off"
                 value={row.debit}
-                error={error}
+                sharedErrorId={sharedErrorId}
                 onChange={(event) => {
                     onDebitChange(event.target.value);
                 }}
             />
             <TextField
-                label={`Credit ${String(label)}`}
+                label={creditLabel(label)}
+                hint={DECIMAL_HINT}
+                sharedHintId={ruleId}
                 inputMode="decimal"
                 autoComplete="off"
                 value={row.credit}
-                error={error}
+                sharedErrorId={sharedErrorId}
                 onChange={(event) => {
                     onCreditChange(event.target.value);
                 }}
@@ -184,6 +261,11 @@ function EntryRowFields({
             <Button type="button" variant="secondary" disabled={!removable} onClick={onRemove}>
                 {`Remove entry ${String(label)}`}
             </Button>
+            {error === undefined ? null : (
+                <p id={errorId} className={styles.rowError}>
+                    {error}
+                </p>
+            )}
         </div>
     );
 }
@@ -208,6 +290,10 @@ function EntryRowFields({
  * `RULE_VIOLATED` - in an `ErrorState` above the form. Focus follows the failure there, the same
  * rule every form in the app keeps. Editing any field, or adding or removing a row, clears a
  * failure that has settled, since it answered the entries as they were sent.
+ *
+ * Adding a row is reported on a status line beside Add entry, since focus stays on the button.
+ * Removing one moves focus to the row now in its place, or to Add entry when the last row went
+ * (`useRowRemovalFocus`), since the pressed button goes with its row.
  */
 function RecordTransactionForm({
     accounts,
@@ -223,6 +309,7 @@ function RecordTransactionForm({
     const navigate = useNavigate();
     const formRef = useRef<HTMLFormElement>(null);
     const errorStateRef = useRef<HTMLDivElement>(null);
+    const entryRuleId = useId();
     const submitting = useRef(false);
     const nextKey = useRef(MINIMUM_ROWS);
 
@@ -231,6 +318,8 @@ function RecordTransactionForm({
     const [rows, setRows] = useState<EntryRowState[]>(initialRows);
     const [mirrorActive, setMirrorActive] = useState(true);
     const [rowErrors, setRowErrors] = useState<ReadonlyMap<number, string>>(new Map());
+    const [rowsStatus, setRowsStatus] = useState('');
+    const { rowsRef, addRowRef, onRowRemoved } = useRowRemovalFocus(rows.length);
 
     const record = useRecordTransaction();
     const failure = record.error;
@@ -306,10 +395,18 @@ function RecordTransactionForm({
         const key = nextKey.current;
         nextKey.current += 1;
         setRows((previous) => [...previous, { key, ...NEW_ROW }]);
+        setRowsStatus(`Entry ${String(rows.length + 1)} added.`);
     }
 
     function removeRow(key: number) {
         clearSettledOutcome(record, submitting);
+        // A removal recorded but never made would move focus on the next change of row count.
+        if (rows.length <= MINIMUM_ROWS) {
+            return;
+        }
+        onRowRemoved(rows.findIndex((row) => row.key === key));
+        // Emptied so that adding a row again is announced, even where its sentence is unchanged.
+        setRowsStatus('');
         // Removing a row stops the mirror for good too: whichever row now sits at position 1 may
         // hold an amount the owner already typed there on purpose, and the mirror must never
         // overwrite it.
@@ -356,12 +453,12 @@ function RecordTransactionForm({
             </h1>
             {accountsFailure}
             {errors.unplaced === null ? null : (
-                <ErrorState ref={errorStateRef} error={errors.unplaced} />
+                <ErrorState ref={errorStateRef} error={errors.unplaced} fieldLabel={fieldLabel} />
             )}
             <form ref={formRef} className={styles.form} onSubmit={submit}>
                 <div className={styles.fields}>
                     <DateField
-                        label="Date"
+                        label={LABELS.occurredOn}
                         required
                         value={occurredOn}
                         error={errors.fields.occurredOn}
@@ -371,7 +468,7 @@ function RecordTransactionForm({
                         }}
                     />
                     <TextField
-                        label="Description"
+                        label={LABELS.description}
                         required
                         autoComplete="off"
                         value={description}
@@ -382,34 +479,42 @@ function RecordTransactionForm({
                         }}
                     />
                 </div>
-                <div className={styles.rows}>
-                    {rows.map((row, index) => (
-                        <EntryRowFields
-                            key={row.key}
-                            index={index}
-                            row={row}
-                            accounts={accounts}
-                            error={rowErrors.get(row.key)}
-                            removable={rows.length > MINIMUM_ROWS}
-                            onAccountChange={(accountId) => {
-                                updateAccount(index, accountId);
-                            }}
-                            onDebitChange={(value) => {
-                                updateDebit(index, value);
-                            }}
-                            onCreditChange={(value) => {
-                                updateCredit(index, value);
-                            }}
-                            onRemove={() => {
-                                removeRow(row.key);
-                            }}
-                        />
-                    ))}
+                <div className={styles.entries}>
+                    {/* Outside rowsRef: useRowRemovalFocus reads its children as the rows. */}
+                    <p id={entryRuleId} className={styles.entryRule}>
+                        {ENTRY_RULE}
+                    </p>
+                    <div ref={rowsRef} className={styles.rows}>
+                        {rows.map((row, index) => (
+                            <EntryRowFields
+                                key={row.key}
+                                index={index}
+                                row={row}
+                                accounts={accounts}
+                                error={rowErrors.get(row.key)}
+                                ruleId={entryRuleId}
+                                removable={rows.length > MINIMUM_ROWS}
+                                onAccountChange={(accountId) => {
+                                    updateAccount(index, accountId);
+                                }}
+                                onDebitChange={(value) => {
+                                    updateDebit(index, value);
+                                }}
+                                onCreditChange={(value) => {
+                                    updateCredit(index, value);
+                                }}
+                                onRemove={() => {
+                                    removeRow(row.key);
+                                }}
+                            />
+                        ))}
+                    </div>
                 </div>
                 <div className={styles.actions}>
-                    <Button type="button" variant="secondary" onClick={addRow}>
+                    <Button ref={addRowRef} type="button" variant="secondary" onClick={addRow}>
                         Add entry
                     </Button>
+                    <StatusLine message={rowsStatus} />
                 </div>
                 <div>
                     <Button type="submit" pending={record.isPending}>
@@ -465,7 +570,7 @@ function RecordTransactionScreen() {
         return (
             <>
                 <h1>Record a transaction</h1>
-                <p className={styles.placeholder}>Loading accounts…</p>
+                <LoadingNote message="Loading accounts…" />
             </>
         );
     }

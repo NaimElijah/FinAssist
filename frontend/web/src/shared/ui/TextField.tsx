@@ -17,20 +17,34 @@ export type TextFieldProps = FieldLabelling &
  *
  * Always `type="text"`. An amount is a decimal string (ADR-029), and `type="number"` would hand it
  * to the browser's number parsing; ask for a numeric keyboard with `inputMode="decimal"` instead.
- * Every other native input prop passes through to the input.
+ * Every other native input prop passes through to the input; `required` also shows a marker
+ * beside the label.
  *
  * @param props - see `TextFieldProps`.
  */
-export function TextField({ label, hint, error, className, ...inputProps }: TextFieldProps) {
+export function TextField({
+    label,
+    required,
+    hint,
+    sharedHintId,
+    error,
+    sharedErrorId,
+    className,
+    ...inputProps
+}: TextFieldProps) {
     return (
         <FieldFrame
             label={label}
+            required={required}
             hint={hint}
+            sharedHintId={sharedHintId}
             error={error}
+            sharedErrorId={sharedErrorId}
             renderControl={(control) => (
                 <input
                     {...inputProps}
                     {...control}
+                    required={required}
                     type="text"
                     className={joinClassNames(styles.control, className)}
                 />

@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router';
 
 import { hasProblemCode } from '@/shared/api/client';
 import { useDocumentTitle } from '@/shared/lib/documentTitle';
-import { EmptyState, MoneyText, QueryErrorState, useRetryFocus } from '@/shared/ui';
+import { EmptyState, LoadingNote, MoneyText, QueryErrorState, useRetryFocus } from '@/shared/ui';
 
 import { HOLDING_NOT_FOUND, PRICE_UNAVAILABLE } from '../api/portfolioApi';
 import { usePosition, useValuation } from '../hooks/portfolioQueries';
@@ -43,7 +43,7 @@ function PositionSection({ query }: { readonly query: UseQueryResult<Position> }
             <h2 ref={targetRef} id={headingId} tabIndex={-1} className={styles.heading}>
                 Position
             </h2>
-            {query.isPending ? <p className={styles.pending}>Loading position…</p> : null}
+            {query.isPending ? <LoadingNote message="Loading position…" /> : null}
             {/* A failed refetch sits above the figures it failed to refresh, which stay. */}
             <QueryErrorState error={query.error} retrying={query.isFetching} onRetry={onRetry} />
             {position === undefined ? null : (
@@ -91,7 +91,7 @@ function ValuationSection({
             <h2 ref={targetRef} id={headingId} tabIndex={-1} className={styles.heading}>
                 Valuation
             </h2>
-            {query.isPending ? <p className={styles.pending}>Loading valuation…</p> : null}
+            {query.isPending ? <LoadingNote message="Loading valuation…" /> : null}
             {noPrice ? <EmptyState message={NO_PRICE_MESSAGE} /> : null}
             {nothingHeld ? <EmptyState message={nothingHeldMessage(symbol)} /> : null}
             {considered ? null : (

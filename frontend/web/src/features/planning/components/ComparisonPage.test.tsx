@@ -3,13 +3,14 @@
 // faked, so the feature's real api/ module and its mapping run under test; the account choices
 // src/app would provide are provided here directly, in planning's own terms.
 
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { Outlet, type RouteObject } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import type { WriteAccess } from '@/shared/lib/writeAccess';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -21,6 +22,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { AccountOptionsContext } from '../hooks/accountOptions';
 import { planningRoutes } from '../index';
@@ -28,6 +30,9 @@ import type { AccountOptions } from '../types/accountOption';
 
 const SCENARIOS_URL = '/ledger/api/v1/scenarios';
 const COMPARISONS_URL = '/ledger/api/v1/scenario-comparisons';
+
+/** The Scenarios group's standing instruction, stated before any refusal needs it. */
+const SCENARIOS_HINT = 'Choose 2 to 10 scenarios.';
 
 const DO_NOTHING = {
     id: 's-base',
@@ -173,6 +178,11 @@ function scenarioCheckbox(label: string): HTMLElement {
     return within(screen.getByRole('group', { name: 'Scenarios' })).getByLabelText(label);
 }
 
+/** Every checkbox in the Scenarios group, in the order offered. */
+function scenarioCheckboxes(): HTMLElement[] {
+    return within(screen.getByRole('group', { name: 'Scenarios' })).getAllByRole('checkbox');
+}
+
 /** The words of every option the Baseline select offers. */
 function baselineOptions(): (string | null)[] {
     const select = screen.getByLabelText('Baseline');
@@ -274,22 +284,39 @@ describe('ComparisonPage', () => {
         });
     });
 
-    it('Given_one_scenario_chosen_When_compared_Then_a_field_error_asks_for_two_takes_focus_and_nothing_is_sent', async () => {
+    it('Given_the_comparison_form_When_it_renders_Then_the_Scenarios_group_states_its_2_to_10_rule_and_describes_every_checkbox_by_it', async () => {
+        // WCAG 3.3.2: the bounds are stated before a submit, not first learned from a refusal.
+        fakeFetch(ledger(SCENARIOS));
+        renderComparison();
+
+        const group = await screen.findByRole('group', { name: 'Scenarios' });
+
+        expect(within(group).getByText(SCENARIOS_HINT)).toBeDefined();
+        for (const checkbox of scenarioCheckboxes()) {
+            expect(accessibleDescriptionOf(checkbox)).toBe(SCENARIOS_HINT);
+            expect(checkbox.hasAttribute('aria-invalid')).toBe(false);
+        }
+    });
+
+    it('Given_one_scenario_chosen_When_compared_Then_every_checkbox_is_described_by_the_hint_then_an_error_asking_for_two_one_takes_focus_and_nothing_is_sent', async () => {
         const requests = fakeFetch(ledger(SCENARIOS, () => jsonResponse(COMPARISON)));
         renderComparison();
         const user = userEvent.setup({ delay: null });
 
         await compare(user, ['Do nothing (ILS)']);
 
-        const error = await screen.findByText('Choose at least two scenarios to compare.');
-        expect(
-            screen.getByRole('group', { name: 'Scenarios' }).getAttribute('aria-describedby'),
-        ).toBe(error.id);
+        await screen.findByText('Choose at least two scenarios to compare.');
+        // Focus lands on a checkbox, not the group, so each box carries the error itself.
+        for (const checkbox of scenarioCheckboxes()) {
+            expect(accessibleDescriptionOf(checkbox)).toBe(
+                `${SCENARIOS_HINT} Choose at least two scenarios to compare.`,
+            );
+        }
         expect(document.activeElement).toBe(scenarioCheckbox('Do nothing (ILS)'));
         expect(requests.filter(isComparison)).toHaveLength(0);
     });
 
-    it('Given_more_scenarios_chosen_than_the_ledger_compares_When_compared_Then_a_field_error_asks_for_at_most_ten_takes_focus_and_nothing_is_sent', async () => {
+    it('Given_more_scenarios_chosen_than_the_ledger_compares_When_compared_Then_every_checkbox_is_described_by_the_hint_then_an_error_asking_for_at_most_ten_one_takes_focus_and_nothing_is_sent', async () => {
         const scenarios = manyScenarios(MAXIMUM_SCENARIOS + 1);
         const requests = fakeFetch(ledger(scenarios, () => jsonResponse(COMPARISON)));
         renderComparison();
@@ -297,10 +324,13 @@ describe('ComparisonPage', () => {
 
         await compare(user, labelsOf(scenarios));
 
-        const error = await screen.findByText('Choose at most ten scenarios to compare.');
-        expect(
-            screen.getByRole('group', { name: 'Scenarios' }).getAttribute('aria-describedby'),
-        ).toBe(error.id);
+        await screen.findByText('Choose at most ten scenarios to compare.');
+        // Focus lands on a checkbox, not the group, so each box carries the error itself.
+        for (const checkbox of scenarioCheckboxes()) {
+            expect(accessibleDescriptionOf(checkbox)).toBe(
+                `${SCENARIOS_HINT} Choose at most ten scenarios to compare.`,
+            );
+        }
         expect(document.activeElement).toBe(scenarioCheckbox('Scenario 1 (ILS)'));
         expect(requests.filter(isComparison)).toHaveLength(0);
     });
@@ -419,7 +449,7 @@ describe('ComparisonPage', () => {
         expect(within(table).getByText('-₪150.00')).toBeDefined();
     });
 
-    it('Given_a_comparison_in_flight_When_compared_Then_pending_is_shown', async () => {
+    it('Given_a_comparison_in_flight_When_compared_Then_a_status_announces_it_is_pending', async () => {
         fakeFetch(ledger(SCENARIOS, () => pendingResponse()));
         renderComparison();
 
@@ -428,7 +458,9 @@ describe('ComparisonPage', () => {
             'Aggressive saving (ILS)',
         ]);
 
-        expect(await screen.findByText('Comparing…')).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Comparing…');
+        });
     });
 
     it('Given_an_unknown_scenario_422_When_compared_Then_the_server_detail_is_shown_and_takes_focus', async () => {
@@ -505,6 +537,71 @@ describe('ComparisonPage', () => {
         const urls = requests.filter(isComparison).map((request) => request.url);
         expect(urls).toHaveLength(2);
         expect(urls[1]).toBe(urls[0]);
+    });
+
+    it('Given_two_scenarios_When_compared_Then_the_result_heading_takes_focus_once_the_comparison_lands', async () => {
+        // Compare keeps focus and the answer mounts below the form, so without this a screen
+        // reader user hears nothing of what came back.
+        fakeFetch(ledger(SCENARIOS, () => jsonResponse(COMPARISON)));
+        renderComparison();
+
+        await compare(userEvent.setup({ delay: null }), [
+            'Do nothing (ILS)',
+            'Aggressive saving (ILS)',
+        ]);
+
+        await screen.findByRole('table', { name: 'End states' });
+        await waitFor(() => {
+            expect(document.activeElement).toBe(
+                screen.getByRole('heading', { level: 2, name: 'Comparison' }),
+            );
+        });
+    });
+
+    it('Given_a_comparison_shown_When_its_fields_are_submitted_again_unchanged_Then_the_result_heading_takes_focus_once_the_new_answer_lands', async () => {
+        // The answer refreshes in place, so nothing new mounts to announce it. The second answer
+        // is held, to show focus waits for it rather than following the answer already on screen.
+        let release: (response: Response) => void = () => undefined;
+        let held = false;
+        fakeFetch(
+            ledger(SCENARIOS, () =>
+                held
+                    ? new Promise<Response>((resolve) => {
+                          release = resolve;
+                      })
+                    : jsonResponse(COMPARISON),
+            ),
+        );
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+        await compare(user, ['Do nothing (ILS)', 'Aggressive saving (ILS)']);
+        await screen.findByRole('table', { name: 'End states' });
+
+        held = true;
+        const compareButton = screen.getByRole('button', { name: 'Compare' });
+        await user.click(compareButton);
+        expect(document.activeElement).toBe(compareButton);
+
+        act(() => {
+            release(
+                jsonResponse({
+                    ...COMPARISON,
+                    scenarios: [
+                        DO_NOTHING_COMPARED,
+                        {
+                            ...SAVING_COMPARED,
+                            endState: wirePoint('2026-11-01', '-60.00', '300.00', '240.00'),
+                        },
+                    ],
+                }),
+            );
+        });
+        await screen.findByText('-₪60.00');
+        await waitFor(() => {
+            expect(document.activeElement).toBe(
+                screen.getByRole('heading', { level: 2, name: 'Comparison' }),
+            );
+        });
     });
 
     it('Given_a_comparison_shown_When_it_is_requested_again_and_fails_Then_the_failure_shows_above_the_comparison_it_kept', async () => {

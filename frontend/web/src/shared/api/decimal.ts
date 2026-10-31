@@ -16,6 +16,13 @@ import { log } from '../lib/logger';
 const DECIMAL_STRING = /^-?\d+(\.\d+)?$/;
 
 /**
+ * `DECIMAL_STRING` put to a person typing a decimal into a form, kept beside the pattern it states
+ * (WCAG 3.3.2). The contract refuses a thousands separator, such as `1,000.00`, which is the
+ * mistake worth naming; the example shows the decimal point.
+ */
+export const DECIMAL_HINT = 'A number with no commas, for example 1250.50';
+
+/**
  * `value` as the decimal string the contract promises, unchanged.
  *
  * It is typed `unknown` because a JSON number would pass the pattern once coerced to text, and the

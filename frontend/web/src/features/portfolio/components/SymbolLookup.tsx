@@ -13,6 +13,12 @@ import styles from './SymbolLookup.module.css';
  */
 const NOT_BLANK_PATTERN = '.*\\S.*';
 
+/**
+ * What the Symbol field takes. The pattern asks only for something not blank; the assistant
+ * upper-cases a symbol, so `vwce` and `VWCE` name one holding and the case typed does not matter.
+ */
+const SYMBOL_HINT = 'A ticker, in any letter case, for example VWCE';
+
 /** What the lookup's section is called. */
 export interface SymbolLookupProps {
     /** The section's heading, such as "Look up a holding". */
@@ -52,6 +58,7 @@ export function SymbolLookup({ heading }: SymbolLookupProps) {
                 <TextField
                     label="Symbol"
                     name="symbol"
+                    hint={SYMBOL_HINT}
                     required
                     pattern={NOT_BLANK_PATTERN}
                     autoComplete="off"
