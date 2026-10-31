@@ -356,6 +356,12 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=7d
+      # No origin may read the API cross-origin (ADR-057). Prometheus defaults this regex to `.*`
+      # and echoes any Origin back as allowed. The regex is fully anchored, so the empty one
+      # matches only an empty Origin, which Prometheus never answers with a grant. Grafana queries
+      # over the Compose network (`access: proxy`) and Prometheus's own UI is same-origin, so
+      # neither needs one.
+      - --web.cors.origin=
     volumes:
       - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
