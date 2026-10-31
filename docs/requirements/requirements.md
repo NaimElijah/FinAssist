@@ -266,7 +266,7 @@ where enforcement is partial, or rests on a convention rather than a test, its s
 
 | Rule | Enforced by | Status |
 |---|---|---|
-| A transaction's entries must sum to zero, in one currency, with at least two of them | `Transaction` constructor; `TransactionTest` | **Enforced** |
+| A transaction's entries must sum to zero, in one currency, with at least two of them | `Transaction` constructor; `TransactionTest`. In the database, `V1_1__accounting_schema.sql`'s deferred `refuse_unbalanced_transaction()` refuses fewer than two entries, more than one currency or a non-zero sum, and `V1_5__journal_transaction_is_complete.sql` refuses a header committed with no entry or no opening state; `JdbcTransactionRepositoryIT` | **Enforced** |
 | Money is exact decimal — never a floating-point type | `Money` (Java and Python); `LedgerArchitectureTest.money_is_never_floating_point`, `money_never_depends_on_a_boxed_floating_point_type`, `money_is_never_passed_or_returned_as_floating_point` and `money_never_calls_through_floating_point`, over every domain and `shared`; `test_architecture.py::…Then_it_names_no_float`; `MoneyTest`, `test_money.py` | **Enforced** |
 | Amounts in two currencies are never combined | `Money.plus/minus/compareTo`; `CurrencyMismatchException` | **Enforced** |
 | An amount more precise than its currency admits is rejected, not rounded | `Money` constructor; `MoneyTest`, `test_money.py` | **Enforced** |

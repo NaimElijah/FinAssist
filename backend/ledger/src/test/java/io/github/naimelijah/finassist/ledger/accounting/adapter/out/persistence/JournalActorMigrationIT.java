@@ -12,6 +12,8 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * What {@code V1_2} does to accounting rows that already exist: it adds columns, leaves every
@@ -89,7 +91,11 @@ class JournalActorMigrationIT extends PostgresFixture {
                 .hasMessageContaining("journal_transaction_recorded_by_shape");
 
         UUID afterUpgrade = UUID.randomUUID();
-        seedTransactionWithRecordedBy(jdbc, afterUpgrade, cash, groceries, "owner-user");
+        // One database transaction, as the repository writes one: the latest schema refuses a header
+        // committed without its entries and its opening state.
+        new TransactionTemplate(new DataSourceTransactionManager(database))
+                .executeWithoutResult(
+                        status -> seedTransactionWithRecordedBy(jdbc, afterUpgrade, cash, groceries, "owner-user"));
         assertThat(jdbc.sql("SELECT recorded_by FROM accounting.journal_transaction WHERE id = :id")
                         .param("id", afterUpgrade)
                         .query(String.class)

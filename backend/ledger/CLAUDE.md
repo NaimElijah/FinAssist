@@ -109,8 +109,9 @@ bounded context (ADR-006, ADR-024).
 - **The journal is append-only in the database.** Triggers on `accounting.journal_transaction`,
   `journal_entry` and `journal_transaction_state` refuse an `UPDATE` or a `DELETE`, and `V1_3`'s
   refuses an entry for a transaction that already has a state row, so a recorded transaction's
-  entries are closed: write the header, then the entries, then the opening state, as the adapter
-  does. A lifecycle change is an `INSERT` whose highest `sequence` is the current state. Do not
+  entries are closed: write the header, then the entries, then the opening state, in one database
+  transaction, as the adapter does; `V1_5`'s deferred check refuses at commit a header with no entry
+  or no opening state. A lifecycle change is an `INSERT` whose highest `sequence` is the current state. Do not
   add an `UPDATE` to `JdbcTransactionRepository` — the database will refuse it, which is the point
   (ADR-020, ADR-024). `budgeting` and `planning` are ordinary mutable tables: ADR-020 binds the
   record of what happened, and ADR-015 puts intent in another context.

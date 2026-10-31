@@ -24,6 +24,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * What {@code TransactionRepository}'s Javadoc promises, asserted against the store.
@@ -52,6 +54,9 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
 
     @Autowired
     private TransactionRepository transactions;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private Account cash;
     private Account groceries;
@@ -179,33 +184,32 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
 
     /**
      * The database checks what the constructor checks. ADR-006 asked for constraints that catch a bug
-     * in the domain, so this bypasses the aggregate and posts an unbalanced pair directly.
+     * in the domain, so this bypasses the aggregate and posts a single entry directly, with the header
+     * and the opening state the repository would write beside it in the same database transaction, so
+     * the lone entry is the only thing wrong with what reaches the commit.
      */
     @Test
     void Given_entries_that_do_not_balance_When_written_directly_Then_the_database_refuses_them() {
         TransactionId id = TransactionId.generate();
 
-        assertThatThrownBy(() -> {
-                    jdbc().sql("INSERT INTO accounting.journal_transaction"
-                                    + " (id, occurred_on, description, currency, recorded_by)"
-                                    + " VALUES (:id, :on, 'Wrong', 'ILS', :recordedBy)")
-                            .param("id", id.value())
-                            .param("on", MARCH_1)
-                            .param("recordedBy", RECORDER.subject())
-                            .update();
+        assertThatThrownBy(() -> inOneTransaction(() -> {
+                    insertHeader(id, "ILS", "Wrong");
                     jdbc().sql(
                                     "INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency)"
                                             + " VALUES (:id, 0, :account, 10.00, 'ILS')")
                             .param("id", id.value())
                             .param("account", groceries.id().value())
                             .update();
-                })
+                    insertOpeningState(id);
+                }))
+                .rootCause()
                 .hasMessageContaining("double entry needs at least two");
     }
 
     /**
-     * The trigger's other three refusals, each reached the same way: a header and two entries written
-     * directly, the entries in one statement so the deferred check sees both. Each case is held to the
+     * The trigger's other three refusals, each reached the same way: a header, two entries and the
+     * opening state written directly in one database transaction, so the deferred checks see them all
+     * at its commit. Each case is held to the
      * message its branch raises, not only to a refusal: the mixed pair sums to zero and the unbalanced
      * pair shares one currency, but the mixed pair also posts a USD entry to an ILS account, so it meets
      * the account-currency condition as well, and only the message tells the two branches apart. A
@@ -226,30 +230,65 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
             String cashCurrency,
             String refusal) {
         TransactionId id = TransactionId.generate();
-        jdbc().sql("INSERT INTO accounting.journal_transaction"
-                        + " (id, occurred_on, description, currency, recorded_by)"
-                        + " VALUES (:id, :on, 'Wrong', :currency, :recordedBy)")
-                .param("id", id.value())
-                .param("on", MARCH_1)
-                .param("currency", header)
-                .param("recordedBy", RECORDER.subject())
-                .update();
 
-        assertThatThrownBy(() -> jdbc().sql("""
-                        INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency) VALUES
-                            (:id, 0, :groceries, CAST(:groceriesAmount AS numeric), :groceriesCurrency),
-                            (:id, 1, :cash, CAST(:cashAmount AS numeric), :cashCurrency)
-                        """)
-                        .param("id", id.value())
-                        .param("groceries", groceries.id().value())
-                        .param("groceriesAmount", groceriesAmount)
-                        .param("groceriesCurrency", groceriesCurrency)
-                        .param("cash", cash.id().value())
-                        .param("cashAmount", cashAmount)
-                        .param("cashCurrency", cashCurrency)
-                        .update())
+        assertThatThrownBy(() -> inOneTransaction(() -> {
+                    insertHeader(id, header, "Wrong");
+                    jdbc().sql("""
+                                    INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency) VALUES
+                                        (:id, 0, :groceries, CAST(:groceriesAmount AS numeric), :groceriesCurrency),
+                                        (:id, 1, :cash, CAST(:cashAmount AS numeric), :cashCurrency)
+                                    """)
+                            .param("id", id.value())
+                            .param("groceries", groceries.id().value())
+                            .param("groceriesAmount", groceriesAmount)
+                            .param("groceriesCurrency", groceriesCurrency)
+                            .param("cash", cash.id().value())
+                            .param("cashAmount", cashAmount)
+                            .param("cashCurrency", cashCurrency)
+                            .update();
+                    insertOpeningState(id);
+                }))
+                .rootCause()
                 .hasMessageContaining("transaction " + id.value())
                 .hasMessageContaining(refusal);
+    }
+
+    /**
+     * The balance check fires on entries, so a header written with none never meets it. Committed
+     * alone, it would be a transaction with nothing in it, which no aggregate can be.
+     */
+    @Test
+    void Given_a_header_with_no_entries_When_it_is_committed_alone_Then_the_database_refuses_it() {
+        TransactionId id = TransactionId.generate();
+
+        assertThatThrownBy(() -> insertHeader(id, "ILS", "Nothing in it"))
+                .hasMessageContaining("transaction " + id.value() + " has no entries");
+        assertThat(headers(id)).isZero();
+    }
+
+    /**
+     * Every read joins a transaction to its latest state, so a header and entries committed with no
+     * state would vanish from every list and every balance while the database still held them.
+     */
+    @Test
+    void Given_a_header_and_balanced_entries_with_no_opening_state_When_committed_Then_the_database_refuses_them() {
+        TransactionId id = TransactionId.generate();
+
+        assertThatThrownBy(() -> inOneTransaction(() -> {
+                    insertHeader(id, "ILS", "No state");
+                    jdbc().sql("""
+                                    INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency) VALUES
+                                        (:id, 0, :groceries, 10.00, 'ILS'),
+                                        (:id, 1, :cash, -10.00, 'ILS')
+                                    """)
+                            .param("id", id.value())
+                            .param("groceries", groceries.id().value())
+                            .param("cash", cash.id().value())
+                            .update();
+                }))
+                .rootCause()
+                .hasMessageContaining("transaction " + id.value() + " has no opening state");
+        assertThat(headers(id)).isZero();
     }
 
     /** Money round-trips through {@code numeric} at the scale its currency admits, and no other. */
@@ -283,29 +322,21 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
     @Test
     void Given_an_entry_stored_with_more_precision_than_its_currency_admits_When_read_Then_it_is_a_server_fault() {
         TransactionId id = TransactionId.generate();
-        jdbc().sql("INSERT INTO accounting.journal_transaction"
-                        + " (id, occurred_on, description, currency, recorded_by)"
-                        + " VALUES (:id, :on, 'Too precise', 'ILS', :recordedBy)")
-                .param("id", id.value())
-                .param("on", MARCH_1)
-                .param("recordedBy", RECORDER.subject())
-                .update();
-        // One statement, so the deferred balance check sees both entries at commit.
-        jdbc().sql("""
-                        INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency) VALUES
-                            (:id, 0, :groceries, 10.005, 'ILS'),
-                            (:id, 1, :cash, -10.005, 'ILS')
-                        """)
-                .param("id", id.value())
-                .param("groceries", groceries.id().value())
-                .param("cash", cash.id().value())
-                .update();
-        jdbc().sql("INSERT INTO accounting.journal_transaction_state"
-                        + " (transaction_id, sequence, state, effective_on, reason, recorded_by)"
-                        + " VALUES (:id, 0, 'PENDING', NULL, NULL, :recordedBy)")
-                .param("id", id.value())
-                .param("recordedBy", RECORDER.subject())
-                .update();
+        // One database transaction, as the repository writes one, so the deferred checks see the
+        // header, both entries and the opening state together at its commit.
+        inOneTransaction(() -> {
+            insertHeader(id, "ILS", "Too precise");
+            jdbc().sql("""
+                            INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency) VALUES
+                                (:id, 0, :groceries, 10.005, 'ILS'),
+                                (:id, 1, :cash, -10.005, 'ILS')
+                            """)
+                    .param("id", id.value())
+                    .param("groceries", groceries.id().value())
+                    .param("cash", cash.id().value())
+                    .update();
+            insertOpeningState(id);
+        });
 
         assertThatThrownBy(() -> transactions.findById(id))
                 .isInstanceOf(IllegalStateException.class)
@@ -327,6 +358,44 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
 
         assertThat(transactions.findByAccount(cash.id())).containsExactly(smaller, larger);
         assertThat(transactions.findBetween(MARCH_1, APRIL_1)).containsExactly(smaller, larger);
+    }
+
+    /**
+     * The journal is written as the repository writes it: in one database transaction, or not at all.
+     *
+     * <p>A deferred check refuses at commit, which Spring reports as a {@code TransactionSystemException}
+     * whose cause carries the database's message; the assertions on such a refusal read it from {@code
+     * rootCause()}.
+     */
+    private void inOneTransaction(Runnable writes) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> writes.run());
+    }
+
+    private void insertHeader(TransactionId id, String currency, String description) {
+        jdbc().sql("INSERT INTO accounting.journal_transaction (id, occurred_on, description, currency, recorded_by)"
+                        + " VALUES (:id, :on, :description, :currency, :recordedBy)")
+                .param("id", id.value())
+                .param("on", MARCH_1)
+                .param("description", description)
+                .param("currency", currency)
+                .param("recordedBy", RECORDER.subject())
+                .update();
+    }
+
+    private void insertOpeningState(TransactionId id) {
+        jdbc().sql("INSERT INTO accounting.journal_transaction_state"
+                        + " (transaction_id, sequence, state, effective_on, reason, recorded_by)"
+                        + " VALUES (:id, 0, 'PENDING', NULL, NULL, :recordedBy)")
+                .param("id", id.value())
+                .param("recordedBy", RECORDER.subject())
+                .update();
+    }
+
+    private int headers(TransactionId id) {
+        return jdbc().sql("SELECT count(*) FROM accounting.journal_transaction WHERE id = :id")
+                .param("id", id.value())
+                .query(Integer.class)
+                .single();
     }
 
     private Transaction record(LocalDate on, String description, String amount) {

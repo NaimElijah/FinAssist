@@ -511,8 +511,9 @@ holds: identity is generated inside the service, and an actor is who asked, neve
 `TransactionService` loads every referenced `Account` and refuses an entry whose currency the
 account does not hold → `Transaction.record` refuses entries that do not sum to zero →
 `TransactionRepository.save`, which inserts the transaction, its entries, its opening state and
-the actor's subject as `recorded_by` in one database transaction, and whose deferred constraint
-refuses at commit anything the aggregate somehow let through → `AccountingEvents.publish`, which production discards: nothing consumes an event yet, and the
+the actor's subject as `recorded_by` in one database transaction, and whose deferred constraints
+refuse at commit anything the aggregate somehow let through, and a transaction missing its entries
+or its opening state → `AccountingEvents.publish`, which production discards: nothing consumes an event yet, and the
 transactional outbox waits for the first consumer
 ([ADR-023](../ADRs/ADR-023-domain-events-in-the-ledger.md), [ADR-048](../ADRs/ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md)).
 
