@@ -5,7 +5,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import type { ReactElement } from 'react';
+import { type ReactElement, useContext, useEffect, useRef } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { useWriteAccess } from '@/shared/lib/writeAccess';
@@ -17,9 +17,9 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
-import { focusedElementHolds } from '@/shared/testing/focus';
 import { statusMessages } from '@/shared/testing/status';
 
+import { PageFocusTargetContext } from './pageFocusTarget';
 import { SessionGate } from './SessionGate';
 import { useSignedInSession } from './sessionContext';
 
@@ -31,6 +31,26 @@ const CHILD_TEXT = 'protected content';
 function ProtectedChild() {
     const session = useSignedInSession();
     return <p>{`${CHILD_TEXT}: ${session.name}`}</p>;
+}
+
+/**
+ * Names its own heading as the page's focus target, as the app's layout does for every page, so
+ * a retry that restores the session has somewhere to put focus.
+ */
+function HeadedPage() {
+    const namePageFocusTarget = useContext(PageFocusTargetContext);
+    const headingRef = useRef<HTMLHeadingElement>(null);
+    useEffect(() => {
+        namePageFocusTarget(headingRef.current);
+        return () => {
+            namePageFocusTarget(null);
+        };
+    }, [namePageFocusTarget]);
+    return (
+        <h1 ref={headingRef} tabIndex={-1}>
+            {CHILD_TEXT}
+        </h1>
+    );
 }
 
 /** Reads the write access `SessionGate` provided, proving it reached the tree too. */
@@ -208,23 +228,27 @@ describe('SessionGate', () => {
         });
     });
 
-    it('Given_the_session_check_fails_with_a_5xx_When_try_again_succeeds_Then_focus_moves_to_the_restored_app', async () => {
+    it('Given_the_session_check_fails_with_a_5xx_When_try_again_succeeds_Then_focus_moves_to_the_heading_the_page_named', async () => {
         let attempt = 0;
-        renderGate((request) => {
-            if (request.url !== ME_URL) return unexpectedRequest(request);
-            attempt += 1;
-            return attempt === 1
-                ? problemResponse({ status: 500, code: 'INTERNAL' })
-                : jsonResponse({ subject: 'sub-1', name: 'Naim', roles: ['owner'] });
-        });
+        renderGate(
+            (request) => {
+                if (request.url !== ME_URL) return unexpectedRequest(request);
+                attempt += 1;
+                return attempt === 1
+                    ? problemResponse({ status: 500, code: 'INTERNAL' })
+                    : jsonResponse({ subject: 'sub-1', name: 'Naim', roles: ['owner'] });
+            },
+            <HeadedPage />,
+        );
         await screen.findByRole('alert');
 
         await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }));
 
         // The button that held focus is gone with the outage screen, so without this focus would
         // fall to the page body and a screen reader would announce nothing of what came back.
+        const heading = await screen.findByRole('heading', { level: 1, name: CHILD_TEXT });
         await waitFor(() => {
-            expect(focusedElementHolds(screen.getByText(`${CHILD_TEXT}: Naim`))).toBe(true);
+            expect(document.activeElement).toBe(heading);
         });
     });
 });

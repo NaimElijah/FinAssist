@@ -2,7 +2,7 @@
 // Renders the routed shell and clicks through it, so it needs a DOM. The router is an in-memory
 // one over the real route table, so no test depends on the jsdom URL.
 
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
 import { describe, expect, it } from 'vitest';
@@ -35,6 +35,9 @@ const SCENARIOS_URL = '/ledger/api/v1/scenarios';
 const RULES_URL = '/ledger/api/v1/categorisation-rules';
 const HOLDINGS_URL = '/assistant/api/v1/portfolio/holdings';
 const ME_URL = '/bff/me';
+
+/** Longer than the app's client waits before its one automatic retry of a failed read. */
+const RETRY_BACKOFF_WAIT_MS = 3000;
 
 /** The signed-in owner every test in this file runs as, unless a test overrides the session. */
 const OWNER_SESSION = { subject: 'sub-owner', name: 'Naim', roles: ['owner'] };
@@ -269,13 +272,87 @@ describe('App', () => {
         expect(document.activeElement).toBe(document.body);
     });
 
-    it('Given_the_Accounts_area_When_a_nav_link_is_clicked_Then_focus_moves_to_the_main_region', async () => {
+    it('Given_the_Accounts_area_When_a_nav_link_is_clicked_Then_focus_moves_to_the_pages_heading', async () => {
         renderAt('/accounts');
 
         await userEvent.setup().click(await screen.findByRole('link', { name: 'Budgets' }));
 
+        // The heading names the page, so a screen reader announces where the link led; an
+        // unnamed main region would announce only "main".
+        const heading = await screen.findByRole('heading', { level: 1, name: 'Budgets' });
+        expect(document.activeElement).toBe(heading);
+    });
+
+    it('Given_a_page_whose_heading_is_replaced_once_its_data_loads_When_navigated_to_Then_focus_follows_to_the_new_heading', async () => {
+        // Starting on Budgets leaves the accounts list uncached, so the account page first
+        // renders its loading heading and then replaces it with the account's own.
+        const router = renderAt('/budgets', (request) =>
+            request.url === BUDGETS_URL ? jsonResponse([]) : CHECKING_ONLY(request),
+        );
         await screen.findByRole('heading', { level: 1, name: 'Budgets' });
-        expect(document.activeElement).toBe(screen.getByRole('main'));
+
+        await act(() => router.navigate(`/accounts/${CHECKING.id}`));
+
+        const heading = await screen.findByRole('heading', { level: 1, name: 'Checking' });
+        await waitFor(() => {
+            expect(document.activeElement).toBe(heading);
+        });
+    });
+
+    it('Given_focus_moved_elsewhere_while_a_page_loads_When_its_heading_is_replaced_Then_focus_stays_where_the_person_put_it', async () => {
+        let releaseAccounts: () => void = () => undefined;
+        const accountsHeld = new Promise<void>((resolve) => {
+            releaseAccounts = resolve;
+        });
+        const router = renderAt('/budgets', (request) => {
+            if (request.url === BUDGETS_URL) return jsonResponse([]);
+            if (request.url === ACCOUNTS_URL) {
+                return accountsHeld.then(() => CHECKING_ONLY(request));
+            }
+            return CHECKING_ONLY(request);
+        });
+        await screen.findByRole('heading', { level: 1, name: 'Budgets' });
+        await act(() => router.navigate(`/accounts/${CHECKING.id}`));
+        await screen.findByRole('heading', { level: 1, name: 'Account' });
+
+        // The person moves on before the account arrives; its new heading must not pull them back.
+        const budgetsLink = screen.getByRole('link', { name: 'Budgets' });
+        act(() => {
+            budgetsLink.focus();
+        });
+        releaseAccounts();
+
+        await screen.findByRole('heading', { level: 1, name: 'Checking' });
+        expect(document.activeElement).toBe(budgetsLink);
+    });
+
+    it('Given_the_session_check_fails_with_a_5xx_When_try_again_succeeds_Then_focus_moves_to_the_pages_heading', async () => {
+        // Failing until the outage shows, since the app's own client retries a 5xx once first.
+        let failing = true;
+        fakeFetch((request) => {
+            if (request.url === ME_URL) {
+                return failing
+                    ? problemResponse({ status: 500, code: 'INTERNAL' })
+                    : jsonResponse(OWNER_SESSION);
+            }
+            return NO_ACCOUNTS(request);
+        });
+        const router = createMemoryRouter(routes, { initialEntries: ['/accounts'] });
+        render(<App router={router} queryClient={createQueryClient()} />);
+        const tryAgain = await screen.findByRole(
+            'button',
+            { name: 'Try again' },
+            { timeout: RETRY_BACKOFF_WAIT_MS },
+        );
+        failing = false;
+
+        await userEvent.setup().click(tryAgain);
+
+        // The same target a route change takes, since the retry button went with the outage.
+        const heading = await screen.findByRole('heading', { level: 1, name: 'Accounts' });
+        await waitFor(() => {
+            expect(document.activeElement).toBe(heading);
+        });
     });
 
     it('Given_nobody_is_signed_in_When_the_shell_renders_Then_the_sign_in_screen_shows_instead_of_any_area', async () => {

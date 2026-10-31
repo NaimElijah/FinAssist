@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useCallback } from 'react';
 
 import { hasProblemCode } from '@/shared/api/client';
 import { WriteAccessContext } from '@/shared/lib/writeAccess';
@@ -6,6 +6,7 @@ import { LoadingNote, QueryErrorState, useRetryFocus } from '@/shared/ui';
 
 import { StandalonePage } from '../StandalonePage';
 import { writeAccessFor } from './access';
+import { PageFocusTargetContext } from './pageFocusTarget';
 import { SessionContext } from './sessionContext';
 import { useSession } from './sessionQueries';
 import { SignIn } from './SignIn';
@@ -43,8 +44,9 @@ export interface SessionGateProps {
  *
  * Each of those three screens stands in for the whole app, so each is a `StandalonePage`: a
  * `<main>`, an h1 and a document title of its own. A retry that restores the session moves focus
- * to the app it brings back (`useRetryFocus`), since the button that held focus goes with the
- * outage screen.
+ * to the heading of the page it brings back (`useRetryFocus`), since the button that held focus
+ * goes with the outage screen; the page renders inside the router, so `Layout` names that heading
+ * through `PageFocusTargetContext`.
  *
  * It also provides `WriteAccessContext` (ADR-032), computed once from the session's roles through
  * `writeAccessFor`, so every screen reads whether to offer a control that changes data from the
@@ -55,12 +57,18 @@ export interface SessionGateProps {
  */
 export function SessionGate({ children }: SessionGateProps) {
     const session = useSession();
-    const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
+    const { targetRef, onRetry } = useRetryFocus<HTMLElement>(
         session.error,
         session.isFetching,
         () => {
             void session.refetch();
         },
+    );
+    const namePageFocusTarget = useCallback(
+        (target: HTMLElement | null) => {
+            targetRef.current = target;
+        },
+        [targetRef],
     );
 
     if (session.status === 'pending') {
@@ -89,12 +97,9 @@ export function SessionGate({ children }: SessionGateProps) {
     return (
         <SessionContext value={session.data}>
             <WriteAccessContext value={writeAccessFor(session.data.roles)}>
-                {/* The app's own page renders inside the router below, out of this component's
-                    reach, so a successful retry focuses this wrapper around it: the next Tab
-                    starts at the app's first control, as on a fresh load, not at the body. */}
-                <div ref={targetRef} tabIndex={-1}>
+                <PageFocusTargetContext value={namePageFocusTarget}>
                     {children}
-                </div>
+                </PageFocusTargetContext>
             </WriteAccessContext>
         </SessionContext>
     );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
     NavigationType,
     NavLink,
@@ -13,6 +13,7 @@ import { titleOf } from '@/shared/lib/routeHandle';
 
 import styles from './Layout.module.css';
 import { documentTitleFor, PRODUCT_NAME } from './productName';
+import { PageFocusTargetContext } from './session/pageFocusTarget';
 import { UserMenu } from './session/UserMenu';
 
 /** The main region's id, which the skip link targets. */
@@ -35,6 +36,26 @@ const PRIMARY_AREAS = [
  */
 interface TitleClaim {
     readonly title: string;
+}
+
+/**
+ * The page's level-1 heading inside `main`, made focusable by script if its page did not already
+ * do so, or `main` itself when the page has none, such as a route's error.
+ *
+ * Every page opens with one h1 naming it, so focus on it tells a screen reader where it is, where
+ * an unnamed main region would say only "main". The attribute is set here rather than on every
+ * page's heading: pages own their markup, and a heading that already sets one - a retry's
+ * target - keeps its own. React leaves an attribute it never rendered alone.
+ */
+function pageFocusTarget(main: HTMLElement): HTMLElement {
+    const heading = main.querySelector<HTMLElement>('h1');
+    if (heading === null) {
+        return main;
+    }
+    if (!heading.hasAttribute('tabindex')) {
+        heading.tabIndex = -1;
+    }
+    return heading;
 }
 
 /**
@@ -65,11 +86,14 @@ function documentTitle(
  * - the document title. A page may claim its own through `useDocumentTitle`, which wins while the
  *   page is mounted; otherwise the deepest matched route's `handle` title is used (see
  *   `RouteHandle`). The layout provides `DocumentTitleContext` to every page it renders;
- * - focus. When a person navigates - a link, or back and forward - focus moves to `<main>`, so a
- *   screen reader announces the new page and the next Tab starts inside it rather than on the
- *   link that was left behind. A replace is the app's own redirect, such as `/` to `/accounts`,
- *   and leaves focus alone, so on first load a keyboard user's first Tab still reaches the skip
- *   link.
+ * - focus. When a person navigates - a link, or back and forward - focus moves to the new page's
+ *   h1 (`pageFocusTarget`), so a screen reader announces the page by name and the next Tab starts
+ *   inside it rather than on the link that was left behind. A replace is the app's own redirect,
+ *   such as `/` to `/accounts`, and leaves focus alone, so on first load a keyboard user's first
+ *   Tab still reaches the skip link. A page that swaps its heading for another once its data
+ *   loads, such as an account's "Account" for the account's name, takes focus along to the new
+ *   one while it still rests nowhere. The same heading is named to `SessionGate`, through
+ *   `PageFocusTargetContext`, as where a retried session check that succeeds puts focus.
  */
 export function Layout() {
     const matches = useMatches();
@@ -77,6 +101,7 @@ export function Layout() {
     const navigationType = useNavigationType();
     const mainRef = useRef<HTMLElement>(null);
     const previousPathname = useRef(pathname);
+    const namePageFocusTarget = useContext(PageFocusTargetContext);
     const [titleClaim, setTitleClaim] = useState<TitleClaim | undefined>(undefined);
 
     // Stable, so a page's title effect runs again only when its own title changes. The newest
@@ -101,10 +126,53 @@ export function Layout() {
             return;
         }
         previousPathname.current = pathname;
-        if (navigationType !== NavigationType.Replace) {
-            mainRef.current?.focus();
+        const main = mainRef.current;
+        if (main !== null && navigationType !== NavigationType.Replace) {
+            pageFocusTarget(main).focus();
         }
     }, [pathname, navigationType]);
+
+    // Runs before SessionGate's own effects in the commit that mounts the layout, which is the
+    // commit a retried session check restores the app in, so the heading is named in time.
+    useEffect(() => {
+        const main = mainRef.current;
+        if (main === null) {
+            return;
+        }
+        namePageFocusTarget(pageFocusTarget(main));
+        return () => {
+            namePageFocusTarget(null);
+        };
+    }, [namePageFocusTarget]);
+
+    // A heading that held focus and was then replaced leaves focus on the body; the page's new
+    // heading takes it over, unless the person has since put focus somewhere themselves.
+    useEffect(() => {
+        const main = mainRef.current;
+        if (main === null) {
+            return;
+        }
+        let heldHeading: Element | null = null;
+        const noteFocus = (event: FocusEvent) => {
+            const heading = main.querySelector('h1');
+            heldHeading = heading !== null && event.target === heading ? heading : null;
+        };
+        const observer = new MutationObserver(() => {
+            if (heldHeading === null || heldHeading.isConnected) {
+                return;
+            }
+            const target = pageFocusTarget(main);
+            if (target !== main) {
+                target.focus();
+            }
+        });
+        document.addEventListener('focusin', noteFocus);
+        observer.observe(main, { childList: true, subtree: true });
+        return () => {
+            document.removeEventListener('focusin', noteFocus);
+            observer.disconnect();
+        };
+    }, []);
 
     return (
         <>
