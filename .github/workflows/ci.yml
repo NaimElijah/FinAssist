@@ -225,7 +225,7 @@ jobs:
       # Never reads .env: the target resolves the file over .env.example, with
       # ops/compose_check/placeholders.env exported, and the Makefile says why each profile is
       # validated.
-      - name: Validate docker-compose.yml and require its restart, log and readiness conventions
+      - name: Validate docker-compose.yml and its conventions (ADR-049, ADR-063)
         run: make check-compose
 
       # Inline, not a Make target (ADR-049): the step below starts containers on these published

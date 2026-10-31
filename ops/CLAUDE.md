@@ -33,8 +33,8 @@ One directory per tool, none of them a deployable service of this repository's (
   neither one `external`, and `identity` `internal` (ADR-063) — which keeps every other container
   from resolving or reaching either over a Compose network, though on Docker Desktop any container
   with a route off its networks still reaches `db`'s loopback-published port through
-  `host.docker.internal`, behind its password alone; no `network_mode` on any service
-  but `secret-check`, whose is exactly `none`; exactly one `--web.cors.origin=` in Prometheus's
+  `host.docker.internal`, behind its password alone; no `network_mode` on any service but
+  `secret-check`, whose is exactly `none`; exactly one `--web.cors.origin=` in Prometheus's
   `command`, the empty regex, and no `entrypoint` on it (ADR-057); and no
   `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON` key, in any
   spelling, nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS`, in the ledger's or the

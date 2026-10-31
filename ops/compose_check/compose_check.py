@@ -113,7 +113,7 @@ ROOT_UID: Final = 0
 DOCKER_SOCKET: Final = "docker.sock"
 BIND_MOUNT: Final = "bind"
 # Each database attaches to one network alone, shared with its one client, so no other container
-# can reach it (ADR-063).
+# can resolve or reach it over a Compose network (ADR-063).
 DATABASE_NETWORKS: Final = {"db": "books", "keycloak-db": "identity"}
 DATABASE_NETWORK_MEMBERS: Final = {
     "books": frozenset({"db", "ledger"}),
@@ -139,7 +139,11 @@ class ComposeCheckError(Exception):
 
 def problems(resolved: Mapping[str, object]) -> list[str]:
     """Every way `resolved`, the output of `docker compose config --format json`, breaks a
-    convention: one line per problem, services in name order, and none when it follows them all.
+    convention: one line per problem, and none when it follows them all.
+
+    The lines come in a fixed order: the file's own `x-` blocks and networks first, then each
+    service's problems with the services in name order, then the pinned profiles, Prometheus's
+    CORS flag and entrypoint, and the readiness probes last.
 
     :raises ComposeCheckError: when `services`, a service, an environment, a healthcheck, a port,
         a volume, a service's networks, the top-level `networks` or a network in it is not a
