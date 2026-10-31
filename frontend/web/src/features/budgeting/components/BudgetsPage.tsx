@@ -6,6 +6,7 @@ import {
     type Column,
     DataTable,
     EmptyState,
+    LoadingNote,
     MoneyText,
     QueryErrorState,
     useRetryFocus,
@@ -108,7 +109,7 @@ function BudgetsList({
     );
 
     if (budgets.isPending) {
-        return <p className={styles.loading}>Loading budgets…</p>;
+        return <LoadingNote message="Loading budgets…" />;
     }
     const failure = (
         <QueryErrorState error={budgets.error} retrying={budgets.isFetching} onRetry={onRetry} />

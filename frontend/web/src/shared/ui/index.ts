@@ -12,6 +12,7 @@ export { DateField, type DateFieldProps } from './DateField';
 export { DateText, type DateTextProps } from './DateText';
 export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { ErrorState, type ErrorStateProps } from './ErrorState';
+export { LoadingNote, type LoadingNoteProps } from './LoadingNote';
 export { MoneyText, type MoneyTextProps } from './MoneyText';
 export { MonthField, type MonthFieldProps } from './MonthField';
 export { QueryErrorState, type QueryErrorStateProps } from './QueryErrorState';

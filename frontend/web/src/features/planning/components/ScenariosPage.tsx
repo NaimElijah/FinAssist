@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useWriteAccess } from '@/shared/lib/writeAccess';
-import { type Column, DataTable, EmptyState, QueryErrorState, useRetryFocus } from '@/shared/ui';
+import {
+    type Column,
+    DataTable,
+    EmptyState,
+    LoadingNote,
+    QueryErrorState,
+    useRetryFocus,
+} from '@/shared/ui';
 
 import { useScenarios } from '../hooks/planQueries';
 import type { Scenario } from '../types/scenario';
@@ -101,7 +108,7 @@ function ScenariosList({
     );
 
     if (scenarios.isPending) {
-        return <p className={styles.loading}>Loading scenarios…</p>;
+        return <LoadingNote message="Loading scenarios…" />;
     }
     const failure = (
         <QueryErrorState

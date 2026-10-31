@@ -16,6 +16,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { budgetKeys } from '../hooks/budgetQueries';
 import { budgetingRoutes } from '../index';
@@ -346,7 +347,9 @@ describe('BudgetReviewPage', () => {
 
         await act(() => router.navigate(`/budgets/${laterId}`));
 
-        expect(await screen.findByText('Loading budget…')).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading budget…']);
+        });
         expect(screen.queryByRole('heading', { level: 1, name: 'Budget not found' })).toBeNull();
     });
 

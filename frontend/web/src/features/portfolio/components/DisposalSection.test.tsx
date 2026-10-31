@@ -20,6 +20,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import type { FieldEdit } from '@/shared/testing/fieldEdits';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { portfolioRoutes } from '../index';
 
@@ -244,7 +245,9 @@ describe('DisposalSection', () => {
 
         await screen.findByText('US$5,250.00');
 
-        expect(screen.getByText('Loading position…')).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Loading position…');
+        });
         expect(screen.queryByRole('region', { name: SECTION })).toBeNull();
     });
 

@@ -16,6 +16,7 @@ import {
     DateText,
     EmptyState,
     ErrorState,
+    LoadingNote,
     MoneyText,
     QueryErrorState,
     StateBadge,
@@ -428,7 +429,7 @@ function Balance({ balance }: { readonly balance: UseQueryResult<Money> }) {
     );
 
     if (balance.isPending) {
-        return <p className={styles.placeholder}>Loading balance…</p>;
+        return <LoadingNote message="Loading balance…" />;
     }
     const failure = (
         <QueryErrorState error={balance.error} retrying={balance.isFetching} onRetry={onRetry} />
@@ -508,7 +509,7 @@ function Transactions({
     }
 
     if (transactions.isPending) {
-        return <p className={styles.placeholder}>Loading transactions…</p>;
+        return <LoadingNote message="Loading transactions…" />;
     }
     const failure = (
         <QueryErrorState
@@ -579,11 +580,7 @@ function AccountDetail({ accountId }: { readonly accountId: string }) {
                     <BackToAccounts />
                 </p>
                 <h1>Account</h1>
-                {accounts.isPending ? (
-                    <p className={styles.placeholder}>Loading account…</p>
-                ) : (
-                    accountsFailure
-                )}
+                {accounts.isPending ? <LoadingNote message="Loading account…" /> : accountsFailure}
             </>
         );
     }

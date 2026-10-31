@@ -35,11 +35,6 @@
     color: var(--color-muted);
 }
 
-.placeholder {
-    margin: 0;
-    color: var(--color-muted);
-}
-
 /* A refetch failure sits above the rows it failed to refresh, which stay on screen. */
 .stack {
     display: flex;

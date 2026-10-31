@@ -18,6 +18,7 @@ import {
 import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { budgetKeys } from '../hooks/budgetQueries';
 import { budgetingRoutes } from '../index';
@@ -90,6 +91,18 @@ describe('BudgetsPage', () => {
                 .getAllByRole('link', { name: 'Review' })
                 .map((link) => link.getAttribute('href')),
         ).toEqual([`/budgets/${SEPTEMBER_BUDGET.id}`, `/budgets/${CUSTOM_PERIOD_BUDGET.id}`]);
+    });
+
+    it('Given_the_budgets_still_loading_When_the_page_renders_Then_a_status_announces_it', async () => {
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL ? pendingResponse() : unexpectedRequest(request),
+        );
+
+        renderBudgets();
+
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Loading budgets…');
+        });
     });
 
     it('Given_a_read_only_session_When_the_page_renders_Then_the_define_form_is_not_offered_but_the_list_and_the_rules_link_stay', async () => {

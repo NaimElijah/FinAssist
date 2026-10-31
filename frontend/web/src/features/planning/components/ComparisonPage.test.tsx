@@ -21,6 +21,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { AccountOptionsContext } from '../hooks/accountOptions';
 import { planningRoutes } from '../index';
@@ -419,7 +420,7 @@ describe('ComparisonPage', () => {
         expect(within(table).getByText('-₪150.00')).toBeDefined();
     });
 
-    it('Given_a_comparison_in_flight_When_compared_Then_pending_is_shown', async () => {
+    it('Given_a_comparison_in_flight_When_compared_Then_a_status_announces_it_is_pending', async () => {
         fakeFetch(ledger(SCENARIOS, () => pendingResponse()));
         renderComparison();
 
@@ -428,7 +429,9 @@ describe('ComparisonPage', () => {
             'Aggressive saving (ILS)',
         ]);
 
-        expect(await screen.findByText('Comparing…')).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Comparing…');
+        });
     });
 
     it('Given_an_unknown_scenario_422_When_compared_Then_the_server_detail_is_shown_and_takes_focus', async () => {

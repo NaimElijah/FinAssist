@@ -2,12 +2,11 @@ import type { ReactNode } from 'react';
 
 import { hasProblemCode } from '@/shared/api/client';
 import { WriteAccessContext } from '@/shared/lib/writeAccess';
-import { QueryErrorState } from '@/shared/ui';
+import { LoadingNote, QueryErrorState } from '@/shared/ui';
 
 import { writeAccessFor } from './access';
 import { SessionContext } from './sessionContext';
 import { useSession } from './sessionQueries';
-import styles from './SessionGate.module.css';
 import { SignIn } from './SignIn';
 
 /** ADR-030's problem code for "no session", answered by every one of the three services. */
@@ -31,8 +30,8 @@ export interface SessionGateProps {
  * provided once, through `SessionContext`, to every page under it (`UserMenu` included), so
  * nothing re-fetches what this component already resolved.
  *
- * While the check is in flight, a plain loading paragraph shows - the same pattern every other
- * pending query in this app uses (`AccountsPage`'s "Loading accounts…", for one), rather than a
+ * While the check is in flight, the shared `LoadingNote` announces it - the same note every other
+ * pending read in this app shows (`AccountsPage`'s "Loading accounts…", for one), rather than a
  * blank screen or a bespoke spinner.
  *
  * It also provides `WriteAccessContext` (ADR-032), computed once from the session's roles through
@@ -46,7 +45,7 @@ export function SessionGate({ children }: SessionGateProps) {
     const session = useSession();
 
     if (session.status === 'pending') {
-        return <p className={styles.loading}>Checking your session…</p>;
+        return <LoadingNote message="Checking your session…" />;
     }
 
     if (session.status === 'error') {

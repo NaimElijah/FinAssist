@@ -12,6 +12,7 @@ import {
     DateText,
     EmptyState,
     ErrorState,
+    LoadingNote,
     MoneyText,
     QueryErrorState,
     StateBadge,
@@ -465,7 +466,7 @@ function PlannedFlowsList({
     }
 
     if (flows.isPending) {
-        return <p className={styles.loading}>Loading planned flows…</p>;
+        return <LoadingNote message="Loading planned flows…" />;
     }
     const failure = (
         <QueryErrorState error={flows.error} retrying={flows.isFetching} onRetry={onRetry} />

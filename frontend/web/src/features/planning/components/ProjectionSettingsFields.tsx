@@ -2,6 +2,7 @@ import { useId } from 'react';
 
 import {
     DateField,
+    LoadingNote,
     QueryErrorState,
     SelectField,
     type SelectOption,
@@ -110,7 +111,7 @@ function AccountPickers({
     );
 
     if (accountOptions.status === 'loading') {
-        return <p className={styles.muted}>Loading accounts…</p>;
+        return <LoadingNote message="Loading accounts…" />;
     }
     if (accountOptions.status === 'failed') {
         return <AccountsFailure failure={accountOptions.failure} onRetry={onRetry} />;

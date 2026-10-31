@@ -1,7 +1,7 @@
 import type { UseQueryResult } from '@tanstack/react-query';
 import { type ReactNode, useEffect, useId, useRef } from 'react';
 
-import { QueryErrorState, useRetryFocus } from '@/shared/ui';
+import { LoadingNote, QueryErrorState, useRetryFocus } from '@/shared/ui';
 
 import styles from './ReadResult.module.css';
 
@@ -9,7 +9,7 @@ import styles from './ReadResult.module.css';
 export interface ReadResultProps<Data> {
     /** The section's heading, such as "Projected balances". */
     readonly heading: string;
-    /** Shown until the first answer arrives, such as "Projecting…". */
+    /** The `LoadingNote` shown until the first answer arrives, such as "Projecting…". */
     readonly pendingMessage: string;
     /** The read whose state the section shows. */
     readonly query: UseQueryResult<Data>;
@@ -95,7 +95,7 @@ export function ReadResult<Data>({
             <h2 ref={targetRef} id={headingId} tabIndex={-1} className={styles.heading}>
                 {heading}
             </h2>
-            {query.isPending ? <p className={styles.pending}>{pendingMessage}</p> : null}
+            {query.isPending ? <LoadingNote message={pendingMessage} /> : null}
             <QueryErrorState
                 ref={failureRef}
                 error={failure}

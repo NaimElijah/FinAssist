@@ -17,6 +17,7 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { statusMessages } from '@/shared/testing/status';
 
 import { SessionGate } from './SessionGate';
 import { useSignedInSession } from './sessionContext';
@@ -55,10 +56,12 @@ describe('SessionGate', () => {
         window.history.pushState({}, '', '/');
     });
 
-    it('Given_the_session_is_still_loading_When_rendered_Then_a_loading_message_shows', () => {
+    it('Given_the_session_is_still_loading_When_rendered_Then_a_status_announces_the_check', async () => {
         renderGate(() => pendingResponse());
 
-        expect(screen.getByText(/checking your session/i)).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Checking your session…']);
+        });
     });
 
     it('Given_the_session_is_still_loading_When_rendered_Then_neither_the_sign_in_link_nor_the_children_show', () => {

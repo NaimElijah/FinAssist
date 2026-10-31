@@ -18,6 +18,7 @@ import {
 import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { pinClockJustAfterLocalMidnight } from '@/shared/testing/localClock';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { accountKeys } from '../hooks/accountQueries';
 import { accountingRoutes } from '../index';
@@ -599,7 +600,9 @@ describe('RecordTransactionPage accounts read', () => {
 
         renderForm();
 
-        expect(await screen.findByText('Loading accounts…')).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading accounts…']);
+        });
         expect(screen.queryByLabelText('Description')).toBeNull();
     });
 

@@ -21,6 +21,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { AccountOptionsContext } from '../hooks/accountOptions';
 import { planKeys } from '../hooks/planQueries';
@@ -248,13 +249,15 @@ describe('ProjectionPage', () => {
         expect(within(rows[1] ?? table).getByText('-₪12,500.00')).toBeDefined();
     });
 
-    it('Given_a_projection_in_flight_When_projected_Then_pending_is_shown', async () => {
+    it('Given_a_projection_in_flight_When_projected_Then_a_status_announces_it_is_pending', async () => {
         fakeFetch(ledger([SAVING], () => pendingResponse()));
         renderProjection();
 
         await project(userEvent.setup({ delay: null }));
 
-        expect(await screen.findByText('Projecting…')).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Projecting…');
+        });
     });
 
     it('Given_a_horizon_the_ledger_refuses_When_projected_Then_the_server_detail_is_shown_and_takes_focus', async () => {
@@ -602,7 +605,9 @@ describe('ProjectionPage', () => {
 
         renderProjection({ status: 'loading' });
 
-        expect(await screen.findByText('Loading accounts…')).toBeDefined();
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Loading accounts…');
+        });
     });
 
     it('Given_the_accounts_failed_to_load_When_the_page_renders_Then_only_the_pickers_show_the_failure_with_a_retry', async () => {

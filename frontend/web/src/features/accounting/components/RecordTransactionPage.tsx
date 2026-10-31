@@ -9,6 +9,7 @@ import {
     Button,
     DateField,
     ErrorState,
+    LoadingNote,
     QueryErrorState,
     SelectField,
     type SelectOption,
@@ -465,7 +466,7 @@ function RecordTransactionScreen() {
         return (
             <>
                 <h1>Record a transaction</h1>
-                <p className={styles.placeholder}>Loading accounts…</p>
+                <LoadingNote message="Loading accounts…" />
             </>
         );
     }

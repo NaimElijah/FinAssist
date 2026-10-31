@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { EmptyState, QueryErrorState, useRetryFocus } from '@/shared/ui';
+import { EmptyState, LoadingNote, QueryErrorState, useRetryFocus } from '@/shared/ui';
 
 import { useScenarios } from '../hooks/planQueries';
 import type { Scenario } from '../types/scenario';
@@ -35,7 +35,7 @@ export function ScenarioChoice({ emptyMessage, children }: ScenarioChoiceProps) 
     );
 
     if (scenarios.isPending) {
-        return <p className={styles.loading}>Loading scenarios…</p>;
+        return <LoadingNote message="Loading scenarios…" />;
     }
     const failure = (
         <QueryErrorState

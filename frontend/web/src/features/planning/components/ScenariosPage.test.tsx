@@ -18,6 +18,7 @@ import {
 import type { FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { planKeys } from '../hooks/planQueries';
 import { planningRoutes } from '../index';
@@ -137,6 +138,28 @@ describe('ScenariosPage', () => {
         expect(within(rowOf('Aggressive saving')).getAllByRole('cell').at(1)?.textContent).toBe(
             '1',
         );
+    });
+
+    it('Given_the_scenarios_still_loading_When_the_page_renders_Then_a_status_announces_it', async () => {
+        fakeFetch(() => pendingResponse());
+
+        renderScenarios();
+
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Loading scenarios…');
+        });
+    });
+
+    it('Given_the_planned_flows_still_loading_When_the_define_form_renders_Then_a_status_announces_it', async () => {
+        fakeFetch((request) =>
+            request.url === SCENARIOS_URL ? jsonResponse([]) : pendingResponse(),
+        );
+
+        renderScenarios();
+
+        await waitFor(() => {
+            expect(statusMessages()).toContain('Loading planned flows…');
+        });
     });
 
     it('Given_no_scenarios_When_the_page_renders_Then_the_empty_state_names_the_do_nothing_baseline', async () => {

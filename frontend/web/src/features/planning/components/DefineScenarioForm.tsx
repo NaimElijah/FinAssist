@@ -5,6 +5,7 @@ import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import {
     Button,
     ErrorState,
+    LoadingNote,
     MoneyText,
     QueryErrorState,
     SelectField,
@@ -341,7 +342,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                     />
                 </div>
                 {flowsQuery.isPending ? (
-                    <p>Loading planned flows…</p>
+                    <LoadingNote message="Loading planned flows…" />
                 ) : flowsQuery.data === undefined ? (
                     flowsFailure
                 ) : (
