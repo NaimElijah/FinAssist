@@ -26,7 +26,9 @@ One directory per tool, none of them a deployable service of this repository's (
   ADR-044); the `x-hardened` block's `cap_drop: [ALL]` and `no-new-privileges:true`, with no
   `cap_add` or `privileged`, on every service but the two databases, `read_only: true` on every
   one but those and Keycloak, and `db` and `keycloak-db` each on a network of its own shared with
-  its one client alone, `books` with the ledger and `identity` with Keycloak (ADR-063); and no
+  its one client alone, `books` with the ledger and `identity` with Keycloak (ADR-063); no
+  `network_mode` on any service but `secret-check`, whose is exactly `none`; exactly one
+  `--web.cors.origin=` in Prometheus's `command`, the empty regex (ADR-057); and no
   `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON` key, in any
   spelling, nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS`, in the ledger's or the
   gateway's environment, and no `command` or `entrypoint` on either, each of which would reopen

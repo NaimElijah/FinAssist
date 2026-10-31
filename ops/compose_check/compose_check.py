@@ -12,11 +12,13 @@ must bind `127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `a
 behind exactly the `smoke` profile and `secret-check` behind none (ADR-034, ADR-044). Every
 service named hardened must take the `x-hardened` block's `cap_drop` and `security_opt`, and no
 `cap_add` or `privileged`; every service named read-only must set `read_only`; and each database
-must attach to one network alone, shared with its one client and nothing else (ADR-063). Neither
-the ledger nor the gateway may set, in its environment, a key that reopens the Actuator exposure
-their code pins, nor a `command` or `entrypoint`, whose arguments would reach Spring as
-properties; nor may the gateway set a log level, a log group, a logging configuration or Spring
-Boot's `debug` or `trace` switch, since below INFO it logs credentials.
+must attach to one network alone, shared with its one client and nothing else (ADR-063). No
+service may set `network_mode` but `secret-check`, whose must be exactly `none`, and Prometheus's
+`command` must carry exactly `--web.cors.origin=`, the empty regex, which grants no origin
+(ADR-057). Neither the ledger nor the gateway may set, in its environment, a key that reopens
+the Actuator exposure their code pins, nor a `command` or `entrypoint`, whose arguments would
+reach Spring as properties; nor may the gateway set a log level, a log group, a logging
+configuration or Spring Boot's `debug` or `trace` switch, since below INFO it logs credentials.
 
 It reads the resolved file, not its text, so an alias that stops resolving fails as surely as a
 service that never took one, and a block copied in with other values fails too.
@@ -125,6 +127,14 @@ DATABASE_NETWORK_MEMBERS: Final = {
     "books": frozenset({"db", "ledger"}),
     "identity": frozenset({"keycloak", "keycloak-db"}),
 }
+# Prometheus defaults this regex to `.*` and echoes any page's Origin back as allowed; the anchored
+# empty regex grants none (ADR-057). Exactly one such argument, so a later one cannot override it.
+CORS_PINNED_SERVICE: Final = "prometheus"
+CORS_ORIGIN_FLAG: Final = "--web.cors.origin"
+NO_CORS_ORIGIN: Final = f"{CORS_ORIGIN_FLAG}="
+# `host` would bypass the loopback port rule, and `service:` or `container:` would share another
+# container's namespace, a database's included. Only the one-shot that talks to nothing sets one.
+NETWORK_MODES: Final = {"secret-check": "none"}
 PASSED: Final = "Every service follows the Compose conventions"
 
 
@@ -177,6 +187,7 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
             found.append(f"{name}: must publish no ports")
         found.extend(_hardening_problems(name, service))
         found.extend(_network_problems(name, service))
+        found.extend(_network_mode_problems(name, service))
     for name, profiles in sorted(PINNED_PROFILES.items()):
         service = _mapping(services.get(name) or {}, "a service")
         if (service.get("profiles") or []) != list(profiles):
@@ -185,6 +196,16 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
                 if profiles
                 else f"{name}: must take no profiles"
             )
+    prometheus = _mapping(services.get(CORS_PINNED_SERVICE) or {}, "a service")
+    cors = [
+        argument
+        for argument in _arguments(prometheus.get("command"))
+        if argument.startswith(CORS_ORIGIN_FLAG)
+    ]
+    if cors != [NO_CORS_ORIGIN]:
+        found.append(
+            f"{CORS_PINNED_SERVICE}: its command must set {CORS_ORIGIN_FLAG} to the empty regex"
+        )
     for name, path in READINESS_PROBES.items():
         service = _mapping(services.get(name) or {}, "a service")
         healthcheck = _mapping(service.get("healthcheck") or {}, "a healthcheck")
@@ -225,6 +246,14 @@ def _network_problems(name: str, service: Mapping[str, object]) -> list[str]:
     return found
 
 
+def _network_mode_problems(name: str, service: Mapping[str, object]) -> list[str]:
+    mode = service.get("network_mode")
+    required = NETWORK_MODES.get(name)
+    if required is not None:
+        return [] if mode == required else [f"{name}: its network_mode must be exactly {required}"]
+    return [f"{name}: must not set network_mode"] if mode is not None else []
+
+
 def _mapping(value: object, what: str) -> Mapping[str, object]:
     if not isinstance(value, dict):
         raise ComposeCheckError(f"{what} is not a mapping")
@@ -262,6 +291,13 @@ def _lowers_log_level(key: str) -> bool:
         or canonical == _canonical(LOGGING_CONFIG)
         or canonical in {_canonical(switch) for switch in SPRING_LOG_SWITCHES}
     )
+
+
+def _arguments(command: object) -> list[str]:
+    """A service's `command` as its arguments, or none when it is not a list of strings."""
+    if isinstance(command, list) and all(isinstance(part, str) for part in command):
+        return command
+    return []
 
 
 def _command(test: object) -> str:

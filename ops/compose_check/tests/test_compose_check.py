@@ -34,6 +34,12 @@ BOUNDED_LOGS = {"driver": "json-file", "options": {"max-file": "3", "max-size": 
 LOOPBACK = "127.0.0.1"
 NO_CAPABILITIES = ["ALL"]
 NO_NEW_PRIVILEGES = ["no-new-privileges:true"]
+NO_CORS_GRANT = "--web.cors.origin="
+PROMETHEUS_COMMAND = [
+    "--config.file=/etc/prometheus/prometheus.yml",
+    "--storage.tsdb.retention.time=7d",
+    NO_CORS_GRANT,
+]
 
 
 def _probe(path: str) -> dict[str, Any]:
@@ -125,6 +131,7 @@ def _conforming() -> dict[str, Any]:
             "prometheus": _hardened(
                 _long_running(
                     profiles=["monitoring"],
+                    command=list(PROMETHEUS_COMMAND),
                     ports=[_port(9090)],
                     read_only=True,
                     networks={"default": None},
@@ -841,7 +848,10 @@ def Given_a_database_on_the_host_network_When_checked_Then_it_is_named(
     status, lines = _check(resolved, capsys)
 
     assert status == compose_check.EXIT_FAILED
-    assert lines == ["db: must attach to the books network alone"]
+    assert lines == [
+        "db: must attach to the books network alone",
+        "db: must not set network_mode",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -858,6 +868,78 @@ def Given_another_service_on_a_databases_network_When_checked_Then_it_is_named(
 
     assert status == compose_check.EXIT_FAILED
     assert lines == [f"{service}: must not attach to the {network} network"]
+
+
+# --- Prometheus grants no origin (ADR-057), and no namespace is shared --------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        PROMETHEUS_COMMAND[:2],
+        [*PROMETHEUS_COMMAND[:2], "--web.cors.origin=.*"],
+        [*PROMETHEUS_COMMAND[:2], f"--web.cors.origin={SECRET}"],
+        [*PROMETHEUS_COMMAND[:2], "--web.cors.origin", ".*"],
+        [*PROMETHEUS_COMMAND, "--web.cors.origin=.*"],
+        None,
+    ],
+    ids=["missing", "default", "an-origin", "separate-value", "overridden-later", "no-command"],
+)
+def Given_prometheus_without_exactly_the_empty_cors_origin_When_checked_Then_the_flag_is_named(
+    command: list[str] | None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    if command is None:
+        del resolved["services"]["prometheus"]["command"]
+    else:
+        resolved["services"]["prometheus"]["command"] = command
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["prometheus: its command must set --web.cors.origin to the empty regex"]
+
+
+def Given_prometheus_missing_from_the_file_When_checked_Then_its_cors_flag_is_reported_missing(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    del resolved["services"]["prometheus"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["prometheus: its command must set --web.cors.origin to the empty regex"]
+
+
+@pytest.mark.parametrize("mode", ["host", "service:db", "container:finassist-db-1", "bridge"])
+def Given_a_service_setting_network_mode_When_checked_Then_it_is_named(
+    mode: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    del resolved["services"]["assistant"]["networks"]
+    resolved["services"]["assistant"]["network_mode"] = mode
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["assistant: must not set network_mode"]
+
+
+@pytest.mark.parametrize("mode", [None, "host", "bridge", "service:db"])
+def Given_secret_check_not_on_network_mode_none_When_checked_Then_it_is_named(
+    mode: str | None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    if mode is None:
+        del resolved["services"]["secret-check"]["network_mode"]
+    else:
+        resolved["services"]["secret-check"]["network_mode"] = mode
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["secret-check: its network_mode must be exactly none"]
 
 
 # --- Input that is not a resolved Compose file ----------------------------------------------------
