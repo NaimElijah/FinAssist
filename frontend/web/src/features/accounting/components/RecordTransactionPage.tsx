@@ -2,6 +2,7 @@ import { type ReactNode, type Ref, type SubmitEvent, useEffect, useRef, useState
 import { useNavigate } from 'react-router';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { DECIMAL_HINT } from '@/shared/api/decimal';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { todayIsoDate } from '@/shared/lib/today';
 import { useWriteAccess } from '@/shared/lib/writeAccess';
@@ -33,6 +34,12 @@ const MINIMUM_ROWS = 2;
  * it has one, and describes it by that error.
  */
 const INVALID_CONTROL_SELECTOR = '[aria-invalid="true"]';
+
+/**
+ * Shown on every Debit and Credit: `entryRowAmount` refuses a row with both or neither filled, and
+ * the amount itself is the wire's decimal.
+ */
+const ENTRY_AMOUNT_HINT = `A debit or a credit, not both. ${DECIMAL_HINT}`;
 
 /** The offered option for a row whose account is not yet chosen. */
 const CHOOSE_ACCOUNT_OPTION: SelectOption = { value: '', label: 'Choose an account' };
@@ -166,6 +173,7 @@ function EntryRowFields({
             />
             <TextField
                 label={`Debit ${String(label)}`}
+                hint={ENTRY_AMOUNT_HINT}
                 inputMode="decimal"
                 autoComplete="off"
                 value={row.debit}
@@ -176,6 +184,7 @@ function EntryRowFields({
             />
             <TextField
                 label={`Credit ${String(label)}`}
+                hint={ENTRY_AMOUNT_HINT}
                 inputMode="decimal"
                 autoComplete="off"
                 value={row.credit}

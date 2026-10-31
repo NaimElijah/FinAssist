@@ -19,7 +19,11 @@ interface CommonFieldProps {
     readonly label: string;
     readonly hint?: string;
     readonly error?: string;
+    readonly required?: boolean;
 }
+
+/** The visible text that marks a field the form cannot be submitted without. */
+const REQUIRED_MARKER = '(required)';
 
 const FIELDS: readonly {
     readonly name: string;
@@ -75,6 +79,25 @@ describe('labelled fields', () => {
             const control = screen.getByLabelText('Account');
             expect(control.hasAttribute('aria-describedby')).toBe(false);
             expect(control.hasAttribute('aria-invalid')).toBe(false);
+        });
+
+        it(`Given_a_required_${name}_When_rendered_Then_a_visible_marker_says_so_and_the_control_is_required`, () => {
+            render(renderField({ label: 'Account', required: true }));
+
+            // The label alone still names the control: the native attribute already announces
+            // the state, so the marker is hidden from assistive technology rather than read twice.
+            const control = screen.getByLabelText('Account');
+            expect(control).toHaveProperty('required', true);
+            const marker = screen.getByText(REQUIRED_MARKER);
+            expect(marker.closest('[aria-hidden="true"]')).not.toBeNull();
+            expect(marker.closest('[hidden]')).toBeNull();
+        });
+
+        it(`Given_an_optional_${name}_When_rendered_Then_no_required_marker_shows`, () => {
+            render(renderField({ label: 'Account' }));
+
+            expect(screen.getByLabelText('Account')).toHaveProperty('required', false);
+            expect(screen.queryByText(REQUIRED_MARKER)).toBeNull();
         });
     }
 

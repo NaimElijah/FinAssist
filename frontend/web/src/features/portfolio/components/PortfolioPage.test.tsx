@@ -7,6 +7,7 @@ import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import type { WriteAccess } from '@/shared/lib/writeAccess';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -45,6 +46,16 @@ describe('PortfolioPage', () => {
         expect(await screen.findByRole('heading', { level: 1, name: 'Portfolio' })).toBeDefined();
         expect(screen.getByText(NOT_ADVICE)).toBeDefined();
         expect(screen.getByLabelText('Symbol')).toHaveProperty('required', true);
+    });
+
+    it('Given_the_lookup_When_rendered_Then_the_symbol_field_says_what_it_takes', async () => {
+        fakeFetch(unexpectedRequest);
+
+        renderPortfolio();
+
+        expect(accessibleDescriptionOf(await screen.findByLabelText('Symbol'))).toBe(
+            'A ticker, in any letter case, for example VWCE',
+        );
     });
 
     it('Given_a_symbol_When_looked_up_Then_it_navigates_to_that_holding', async () => {

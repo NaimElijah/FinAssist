@@ -28,12 +28,14 @@ export type SelectFieldProps = FieldLabelling &
 /**
  * A labelled native select over a fixed list of options.
  *
- * Every other native select prop passes through to the select.
+ * Every other native select prop passes through to the select; `required` also shows a marker
+ * beside the label.
  *
  * @param props - see `SelectFieldProps`.
  */
 export function SelectField({
     label,
+    required,
     hint,
     error,
     options,
@@ -43,12 +45,14 @@ export function SelectField({
     return (
         <FieldFrame
             label={label}
+            required={required}
             hint={hint}
             error={error}
             renderControl={(control) => (
                 <select
                     {...selectProps}
                     {...control}
+                    required={required}
                     className={joinClassNames(styles.control, className)}
                 >
                     {options.map((option) => (

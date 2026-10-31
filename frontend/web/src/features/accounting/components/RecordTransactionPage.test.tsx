@@ -7,6 +7,7 @@ import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -146,6 +147,35 @@ describe('RecordTransactionPage routing', () => {
         expect(
             await screen.findByRole('heading', { level: 1, name: 'Record a transaction' }),
         ).toBeDefined();
+    });
+});
+
+describe('RecordTransactionPage field guidance', () => {
+    it('Given_the_form_When_rendered_Then_exactly_its_required_fields_show_a_required_marker', async () => {
+        fakeFetch(ledger());
+        renderForm();
+        await screen.findByLabelText('Description');
+
+        const required = ['Date', 'Description', 'Account 1', 'Account 2'];
+        for (const label of required) {
+            expect(screen.getByLabelText(label)).toHaveProperty('required', true);
+        }
+        // A row takes a debit or a credit, so neither alone is required.
+        for (const label of ['Debit 1', 'Credit 1', 'Debit 2', 'Credit 2']) {
+            expect(screen.getByLabelText(label)).toHaveProperty('required', false);
+        }
+        expect(screen.getAllByText('(required)')).toHaveLength(required.length);
+    });
+
+    it('Given_an_entry_row_When_rendered_Then_its_debit_and_credit_are_described_as_one_or_the_other_in_a_plain_decimal', async () => {
+        fakeFetch(ledger());
+        renderForm();
+
+        for (const label of ['Debit 1', 'Credit 1']) {
+            const description = accessibleDescriptionOf(await screen.findByLabelText(label));
+            expect(description).toMatch(/A debit or a credit, not both/);
+            expect(description).toMatch(/A number with no commas, for example 1250\.50/);
+        }
     });
 });
 

@@ -7,6 +7,7 @@ import { type UserEvent, userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     fakeFetch,
     type FetchAnswer,
@@ -691,6 +692,24 @@ describe('PlannedFlowsPage plan-flow form', () => {
         expect(screen.queryByLabelText('Description')).toBeNull();
     });
 
+    it('Given_a_number_of_times_chosen_When_the_form_renders_Then_amount_every_and_times_state_their_formats', async () => {
+        fakeFetch(ledger([]));
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+
+        await user.selectOptions(screen.getByLabelText('Repeats'), 'TIMES');
+
+        expect(accessibleDescriptionOf(screen.getByLabelText('Amount'))).toBe(
+            'A number with no commas, for example 1250.50',
+        );
+        for (const label of ['Every', 'Times']) {
+            expect(accessibleDescriptionOf(screen.getByLabelText(label))).toBe(
+                'A whole number, 1 or more',
+            );
+        }
+    });
+
     it('Given_the_Repeats_field_When_Until_a_date_is_chosen_Then_cadence_interval_and_until_are_shown_but_not_times', async () => {
         fakeFetch(ledger([]));
         renderFlows();
@@ -994,8 +1013,11 @@ describe('PlannedFlowsPage plan-flow form', () => {
         await user.type(screen.getByLabelText('Amount'), '1,000.00');
         await user.click(screen.getByRole('button', { name: 'Plan flow' }));
 
-        const error = await screen.findByText('must be a decimal number');
-        expect(screen.getByLabelText('Amount').getAttribute('aria-describedby')).toBe(error.id);
+        await screen.findByText('must be a decimal number');
+        // The format hint describes the field first, then the server's refusal.
+        expect(accessibleDescriptionOf(screen.getByLabelText('Amount'))).toBe(
+            'A number with no commas, for example 1250.50 must be a decimal number',
+        );
         expect(screen.queryByRole('alert')).toBeNull();
         await waitFor(() => {
             expect(document.activeElement).toBe(screen.getByLabelText('Amount'));

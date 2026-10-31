@@ -1,6 +1,7 @@
 import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { DECIMAL_HINT } from '@/shared/api/decimal';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import {
     Button,
@@ -35,6 +36,12 @@ const DEFAULT_CURRENCY: Currency = 'ILS';
  * native constraint validation, the same way a real month picker never offers them.
  */
 const MONTH_INPUT_PATTERN = '\\d{4}-(0[1-9]|1[0-2])';
+
+/**
+ * `MONTH_INPUT_PATTERN` in words, for a browser that renders the Month control as a bare text box
+ * and gives no clue what it takes.
+ */
+const MONTH_HINT = 'YYYY-MM, for example 2026-09';
 
 /** Shown on the Month field when a submitted value is not `YYYY-MM`; see `submit`. */
 const MONTH_REFUSED_MESSAGE = 'Enter a month as YYYY-MM';
@@ -190,6 +197,7 @@ function LimitRowFields({
             />
             <TextField
                 label={`Limit amount ${String(label)}`}
+                hint={DECIMAL_HINT}
                 inputMode="decimal"
                 required
                 autoComplete="off"
@@ -357,6 +365,7 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                         label="Month"
                         required
                         pattern={MONTH_INPUT_PATTERN}
+                        hint={MONTH_HINT}
                         value={month}
                         error={monthRefusals === 0 ? undefined : MONTH_REFUSED_MESSAGE}
                         onChange={(event) => {

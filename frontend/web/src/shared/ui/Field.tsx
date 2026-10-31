@@ -1,14 +1,17 @@
 /**
- * The frame the three labelled fields share: a label, an optional hint, the control, and an
- * optional error, wired together by id.
+ * The frame the labelled fields share: a label, a required marker when the control is required,
+ * an optional hint, the control, and an optional error, wired together by id.
  *
- * Internal to `shared/ui` and not exported from its index. TextField, DateField and SelectField
- * differ only in the control they render, so the association logic and its stylesheet live once,
- * here, rather than three times.
+ * Internal to `shared/ui` and not exported from its index. TextField, DateField, MonthField and
+ * SelectField differ only in the control they render, so the association logic and its stylesheet
+ * live once, here, rather than four times.
  */
 import { type ReactNode, useId } from 'react';
 
 import styles from './Field.module.css';
+
+/** What a required field shows beside its label (WCAG 3.3.2). */
+const REQUIRED_MARKER = '(required)';
 
 /** The label, hint and error every labelled field takes. */
 export interface FieldLabelling {
@@ -27,21 +30,29 @@ export interface FieldControlProps {
     readonly 'aria-invalid'?: true;
 }
 
-/** `FieldLabelling`, plus the control to frame. */
+/** `FieldLabelling`, plus whether the control is required and the control to frame. */
 export interface FieldFrameProps extends FieldLabelling {
+    /**
+     * Whether the form cannot be submitted without this control, shown as a marker beside the
+     * label. The field hands its control the same value, so the two never disagree.
+     */
+    readonly required?: boolean | undefined;
     /** Renders the control, spreading the attributes it is handed onto it. */
     readonly renderControl: (control: FieldControlProps) => ReactNode;
 }
 
 /**
- * Lay out a label, hint, control and error, associated by ids from `useId`.
+ * Lay out a label, required marker, hint, control and error, associated by ids from `useId`.
  *
  * The control is described by the hint and then the error, in that order, and carries
  * `aria-invalid` only while there is an error. Two fields with the same label never share an id.
+ * The required marker sits outside the label and is hidden from assistive technology: the
+ * control's own `required` already announces the state, so the accessible name stays the label
+ * alone rather than saying "required" twice.
  *
  * @param props - see `FieldFrameProps`.
  */
-export function FieldFrame({ label, hint, error, renderControl }: FieldFrameProps) {
+export function FieldFrame({ label, required, hint, error, renderControl }: FieldFrameProps) {
     const id = useId();
     const hintId = `${id}-hint`;
     const errorId = `${id}-error`;
@@ -57,9 +68,16 @@ export function FieldFrame({ label, hint, error, renderControl }: FieldFrameProp
 
     return (
         <div className={styles.field}>
-            <label htmlFor={id} className={styles.label}>
-                {label}
-            </label>
+            <div className={styles.labelRow}>
+                <label htmlFor={id} className={styles.label}>
+                    {label}
+                </label>
+                {required === true ? (
+                    <span aria-hidden="true" className={styles.required}>
+                        {REQUIRED_MARKER}
+                    </span>
+                ) : null}
+            </div>
             {hint === undefined ? null : (
                 <p id={hintId} className={styles.hint}>
                     {hint}

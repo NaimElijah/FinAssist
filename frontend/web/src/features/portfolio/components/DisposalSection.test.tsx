@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import type { WriteAccess } from '@/shared/lib/writeAccess';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -180,6 +181,18 @@ describe('DisposalSection', () => {
         const note = within(section).getByText(CALCULATION_ONLY);
         // The note describes the form, so it is read with the fields rather than skipped past.
         expect(disposalForm().getAttribute('aria-describedby')).toBe(note.id);
+    });
+
+    it('Given_a_holding_page_When_rendered_Then_quantity_and_proceeds_state_their_format', async () => {
+        fakeFetch(assistant());
+
+        await renderSettledHolding();
+
+        for (const label of ['Quantity', 'Proceeds amount']) {
+            expect(accessibleDescriptionOf(screen.getByLabelText(label))).toBe(
+                'A number with no commas, for example 1250.50',
+            );
+        }
     });
 
     it('Given_a_quantity_and_proceeds_When_priced_Then_it_posts_the_body_and_shows_cost_of_sale_realised_gain_and_remaining_lots_exactly', async () => {

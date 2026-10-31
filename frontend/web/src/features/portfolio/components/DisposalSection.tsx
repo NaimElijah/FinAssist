@@ -1,6 +1,7 @@
 import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { DECIMAL_HINT } from '@/shared/api/decimal';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { Button, ErrorState, SelectField, type SelectOption, TextField } from '@/shared/ui';
 
@@ -203,6 +204,7 @@ export function DisposalSection({ symbol, initialCurrency }: DisposalSectionProp
                     <TextField
                         label="Quantity"
                         name="quantity"
+                        hint={DECIMAL_HINT}
                         inputMode="decimal"
                         required
                         autoComplete="off"
@@ -216,6 +218,7 @@ export function DisposalSection({ symbol, initialCurrency }: DisposalSectionProp
                     <TextField
                         label="Proceeds amount"
                         name="proceedsAmount"
+                        hint={DECIMAL_HINT}
                         inputMode="decimal"
                         required
                         autoComplete="off"

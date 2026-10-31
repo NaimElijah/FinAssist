@@ -7,6 +7,7 @@ import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     fakeFetch,
     jsonResponse,
@@ -234,6 +235,22 @@ describe('BudgetsPage defining a budget', () => {
         await user.type(screen.getByLabelText('Limit amount 1'), '1000.00');
         await user.click(screen.getByRole('button', { name: 'Define budget' }));
     }
+
+    it('Given_the_form_When_rendered_Then_the_month_and_limit_amount_state_their_formats', async () => {
+        fakeFetch((request) => {
+            if (request.url === BUDGETS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderBudgets();
+
+        // A browser with no month picker renders the Month control as a bare text box.
+        expect(accessibleDescriptionOf(await screen.findByLabelText('Month'))).toBe(
+            'YYYY-MM, for example 2026-09',
+        );
+        expect(accessibleDescriptionOf(screen.getByLabelText('Limit amount 1'))).toBe(
+            'A number with no commas, for example 1250.50',
+        );
+    });
 
     it('Given_the_form_When_a_budget_with_two_limits_is_defined_Then_it_posts_the_exact_json_body_and_the_refetched_list_shows_it', async () => {
         const served: unknown[] = [];

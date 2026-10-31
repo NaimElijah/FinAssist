@@ -1,6 +1,7 @@
 import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { DECIMAL_HINT } from '@/shared/api/decimal';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import { todayIsoDate } from '@/shared/lib/today';
 import {
@@ -66,6 +67,9 @@ const DEFAULT_INTERVAL = '1';
  * below one.
  */
 const POSITIVE_INTEGER_PATTERN = '[1-9][0-9]*';
+
+/** `POSITIVE_INTEGER_PATTERN` in words, shown on Every and Times before anything is typed. */
+const COUNT_HINT = 'A whole number, 1 or more';
 
 /** Shown on Every or Times when a submitted count is not a positive integer; see `submit`. */
 const COUNT_REFUSED_MESSAGE = 'Enter a whole number, 1 or more';
@@ -327,6 +331,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                     />
                     <TextField
                         label="Amount"
+                        hint={DECIMAL_HINT}
                         inputMode="decimal"
                         required
                         autoComplete="off"
@@ -389,6 +394,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                             />
                             <TextField
                                 label="Every"
+                                hint={COUNT_HINT}
                                 inputMode="numeric"
                                 pattern={POSITIVE_INTEGER_PATTERN}
                                 required
@@ -421,6 +427,7 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                     {recurrenceKind === 'TIMES' ? (
                         <TextField
                             label="Times"
+                            hint={COUNT_HINT}
                             inputMode="numeric"
                             pattern={POSITIVE_INTEGER_PATTERN}
                             required
