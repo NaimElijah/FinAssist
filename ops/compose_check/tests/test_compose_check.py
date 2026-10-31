@@ -1186,6 +1186,8 @@ def Given_a_service_mounting_the_docker_socket_When_checked_Then_it_is_named(
         ("pid", "service:db"),
         ("ipc", "host"),
         ("ipc", "shareable"),
+        # Shares nothing, but the rule is Docker's default or nothing, and says so.
+        ("ipc", "private"),
         ("userns_mode", "host"),
         ("uts", "host"),
     ],
@@ -1200,7 +1202,7 @@ def Given_a_service_setting_a_namespace_member_When_checked_Then_it_is_named(
     status, lines = _check(resolved, capsys)
 
     assert status == compose_check.EXIT_FAILED
-    assert lines == [f"{service}: must not set {member}, which shares a namespace"]
+    assert lines == [f"{service}: must not set {member}; only Docker's default is allowed"]
 
 
 @pytest.mark.parametrize("service", ["db", "otel-collector"])

@@ -103,7 +103,8 @@ WRITABLE_ROOT_SERVICES: Final = UNHARDENED_SERVICES | {"keycloak"}
 # Either one widens a container's privileges, a database's included, so no service may set one.
 PRIVILEGE_MEMBERS: Final = ("cap_add", "privileged")
 # Each of these hands a container the host's privilege, whatever it drops, so none may be set on
-# any service. Every namespace member set at all shares one, the host's or another container's.
+# any service. A namespace member set at all is refused: most values share a namespace with the
+# host or another container, and Docker's default, which none of them needs to change, is safe.
 NAMESPACE_MEMBERS: Final = ("pid", "ipc", "userns_mode", "uts")
 DEVICES_MEMBER: Final = "devices"
 # `user` is `<user>[:<group>]`; uid 0 by name or number is root, whatever the group.
@@ -246,7 +247,7 @@ def _hardening_problems(name: str, service: Mapping[str, object]) -> list[str]:
 
 def _host_privilege_problems(name: str, service: Mapping[str, object]) -> list[str]:
     found = [
-        f"{name}: must not set {member}, which shares a namespace"
+        f"{name}: must not set {member}; only Docker's default is allowed"
         for member in NAMESPACE_MEMBERS
         if service.get(member) is not None
     ]
