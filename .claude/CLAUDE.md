@@ -151,17 +151,17 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
   the append-only journal is the audit record (ADR-020).
 
 ### Compose (`docker-compose.yml`)
-- **Long-running services take exactly the `x-` blocks' restart and logging, one-shots `auth-smoke`
-  and `secret-check` neither** (ADR-039, ADR-019). Readiness probes: `/actuator/health/readiness`
-  (ledger, gateway), `/ready` (assistant), `/health/ready` (Keycloak's management port).
-- **`<<: *hardened` and `read_only: true` on all but named exemptions**: databases; Keycloak's root.
-  None takes `cap_add`, `privileged`, a shared namespace, `devices`, root or the Docker socket. `db`
-  shares `books` with the ledger alone, `keycloak-db` `internal` `identity` with Keycloak alone
-  (ADR-063); `network_mode` only `secret-check`'s `none`; Prometheus's CORS origin empty (ADR-057).
-- **`auth-smoke` stays behind exactly `profiles: [smoke]`**: CI validates it but never runs it or
-  `make restore-check` (ADR-034, ADR-038). **`secret-check` has no profile**: `db`, `keycloak-db`
-  and `grafana` wait on it; CI runs it on a published value (ADR-044). **`make check-compose` checks
-  every rule here but what CI runs**, and the port rules under **Run** (#142).
+
+- **Long-running services take exactly the `x-` blocks' restart and logging, one-shots neither**
+  (ADR-039, ADR-019). Readiness probes: `/actuator/health/readiness` on the ledger and gateway,
+  `/ready` on the assistant, `/health/ready` on Keycloak's management port (#142).
+- **All but `db` and `keycloak-db` take `<<: *hardened`, all but those and Keycloak `read_only`**;
+  none takes host privilege, nor `network_mode` but `secret-check`'s `none`. `db` shares `books`
+  with the ledger alone, `keycloak-db` internal `identity` with Keycloak alone (ADR-063).
+- **`auth-smoke` stays behind exactly `profiles: [smoke]`**: CI validates it but never runs it,
+  nor `make restore-check` (ADR-034, ADR-038). **`secret-check` has no profile**: both databases
+  and Grafana wait on it, and CI runs it on a published value (ADR-044). `make check-compose` holds
+  each rule here and the loopback ports under **Run**; `ops/CLAUDE.md` lists the rest it checks.
 
 ### Tests
 
