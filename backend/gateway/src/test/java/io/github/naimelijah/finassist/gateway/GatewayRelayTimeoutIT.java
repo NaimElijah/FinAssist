@@ -18,13 +18,17 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A relayed request to an upstream that accepts it and then never answers is given up on, and
- * answered {@code 502 UPSTREAM_UNAVAILABLE}, rather than holding a Tomcat thread for ever.
+ * answered {@code 504 UPSTREAM_TIMEOUT}, rather than holding a Tomcat thread for ever (ADR-067).
+ * The upstream received the request, so the gateway cannot say it was not applied, and the answer
+ * is not the {@code 502 UPSTREAM_UNAVAILABLE} that tells the owner nothing arrived.
  *
  * <p>{@code GatewayLoginFlowIT.UpstreamsDown} covers an upstream that refuses the connection, which
- * fails at once and says nothing about a read timeout. {@code GatewayApplicationIT} pins the
+ * fails at once, says nothing about a read timeout, and stays a {@code 502}. {@code GatewayApplicationIT} pins the
  * shipped budget's numbers; this proves the relay is held to the budget configured, not merely to
  * some budget: {@link #ELAPSED_LIMIT} sits below the shipped ten-second read timeout, so a relay
  * that ignored this context's override would fail it.
@@ -64,6 +68,8 @@ class GatewayRelayTimeoutIT {
     private static final Duration ELAPSED_LIMIT = Duration.ofSeconds(8);
 
     private static final String WEB_ORIGIN = "http://localhost:5173";
+
+    private static final JsonMapper JSON = JsonMapper.shared();
 
     private static FakeOpenIdProvider idp;
     private static FakeService ledger;
@@ -128,8 +134,9 @@ class GatewayRelayTimeoutIT {
     }
 
     @Test
-    void Given_the_ledger_accepts_a_relayed_request_and_never_answers_When_relayed_Then_the_relay_gives_up_with_502()
-            throws Exception {
+    void
+            Given_the_ledger_accepts_a_relayed_request_and_never_answers_When_relayed_Then_the_relay_gives_up_with_504_outcome_unknown()
+                    throws Exception {
         try (HttpClient client = HttpClient.newBuilder()
                 .cookieHandler(new CookieManager())
                 .followRedirects(HttpClient.Redirect.NEVER)
@@ -148,9 +155,16 @@ class GatewayRelayTimeoutIT {
             assertThat(elapsed)
                     .withFailMessage("the relay took %s, so it was not bounded by %s", elapsed, BUDGET)
                     .isLessThan(ELAPSED_LIMIT);
-            assertThat(relayed.statusCode()).isEqualTo(502);
+            assertThat(relayed.statusCode())
+                    .as("the relay's answer, whose body was %s", relayed.body())
+                    .isEqualTo(504);
             assertThat(relayed.headers().firstValue("content-type")).contains("application/problem+json");
-            assertThat(relayed.body()).contains("\"code\":\"UPSTREAM_UNAVAILABLE\"");
+            JsonNode problem = JSON.readTree(relayed.body());
+            assertThat(problem.path("status").asInt()).isEqualTo(504);
+            assertThat(problem.path("code").asString()).isEqualTo("UPSTREAM_TIMEOUT");
+            assertThat(problem.path("detail").asString())
+                    .isEqualTo("The upstream service did not answer in time, so the outcome is unknown: a change you"
+                            + " sent may already have been applied. Check before sending it again.");
         }
     }
 }

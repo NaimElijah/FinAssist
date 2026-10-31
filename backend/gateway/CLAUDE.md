@@ -81,6 +81,13 @@ From `backend/gateway`:
   /bff/me` can provoke — and logs it at WARN, so ERROR still means a true 5xx. A status with no
   code in that map stays a 500 rather than being passed through under an invented one.
   `GatewaySecurityTest` and `GatewayRelayProblemsTest` fail the build if either half is lost.
+- **A relay's read timeout is 504 `UPSTREAM_TIMEOUT`; a connection never opened is 502
+  `UPSTREAM_UNAVAILABLE`** (ADR-067). The request was sent, so its outcome is unknown, and a 502's
+  "could not be reached" would invite a resend the append-only journal keeps.
+  `GatewayRelayProblems.upstreamFailed` classifies by type on the cause chain, never by message,
+  and tests `HttpConnectTimeoutException` first because it extends `HttpTimeoutException`, the type
+  spring-web's `JdkClientHttpRequest` raises at the read budget. `GatewayRelayTimeoutIT` and
+  `GatewayRelayProblemsTest` fail the build if either is lost.
 - **Every call to Keycloak is built from Boot's own HTTP builders**, in `KeycloakRegistration`: the
   authorization-code client and the `refresh_token` client from `RestClient.Builder`, and the ID
   token's `JwtDecoderFactory` from `RestTemplateBuilder`. Spring Security's defaults for all three

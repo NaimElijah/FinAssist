@@ -7,10 +7,17 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import java.io.IOException;
+import java.net.ConnectException;
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpTimeoutException;
+import java.nio.channels.ClosedChannelException;
+import java.nio.channels.UnresolvedAddressException;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -20,17 +27,20 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.ErrorResponseException;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.client.ResourceAccessException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
  * What {@link GatewayRelayProblems#relayFailed} answers for a failure that is neither an {@code
  * OAuth2AuthorizationException} nor a {@code ResourceAccessException} — the one branch
- * {@code GatewayLoginFlowIT}'s relay tests never reach, so this is its standing regression test.
+ * {@code GatewayLoginFlowIT}'s relay tests never reach, so this is its standing regression test —
+ * and how {@link GatewayRelayProblems#upstreamFailed} tells a request the upstream never received
+ * from one whose outcome is unknown (ADR-067).
  *
- * <p>Called directly rather than through a running gateway and a fault-injecting fake: {@code
- * relayFailed} takes only the exception and the response, so it needs neither a route nor a
- * Spring context to prove what it does — the same reasoning, and the same technique, {@code
+ * <p>Called directly rather than through a running gateway and a fault-injecting fake: each
+ * handler takes only the exception and the response, so it needs neither a route nor a Spring
+ * context to prove what it does — the same reasoning, and the same technique, {@code
  * SignInFailureHandlerTest} already uses for the one other place in this service where an
  * unexpected value could reach a log line.
  *
@@ -51,6 +61,13 @@ class GatewayRelayProblemsTest {
             "duplicate key value violates unique constraint \"authorized_client_pkey\"";
 
     private static final JsonMapper JSON = JsonMapper.shared();
+
+    /**
+     * What {@code RestClient} puts in a {@code ResourceAccessException}'s message: the method and
+     * the URL, query included, which a request can carry anything in.
+     */
+    private static final String RELAYED_REQUEST_MESSAGE =
+            "I/O error on POST request for \"http://ledger:8080/api/v1/transactions?memo=rent-to-landlord\"";
 
     private final GatewayRelayProblems problems = new GatewayRelayProblems();
     private final MockHttpServletResponse response = new MockHttpServletResponse();
@@ -182,5 +199,98 @@ class GatewayRelayProblemsTest {
         assertThat(JSON.readTree(response.getContentAsByteArray()).path("code").asString())
                 .isEqualTo("INTERNAL_ERROR");
         assertThat(captured.list.getFirst().getLevel()).isEqualTo(Level.ERROR);
+    }
+
+    /**
+     * A read timeout, as spring-web 7.0.10's {@code JdkClientHttpRequest} raises it: its timeout
+     * handler cancels the exchange at the read budget and rethrows the cancellation as a bare
+     * {@code HttpTimeoutException}. The request was sent, so whether it took effect is unknown.
+     */
+    private static ResourceAccessException readTimeout() {
+        return new ResourceAccessException(RELAYED_REQUEST_MESSAGE, new HttpTimeoutException("Request cancelled"));
+    }
+
+    /**
+     * The three ways the JDK client fails to open a connection, each in the shape it was observed
+     * to reach the advice in. A connect timeout is an {@code HttpTimeoutException} too, which is
+     * why it is here: nothing was sent, so it is not a timeout whose outcome is unknown.
+     */
+    private static Stream<Arguments> connectionsNeverOpened() {
+        HttpConnectTimeoutException connectTimeout = new HttpConnectTimeoutException("HTTP connect timed out");
+        connectTimeout.initCause(new ConnectException("HTTP connect timed out"));
+        ConnectException refused = new ConnectException();
+        refused.initCause(new ClosedChannelException());
+        ConnectException unresolvable = new ConnectException();
+        unresolvable.initCause(new UnresolvedAddressException());
+        return Stream.of(
+                Arguments.of("a connect timeout", new ResourceAccessException(RELAYED_REQUEST_MESSAGE, connectTimeout)),
+                Arguments.of("a refused connection", new ResourceAccessException(RELAYED_REQUEST_MESSAGE, refused)),
+                Arguments.of(
+                        "an unresolvable host", new ResourceAccessException(RELAYED_REQUEST_MESSAGE, unresolvable)));
+    }
+
+    @Test
+    void Given_a_read_timeout_When_the_relay_fails_Then_it_answers_504_upstream_timeout() throws IOException {
+        problems.upstreamFailed(readTimeout(), response);
+
+        assertThat(response.getStatus()).isEqualTo(504);
+        assertThat(response.getContentType()).isEqualTo(PROBLEM_JSON);
+        JsonNode problem = JSON.readTree(response.getContentAsByteArray());
+        assertThat(problem.path("status").asInt()).isEqualTo(504);
+        assertThat(problem.path("code").asString()).isEqualTo("UPSTREAM_TIMEOUT");
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("connectionsNeverOpened")
+    void Given_a_connection_never_opened_When_the_relay_fails_Then_it_answers_502_upstream_unavailable(
+            String scenario, ResourceAccessException failure) throws IOException {
+        problems.upstreamFailed(failure, response);
+
+        assertThat(response.getStatus()).isEqualTo(502);
+        assertThat(response.getContentType()).isEqualTo(PROBLEM_JSON);
+        JsonNode problem = JSON.readTree(response.getContentAsByteArray());
+        assertThat(problem.path("status").asInt()).isEqualTo(502);
+        assertThat(problem.path("code").asString()).isEqualTo("UPSTREAM_UNAVAILABLE");
+    }
+
+    /**
+     * A chain that loops back on itself cannot be built through a constructor, but {@code
+     * initCause} allows it, and a walk that followed it would hold a request thread for ever. The
+     * timeout runs the test on a thread of its own, so a walk that never ends fails it rather than
+     * hanging the build.
+     */
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    void Given_a_cause_chain_that_loops_When_the_relay_fails_Then_it_answers_502_rather_than_walking_for_ever()
+            throws IOException {
+        IOException first = new IOException("first");
+        IOException second = new IOException("second", first);
+        first.initCause(second);
+
+        problems.upstreamFailed(new ResourceAccessException(RELAYED_REQUEST_MESSAGE, first), response);
+
+        assertThat(response.getStatus()).isEqualTo(502);
+    }
+
+    /**
+     * The two failures are logged apart, at WARN, by a fixed line: the exception's message names
+     * the relayed URL and its query, and is never written, nor the exception attached.
+     */
+    @Test
+    void Given_a_read_timeout_and_a_connection_never_opened_When_each_is_logged_Then_each_is_a_distinct_fixed_warn()
+            throws IOException {
+        problems.upstreamFailed(readTimeout(), response);
+        problems.upstreamFailed(
+                new ResourceAccessException(RELAYED_REQUEST_MESSAGE, new ConnectException()),
+                new MockHttpServletResponse());
+
+        assertThat(captured.list).hasSize(2);
+        assertThat(captured.list).allSatisfy(line -> {
+            assertThat(line.getLevel()).isEqualTo(Level.WARN);
+            assertThat(line.getFormattedMessage()).doesNotContain("ledger:8080").doesNotContain("memo");
+            assertThat(line.getThrowableProxy()).isNull();
+        });
+        assertThat(captured.list.get(0).getFormattedMessage())
+                .isNotEqualTo(captured.list.get(1).getFormattedMessage());
     }
 }
