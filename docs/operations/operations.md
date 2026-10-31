@@ -60,6 +60,13 @@ returns as soon as the container starts, and a dump of a starting server fails. 
 writes both databases into a git-ignored `backups/<UTC time>/`, and fails unless each dump reads
 back in full; see [Backing up and restoring](#backing-up-and-restoring).
 
+**`V2_2` and `V3_2` check what is already stored.** Each adds a foreign key that holds a budget
+limit, or a flow a strategy lists, to its parent's currency, and checks it against every existing
+row. The ledger never wrote a row either would refuse, so both are expected to apply cleanly. If
+one does refuse, PostgreSQL rolls that migration back whole, the ledger does not start, and its
+log names the constraint: `budget_limit_in_budget_currency` or
+`scenario_flow_in_scenario_currency`.
+
 ## Smoke-testing authentication
 
 `ops/smoke/auth_smoke.py` is an opt-in, manually run check of the authentication and RBAC

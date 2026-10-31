@@ -37,10 +37,10 @@ import org.springframework.test.context.DynamicPropertySource;
  * out of the classpath into a temporary directory and applied by a plain Flyway with no flag set,
  * then seeded with rows the earlier code could leave behind: a journal transaction the way the
  * pre-{@code V1_2} repository wrote one, an entry whose account changed currency before {@code
- * V1_6}, and a budget with a limit stored before {@code V2_2}. Only then is the ledger's own
- * application context started against that database, which is what runs the ledger's own {@code
- * spring.flyway.*} configuration rather than a hand-built copy of it. A context that fails to start
- * is the owner's ledger failing to start.
+ * V1_6}, a budget with a limit stored before {@code V2_2}, and a strategy listing a plan before
+ * {@code V3_2}. Only then is the ledger's own application context started against that database,
+ * which is what runs the ledger's own {@code spring.flyway.*} configuration rather than a hand-built
+ * copy of it. A context that fails to start is the owner's ledger failing to start.
  *
  * <p>The scripts are copied rather than read from {@code classpath:db/migration} with a {@code
  * target} because the checksums Flyway records have to be the committed files' own: the owner's
@@ -67,6 +67,8 @@ class LedgerUpgradeIT {
 
     private static final UUID HISTORICAL_BUDGET = UUID.randomUUID();
 
+    private static final UUID HISTORICAL_SCENARIO = UUID.randomUUID();
+
     /**
      * Built while this class is initialised, which is before Spring invokes {@link
      * #pointTheLedgerAtTheOwnersDatabase} and therefore before the context — and its Flyway — exists.
@@ -90,7 +92,7 @@ class LedgerUpgradeIT {
      * migrations were actually run in, so this asserts that every accounting migration released
      * since {@code 1.1}, and then {@code 2.2}, ran after {@code 3.1}, in version order, each after a
      * version higher than itself — the out-of-order application the owner's database needs and a
-     * fresh one never performs.
+     * fresh one never performs — and that {@code 3.2}, above every version applied, ran last.
      */
     @Test
     void
@@ -98,7 +100,7 @@ class LedgerUpgradeIT {
         assertThat(jdbc.sql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank")
                         .query(String.class)
                         .list())
-                .containsExactly("1.1", "2.1", "3.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "2.2");
+                .containsExactly("1.1", "2.1", "3.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "2.2", "3.2");
     }
 
     /**
@@ -112,6 +114,20 @@ class LedgerUpgradeIT {
                         .query(String.class)
                         .list())
                 .containsExactly("ILS");
+    }
+
+    /**
+     * {@code V3_2} gives each link a currency taken from the plan it names, and only then makes the
+     * column {@code NOT NULL} and adds the keys. A link stored before it must come out holding its
+     * plan's currency, not refuse the migration.
+     */
+    @Test
+    void Given_a_scenario_flow_stored_before_3_2_When_the_ledger_has_started_Then_it_holds_its_plans_currency() {
+        assertThat(jdbc.sql("SELECT currency FROM planning.scenario_flow WHERE scenario_id = :id")
+                        .param("id", HISTORICAL_SCENARIO)
+                        .query(String.class)
+                        .list())
+                .containsExactly("USD");
     }
 
     @Test
@@ -187,6 +203,7 @@ class LedgerUpgradeIT {
         seedTheTransactionThePreV1_2CodeWrote(JdbcClient.create(database));
         seedAnAccountWhoseCurrencyChangedUnderItsEntries(JdbcClient.create(database));
         seedTheBudgetThePreV2_2CodeWrote(JdbcClient.create(database));
+        seedTheScenarioThePreV3_2CodeWrote(JdbcClient.create(database));
         return database;
     }
 
@@ -282,6 +299,23 @@ class LedgerUpgradeIT {
                 .update();
         jdbc.sql("INSERT INTO budgeting.budget_limit VALUES (:id, 'groceries', 1200.00, 'ILS')")
                 .param("id", HISTORICAL_BUDGET)
+                .update();
+    }
+
+    /** A USD strategy listing one USD plan, the link written without the currency it had no column for. */
+    private static void seedTheScenarioThePreV3_2CodeWrote(JdbcClient jdbc) {
+        UUID plan = UUID.randomUUID();
+        jdbc.sql("""
+                        INSERT INTO planning.planned_flow
+                            (id, description, amount, currency, direction, starts_on, recurrence, state)
+                        VALUES (:id, 'New car', 40000.00, 'USD', 'OUTFLOW', :startsOn, 'ONCE', 'PLANNED')
+                        """).param("id", plan).param("startsOn", MARCH_1).update();
+        jdbc.sql("INSERT INTO planning.scenario VALUES (:id, 'Buy the car', 'USD', 0)")
+                .param("id", HISTORICAL_SCENARIO)
+                .update();
+        jdbc.sql("INSERT INTO planning.scenario_flow VALUES (:id, 0, :plan)")
+                .param("id", HISTORICAL_SCENARIO)
+                .param("plan", plan)
                 .update();
     }
 

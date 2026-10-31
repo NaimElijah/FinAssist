@@ -160,9 +160,11 @@ bounded context (ADR-006, ADR-024).
   digest once it is merged to `dev`.
 - **A currency held in two tables of one context is tied by a composite foreign key**, to a
   unique `(id, currency)` on the parent: `journal_entry_in_account_currency` (`V1_6`, `NOT VALID`
-  and never to be validated, like `V1_2`'s checks) and `budget_limit_in_budget_currency` (`V2_2`).
-  The store then refuses a row the aggregate would refuse to read back, which would otherwise answer
-  500 on every read of it.
+  and never to be validated, like `V1_2`'s checks), `budget_limit_in_budget_currency` (`V2_2`), and
+  the two on `scenario_flow` (`V3_2`), whose own `currency` must equal both its strategy's and its
+  plan's. The store then refuses a row the aggregate would refuse to read back, which would
+  otherwise answer 500 on every read of it. `JdbcScenarioRepository` writes that column from the
+  flow.
 - **No foreign key crosses a schema.** `SchemaBoundariesIT` fails the build if one does. It is the
   storage-layer half of `contexts_do_not_depend_on_each_other`, which reads bytecode and so stops
   at the edge of the JVM.
