@@ -38,5 +38,9 @@ COPY --from=builder /opt/keycloak/ /opt/keycloak/
 # nobody Keycloak still knows (ADR-031's "makes hard" list; ADR-020, ADR-024, ADR-033).
 COPY finassist-realm.json /opt/keycloak/data/import/finassist-realm.json
 
+# Upstream's own non-root user, uid 1000 in 26.8.1, stated here so an upstream change cannot
+# silently move the user this image runs as.
+USER 1000
+
 ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]
 CMD ["start", "--optimized", "--import-realm"]
