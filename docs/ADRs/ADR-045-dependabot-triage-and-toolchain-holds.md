@@ -1,8 +1,9 @@
 # ADR-045: Dependabot's updates are triaged weekly, and the toolchain lines move only by ADR
 
 - **Status:** Accepted, extended by
-  [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) and
-  [ADR-062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md)
+  [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md),
+  [ADR-062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md) and
+  [ADR-064](ADR-064-what-the-build-fetches-is-pinned-by-content.md)
 - **Date:** 2026-10-20
 
 ## Context

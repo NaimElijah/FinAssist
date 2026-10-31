@@ -36,7 +36,7 @@ append-only history: to change course, add a new record and mark the old one
 | [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030, 056 and 058 |
 | [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056, 057 and 062 |
 | [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, 053, 057 and 058, corrected by 047 |
-| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 and 060, corrected by 047 |
+| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 and 060, corrected by 047 and 064 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted, corrected by 047 |
 | [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035 |
 | [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted, extended by 040 |
@@ -50,7 +50,7 @@ append-only history: to change course, add a new record and mark the old one
 | [042](ADR-042-agent-instructions-per-codebase.md) | Agent instructions split per codebase, one `CLAUDE.md` beside each | Accepted |
 | [043](ADR-043-github-secret-scanning-and-dependabot-alerts.md) | GitHub's own secret scanning, push protection and Dependabot alerts; no scanner in CI | Accepted, extended by 044 |
 | [044](ADR-044-compose-refuses-a-published-secret.md) | Compose refuses to start on a secret that a file in the repository holds | Accepted, extended by 061 |
-| [045](ADR-045-dependabot-triage-and-toolchain-holds.md) | Dependabot's updates are triaged weekly, the Java pair moves together, and the toolchain lines move only by ADR | Accepted, extended by 047 and 062 |
+| [045](ADR-045-dependabot-triage-and-toolchain-holds.md) | Dependabot's updates are triaged weekly, the Java pair moves together, and the toolchain lines move only by ADR | Accepted, extended by 047, 062 and 064 |
 | [046](ADR-046-architecture-rules-read-the-code-never-load-it.md) | Architecture rules read the code and never load it | Accepted |
 | [047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) | Twelve passages of Accepted records reconciled with the system as built | Accepted |
 | [048](ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md) | Domain events stay in-process until a consumer exists, and production keeps no event log | Accepted |
@@ -59,7 +59,7 @@ append-only history: to change course, add a new record and mark the old one
 | [051](ADR-051-what-a-translation-may-decide.md) | What a translation may decide: choosing records stays in `composition`, a rule in the downstream's own words moves into it | Accepted |
 | [052](ADR-052-ops-holds-operator-code-one-directory-per-tool.md) | `ops/` holds operator code, one directory per tool | Accepted |
 | [053](ADR-053-the-gateways-outbound-calls-speak-http-1-1-under-one-time-budget.md) | The gateway's outbound calls speak HTTP/1.1, under one time budget | Accepted |
-| [054](ADR-054-each-service-ships-as-a-two-stage-image-run-as-a-non-root-user.md) | Each service ships as a two-stage image, built from source and run as a non-root user | Accepted, extended by 063 |
+| [054](ADR-054-each-service-ships-as-a-two-stage-image-run-as-a-non-root-user.md) | Each service ships as a two-stage image, built from source and run as a non-root user | Accepted, extended by 063 and 064 |
 | [055](ADR-055-the-assistants-development-seed-lives-in-its-composition-root.md) | The assistant's development seed lives in its composition root, and is off by default | Accepted |
 | [056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md) | The web client retries a failed read once, and never a write | Accepted |
 | [057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md) | A page on another `localhost` port is treated as hostile | Accepted |
@@ -67,8 +67,9 @@ append-only history: to change course, add a new record and mark the old one
 | [059](ADR-059-the-assistant-trusts-only-the-key-set-it-last-fetched.md) | The assistant trusts only the key set it last fetched | Accepted |
 | [060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md) | The `finassist` realm and the Keycloak image are configured, not defaulted | Accepted |
 | [061](ADR-061-the-stack-refuses-a-configuration-that-weakens-a-credential.md) | The stack refuses a configuration that weakens a credential | Accepted |
-| [062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md) | Every kept third-party dependency is justified, and each has a revisit trigger | Accepted |
+| [062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md) | Every kept third-party dependency is justified, and each has a revisit trigger | Accepted, corrected by 064 |
 | [063](ADR-063-every-container-holds-only-the-privilege-it-uses.md) | Under Compose, every container holds only the privilege it uses, and `make check-compose` holds it there | Accepted |
+| [064](ADR-064-what-the-build-fetches-is-pinned-by-content.md) | What the build fetches is pinned by content where the tool allows it, and Dependabot moves every pin | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -322,4 +323,15 @@ that a new service is held too. Still open: the two PostgreSQL containers' capab
 port, which any container on Docker Desktop reaches through `host.docker.internal`
 ([#388](https://github.com/NaimElijah/FinAssist/issues/388)), and the routes to the host the
 check does not yet name ([#389](https://github.com/NaimElijah/FinAssist/issues/389),
+[#342](https://github.com/NaimElijah/FinAssist/issues/342)).
+
+064 extends 045 and 054, and corrects 062 and 031, on 2026-10-30. Every GitHub Action is pinned
+to a commit SHA with its version in a comment, and the Maven distribution to its SHA-256.
+Dependabot keeps both current. The Java build stages install `unzip`, without which `mvnw`
+checks the wrong archive. Dependabot's `docker-compose` ecosystem, generally available since
+2025-02-25, now proposes Compose's own image tags, holding Python below 3.14 and every
+PostgreSQL major, which corrects 062 and 031, whose bodies say the one-shots' Python tag and
+`keycloak-db`'s are bumped by hand. The Testcontainers tags still follow a postgres bump by
+hand
+([#80](https://github.com/NaimElijah/FinAssist/issues/80),
 [#342](https://github.com/NaimElijah/FinAssist/issues/342)).
