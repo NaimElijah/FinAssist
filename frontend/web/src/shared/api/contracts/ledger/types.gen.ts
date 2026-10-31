@@ -678,7 +678,13 @@ export type CompareScenariosData = {
          * The spacing of the points: each is the horizon's start advanced by a whole number of steps.
          */
         step: 'WEEKLY' | 'MONTHLY' | 'YEARLY';
+        /**
+         * An account whose balance opens the cash line. Name each account by its account id in the ledger, and repeat the parameter to name several; leave it out to open that line at zero. A reference that is not an account id, names no account, is held in a currency other than the scenario's, or is named more than once across cash and invested is refused 422 RULE_VIOLATED.
+         */
         cash?: Array<string>;
+        /**
+         * An account whose balance opens the invested line. Name each account by its account id in the ledger, and repeat the parameter to name several; leave it out to open that line at zero. A reference that is not an account id, names no account, is held in a currency other than the scenario's, or is named more than once across cash and invested is refused 422 RULE_VIOLATED.
+         */
         invested?: Array<string>;
     };
     url: '/api/v1/scenario-comparisons';
@@ -770,7 +776,13 @@ export type ProjectScenarioData = {
          * The spacing of the points: each is the horizon's start advanced by a whole number of steps.
          */
         step: 'WEEKLY' | 'MONTHLY' | 'YEARLY';
+        /**
+         * An account whose balance opens the cash line. Name each account by its account id in the ledger, and repeat the parameter to name several; leave it out to open that line at zero. A reference that is not an account id, names no account, is held in a currency other than the scenario's, or is named more than once across cash and invested is refused 422 RULE_VIOLATED.
+         */
         cash?: Array<string>;
+        /**
+         * An account whose balance opens the invested line. Name each account by its account id in the ledger, and repeat the parameter to name several; leave it out to open that line at zero. A reference that is not an account id, names no account, is held in a currency other than the scenario's, or is named more than once across cash and invested is refused 422 RULE_VIOLATED.
+         */
         invested?: Array<string>;
     };
     url: '/api/v1/scenarios/{id}/projection';

@@ -288,6 +288,28 @@ class LedgerContractIT extends PostgresFixture {
     }
 
     /**
+     * The accounts a projection or a comparison opens from are plain strings on the wire, so nothing but
+     * the description says what one names, that it may repeat or be left out, or how a bad one is refused
+     * (ADR-051). Each of the four says all three.
+     */
+    @Test
+    void Given_the_generated_document_When_opening_account_parameters_are_read_Then_each_says_how_accounts_are_named()
+            throws Exception {
+        JsonNode document = JSON.readTree(served(API_DOCS_PATH));
+
+        for (String path : List.of("/api/v1/scenarios/{id}/projection", "/api/v1/scenario-comparisons")) {
+            for (String name : List.of("cash", "invested")) {
+                assertThat(parameterDescription(document, path, name))
+                        .as("the description of %s %s", path, name)
+                        .containsIgnoringCase("account id")
+                        .containsIgnoringCase("repeat")
+                        .containsIgnoringCase("zero")
+                        .contains("422 RULE_VIOLATED");
+            }
+        }
+    }
+
+    /**
      * {@code @Size(min = 2)} leaves its maximum at {@link Integer#MAX_VALUE}, which swagger-core
      * publishes as though it were a bound. The real one is the 64 KiB body limit.
      */

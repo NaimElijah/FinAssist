@@ -79,8 +79,10 @@ public class ProjectionController {
                     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
                     LocalDate to,
             @Parameter(description = HorizonDescriptions.STEP_PARAMETER) @RequestParam Cadence step,
-            @RequestParam(required = false) List<String> cash,
-            @RequestParam(required = false) List<String> invested) {
+            @Parameter(description = OpeningAccountDescriptions.CASH_PARAMETER) @RequestParam(required = false)
+                    List<String> cash,
+            @Parameter(description = OpeningAccountDescriptions.INVESTED_PARAMETER) @RequestParam(required = false)
+                    List<String> invested) {
         ScenarioId scenario = new ScenarioId(id);
         Projection projection = projector.project(new ProjectScenarioCommand(
                 scenario, new Horizon(from, to), step, accountRefs(cash), accountRefs(invested)));
