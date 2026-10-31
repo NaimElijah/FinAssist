@@ -30,6 +30,12 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+          # Each service's own files key its own cache. The default globs the whole repository, so
+          # the ledger and the gateway shared one key, and whichever job saved second could not
+          # save the Maven repository its own build had filled.
+          cache-dependency-path: |
+            backend/ledger/pom.xml
+            backend/ledger/.mvn/wrapper/maven-wrapper.properties
 
       - name: Format check
         run: make lint-ledger
@@ -60,6 +66,10 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+          # Its own key, apart from the ledger's: see the ledger job.
+          cache-dependency-path: |
+            backend/gateway/pom.xml
+            backend/gateway/.mvn/wrapper/maven-wrapper.properties
 
       - name: Format check
         run: make lint-gateway
@@ -192,6 +202,10 @@ jobs:
       # For ops/compose_check/compose_check.py: uv fetches the Python the target pins with
       # --python, backend/assistant/.python-version, since the PEP 723 block states only a minimum.
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          # This job installs no dependency, and its cache key is the assistant job's: saved here
+          # first, an all but empty cache took the key the assistant's full one needed.
+          enable-cache: false
 
       # Never reads .env: the target resolves the file over .env.example, with
       # ops/compose_check/placeholders.env exported, and the Makefile says why each profile is
