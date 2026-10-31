@@ -35,7 +35,15 @@ LOOPBACK = "127.0.0.1"
 NO_CAPABILITIES = ["ALL"]
 NO_NEW_PRIVILEGES = ["no-new-privileges:true"]
 NO_CORS_GRANT = "--web.cors.origin="
-# Written out rather than read from the check, so a name dropped from its exemptions fails here.
+# Each list below is written out rather than read from the check, so a name dropped from the
+# check's own, or added to an exemption, fails here instead of taking its cases with it.
+ONE_SHOT_SERVICES = ["auth-smoke", "secret-check"]
+READINESS_PROBES = [
+    ("assistant", "/ready"),
+    ("gateway", "/actuator/health/readiness"),
+    ("keycloak", "/health/ready"),
+    ("ledger", "/actuator/health/readiness"),
+]
 HARDENED_SERVICES = [
     "assistant",
     "auth-smoke",
@@ -251,7 +259,7 @@ def Given_a_long_running_service_with_another_restart_policy_When_checked_Then_i
 
 
 @pytest.mark.parametrize("member", ["restart", "logging"])
-@pytest.mark.parametrize("one_shot", sorted(compose_check.ONE_SHOT_SERVICES))
+@pytest.mark.parametrize("one_shot", ONE_SHOT_SERVICES)
 def Given_a_one_shot_service_with_a_restart_policy_or_log_bound_When_checked_Then_it_fails(
     one_shot: str, member: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -264,7 +272,7 @@ def Given_a_one_shot_service_with_a_restart_policy_or_log_bound_When_checked_The
     assert lines == [f"{one_shot}: a one-shot service takes no restart or logging"]
 
 
-@pytest.mark.parametrize(("service", "path"), sorted(compose_check.READINESS_PROBES.items()))
+@pytest.mark.parametrize(("service", "path"), READINESS_PROBES)
 def Given_a_healthcheck_probing_liveness_not_readiness_When_checked_Then_it_fails_naming_the_path(
     service: str, path: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
