@@ -334,6 +334,8 @@ def Given_a_malformed_body_member_When_a_disposal_is_priced_Then_it_is_a_malform
 def Given_a_body_that_is_not_valid_JSON_When_a_disposal_is_priced_Then_it_is_a_malformed_request(
     client: TestClient,
 ) -> None:
+    """FastAPI locates a decode error by the character it stopped at, which names no member; the
+    entry names the body, as the ledger's does for the same request."""
     response = client.post(
         DISPOSAL_URL,
         content=b'{"quantity": "12",',
@@ -342,7 +344,7 @@ def Given_a_body_that_is_not_valid_JSON_When_a_disposal_is_priced_Then_it_is_a_m
 
     assert response.status_code == 400
     assert response.json()["code"] == "MALFORMED_REQUEST"
-    assert response.json()["errors"]
+    assert [error["field"] for error in response.json()["errors"]] == ["body"]
 
 
 @pytest.mark.parametrize(
