@@ -66,7 +66,9 @@ unchanged: a refused connection, an unresolvable host, and a connect timeout.
 - The first `HttpTimeoutException` it meets decides.
 - `HttpConnectTimeoutException` is tested first, and is a 502.
 - Any other `HttpTimeoutException` is a 504.
-- A chain with neither is a 502, since only a timeout is known to have been sent.
+- A chain with neither is a 502. That covers every connection never opened, and also any I/O
+  failure whose chain cannot say whether the request was written, a reset after sending included
+  (see Accepted cost).
 - The walk stops at a cause it has already seen, because `initCause` can close a loop.
 
 **Each is logged at WARN, in a line of its own**, fixed text only. Neither line carries the
@@ -76,8 +78,8 @@ so it is not ERROR.
 **The answer does not depend on the method.** A `GET` that times out is a 504 too. The status
 describes what happened at the hop, and a read has nothing to duplicate.
 
-**The code is declared beside the others**, in `GatewayProblems`. ADR-030's failure-code table gains
-a row:
+**The code is declared beside the others**, in `GatewayProblems`. This record extends ADR-030's
+failure-code table with a row:
 
 | Code | Status | Returned by | Headers |
 |---|---|---|---|
@@ -92,8 +94,9 @@ other than 503, so a read that times out is retried once, and a write is never r
 
 - **The owner is no longer told that a change failed when it may have been applied.** The detail
   says to check first.
-- **A client can tell "never sent" from "outcome unknown"** by status and by code, without reading
-  prose.
+- **A client can tell a timeout from a connection never opened** by status and by code, without
+  reading prose. A 502 does not promise "never sent", though: it also answers a failure the gateway
+  cannot place (see Accepted cost).
 - **The statuses mean what RFC 9110 says they mean.**
 
 **Makes hard**
@@ -116,7 +119,8 @@ other than 503, so a read that times out is retried once, and a write is never r
   the upstream drops after receiving the request arrives as a plain `IOException` ("HTTP/1.1 header
   parser received no bytes", caused by `SocketException: Connection reset`), and its outcome is as
   unknown as a timeout's. Nothing in that chain says whether the request was written, so it cannot
-  be told by type from other I/O failures. This record covers the timeout alone.
+  be told by type from other I/O failures. This record covers the timeout alone, and
+  [#407](https://github.com/NaimElijah/FinAssist/issues/407) tracks answering such a failure as outcome unknown.
 - **A failure after the response has started is not covered.** Once the upstream's headers are
   relayed, the response is committed and no handler can change its status.
 - **A duplicate is still possible.** The 504 tells the owner to check; it does not prevent the
@@ -135,6 +139,10 @@ other than 503, so a read that times out is retried once, and a write is never r
 - **Add an `Idempotency-Key` now.** Not adopted here. It changes the ledger's contract, and ADR-028
   owns that decision and its trigger. A scan finding fixes the answer, not the protocol.
 - **Raise the read budget.** Rejected: a longer budget makes the case rarer, not impossible.
+- **Classify the 502 positively**, by a `ConnectException` or an `UnresolvedAddressException` in
+  the chain, and answer every other failure as outcome unknown. Not adopted here: a reset after
+  sending is an invalid upstream response, not a timeout, so it needs a status and code of its own,
+  and [#407](https://github.com/NaimElijah/FinAssist/issues/407) decides them.
 
 ## Revisit when
 

@@ -154,8 +154,9 @@ final class GatewayRelayProblems {
      * <p>A read timeout is {@code 504 UPSTREAM_TIMEOUT}: the upstream received the request and may
      * have committed it, so the detail says the outcome is unknown rather than that nothing was
      * reached. Anything else — a refused or unresolvable connection, or a connect timeout — is
-     * {@code 502 UPSTREAM_UNAVAILABLE}, as is an I/O failure this class cannot place, since only a
-     * timeout is known to have been sent. Each is logged at WARN by a fixed line: the wrapper's
+     * {@code 502 UPSTREAM_UNAVAILABLE}, as is an I/O failure this class cannot place, whose chain does
+     * not say whether the request was written: a reset after sending is one, and #407 tracks answering
+     * it as outcome unknown. Each is logged at WARN by a fixed line: the wrapper's
      * message names the relayed URL, query included, so it is never written.
      *
      * @param failure the wrapper whose cause chain says which failure this was

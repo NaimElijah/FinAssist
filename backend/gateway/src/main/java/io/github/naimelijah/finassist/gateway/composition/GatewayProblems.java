@@ -79,8 +79,10 @@ final class GatewayProblems {
     static final String CSRF_TOKEN_INVALID = "CSRF_TOKEN_INVALID";
 
     /**
-     * A relayed request's upstream service — the ledger or the assistant — could not be reached: no
-     * connection was opened, so the request was never sent.
+     * A relayed request's upstream service — the ledger or the assistant — could not be reached, or
+     * failed in a way the gateway cannot place. A connection never opened means the request was never
+     * sent, but a connection reset after sending is answered with this code too, so it does not
+     * promise the request was not applied (ADR-067, #407).
      */
     static final String UPSTREAM_UNAVAILABLE = "UPSTREAM_UNAVAILABLE";
 
