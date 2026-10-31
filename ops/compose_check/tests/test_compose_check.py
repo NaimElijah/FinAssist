@@ -1218,7 +1218,10 @@ def Given_a_service_given_a_host_device_When_checked_Then_it_is_named(
     assert lines == [f"{service}: must not set devices"]
 
 
-@pytest.mark.parametrize("user", ["0", "root", "0:0", "root:root", "0:65534", "000"])
+# Docker reads a numeric uid with a sign as well, so `+0` and `-0` are root too.
+@pytest.mark.parametrize(
+    "user", ["0", "root", "0:0", "root:root", "0:65534", "000", "+0", "-0", "+0:0", "-0:65534"]
+)
 @pytest.mark.parametrize("service", ["keycloak-db", "secret-check"])
 def Given_a_service_running_as_root_When_checked_Then_it_is_named(
     service: str, user: str, capsys: pytest.CaptureFixture[str]
@@ -1245,14 +1248,15 @@ def Given_a_service_running_as_a_user_other_than_root_When_checked_Then_it_passe
     assert lines == [PASSED]
 
 
+# An empty entrypoint is one too: it clears the image's own, so the command runs in its place.
+@pytest.mark.parametrize(
+    "entrypoint", [["/bin/prometheus", "--web.cors.origin=.*"], []], ids=["binary", "empty"]
+)
 def Given_prometheus_with_an_entrypoint_When_checked_Then_it_is_named(
-    capsys: pytest.CaptureFixture[str],
+    entrypoint: list[str], capsys: pytest.CaptureFixture[str]
 ) -> None:
     resolved = _conforming()
-    resolved["services"]["prometheus"]["entrypoint"] = [
-        "/bin/prometheus",
-        "--web.cors.origin=.*",
-    ]
+    resolved["services"]["prometheus"]["entrypoint"] = entrypoint
 
     status, lines = _check(resolved, capsys)
 

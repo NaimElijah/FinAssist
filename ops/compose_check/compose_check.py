@@ -213,8 +213,10 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
         found.append(
             f"{CORS_PINNED_SERVICE}: its command must set {CORS_ORIGIN_FLAG} to the empty regex"
         )
-    # An entrypoint runs in the command's place, or ahead of it, where this rule cannot read it.
-    if prometheus.get("entrypoint"):
+    # An entrypoint runs in the command's place, or ahead of it, where this rule cannot read it. An
+    # empty one counts: it clears the image's own, so the command itself is what runs. `config`
+    # emits null when it is unset.
+    if prometheus.get("entrypoint") is not None:
         found.append(
             f"{CORS_PINNED_SERVICE}: must not set entrypoint, which could run it without its "
             "CORS flag"
@@ -266,7 +268,12 @@ def _is_root(user: object) -> bool:
     if not isinstance(user, str):
         raise ComposeCheckError("a service's user is not a string")
     uid = user.split(":", 1)[0]
-    return uid in ROOT_USERS or (uid.isdigit() and int(uid) == ROOT_UID)
+    # Docker parses a numeric uid with Go's Atoi, which takes a sign, so `+0` is root. `int` accepts
+    # every form Atoi does, and a few Docker would refuse to run, so it can only refuse more.
+    try:
+        return int(uid) == ROOT_UID
+    except ValueError:
+        return uid in ROOT_USERS
 
 
 def _file_name(path: object) -> str:
