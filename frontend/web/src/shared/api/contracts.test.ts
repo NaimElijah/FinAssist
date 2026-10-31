@@ -36,6 +36,12 @@ describe('generated contract types', () => {
         expectTypeOf<AssistantProblem['code']>().toBeString();
     });
 
+    it('Given_either_services_Problem_When_reading_its_status_Then_it_is_always_a_number', () => {
+        // isProblem in client.ts recognises a problem by its status, so the contracts must promise it.
+        expectTypeOf<LedgerProblem['status']>().toBeNumber();
+        expectTypeOf<AssistantProblem['status']>().toBeNumber();
+    });
+
     it('Given_a_money_amount_When_read_from_either_document_Then_it_is_a_string_not_a_number', () => {
         expectTypeOf<MoneyDto['amount']>().toBeString();
         expectTypeOf<MoneyModel['amount']>().toBeString();

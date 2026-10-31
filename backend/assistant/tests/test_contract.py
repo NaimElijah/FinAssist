@@ -48,7 +48,7 @@ HTTP_METHODS = frozenset({"get", "put", "post", "delete", "options", "head", "pa
 # Query parameters are declared inline and appear as no schema. A schema the rule truly cannot
 # apply to must be named here, with its reason.
 NOT_ALWAYS_PRESENT_MEMBERS = {
-    "Problem": "RFC 9457 leaves every member but code optional, as the ledger's schema does",
+    "Problem": "detail, instance and errors are absent from some problems, as on the ledger",
 }
 
 

@@ -25,8 +25,12 @@ class OpenApiConfigurationTest {
 
     private final OpenApiConfiguration configuration = new OpenApiConfiguration();
 
+    /**
+     * Required is a promise to every client generated from the document, so it names exactly the members
+     * every problem carries: the web client reads {@code status}, and branches on {@code code}.
+     */
     @Test
-    void Given_a_document_When_customised_Then_it_gains_a_problem_schema_that_requires_a_code() {
+    void Given_a_document_When_customised_Then_its_problem_schema_requires_what_every_problem_carries() {
         OpenAPI document = new OpenAPI();
 
         configuration.problemResponses().customise(document);
@@ -34,9 +38,27 @@ class OpenApiConfigurationTest {
         Schema<?> problem = document.getComponents().getSchemas().get("Problem");
         assertThat(problem.getProperties())
                 .containsOnlyKeys("type", "title", "status", "detail", "instance", "code", "errors");
-        assertThat(problem.getRequired()).containsExactly("code");
+        assertThat(problem.getRequired()).containsExactlyInAnyOrder("type", "title", "status", "code");
         Schema<?> errors = problem.getProperties().get("errors");
         assertThat(errors.getItems().getProperties()).containsOnlyKeys("field", "message");
+        assertThat(errors.getItems().getRequired()).containsExactlyInAnyOrder("field", "message");
+    }
+
+    /**
+     * Behind the gateway, a ledger problem's {@code instance} lacks the {@code /ledger} prefix the browser
+     * called, so resolved against that URL it names a path nothing serves. The schema says so.
+     */
+    @Test
+    void Given_a_document_When_customised_Then_the_problem_instance_says_whose_path_it_is() {
+        OpenAPI document = new OpenAPI();
+
+        configuration.problemResponses().customise(document);
+
+        Schema<?> problem = document.getComponents().getSchemas().get("Problem");
+        Schema<?> instance = problem.getProperties().get("instance");
+        assertThat(instance.getDescription())
+                .contains("as received by the service that answered")
+                .contains("/ledger");
     }
 
     /**

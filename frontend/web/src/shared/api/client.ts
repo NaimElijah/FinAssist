@@ -82,11 +82,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Validate a parsed JSON body as a `Problem`, at the boundary where it arrives from the network.
  *
  * Checks only the two fields the client depends on to recognise a problem at all - `code` is a
- * string, the one member ADR-028 and both contracts require, and `status` is a number, which both
- * services always send though their contracts mark it optional - so a body missing
- * `title`, `detail` or `errors`, all optional, still validates. `errors` is deliberately not
- * checked here: a malformed one must not disqualify the rest of the problem, so it is validated
- * separately, by `readProblem`, once this guard has already decided the body is a problem.
+ * string, the member ADR-028 has a client branch on, and `status` is a number - both of which
+ * every contract requires. It reads nothing else, so it checks nothing else: a body missing
+ * `type` or `title`, which the contracts also require, or `detail` or `errors`, which they do
+ * not, still validates. `errors` is deliberately not checked here: a malformed one must not
+ * disqualify the rest of the problem, so it is validated separately, by `readProblem`, once this
+ * guard has already decided the body is a problem.
  *
  * @param value - a parsed JSON body of unknown shape.
  * @returns whether `value` is a `Problem`.

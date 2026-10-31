@@ -54,6 +54,13 @@ public class OpenApiConfiguration {
     private static final String PROBLEM_DESCRIPTION = "A problem (RFC 9457)";
     private static final String PROBLEM_JSON = org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE;
 
+    /**
+     * {@code instance} is resolved by a client against the URL it called, and behind the gateway that URL
+     * is not the one the answering service saw. Said in the contract, since nothing in the value shows it.
+     */
+    private static final String INSTANCE_DESCRIPTION = "The request's path as received by the service that"
+            + " answered. Behind the gateway it omits the gateway's /ledger or /assistant prefix.";
+
     private static final String OBJECT = "object";
     private static final String STRING = "string";
     private static final String INTEGER = "integer";
@@ -119,19 +126,29 @@ public class OpenApiConfiguration {
                                                 new MediaType().schema(new JsonSchema().$ref(PROBLEM_REF)))));
     }
 
-    /** The members {@code LedgerProblemHandler} and {@code HostAllowListFilter} write; only {@code code} is always there. */
+    /**
+     * The members every problem writer in the ledger emits. {@code type}, {@code title}, {@code status} and
+     * {@code code} are on every problem, and {@code field} and {@code message} on every {@code errors} entry,
+     * so the contract requires them and a client may rely on them; {@code detail}, {@code instance} and
+     * {@code errors} are absent from some problems.
+     */
     private static Schema<?> problemSchema() {
         Schema<?> violation = ofType(OBJECT)
                 .addProperty(Problems.FIELD_MEMBER, ofType(STRING))
-                .addProperty(Problems.MESSAGE_MEMBER, ofType(STRING));
+                .addProperty(Problems.MESSAGE_MEMBER, ofType(STRING))
+                .addRequiredItem(Problems.FIELD_MEMBER)
+                .addRequiredItem(Problems.MESSAGE_MEMBER);
         return ofType(OBJECT)
                 .addProperty(Problems.TYPE_MEMBER, ofType(STRING).format(URI_REFERENCE))
                 .addProperty(Problems.TITLE_MEMBER, ofType(STRING))
                 .addProperty(Problems.STATUS_MEMBER, ofType(INTEGER))
                 .addProperty(Problems.DETAIL_MEMBER, ofType(STRING))
-                .addProperty(Problems.INSTANCE_MEMBER, ofType(STRING))
+                .addProperty(Problems.INSTANCE_MEMBER, ofType(STRING).description(INSTANCE_DESCRIPTION))
                 .addProperty(Problems.CODE_MEMBER, ofType(STRING))
                 .addProperty(Problems.ERRORS_MEMBER, ofType(ARRAY).items(violation))
+                .addRequiredItem(Problems.TYPE_MEMBER)
+                .addRequiredItem(Problems.TITLE_MEMBER)
+                .addRequiredItem(Problems.STATUS_MEMBER)
                 .addRequiredItem(Problems.CODE_MEMBER);
     }
 

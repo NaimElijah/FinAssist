@@ -96,6 +96,13 @@ public class GatewayOpenApiConfiguration {
     private static final String PROBLEM_DESCRIPTION = "A problem (RFC 9457)";
     private static final String PROBLEM_JSON = org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE;
 
+    /**
+     * {@code instance} is resolved by a client against the URL it called, and behind the gateway that URL
+     * is not the one the answering service saw. Said in the contract, since nothing in the value shows it.
+     */
+    private static final String INSTANCE_DESCRIPTION = "The request's path as received by the service that"
+            + " answered. Behind the gateway it omits the gateway's /ledger or /assistant prefix.";
+
     private static final String TYPE_MEMBER = "type";
     private static final String TITLE_MEMBER = "title";
     private static final String STATUS_MEMBER = "status";
@@ -241,21 +248,29 @@ public class GatewayOpenApiConfiguration {
     }
 
     /**
-     * Every member the ledger's own {@code LedgerProblemHandler} and {@code HostAllowListFilter}
-     * write, and only {@code code} is always there — identical, member for member, to the ledger's
-     * own {@code problemSchema()}, which is exactly what {@code GatewayContractIT} asserts.
+     * Every member the ledger's problem writers emit, with {@code type}, {@code title}, {@code
+     * status} and {@code code} required, and {@code field} and {@code message} on each {@code errors}
+     * entry — identical, member for member, to the ledger's own {@code problemSchema()}, which is
+     * exactly what {@code GatewayContractIT} asserts. Every problem {@code GatewayProblems.write}
+     * builds carries the four, and none carries {@code instance} or {@code errors}.
      */
     private static Schema<?> problemSchema() {
-        Schema<?> violation =
-                ofType(OBJECT).addProperty(FIELD_MEMBER, ofType(STRING)).addProperty(MESSAGE_MEMBER, ofType(STRING));
+        Schema<?> violation = ofType(OBJECT)
+                .addProperty(FIELD_MEMBER, ofType(STRING))
+                .addProperty(MESSAGE_MEMBER, ofType(STRING))
+                .addRequiredItem(FIELD_MEMBER)
+                .addRequiredItem(MESSAGE_MEMBER);
         return ofType(OBJECT)
                 .addProperty(TYPE_MEMBER, ofType(STRING).format(URI_REFERENCE))
                 .addProperty(TITLE_MEMBER, ofType(STRING))
                 .addProperty(STATUS_MEMBER, ofType(INTEGER))
                 .addProperty(DETAIL_MEMBER, ofType(STRING))
-                .addProperty(INSTANCE_MEMBER, ofType(STRING))
+                .addProperty(INSTANCE_MEMBER, ofType(STRING).description(INSTANCE_DESCRIPTION))
                 .addProperty(CODE_MEMBER, ofType(STRING))
                 .addProperty(ERRORS_MEMBER, ofType(ARRAY).items(violation))
+                .addRequiredItem(TYPE_MEMBER)
+                .addRequiredItem(TITLE_MEMBER)
+                .addRequiredItem(STATUS_MEMBER)
                 .addRequiredItem(CODE_MEMBER);
     }
 

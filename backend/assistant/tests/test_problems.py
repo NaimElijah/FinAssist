@@ -27,6 +27,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from finassist_assistant.adapters.app import CORRELATION_ID_HEADER, create_app
 from finassist_assistant.adapters.auth import TokenVerifier
+from finassist_assistant.adapters.openapi import PROBLEM_SCHEMA
 from finassist_assistant.adapters.settings import Settings
 from finassist_assistant.portfolio.adapters.inbound.api.models import MoneyModel
 from finassist_assistant.portfolio.application.port import (
@@ -60,6 +61,9 @@ class _Answer(Protocol):
 
     @property
     def headers(self) -> Mapping[str, str]: ...
+
+    @property
+    def status_code(self) -> int: ...
 
     def json(self) -> Any: ...
 
@@ -175,8 +179,19 @@ def client(app: FastAPI, owner_headers: dict[str, str]) -> Iterator[TestClient]:
 
 
 def _problem(response: _Answer) -> dict[str, Any]:
+    """The problem a response carries, held to what the contract requires of every problem.
+
+    Read from ``PROBLEM_SCHEMA`` rather than spelled out, so that every problem this suite reads
+    proves the members the published contract promises a client are really sent.
+    """
     assert response.headers["content-type"] == PROBLEM_JSON
     body: dict[str, Any] = response.json()
+    assert set(PROBLEM_SCHEMA["required"]) <= set(body)
+    assert isinstance(body["type"], str)
+    assert isinstance(body["title"], str)
+    assert body["status"] == response.status_code
+    entry_members = set(PROBLEM_SCHEMA["properties"]["errors"]["items"]["required"])
+    assert all(entry_members <= set(entry) for entry in body.get("errors", []))
     return body
 
 
