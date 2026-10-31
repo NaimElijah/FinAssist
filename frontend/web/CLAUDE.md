@@ -85,6 +85,12 @@ From `frontend/web`:
 - **No test file commits a `.skip`, `.todo` or `.only`** on `it`, `test`, `describe` or `suite`:
   ESLint's `no-restricted-syntax` fails `npm run lint`. `it.fails`, `skipIf` and `runIf` stay
   allowed — a test that must fail, and a skip a platform decides.
+- **Every colour pair meets WCAG 2.2 AA contrast in both themes**, 4.5:1 for text and 3:1 for a
+  control's edge, a chart line and a focus ring. `tests/contrast.test.ts` measures each stylesheet
+  rule that sets a text and a background colour against `src/shared/ui/tokens.css`, so a new rule
+  is read without being listed; a pair a rule completes only by inheritance, such as muted text
+  on a surface, the focus ring and the open tab's inset ring, goes in its `INHERITED_PAIRS`.
+  jsdom computes no styles, so no screen test can catch one. A restyle (#230) keeps it green.
 
 ## Review conventions
 
@@ -173,3 +179,34 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
   `ResizeObserver`, so `src/shared/testing/browserGlobals.ts`, a `setupFiles` entry, installs
   `FakeResizeObserver` in every jsdom file, and a test reports a size change with `resizeElement`
   inside `act`.
+- **Every loading note is a `LoadingNote`, and a status that changes is a `StatusLine`**, both
+  from `src/shared/ui`: each is a `role="status"` region that exists before its text does, which
+  a bare paragraph inserted with its text in it is not. A test reads them with `statusMessages()`
+  from `src/shared/testing/status.ts`.
+- **A field marks `required` once, and states its format in `hint`.** `Field` draws the visible
+  "(required)" marker from the `required` prop and hides it from assistive technology, since the
+  native attribute already announces it; never type "required" in a label. A decimal's hint is
+  `DECIMAL_HINT` from `src/shared/api/decimal.ts`, which sits beside the pattern it describes. A
+  form row that fails as a whole shows its error once and passes its id to both controls as
+  `sharedErrorId`; a group of checkboxes describes every one of them by the group's error.
+- **A row action's accessible name is its visible word, then the row** — "Void Rent, 1 Sept
+  2026" — so "Void" stays first (WCAG 2.5.3) and a list of controls tells the rows apart; a
+  lifecycle panel's title names the row too. Dates in a name go through `formatCalendarDate`
+  (`src/shared/ui/calendarDate.ts`) so they read as the row shows them. A test finds such a
+  control with `nameStartingWith` from `src/shared/testing/names.ts`.
+- **A form that submits to the server passes `fieldLabel` to `ErrorState`**, built with
+  `labelsByField` from one constant its fields also read, so a refused `entries[0].amount` is
+  listed as "Debit 1 or Credit 1" and the two cannot drift; a row path is read with
+  `indexedField`. A path the form does not know is listed by its wire name rather than dropped.
+- **A form whose rows can be removed uses `useRowRemovalFocus`**, so focus moves to the field that
+  took the removed row's place or to the add button after the last, and says an added row on a
+  `StatusLine`.
+- **A whole screen outside `Layout` is a `StandalonePage`** (`src/app`): the session check,
+  sign-in, the outage and the error boundary's fallback render above the router, and it gives them
+  the `<main>`, h1 and document title `Layout` gives a page. A title is built with
+  `documentTitleFor` (`src/app/productName.ts`), never by hand.
+- **Every page opens with one h1 naming that screen, and focus on navigation lands on it.**
+  `Layout` focuses the page's h1 on a route change, or `<main>` where a page has none, and follows
+  an h1 that is replaced once data loads while focus still rests there; the same heading is named
+  to `SessionGate` through `PageFocusTargetContext`, where a retried session check lands. Give
+  each screen its own h1, as the planning screens do, never one a layout shares between them.
