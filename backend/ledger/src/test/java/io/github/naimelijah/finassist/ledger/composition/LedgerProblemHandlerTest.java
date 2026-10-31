@@ -435,6 +435,23 @@ class LedgerProblemHandlerTest {
     }
 
     /**
+     * Every problem carries {@code type}, {@code title} and {@code status} (ADR-028), even one whose status
+     * has no {@code HttpStatus} constant, such as 499, and so no reason phrase to serve as a title.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = {409, 413, 418, 503, 499})
+    void Given_a_status_outside_the_table_When_raised_Then_its_problem_carries_a_type_a_title_and_the_status(int status)
+            throws Exception {
+        mvc.perform(get("/status/" + status))
+                .andExpect(status().is(status))
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").isString())
+                .andExpect(jsonPath("$.title").isString())
+                .andExpect(jsonPath("$.title").isNotEmpty())
+                .andExpect(jsonPath("$.status").value(status));
+    }
+
+    /**
      * A 5xx's detail is replaced whoever raised it, not only when this handler built the problem without
      * one. The reason given to a {@link ResponseStatusException} becomes its detail on the way in, and
      * must not survive the way out.
