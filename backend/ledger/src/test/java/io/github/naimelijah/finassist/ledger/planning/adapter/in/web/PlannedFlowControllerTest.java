@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.planning.adapter.in.web;
 
+import static io.github.naimelijah.finassist.ledger.ProblemAssertions.requiredProblemMembers;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
@@ -525,7 +526,8 @@ class PlannedFlowControllerTest {
                 .andExpect(jsonPath("$.type").value("about:blank"))
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.detail").value(missing.getMessage()))
-                .andExpect(jsonPath("$.code").value("PLAN_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value("PLAN_NOT_FOUND"))
+                .andExpect(requiredProblemMembers());
     }
 
     @ParameterizedTest
@@ -543,7 +545,8 @@ class PlannedFlowControllerTest {
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.type").value("about:blank"))
                 .andExpect(jsonPath("$.detail").value(illegal.getMessage()))
-                .andExpect(jsonPath("$.code").value("ILLEGAL_TRANSITION"));
+                .andExpect(jsonPath("$.code").value("ILLEGAL_TRANSITION"))
+                .andExpect(requiredProblemMembers());
     }
 
     /** Realising, or cancelling a committed plan, on a date before its commitment is a rule, not a state. */

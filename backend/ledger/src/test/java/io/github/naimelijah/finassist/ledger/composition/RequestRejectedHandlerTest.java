@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.composition;
 
+import static io.github.naimelijah.finassist.ledger.ProblemAssertions.assertRequiredMembers;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.micrometer.observation.Observation;
@@ -70,5 +71,6 @@ class RequestRejectedHandlerTest {
         assertThat(response.getStatus()).isEqualTo(400);
         assertThat(response.getContentType()).isEqualTo("application/problem+json");
         assertThat(response.getContentAsString()).contains("\"code\":\"MALFORMED_REQUEST\"");
+        assertRequiredMembers(response);
     }
 }

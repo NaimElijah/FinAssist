@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.accounting.adapter.in.web;
 
+import static io.github.naimelijah.finassist.ledger.ProblemAssertions.requiredProblemMembers;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -190,7 +191,8 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.title").value("Conflict"))
                 .andExpect(jsonPath("$.status").value(409))
                 .andExpect(jsonPath("$.detail").value(duplicate.getMessage()))
-                .andExpect(jsonPath("$.code").value("DUPLICATE_ACCOUNT_NAME"));
+                .andExpect(jsonPath("$.code").value("DUPLICATE_ACCOUNT_NAME"))
+                .andExpect(requiredProblemMembers());
     }
 
     @Test
@@ -205,7 +207,8 @@ class AccountControllerTest {
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.type").value("about:blank"))
                 .andExpect(jsonPath("$.detail").value(missing.getMessage()))
-                .andExpect(jsonPath("$.code").value("ACCOUNT_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value("ACCOUNT_NOT_FOUND"))
+                .andExpect(requiredProblemMembers());
     }
 
     @Test
@@ -267,7 +270,8 @@ class AccountControllerTest {
         mvc.perform(get(ACCOUNTS + "/" + unknown + "/transactions"))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("ACCOUNT_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value("ACCOUNT_NOT_FOUND"))
+                .andExpect(requiredProblemMembers());
     }
 
     private static Account account(String name, AccountType type, Currency currency) {

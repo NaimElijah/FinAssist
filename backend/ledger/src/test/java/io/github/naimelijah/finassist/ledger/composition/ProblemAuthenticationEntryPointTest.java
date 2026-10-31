@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.composition;
 
+import static io.github.naimelijah.finassist.ledger.ProblemAssertions.assertRequiredMembers;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import ch.qos.logback.classic.Level;
@@ -96,6 +97,24 @@ class ProblemAuthenticationEntryPointTest {
         assertThat(captured.list).hasSize(2);
         assertThat(captured.list.getFirst().getMessage())
                 .isNotEqualTo(captured.list.get(1).getMessage());
+    }
+
+    /**
+     * The two branches build their bodies apart, one per status, so each is checked for the members every
+     * ledger problem carries (ADR-068).
+     */
+    @Test
+    void Given_an_outage_or_a_refused_token_When_answered_Then_each_problem_carries_every_required_member()
+            throws Exception {
+        MockHttpServletResponse outage = new MockHttpServletResponse();
+        MockHttpServletResponse refusal = new MockHttpServletResponse();
+
+        entryPoint.commence(
+                request, outage, new AuthenticationServiceException("jwks endpoint refused the connection"));
+        entryPoint.commence(request, refusal, new InvalidBearerTokenException("the signature did not verify"));
+
+        assertRequiredMembers(outage);
+        assertRequiredMembers(refusal);
     }
 
     @Test
