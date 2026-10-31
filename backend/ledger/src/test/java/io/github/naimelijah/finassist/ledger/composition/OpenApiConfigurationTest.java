@@ -35,8 +35,8 @@ class OpenApiConfigurationTest {
         assertThat(problem.getProperties())
                 .containsOnlyKeys("type", "title", "status", "detail", "instance", "code", "errors");
         assertThat(problem.getRequired()).containsExactly("code");
-        assertThat(problem.getProperties().get("errors").getItems().getProperties())
-                .containsOnlyKeys("field", "message");
+        Schema<?> errors = problem.getProperties().get("errors");
+        assertThat(errors.getItems().getProperties()).containsOnlyKeys("field", "message");
     }
 
     /**

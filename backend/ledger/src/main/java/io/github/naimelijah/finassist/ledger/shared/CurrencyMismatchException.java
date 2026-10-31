@@ -9,6 +9,8 @@ package io.github.naimelijah.finassist.ledger.shared;
  */
 public class CurrencyMismatchException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     public CurrencyMismatchException(Currency left, Currency right) {
         super("Cannot combine " + left + " with " + right + "; FinAssist performs no conversion");
     }

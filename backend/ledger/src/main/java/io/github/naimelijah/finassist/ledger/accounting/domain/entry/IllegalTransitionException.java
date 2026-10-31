@@ -9,6 +9,8 @@ package io.github.naimelijah.finassist.ledger.accounting.domain.entry;
  */
 public class IllegalTransitionException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     public IllegalTransitionException(TransactionState from, String attempted) {
         super("Cannot " + attempted + " a transaction that is " + from.name());
     }

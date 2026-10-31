@@ -175,7 +175,7 @@ class MoneyVectorsTest {
     void Given_the_vector_file_When_read_Then_every_id_is_unique() {
         List<String> ids = new ArrayList<>();
         for (String name : List.of("construct", "binary", "scalar")) {
-            group(name).forEach(vector -> ids.add(vector.get("id").asText()));
+            group(name).forEach(vector -> ids.add(vector.get("id").asString()));
         }
         Set<String> unique = new HashSet<>(ids);
 
@@ -187,58 +187,58 @@ class MoneyVectorsTest {
     @ParameterizedTest
     @MethodSource("currencies")
     void Given_a_currency_vector_When_looked_up_Then_the_minor_units_agree(JsonNode vector) {
-        assertThat(Currency.valueOf(vector.get("code").asText()).minorUnits())
+        assertThat(Currency.valueOf(vector.get("code").asString()).minorUnits())
                 .isEqualTo(vector.get("minorUnits").asInt());
     }
 
     @ParameterizedTest
     @MethodSource("construct")
     void Given_a_construction_vector_When_applied_Then_it_matches(JsonNode vector) {
-        String amount = vector.get("amount").asText();
-        String currency = vector.get("currency").asText();
+        String amount = vector.get("amount").asString();
+        String currency = vector.get("currency").asString();
 
         if (vector.has("error")) {
             assertThatThrownBy(() -> money(amount, currency))
-                    .isInstanceOf(exceptionFor(vector.get("error").asText()));
+                    .isInstanceOf(exceptionFor(vector.get("error").asString()));
             return;
         }
         assertThat(money(amount, currency).toString())
-                .isEqualTo(vector.get("expect").asText());
+                .isEqualTo(vector.get("expect").asString());
     }
 
     @ParameterizedTest
     @MethodSource("binary")
     void Given_a_binary_vector_When_applied_Then_it_matches(JsonNode vector) {
-        String currency = vector.get("currency").asText();
-        Money left = money(vector.get("left").asText(), currency);
+        String currency = vector.get("currency").asString();
+        Money left = money(vector.get("left").asString(), currency);
         Money right = money(
-                vector.get("right").asText(),
-                vector.has("rightCurrency") ? vector.get("rightCurrency").asText() : currency);
-        String operation = vector.get("op").asText();
+                vector.get("right").asString(),
+                vector.has("rightCurrency") ? vector.get("rightCurrency").asString() : currency);
+        String operation = vector.get("op").asString();
 
         if (vector.has("error")) {
             assertThatThrownBy(() -> apply(operation, left, right))
-                    .isInstanceOf(exceptionFor(vector.get("error").asText()));
+                    .isInstanceOf(exceptionFor(vector.get("error").asString()));
             return;
         }
         assertThat(apply(operation, left, right).toString())
-                .isEqualTo(vector.get("expect").asText());
+                .isEqualTo(vector.get("expect").asString());
     }
 
     @ParameterizedTest
     @MethodSource("scalar")
     void Given_a_scalar_vector_When_applied_Then_it_matches(JsonNode vector) {
         Money amount =
-                money(vector.get("amount").asText(), vector.get("currency").asText());
-        BigDecimal multiplier = new BigDecimal(vector.get("multiplier").asText());
-        String operation = vector.get("op").asText();
+                money(vector.get("amount").asString(), vector.get("currency").asString());
+        BigDecimal multiplier = new BigDecimal(vector.get("multiplier").asString());
+        String operation = vector.get("op").asString();
 
         if (vector.has("error")) {
             assertThatThrownBy(() -> applyScalar(operation, amount, multiplier))
-                    .isInstanceOf(exceptionFor(vector.get("error").asText()));
+                    .isInstanceOf(exceptionFor(vector.get("error").asString()));
             return;
         }
         assertThat(applyScalar(operation, amount, multiplier).toString())
-                .isEqualTo(vector.get("expect").asText());
+                .isEqualTo(vector.get("expect").asString());
     }
 }
