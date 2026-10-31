@@ -1,7 +1,8 @@
 # ADR-017: Coverage is measured and never gated; test strength is measured by mutation
 
 - **Status:** Accepted, extended by
-  [ADR-062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md), its Testcontainers deferral resolved by
+  [ADR-062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md) and
+  [ADR-065](ADR-065-javac-lint-is-the-java-lint-gate.md), its Testcontainers deferral resolved by
   [ADR-025](ADR-025-integration-tests-on-testcontainers.md)
 - **Date:** 2026-08-30
 

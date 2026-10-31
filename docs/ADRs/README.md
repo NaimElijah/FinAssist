@@ -22,7 +22,7 @@ append-only history: to change course, add a new record and mark the old one
 | [014](ADR-014-grounded-answers-require-citations.md) | An answer stating a figure must cite the ledger | Accepted |
 | [015](ADR-015-planning-as-a-sixth-bounded-context.md) | `planning` as a sixth bounded context, in the ledger | Accepted |
 | [016](ADR-016-deterministic-per-currency-projection.md) | Deterministic, per-currency projections | Accepted |
-| [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted, extended by 062, its Testcontainers deferral resolved by 025 |
+| [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted, extended by 062 and 065, its Testcontainers deferral resolved by 025 |
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
 | [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, extended by 030, 039, 050 and 060, corrected by 047 |
 | [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, acted on by 023, extended by 033, its persistence obligation resolved by 024 |
@@ -70,6 +70,7 @@ append-only history: to change course, add a new record and mark the old one
 | [062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md) | Every kept third-party dependency is justified, and each has a revisit trigger | Accepted, corrected by 064 |
 | [063](ADR-063-every-container-holds-only-the-privilege-it-uses.md) | Under Compose, every container holds only the privilege it uses, and `make check-compose` holds it there | Accepted |
 | [064](ADR-064-what-the-build-fetches-is-pinned-by-content.md) | What the build fetches is pinned by content where the tool allows it, and Dependabot moves every pin | Accepted |
+| [065](ADR-065-javac-lint-is-the-java-lint-gate.md) | javac's own lint, every category, is the Java services' lint gate | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -335,3 +336,10 @@ PostgreSQL major, which corrects 062 and 031, whose bodies say the one-shots' Py
 hand
 ([#80](https://github.com/NaimElijah/FinAssist/issues/80),
 [#342](https://github.com/NaimElijah/FinAssist/issues/342)).
+
+065 extends 017 on 2026-10-30. The Java services had a format check and no lint. Both now
+compile with `-Xlint:all -Werror`, main and test code alike, with no category excluded. The 35
+warnings it found are fixed rather than suppressed, except two `try` warnings on test methods
+that open a scope for its effect alone. A dependency bump that deprecates a call the code makes
+now fails the build until the call moves
+([#342](https://github.com/NaimElijah/FinAssist/issues/342)).
