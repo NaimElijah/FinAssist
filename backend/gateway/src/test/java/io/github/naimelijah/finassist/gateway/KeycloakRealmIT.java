@@ -10,6 +10,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +20,8 @@ import java.util.regex.Pattern;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.testcontainers.containers.Container.ExecResult;
+import org.testcontainers.containers.ExecConfig;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.output.WaitingConsumer;
@@ -123,6 +126,55 @@ class KeycloakRealmIT {
 
     /** How long the control sign-in's log line may take to reach the container's log. */
     private static final int CONTROL_LINE_WAIT_SECONDS = 30;
+
+    /**
+     * The image's own user, and the group it runs in, as {@code USER 1000:1000} in the Dockerfile
+     * sets them: not in group 0, which owns the tree upstream.
+     */
+    private static final String IMAGE_IDENTITY = "user 1000 groups 1000";
+
+    /** The same uid in group 0, as a {@code user: "1000:0"} override or an added group would run it. */
+    private static final String GROUP_ZERO_USER = "1000:0";
+
+    private static final String GROUP_ZERO_IDENTITY = "user 1000 groups 0";
+
+    private static final String KEYCLOAK_HOME = "/opt/keycloak";
+
+    /** The one path under the tree the server writes, and the only one its user may (ADR-063). */
+    private static final String TRANSACTION_LOG = KEYCLOAK_HOME + "/data/transaction-logs";
+
+    /**
+     * Keycloak's code, its configuration, the directories holding them and the realm it imports.
+     * Each must exist, so a path a later Keycloak renames fails the probe rather than passing it.
+     */
+    private static final List<String> READ_ONLY_PATHS = List.of(
+            KEYCLOAK_HOME,
+            KEYCLOAK_HOME + "/bin",
+            KEYCLOAK_HOME + "/bin/kc.sh",
+            KEYCLOAK_HOME + "/lib",
+            KEYCLOAK_HOME + "/lib/quarkus-run.jar",
+            KEYCLOAK_HOME + "/lib/lib/main",
+            KEYCLOAK_HOME + "/conf",
+            KEYCLOAK_HOME + "/conf/keycloak.conf",
+            KEYCLOAK_HOME + "/providers",
+            KEYCLOAK_HOME + "/themes",
+            KEYCLOAK_HOME + "/data",
+            KEYCLOAK_HOME + "/data/import",
+            KEYCLOAK_HOME + "/data/import/finassist-realm.json");
+
+    /**
+     * Prints who ran it, then one line per argument: missing, writable or read-only to that user.
+     * Bash, because the image's {@code /bin/sh} is a link to it and {@code kc.sh} needs it anyway.
+     */
+    private static final String WRITABILITY_PROBE = """
+            echo "user $(id -u) groups $(id -G)"
+            for path in "$@"; do
+              if [ ! -e "$path" ]; then echo "missing $path"
+              elif [ -w "$path" ]; then echo "writable $path"
+              else echo "read-only $path"
+              fi
+            done
+            """;
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final HttpClient CLIENT = HttpClient.newHttpClient();
@@ -682,6 +734,65 @@ class KeycloakRealmIT {
         assertThat(features)
                 .filteredOn(feature -> feature.path("deprecated").asBoolean(false))
                 .allSatisfy(feature -> assertMember(feature, "enabled", BooleanNode.FALSE));
+    }
+
+    private static String[] writabilityProbeCommand() {
+        List<String> command = new ArrayList<>(List.of("bash", "-c", WRITABILITY_PROBE, "bash"));
+        command.addAll(READ_ONLY_PATHS);
+        command.add(TRANSACTION_LOG);
+        return command.toArray(String[]::new);
+    }
+
+    /** What the probe must print for {@code identity}: every path read-only but the transaction log. */
+    private static List<String> onlyTheTransactionLogWritableTo(String identity) {
+        List<String> lines = new ArrayList<>();
+        lines.add(identity);
+        READ_ONLY_PATHS.forEach(path -> lines.add("read-only " + path));
+        lines.add("writable " + TRANSACTION_LOG);
+        return lines;
+    }
+
+    private static void assertProbeAnswered(ExecResult probe, List<String> expected) {
+        assertThat(probe.getExitCode())
+                .as("the probe's exit code, stderr: %s", probe.getStderr())
+                .isZero();
+        assertThat(probe.getStdout().lines().toList())
+                .as("who ran the probe, and what it could write")
+                .containsExactlyElementsOf(expected);
+    }
+
+    /**
+     * ADR-063's least privilege, held for the identity provider: the image copies Keycloak's tree as
+     * root, so the server cannot rewrite its own launcher, jars, configuration or realm, a change
+     * that would otherwise persist on a writable root filesystem and run on every restart. Nothing
+     * else reads the built image's ownership, so a Keycloak bump or an edit to the Dockerfile that
+     * hands the tree back to its user would leave every other suite green. The probe runs inside
+     * the container this class started, as the user the image itself names.
+     */
+    @Test
+    void
+            Given_the_built_keycloak_image_When_its_runtime_user_probes_the_install_tree_Then_only_the_transaction_log_is_writable()
+                    throws Exception {
+        ExecResult probe = keycloak.execInContainer(writabilityProbeCommand());
+
+        assertProbeAnswered(probe, onlyTheTransactionLogWritableTo(IMAGE_IDENTITY));
+    }
+
+    /**
+     * The second half of ADR-063's read-only tree: upstream marks it group-writable for gid 0, and
+     * root ownership alone leaves those bits in place, so the same uid run in group 0 must find it
+     * read-only too.
+     */
+    @Test
+    void
+            Given_the_built_keycloak_image_When_uid_1000_in_group_0_probes_the_install_tree_Then_only_the_transaction_log_is_writable()
+                    throws Exception {
+        ExecResult probe = keycloak.execInContainer(ExecConfig.builder()
+                .user(GROUP_ZERO_USER)
+                .command(writabilityProbeCommand())
+                .build());
+
+        assertProbeAnswered(probe, onlyTheTransactionLogWritableTo(GROUP_ZERO_IDENTITY));
     }
 
     /** The claim is a bare JSON array of role names, not Keycloak's nested {@code realm_access} shape (ADR-032). */

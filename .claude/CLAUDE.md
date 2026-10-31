@@ -152,16 +152,16 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 
 ### Compose (`docker-compose.yml`)
 
-- **Every long-running service takes `restart: *restart-policy` and `logging: *bounded-logs`; the
-  one-shots `auth-smoke` and `secret-check` take neither.** The two `x-` blocks at the top state
-  once the policy, `unless-stopped`, and the bound, three 10 MB `json-file` logs (ADR-039, ADR-019).
-- **Every healthcheck probes readiness**: `/actuator/health/readiness` on the ledger and the
-  gateway, `/ready` on the assistant, `/health/ready` on Keycloak's management port.
-  `make check-compose` fails a long-running service whose restart or logging is not exactly those
-  blocks, a one-shot with either, and any of those four healthchecks that is not readiness (#142).
-- **`auth-smoke` stays behind `profiles: [smoke]`**: CI validates it (`--profile smoke config`) but
-  never runs it, nor `make restore-check` (ADR-034, ADR-038). **`secret-check` has no profile**:
-  `db`, `keycloak-db` and `grafana` wait on it, and CI runs it on a published value (ADR-044).
+- **Long-running services take exactly the `x-` blocks' restart and logging, one-shots neither;
+  the four healthchecks probe readiness**: `/actuator/health/readiness` (ledger, gateway), `/ready`
+  (assistant), `/health/ready` on Keycloak's management port (ADR-039, ADR-019, #142).
+- **All but `db` and `keycloak-db` take `<<: *hardened`, all but those and Keycloak `read_only`**;
+  none takes a host privilege `ops/CLAUDE.md` names; `network_mode` is only `secret-check`'s. `db`
+  shares `books` with the ledger alone, `keycloak-db` `identity` with Keycloak alone (ADR-063).
+- **`auth-smoke` stays behind exactly `profiles: [smoke]`**: CI validates it but never runs it,
+  nor `make restore-check` (ADR-034, ADR-038). **`secret-check` has no profile**: both databases
+  and Grafana wait on it, and CI runs it on a published value (ADR-044). `make check-compose` holds
+  the first two rules, both profiles and the ports under **Run**; `ops/CLAUDE.md` lists the rest.
 
 ### Tests
 

@@ -7,8 +7,9 @@ receivers:
   otlp:
     protocols:
       http:
-        # 0.0.0.0 because the sender is outside this container: both services run natively on
-        # the host today, and only the ports mapped in docker-compose.yml are reachable.
+        # 0.0.0.0 because every sender is outside this container: the ledger, the gateway and
+        # the assistant push from their own Compose containers, or natively from the host through
+        # the ports docker-compose.yml publishes on 127.0.0.1.
         endpoint: 0.0.0.0:4318
       grpc:
         endpoint: 0.0.0.0:4317
@@ -26,10 +27,12 @@ exporters:
     endpoint: 0.0.0.0:8889
 
   # Traces have no store. Adding Tempo or Jaeger would be a fourth service and a second data
-  # store; until something reads traces regularly, printing them is enough to prove the pipe
-  # works. `docker compose logs otel-collector` is where a span shows up.
+  # store; until something reads traces regularly, a count is enough to prove the pipe works.
+  # `basic` prints one line per batch, its span count, to `docker compose logs otel-collector`,
+  # never a span's attributes: `detailed` would copy every attribute into the container's log,
+  # outside the services' one redaction boundary (ADR-019).
   debug:
-    verbosity: detailed
+    verbosity: basic
 
 service:
   pipelines:

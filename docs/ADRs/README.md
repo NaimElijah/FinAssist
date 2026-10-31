@@ -22,7 +22,7 @@ append-only history: to change course, add a new record and mark the old one
 | [014](ADR-014-grounded-answers-require-citations.md) | An answer stating a figure must cite the ledger | Accepted |
 | [015](ADR-015-planning-as-a-sixth-bounded-context.md) | `planning` as a sixth bounded context, in the ledger | Accepted |
 | [016](ADR-016-deterministic-per-currency-projection.md) | Deterministic, per-currency projections | Accepted |
-| [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted, extended by 062, its Testcontainers deferral resolved by 025 |
+| [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted, extended by 062 and 065, its Testcontainers deferral resolved by 025 |
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
 | [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, extended by 030, 039, 050 and 060, corrected by 047 |
 | [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, acted on by 023, extended by 033, its persistence obligation resolved by 024 |
@@ -36,7 +36,7 @@ append-only history: to change course, add a new record and mark the old one
 | [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030, 056 and 058 |
 | [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056, 057 and 062 |
 | [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, 053, 057 and 058, corrected by 047 |
-| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 and 060, corrected by 047 |
+| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 and 060, corrected by 047 and 064 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted, corrected by 047 |
 | [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035 |
 | [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted, extended by 040 |
@@ -50,16 +50,16 @@ append-only history: to change course, add a new record and mark the old one
 | [042](ADR-042-agent-instructions-per-codebase.md) | Agent instructions split per codebase, one `CLAUDE.md` beside each | Accepted |
 | [043](ADR-043-github-secret-scanning-and-dependabot-alerts.md) | GitHub's own secret scanning, push protection and Dependabot alerts; no scanner in CI | Accepted, extended by 044 |
 | [044](ADR-044-compose-refuses-a-published-secret.md) | Compose refuses to start on a secret that a file in the repository holds | Accepted, extended by 061 |
-| [045](ADR-045-dependabot-triage-and-toolchain-holds.md) | Dependabot's updates are triaged weekly, the Java pair moves together, and the toolchain lines move only by ADR | Accepted, extended by 047 and 062 |
+| [045](ADR-045-dependabot-triage-and-toolchain-holds.md) | Dependabot's updates are triaged weekly, the Java pair moves together, and the toolchain lines move only by ADR | Accepted, extended by 047, 062 and 064 |
 | [046](ADR-046-architecture-rules-read-the-code-never-load-it.md) | Architecture rules read the code and never load it | Accepted |
 | [047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) | Twelve passages of Accepted records reconciled with the system as built | Accepted |
 | [048](ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md) | Domain events stay in-process until a consumer exists, and production keeps no event log | Accepted |
-| [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted, extended by 061 |
+| [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted, extended by 061 and 063 |
 | [050](ADR-050-no-domain-metric-yet-decided-again.md) | No domain metric yet, decided again, with new triggers | Accepted |
 | [051](ADR-051-what-a-translation-may-decide.md) | What a translation may decide: choosing records stays in `composition`, a rule in the downstream's own words moves into it | Accepted |
 | [052](ADR-052-ops-holds-operator-code-one-directory-per-tool.md) | `ops/` holds operator code, one directory per tool | Accepted |
 | [053](ADR-053-the-gateways-outbound-calls-speak-http-1-1-under-one-time-budget.md) | The gateway's outbound calls speak HTTP/1.1, under one time budget | Accepted |
-| [054](ADR-054-each-service-ships-as-a-two-stage-image-run-as-a-non-root-user.md) | Each service ships as a two-stage image, built from source and run as a non-root user | Accepted |
+| [054](ADR-054-each-service-ships-as-a-two-stage-image-run-as-a-non-root-user.md) | Each service ships as a two-stage image, built from source and run as a non-root user | Accepted, extended by 063 and 064 |
 | [055](ADR-055-the-assistants-development-seed-lives-in-its-composition-root.md) | The assistant's development seed lives in its composition root, and is off by default | Accepted |
 | [056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md) | The web client retries a failed read once, and never a write | Accepted |
 | [057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md) | A page on another `localhost` port is treated as hostile | Accepted |
@@ -67,7 +67,10 @@ append-only history: to change course, add a new record and mark the old one
 | [059](ADR-059-the-assistant-trusts-only-the-key-set-it-last-fetched.md) | The assistant trusts only the key set it last fetched | Accepted |
 | [060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md) | The `finassist` realm and the Keycloak image are configured, not defaulted | Accepted |
 | [061](ADR-061-the-stack-refuses-a-configuration-that-weakens-a-credential.md) | The stack refuses a configuration that weakens a credential | Accepted |
-| [062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md) | Every kept third-party dependency is justified, and each has a revisit trigger | Accepted |
+| [062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md) | Every kept third-party dependency is justified, and each has a revisit trigger | Accepted, corrected by 064 |
+| [063](ADR-063-every-container-holds-only-the-privilege-it-uses.md) | Under Compose, every container holds only the privilege it uses, and `make check-compose` holds it there | Accepted |
+| [064](ADR-064-what-the-build-fetches-is-pinned-by-content.md) | What the build fetches is pinned by content where the tool allows it, and Dependabot moves every pin | Accepted |
+| [065](ADR-065-javac-lint-is-the-java-lint-gate.md) | javac's own lint, every category, is the Java services' lint gate | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -305,3 +308,38 @@ the dev extra. No Maven lockfile is adopted: Boot's parent version is the Java s
 Java services override OpenTelemetry to 1.67.0 for GHSA-ccrj-gw8r-854m, until Boot manages it.
 Dependabot groups the React packages and holds `@types/node` on Node's major
 ([#341](https://github.com/NaimElijah/FinAssist/issues/341)).
+
+063 extends 049 and 054 on 2026-10-30. Scan 5 found that `make check-compose` did not check
+the loopback publication, `keycloak-db`'s lack of a port or the `smoke` profile, although the
+root `CLAUDE.md` listed them among the rules the build enforces. It also found every container
+on Docker's default privileges, on one network. Every service but the two databases now drops
+every capability and sets `no-new-privileges`, all but those and Keycloak run on a read-only
+root, and none takes `privileged`, `cap_add`, a shared namespace, a device, root or the
+Docker socket. Each database shares a network with its one client alone, `keycloak-db`'s
+internal. The Java images and Keycloak's leave their code owned by root, and Prometheus
+grants no CORS origin. The check refuses a break of any of these, naming its exemptions so
+that a new service is held too. Still open: the two PostgreSQL containers' capabilities
+([#386](https://github.com/NaimElijah/FinAssist/issues/386)), limits
+([#387](https://github.com/NaimElijah/FinAssist/issues/387)), whether `db` publishes its
+port, which any container on Docker Desktop reaches through `host.docker.internal`
+([#388](https://github.com/NaimElijah/FinAssist/issues/388)), and the routes to the host the
+check does not yet name ([#389](https://github.com/NaimElijah/FinAssist/issues/389),
+[#342](https://github.com/NaimElijah/FinAssist/issues/342)).
+
+064 extends 045 and 054, and corrects 062 and 031, on 2026-10-30. Every GitHub Action is pinned
+to a commit SHA with its version in a comment, and the Maven distribution to its SHA-256.
+Dependabot keeps both current. The Java build stages install `unzip`, without which `mvnw`
+checks the wrong archive. Dependabot's `docker-compose` ecosystem, generally available since
+2025-02-25, now proposes Compose's own image tags, holding Python below 3.14 and every
+PostgreSQL major, which corrects 062 and 031, whose bodies say the one-shots' Python tag and
+`keycloak-db`'s are bumped by hand. The Testcontainers tags still follow a postgres bump by
+hand
+([#80](https://github.com/NaimElijah/FinAssist/issues/80),
+[#342](https://github.com/NaimElijah/FinAssist/issues/342)).
+
+065 extends 017 on 2026-10-30. The Java services had a format check and no lint. Both now
+compile with `-Xlint:all -Werror`, main and test code alike, with no category excluded. The 35
+warnings it found are fixed rather than suppressed, except two `try` warnings on test methods
+that open a scope for its effect alone. A dependency bump that deprecates a call the code makes
+now fails the build until the call moves
+([#342](https://github.com/NaimElijah/FinAssist/issues/342)).

@@ -574,6 +574,30 @@ history; write the commit message well and this file writes itself.
 
 ### Security
 
+- **The containers, Compose and CI were audited, and what the audit found is fixed or filed.**
+  Scan 5 of 12 in M0 ([#342](https://github.com/NaimElijah/FinAssist/issues/342)):
+  - **`make check-compose` now enforces the Compose rules it was said to:** every published port on
+    exactly `127.0.0.1`, no port on `keycloak-db`, `auth-smoke` behind exactly `profiles: [smoke]`,
+    and no profile on `secret-check`.
+  - **Every container whose image runs as its own user drops every Linux capability and sets
+    `no-new-privileges`, and eight run on a read-only root.** `make check-compose` holds every
+    service but the two databases to that, and refuses host privileges such as `privileged`, a
+    host namespace or a bind of a file named `docker.sock` on any service; the routes to the host
+    it does not name yet are [#389](https://github.com/NaimElijah/FinAssist/issues/389). Each
+    database shares a network with its one client alone, so no other container can resolve it; on
+    Docker Desktop, `db`'s loopback port stays reachable through `host.docker.internal`
+    ([#388](https://github.com/NaimElijah/FinAssist/issues/388)). The Java images and Keycloak's
+    leave their code owned by root, and Prometheus grants no cross-origin read
+    ([ADR-063](docs/ADRs/ADR-063-every-container-holds-only-the-privilege-it-uses.md)).
+  - **What the build fetches is pinned by content.** Every GitHub Action is pinned to a commit SHA,
+    and the Maven distribution to its SHA-256. Dependabot now also proposes the image tags
+    `docker-compose.yml` names itself
+    ([ADR-064](docs/ADRs/ADR-064-what-the-build-fetches-is-pinned-by-content.md)).
+  - **The Java services fail their build on any javac warning,** main and test code alike
+    ([ADR-065](docs/ADRs/ADR-065-javac-lint-is-the-java-lint-gate.md)).
+  - **CI caches no longer collide, and it keeps a complete run for every commit on `dev` and
+    `main`.** It leaves no job token in the clone, and the collector logs span counts rather than
+    span attributes.
 - **Every direct dependency was vetted, and the Java services move past their advisories.**
   Scan 4 of 12 in M0 ([#341](https://github.com/NaimElijah/FinAssist/issues/341)) checked each
   direct dependency of the four manifests for need, maintenance, licence, advisories, footprint and

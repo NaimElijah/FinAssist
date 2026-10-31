@@ -3,7 +3,8 @@
 - **Status:** Accepted, extended by [ADR-036](ADR-036-least-privilege-keycloak-client-scoping.md)
   and
   [ADR-060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md),
-  corrected by [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md).
+  corrected by [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) and
+  [ADR-064](ADR-064-what-the-build-fetches-is-pinned-by-content.md).
 - **Date:** 2026-09-16
 
 ## Context

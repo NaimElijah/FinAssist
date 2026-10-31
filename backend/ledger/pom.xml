@@ -195,6 +195,22 @@
         <artifactId>spring-boot-maven-plugin</artifactId>
       </plugin>
 
+      <!--
+        javac's own lint is the Java lint gate: every category, in main and test code alike, and a
+        warning fails the build. No category is excluded.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <showWarnings>true</showWarnings>
+          <compilerArgs>
+            <arg>-Xlint:all</arg>
+            <arg>-Werror</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
+
       <!-- Formatter is authoritative: `spotless:check` gates CI, `spotless:apply` fixes. -->
       <plugin>
         <groupId>com.diffplug.spotless</groupId>

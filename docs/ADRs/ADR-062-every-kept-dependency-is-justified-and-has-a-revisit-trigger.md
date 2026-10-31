@@ -1,6 +1,7 @@
 # ADR-062: Every kept third-party dependency is justified, and each has a revisit trigger
 
-- **Status:** Accepted
+- **Status:** Accepted, corrected by
+  [ADR-064](ADR-064-what-the-build-fetches-is-pinned-by-content.md)
 - **Date:** 2026-10-30
 
 Extends [ADR-045](ADR-045-dependabot-triage-and-toolchain-holds.md), which triages the updates and

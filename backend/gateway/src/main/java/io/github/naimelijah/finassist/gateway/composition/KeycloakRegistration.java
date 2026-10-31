@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.gateway.composition;
 
+import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.restclient.RestTemplateBuilder;
@@ -228,7 +229,8 @@ public class KeycloakRegistration {
                     .jwsAlgorithm(SignatureAlgorithm.RS256)
                     .restOperations(bounded)
                     .build();
-            decoder.setJwtValidator(JwtValidators.createDefaultWithValidators(new OidcIdTokenValidator(registration)));
+            decoder.setJwtValidator(
+                    JwtValidators.createDefaultWithValidators(List.of(new OidcIdTokenValidator(registration))));
             decoder.setClaimSetConverter(OidcIdTokenDecoderFactory.createDefaultClaimTypeConverter());
             return decoder;
         };
