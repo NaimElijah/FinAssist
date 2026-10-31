@@ -75,6 +75,10 @@ springdoc:
   # transparent proxy to services that publish their own contracts and must never be described
   # here too (GatewayOpenApiConfiguration's javadoc says why).
   paths-to-match: /bff/**
+  # No operation is tagged, as in the assistant's contract: springdoc's default tag names the
+  # controller's class, which POST /bff/logout, built by hand, is not served by, and two
+  # operations need no grouping (GatewayContractIT).
+  auto-tag-classes: false
 
 spring:
   application:
@@ -186,6 +190,10 @@ spring:
       # exposes timeouts, redirects, cookie handling, an SSL bundle, the imperative factory and
       # the reactive connector, and none of them the HTTP version. GatewayConfiguration's
       # `relayHttpVersion` bean pins it to HTTP/1.1 instead, and says which failure that prevents.
+      #
+      # Keep read-timeout above connect-timeout. The JDK request factory starts the read timer
+      # before a connection exists, and a relay that hits it is answered 504 "outcome unknown"
+      # (ADR-067), which is only true once the connection was opened and the request sent.
       connect-timeout: 5s
       read-timeout: 10s
 
@@ -215,7 +223,8 @@ management:
       # UP from Boot's own liveness/readiness state alone: no readiness group names Keycloak, the
       # ledger or the assistant, so an outage of any of them does not turn the gateway's readiness
       # down, unlike the ledger's, which includes its database. A relayed call to an unreachable
-      # service is answered 502 UPSTREAM_UNAVAILABLE instead (GatewayRelayProblems).
+      # service is answered 502 UPSTREAM_UNAVAILABLE instead, and one to a service that stops
+      # answering 504 UPSTREAM_TIMEOUT (GatewayRelayProblems, ADR-067).
       probes:
         enabled: true
   tracing:

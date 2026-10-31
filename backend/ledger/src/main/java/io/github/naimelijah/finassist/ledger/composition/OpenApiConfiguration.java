@@ -36,6 +36,9 @@ import org.springframework.context.annotation.Configuration;
  *       that cannot return either.
  * </ul>
  *
+ * <p>{@link #unboundedSizes()} corrects one thing swagger-core gets wrong: the maximum a minimum-only
+ * {@code @Size} never set.
+ *
  * <p>{@code springdoc.writer-with-order-by-keys} and {@code springdoc.paths-to-match} in {@code
  * application.yml} make up the rest: stable key order, and nothing outside {@code /api/v1} in the
  * contract.
@@ -53,6 +56,13 @@ public class OpenApiConfiguration {
     private static final String PROBLEM_REF = "#/components/schemas/" + PROBLEM_SCHEMA;
     private static final String PROBLEM_DESCRIPTION = "A problem (RFC 9457)";
     private static final String PROBLEM_JSON = org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE;
+
+    /**
+     * {@code instance} is resolved by a client against the URL it called, and behind the gateway that URL
+     * is not the one the answering service saw. Said in the contract, since nothing in the value shows it.
+     */
+    private static final String INSTANCE_DESCRIPTION = "The request's path as received by the service that"
+            + " answered. Behind the gateway it omits the gateway's /ledger or /assistant prefix.";
 
     private static final String OBJECT = "object";
     private static final String STRING = "string";
@@ -103,6 +113,37 @@ public class OpenApiConfiguration {
         };
     }
 
+    /**
+     * Drops the maximum a minimum-only {@code @Size} publishes. Bean validation defaults {@code max} to
+     * {@link Integer#MAX_VALUE}, and swagger-core copies it into {@code maxItems} or {@code maxLength}
+     * whether or not it was set, so {@code RecordTransactionRequest.entries} claimed a bound nothing
+     * enforces; the real one is the 64 KiB body limit. Only that default is dropped, never a maximum a
+     * constraint states, and validation is untouched.
+     */
+    @Bean
+    OpenApiCustomizer unboundedSizes() {
+        return document -> {
+            if (document.getComponents() != null && document.getComponents().getSchemas() != null) {
+                document.getComponents().getSchemas().values().forEach(OpenApiConfiguration::dropDefaultMaximum);
+            }
+        };
+    }
+
+    private static void dropDefaultMaximum(Schema<?> schema) {
+        if (Integer.valueOf(Integer.MAX_VALUE).equals(schema.getMaxItems())) {
+            schema.setMaxItems(null);
+        }
+        if (Integer.valueOf(Integer.MAX_VALUE).equals(schema.getMaxLength())) {
+            schema.setMaxLength(null);
+        }
+        if (schema.getProperties() != null) {
+            schema.getProperties().values().forEach(OpenApiConfiguration::dropDefaultMaximum);
+        }
+        if (schema.getItems() != null) {
+            dropDefaultMaximum(schema.getItems());
+        }
+    }
+
     private static void answerProblemsByDefault(Operation operation) {
         if (operation.getResponses() == null) {
             operation.responses(new ApiResponses());
@@ -119,19 +160,29 @@ public class OpenApiConfiguration {
                                                 new MediaType().schema(new JsonSchema().$ref(PROBLEM_REF)))));
     }
 
-    /** The members {@code LedgerProblemHandler} and {@code HostAllowListFilter} write; only {@code code} is always there. */
+    /**
+     * The members every problem writer in the ledger emits. {@code type}, {@code title}, {@code status} and
+     * {@code code} are on every problem, and {@code field} and {@code message} on every {@code errors} entry,
+     * so the contract requires them and a client may rely on them; {@code detail}, {@code instance} and
+     * {@code errors} are absent from some problems.
+     */
     private static Schema<?> problemSchema() {
         Schema<?> violation = ofType(OBJECT)
                 .addProperty(Problems.FIELD_MEMBER, ofType(STRING))
-                .addProperty(Problems.MESSAGE_MEMBER, ofType(STRING));
+                .addProperty(Problems.MESSAGE_MEMBER, ofType(STRING))
+                .addRequiredItem(Problems.FIELD_MEMBER)
+                .addRequiredItem(Problems.MESSAGE_MEMBER);
         return ofType(OBJECT)
                 .addProperty(Problems.TYPE_MEMBER, ofType(STRING).format(URI_REFERENCE))
                 .addProperty(Problems.TITLE_MEMBER, ofType(STRING))
                 .addProperty(Problems.STATUS_MEMBER, ofType(INTEGER))
                 .addProperty(Problems.DETAIL_MEMBER, ofType(STRING))
-                .addProperty(Problems.INSTANCE_MEMBER, ofType(STRING))
+                .addProperty(Problems.INSTANCE_MEMBER, ofType(STRING).description(INSTANCE_DESCRIPTION))
                 .addProperty(Problems.CODE_MEMBER, ofType(STRING))
                 .addProperty(Problems.ERRORS_MEMBER, ofType(ARRAY).items(violation))
+                .addRequiredItem(Problems.TYPE_MEMBER)
+                .addRequiredItem(Problems.TITLE_MEMBER)
+                .addRequiredItem(Problems.STATUS_MEMBER)
                 .addRequiredItem(Problems.CODE_MEMBER);
     }
 

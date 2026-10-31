@@ -258,6 +258,9 @@ class GatewaySecurityTest {
         mvc.perform(named(get(path)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("about:blank"))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
                 .andExpect(header().doesNotExist(HttpHeaders.LOCATION));
     }
@@ -487,7 +490,8 @@ class GatewaySecurityTest {
      * for any method, and the CSRF token is sent — so Spring raises {@code
      * HttpRequestMethodNotSupportedException}, which {@code GatewayRelayProblems}' catch-all would
      * otherwise turn into a 500 {@code INTERNAL_ERROR}, logged at ERROR. Nothing failed here but
-     * the request.
+     * the request. RFC 9110 §15.5.6 requires a 405 to name the methods the resource does support,
+     * as the ledger's and the assistant's do.
      */
     @Test
     void Given_a_signed_in_session_When_a_method_no_handler_supports_is_used_Then_it_is_405_not_500() throws Exception {
@@ -496,20 +500,30 @@ class GatewaySecurityTest {
 
         mvc.perform(named(post(ME)).session(session).cookie(csrf).header(XSRF_HEADER, csrf.getValue()))
                 .andExpect(status().isMethodNotAllowed())
+                .andExpect(header().stringValues(HttpHeaders.ALLOW, "GET"))
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("about:blank"))
+                .andExpect(jsonPath("$.title").value("Method Not Allowed"))
+                .andExpect(jsonPath("$.status").value(405))
                 .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
     }
 
     /**
      * The same rule for the other framework refusal this gateway can raise: {@code GET /bff/me}
-     * {@code produces} JSON alone, so asking for anything else is 406, not a gateway failure.
+     * {@code produces} JSON alone, so asking for anything else is 406, not a gateway failure. The
+     * framework's own headers are copied onto the refusal, as a 405's {@code Allow} is, so the 406
+     * names in {@code Accept} the one media type the path does produce.
      */
     @Test
     void Given_a_signed_in_session_When_a_media_type_no_handler_produces_is_asked_for_Then_it_is_406_not_500()
             throws Exception {
         mvc.perform(named(get(ME)).accept(MediaType.TEXT_PLAIN).with(oidcLogin().idToken(ownerToken(List.of("owner")))))
                 .andExpect(status().isNotAcceptable())
+                .andExpect(header().stringValues(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE))
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("about:blank"))
+                .andExpect(jsonPath("$.title").value("Not Acceptable"))
+                .andExpect(jsonPath("$.status").value(406))
                 .andExpect(jsonPath("$.code").value("NOT_ACCEPTABLE"));
     }
 

@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springdoc.webmvc.api.OpenApiWebMvcResource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +53,13 @@ class GatewayContractIT {
 
     private static final Path ACTUAL =
             Path.of("target", "contracts", CONTRACT_FILE).toAbsolutePath();
+
+    /**
+     * What {@code @hey-api/typescript} appends to an operation's PascalCased {@code operationId} for
+     * the types it derives from that operation; the bare id is listed by the empty suffix.
+     */
+    private static final List<String> GENERATED_TYPE_SUFFIXES =
+            List.of("", "Data", "Error", "Errors", "Response", "Responses");
 
     private static final String INDENT = "  ";
     private static final String LINE_FEED = "\n";
@@ -147,6 +155,64 @@ class GatewayContractIT {
 
         assertThat(operationIds).isNotEmpty();
         assertThat(operationIds).noneMatch(id -> id.matches(".*_\\d+$"));
+    }
+
+    /**
+     * A schema resolved by hand, as {@code LogoutResponse} is, can lose the {@code type} springdoc
+     * writes for every schema it resolves itself, and a document that states it for some schemas and
+     * not others reads as two shapes to a client.
+     */
+    @Test
+    void Given_the_generated_document_When_component_schemas_are_read_Then_each_states_it_is_an_object()
+            throws Exception {
+        JsonNode schemas = JSON.readTree(generatedDocument()).path("components").path("schemas");
+
+        assertThat(schemas.propertyNames()).isNotEmpty();
+        assertThat(schemas.propertyNames())
+                .allSatisfy(name -> assertThat(schemas.path(name).path("type").asString())
+                        .as(name)
+                        .isEqualTo("object"));
+    }
+
+    /**
+     * The web client's generator names each operation's types after its {@code operationId} —
+     * {@code <Id>Data}, {@code <Id>Response} and the like — and renames one to {@code <Id>Response2}
+     * rather than failing when a schema already holds the name. So an id must leave every schema
+     * name free.
+     */
+    @Test
+    void Given_the_generated_document_When_operation_ids_are_read_Then_none_derives_a_schema_name() throws Exception {
+        JsonNode document = JSON.readTree(generatedDocument());
+        List<String> schemaNames = document.path("components").path("schemas").propertyNames().stream()
+                .toList();
+        List<String> derivedNames = operations(document)
+                .map(operation -> operation.path("operationId").asString())
+                .map(id -> id.substring(0, 1).toUpperCase(Locale.ROOT) + id.substring(1))
+                .flatMap(pascal -> GENERATED_TYPE_SUFFIXES.stream().map(suffix -> pascal + suffix))
+                .toList();
+
+        assertThat(derivedNames).isNotEmpty().doesNotContainAnyElementsOf(schemaNames);
+    }
+
+    /**
+     * {@code GET /bff/me} is found by springdoc and {@code POST /bff/logout} is built by hand, so
+     * nothing but this keeps the two described alike: each says what it does, and neither carries
+     * a tag — like the assistant's operations, since two operations need no grouping and springdoc's
+     * default tag would name a Java class the hand-built one is not served by.
+     */
+    @Test
+    void Given_the_generated_document_When_operations_are_read_Then_each_has_a_summary_and_no_tag() throws Exception {
+        List<JsonNode> operations =
+                operations(JSON.readTree(generatedDocument())).toList();
+
+        assertThat(operations).hasSize(2).allSatisfy(operation -> {
+            assertThat(operation.path("summary").asString()).isNotBlank();
+            assertThat(operation.has("tags")).as("tags").isFalse();
+        });
+    }
+
+    private static Stream<JsonNode> operations(JsonNode document) {
+        return document.path("paths").valueStream().flatMap(JsonNode::valueStream);
     }
 
     private static List<String> requiredMembers(JsonNode schemas, String schema) {

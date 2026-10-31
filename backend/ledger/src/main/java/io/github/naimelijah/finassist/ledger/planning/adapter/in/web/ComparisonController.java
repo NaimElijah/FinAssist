@@ -11,6 +11,7 @@ import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Horizon;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Scenario;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.ScenarioId;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Cadence;
+import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
@@ -96,11 +97,19 @@ public class ComparisonController {
     public ComparisonResponse compareScenarios(
             @RequestParam @Size(min = MINIMUM_SCENARIOS, max = MAXIMUM_SCENARIOS) List<@NotNull UUID> scenario,
             @RequestParam UUID baseline,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @RequestParam Cadence step,
-            @RequestParam(required = false) List<String> cash,
-            @RequestParam(required = false) List<String> invested) {
+            @Parameter(description = HorizonDescriptions.FROM_PARAMETER)
+                    @RequestParam
+                    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    LocalDate from,
+            @Parameter(description = HorizonDescriptions.TO_PARAMETER)
+                    @RequestParam
+                    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    LocalDate to,
+            @Parameter(description = HorizonDescriptions.STEP_PARAMETER) @RequestParam Cadence step,
+            @Parameter(description = OpeningAccountDescriptions.CASH_PARAMETER) @RequestParam(required = false)
+                    List<String> cash,
+            @Parameter(description = OpeningAccountDescriptions.INVESTED_PARAMETER) @RequestParam(required = false)
+                    List<String> invested) {
         List<ScenarioId> scenarios = scenario.stream().map(ScenarioId::new).toList();
         ScenarioId reference = new ScenarioId(baseline);
         if (!scenarios.contains(reference)) {

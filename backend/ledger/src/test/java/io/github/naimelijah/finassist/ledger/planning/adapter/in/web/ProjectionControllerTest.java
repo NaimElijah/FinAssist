@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.planning.adapter.in.web;
 
+import static io.github.naimelijah.finassist.ledger.ProblemAssertions.requiredProblemMembers;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -156,7 +157,8 @@ class ProjectionControllerTest {
                 .andExpect(jsonPath("$.type").value("about:blank"))
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.detail").value(missing.getMessage()))
-                .andExpect(jsonPath("$.code").value("SCENARIO_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value("SCENARIO_NOT_FOUND"))
+                .andExpect(requiredProblemMembers());
     }
 
     /**

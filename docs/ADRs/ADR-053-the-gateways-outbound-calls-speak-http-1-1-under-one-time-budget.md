@@ -1,6 +1,8 @@
 # ADR-053: The gateway's outbound calls speak HTTP/1.1, under one time budget
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-067](ADR-067-a-relay-that-times-out-answers-504-outcome-unknown.md), which supersedes its
+  502-on-timeout line
 - **Date:** 2026-10-29
 
 Extends [ADR-030](ADR-030-oidc-authentication-through-a-bff-gateway.md). ADR-030 names "headers,

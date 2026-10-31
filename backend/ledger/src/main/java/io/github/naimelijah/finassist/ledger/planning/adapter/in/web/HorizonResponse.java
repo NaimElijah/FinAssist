@@ -10,8 +10,11 @@ import java.time.LocalDate;
  * required in the contract.
  */
 public record HorizonResponse(
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) LocalDate from,
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) LocalDate to) {
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = HorizonDescriptions.FROM)
+        LocalDate from,
+
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = HorizonDescriptions.TO)
+        LocalDate to) {
 
     static HorizonResponse from(Horizon horizon) {
         return new HorizonResponse(horizon.from(), horizon.to());

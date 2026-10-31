@@ -12,13 +12,16 @@ export type Problem = {
     code: string;
     detail?: string;
     errors?: Array<{
-        field?: string;
-        message?: string;
+        field: string;
+        message: string;
     }>;
+    /**
+     * The request's path as received by the service that answered. Behind the gateway it omits the gateway's /ledger or /assistant prefix.
+     */
     instance?: string;
-    status?: number;
-    title?: string;
-    type?: string;
+    status: number;
+    title: string;
+    type: string;
 };
 
 export type SessionResponse = {
@@ -27,30 +30,30 @@ export type SessionResponse = {
     subject: string;
 };
 
-export type LogoutData = {
+export type SignOutData = {
     body?: never;
     path?: never;
     query?: never;
     url: '/bff/logout';
 };
 
-export type LogoutErrors = {
+export type SignOutErrors = {
     /**
      * A problem (RFC 9457)
      */
     default: Problem;
 };
 
-export type LogoutError = LogoutErrors[keyof LogoutErrors];
+export type SignOutError = SignOutErrors[keyof SignOutErrors];
 
-export type LogoutResponses = {
+export type SignOutResponses = {
     /**
      * Ends the gateway's session and answers the URL that ends Keycloak's
      */
     200: LogoutResponse;
 };
 
-export type LogoutResponse2 = LogoutResponses[keyof LogoutResponses];
+export type SignOutResponse = SignOutResponses[keyof SignOutResponses];
 
 export type MeData = {
     body?: never;

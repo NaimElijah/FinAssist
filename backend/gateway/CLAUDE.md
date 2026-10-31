@@ -37,7 +37,10 @@ It holds no bounded context: everything is in its `composition/` root. The parts
 - `ProblemAuthenticationEntryPoint` (401), `ProblemAccessDeniedHandler` (403),
   `ProblemRequestRejectedHandler` (400, a URL the firewall refuses), `GatewayProblems` (the problem
   codes and writer) and `GatewayRelayProblems` (a relay's failures) answer problem+json.
-  `GatewayOpenApiConfiguration` shapes the committed contract.
+  `GatewayOpenApiConfiguration` shapes the committed contract. `GatewayContractIT` holds every
+  operation to a summary and no tag (`springdoc.auto-tag-classes: false`), every schema to
+  `"type": "object"`, and every `operationId` clear of the names the web client's generator
+  derives from a schema — hence `signOut`, not `logout`, beside `LogoutResponse`.
 
 The realm file, `ops/keycloak/finassist-realm.json`, is pinned by `KeycloakRealmTest` and
 `KeycloakRealmIT` in this module; its rules are in `ops/CLAUDE.md`.
@@ -77,10 +80,17 @@ From `backend/gateway`:
   `GatewaySecurityTest` the chain, to `ledger-v1` and `assistant-v1` (#339); a new method needs both.
 - **The catch-all answers a framework refusal at its own status.**
   `GatewayRelayProblems.relayFailed` peels an `ErrorResponse` off first — 405
-  `METHOD_NOT_ALLOWED` and 406 `NOT_ACCEPTABLE`, the only two `GET /bff/me` can provoke — and logs
-  it at WARN, so ERROR still means a true 5xx. A status with no code in that map stays a 500 rather
-  than being passed through under an invented one. `GatewaySecurityTest` and
-  `GatewayRelayProblemsTest` fail the build if either half is lost.
+  `METHOD_NOT_ALLOWED`, with its `Allow` header, and 406 `NOT_ACCEPTABLE`, the only two `GET
+  /bff/me` can provoke — and logs it at WARN, so ERROR still means a true 5xx. A status with no
+  code in that map stays a 500 rather than being passed through under an invented one.
+  `GatewaySecurityTest` and `GatewayRelayProblemsTest` fail the build if either half is lost.
+- **A relay's read timeout is 504 `UPSTREAM_TIMEOUT`; a connection never opened is 502
+  `UPSTREAM_UNAVAILABLE`** (ADR-067). The request was sent, so its outcome is unknown, and a 502's
+  "could not be reached" would invite a resend the append-only journal keeps.
+  `GatewayRelayProblems.upstreamFailed` classifies by type on the cause chain, never by message,
+  and tests `HttpConnectTimeoutException` first because it extends `HttpTimeoutException`, the type
+  spring-web's `JdkClientHttpRequest` raises at the read budget. `GatewayRelayTimeoutIT` and
+  `GatewayRelayProblemsTest` fail the build if either is lost.
 - **Every call to Keycloak is built from Boot's own HTTP builders**, in `KeycloakRegistration`: the
   authorization-code client and the `refresh_token` client from `RestClient.Builder`, and the ID
   token's `JwtDecoderFactory` from `RestTemplateBuilder`. Spring Security's defaults for all three
