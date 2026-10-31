@@ -83,7 +83,10 @@ class ReleasedMigrationsTest {
                     "2addf2609ed6239a5640e71b2fc16956e3d7c7e44a63132e3b9d8a1cc00b3a96"),
             new Released(
                     "accounting/V1_7__journal_balance_check_in_header_currency.sql",
-                    "69f462bb3a7abeda7d4be9c9d04aa1fd8dcb91d3e4290c14890a23f1461a2800"));
+                    "69f462bb3a7abeda7d4be9c9d04aa1fd8dcb91d3e4290c14890a23f1461a2800"),
+            new Released(
+                    "budgeting/V2_2__budget_limit_in_budget_currency.sql",
+                    "ee59b63dfd890dd1b8ade2dcdcba9e4de8d51e9f5f2df65819576b489b4dc06a"));
 
     @Test
     void Given_the_migrations_on_the_classpath_When_each_is_hashed_Then_each_matches_the_digest_it_was_released_with()

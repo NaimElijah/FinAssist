@@ -28,16 +28,19 @@ import org.springframework.test.context.DynamicPropertySource;
  * with nothing in it, where Flyway applies every script in version order and nothing can be out of
  * order. A real database is not in that state. {@code V1_1}, {@code V2_1} and {@code V3_1} all
  * entered git in one commit, so the owner's history is {@code 1.1}, {@code 2.1}, {@code 3.1}, and
- * {@code V1_2} and every accounting script after it arrive <em>below</em> the highest version
- * already applied. Flyway classes such a migration {@code IGNORED} and refuses to start unless it is
- * configured to run out of order (ADR-035), which is the one thing no fresh-volume test can notice.
+ * {@code V1_2}, every accounting script after it and {@code V2_2} arrive <em>below</em> the highest
+ * version already applied. Flyway classes such a migration {@code IGNORED} and refuses to start
+ * unless it is configured to run out of order (ADR-035), which is the one thing no fresh-volume test
+ * can notice.
  *
  * <p>So this test rebuilds that history literally: the three committed scripts, copied byte for byte
  * out of the classpath into a temporary directory and applied by a plain Flyway with no flag set,
- * then a journal transaction seeded the way the pre-{@code V1_2} repository wrote one. Only then is
- * the ledger's own application context started against that database, which is what runs the
- * ledger's own {@code spring.flyway.*} configuration rather than a hand-built copy of it. A context
- * that fails to start is the owner's ledger failing to start.
+ * then seeded with rows the earlier code could leave behind: a journal transaction the way the
+ * pre-{@code V1_2} repository wrote one, an entry whose account changed currency before {@code
+ * V1_6}, and a budget with a limit stored before {@code V2_2}. Only then is the ledger's own
+ * application context started against that database, which is what runs the ledger's own {@code
+ * spring.flyway.*} configuration rather than a hand-built copy of it. A context that fails to start
+ * is the owner's ledger failing to start.
  *
  * <p>The scripts are copied rather than read from {@code classpath:db/migration} with a {@code
  * target} because the checksums Flyway records have to be the committed files' own: the owner's
@@ -62,6 +65,8 @@ class LedgerUpgradeIT {
 
     private static final UUID HISTORICAL_TRANSACTION = UUID.randomUUID();
 
+    private static final UUID HISTORICAL_BUDGET = UUID.randomUUID();
+
     /**
      * Built while this class is initialised, which is before Spring invokes {@link
      * #pointTheLedgerAtTheOwnersDatabase} and therefore before the context — and its Flyway — exists.
@@ -83,16 +88,30 @@ class LedgerUpgradeIT {
     /**
      * {@code installed_rank} order rather than version order on purpose: it records the order the
      * migrations were actually run in, so this asserts that every accounting migration released
-     * since {@code 1.1} ran last, in version order, after a version higher than itself — the
-     * out-of-order application the owner's database needs and a fresh one never performs.
+     * since {@code 1.1}, and then {@code 2.2}, ran after {@code 3.1}, in version order, each after a
+     * version higher than itself — the out-of-order application the owner's database needs and a
+     * fresh one never performs.
      */
     @Test
     void
-            Given_a_database_already_at_1_1_2_1_and_3_1_When_the_ledger_starts_Then_the_later_accounting_migrations_are_applied_after_them() {
+            Given_a_database_already_at_1_1_2_1_and_3_1_When_the_ledger_starts_Then_the_later_migrations_are_applied_after_them() {
         assertThat(jdbc.sql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank")
                         .query(String.class)
                         .list())
-                .containsExactly("1.1", "2.1", "3.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7");
+                .containsExactly("1.1", "2.1", "3.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "2.2");
+    }
+
+    /**
+     * {@code V2_2} adds its foreign key validated, so it scans the limits already stored. One in its
+     * budget's currency, as every limit the adapter wrote is, passes, and stays.
+     */
+    @Test
+    void Given_a_budget_limit_stored_before_2_2_When_the_ledger_has_started_Then_it_is_still_there() {
+        assertThat(jdbc.sql("SELECT currency FROM budgeting.budget_limit WHERE budget_id = :id")
+                        .param("id", HISTORICAL_BUDGET)
+                        .query(String.class)
+                        .list())
+                .containsExactly("ILS");
     }
 
     @Test
@@ -167,6 +186,7 @@ class LedgerUpgradeIT {
                 .migrate();
         seedTheTransactionThePreV1_2CodeWrote(JdbcClient.create(database));
         seedAnAccountWhoseCurrencyChangedUnderItsEntries(JdbcClient.create(database));
+        seedTheBudgetThePreV2_2CodeWrote(JdbcClient.create(database));
         return database;
     }
 
@@ -250,6 +270,18 @@ class LedgerUpgradeIT {
                 .update();
         jdbc.sql("UPDATE accounting.account SET currency = 'USD' WHERE id = :id")
                 .param("id", wallet)
+                .update();
+    }
+
+    /** A budget with one limit in its own currency, which {@code V2_2}'s foreign key must accept. */
+    private static void seedTheBudgetThePreV2_2CodeWrote(JdbcClient jdbc) {
+        jdbc.sql("INSERT INTO budgeting.budget VALUES (:id, :start, :end, 'ILS')")
+                .param("id", HISTORICAL_BUDGET)
+                .param("start", MARCH_1)
+                .param("end", MARCH_1.plusMonths(1))
+                .update();
+        jdbc.sql("INSERT INTO budgeting.budget_limit VALUES (:id, 'groceries', 1200.00, 'ILS')")
+                .param("id", HISTORICAL_BUDGET)
                 .update();
     }
 
