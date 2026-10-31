@@ -12,11 +12,15 @@
 
 /* A role indicator, not a lifecycle status, so it is styled here rather than reused from
    StateBadge, which exists for a status that varies across a fixed set (see its own doc
-   comment) - "Read-only" never varies, so a tone table for it would carry only one entry. */
+   comment) - "Read-only" never varies, so a tone table for it would carry only one entry.
+   It is drawn in the band's own text colour on the band itself, outlined rather than filled: a
+   filled surface would need its own text colour in each theme, and in forced-colours mode, which
+   drops backgrounds, a border in the text colour is what keeps it reading as a badge. */
 .badge {
     padding: var(--space-1) var(--space-2);
+    border: 1px solid currentColor;
     border-radius: var(--radius-control);
-    background: var(--color-surface-raised);
+    background: transparent;
     color: var(--color-on-chrome);
     font-size: var(--font-size-sm);
 }
