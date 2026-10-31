@@ -9,6 +9,7 @@ export { ActionPanel, type ActionPanelHeadingLevel, type ActionPanelProps } from
 export { Button, type ButtonProps, type ButtonVariant } from './Button';
 export { type Column, type ColumnAlign, DataTable, type DataTableProps } from './DataTable';
 export { DateField, type DateFieldProps } from './DateField';
+export { formatCalendarDate } from './calendarDate';
 export { DateText, type DateTextProps } from './DateText';
 export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { ErrorState, type ErrorStateProps } from './ErrorState';
