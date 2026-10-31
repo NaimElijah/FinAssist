@@ -114,6 +114,11 @@ bounded context (ADR-006, ADR-024).
   add an `UPDATE` to `JdbcTransactionRepository` — the database will refuse it, which is the point
   (ADR-020, ADR-024). `budgeting` and `planning` are ordinary mutable tables: ADR-020 binds the
   record of what happened, and ADR-015 puts intent in another context.
+- **The state history follows the domain's lifecycle.** `V1_4`'s trigger admits a
+  `journal_transaction_state` row only at the next `sequence`, opening `PENDING` at 0, along a move
+  `Transaction` allows, and dated no earlier than the transaction or the state before it. Save each
+  transition as it happens: an aggregate saved two moves ahead of the stored one is refused, as is
+  a first save in any state but `Pending` (`JournalStateHistoryIT`).
 - **Every journal insert names `recorded_by`; never validate the constraints.** `V1_2` added a
   nullable `recorded_by` and a `CHECK (...) NOT VALID` on `journal_transaction` and
   `journal_transaction_state`, so a row written before it honestly stays `NULL` while every new one

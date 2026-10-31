@@ -521,7 +521,9 @@ principal â€” it may name someone other than whoever recorded the transaction â†
 `TransactionService.clear` loads the transaction, the aggregate returns a new value in the
 `Cleared` state, and `save` **appends** a row to `accounting.journal_transaction_state`, carrying
 that actor's subject as its own `recorded_by`; the transaction row's `recorded_by`, written once
-at insert, never changes. Nothing is overwritten and nothing is deleted; the earlier states stay
+at insert, never changes. A trigger admits that row only at the next `sequence`, along a move the
+aggregate allows, and dated no earlier than the transaction or the state before it, so the
+history the database holds is one `Transaction` could have produced. Nothing is overwritten and nothing is deleted; the earlier states stay
 readable, which is what makes the journal the audit record, naming who wrote each row
 ([ADR-020](../ADRs/ADR-020-audit-trail-follows-persistence.md),
 [ADR-033](../ADRs/ADR-033-the-journal-records-who.md)).
