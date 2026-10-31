@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useMatches, useRouteError } from 'react-router';
 
 import { log } from '@/shared/lib/logger';
-import { titleOf } from '@/shared/lib/routeHandle';
+import { deepestRouteTitle } from '@/shared/lib/routeHandle';
 import { ErrorState } from '@/shared/ui';
 
 import { failureFields } from './failureFields';
@@ -18,11 +18,7 @@ const UNTITLED_HEADING = 'Page error';
  */
 function useRouteFailure(): { readonly error: unknown; readonly heading: string } {
     const error = useRouteError();
-    const heading =
-        useMatches()
-            .map((match) => titleOf(match.handle))
-            .filter((candidate) => candidate !== undefined)
-            .at(-1) ?? UNTITLED_HEADING;
+    const heading = deepestRouteTitle(useMatches()) ?? UNTITLED_HEADING;
 
     // An effect rather than a call during render, so a re-render does not log again. StrictMode
     // runs effects twice in development only, so a dev console shows the record twice.

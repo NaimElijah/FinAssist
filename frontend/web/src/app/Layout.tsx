@@ -9,7 +9,7 @@ import {
 } from 'react-router';
 
 import { DocumentTitleContext } from '@/shared/lib/documentTitle';
-import { titleOf } from '@/shared/lib/routeHandle';
+import { deepestRouteTitle } from '@/shared/lib/routeHandle';
 
 import styles from './Layout.module.css';
 import { documentTitleFor, PRODUCT_NAME } from './productName';
@@ -66,13 +66,7 @@ function documentTitle(
     override: string | undefined,
     matches: readonly { readonly handle: unknown }[],
 ): string {
-    return documentTitleFor(
-        override ??
-            matches
-                .map((match) => titleOf(match.handle))
-                .filter((candidate) => candidate !== undefined)
-                .at(-1),
-    );
+    return documentTitleFor(override ?? deepestRouteTitle(matches));
 }
 
 /**
