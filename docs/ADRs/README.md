@@ -368,6 +368,6 @@ connect timeout stay 502. The two are told apart by exception type, never by mes
 though every writer sends `type`, `title` and `status` and the web client relies on `status`, and
 the ledger answering a malformed body or parameter 400 with no `errors[]`, which ADR-028's table
 promises. Every problem now carries all four members and every `errors` entry a `field` and a
-`message`, and all three contracts require them; every malformed body or parameter 400 names what it
-refused, in fixed text that quotes nothing sent; and `instance` says it is the path the answering
+`message`, and all three contracts require them; every malformed JSON body or parameter 400 names what
+it refused, in fixed text that quotes nothing sent; and `instance` says it is the path the answering
 service received ([#344](https://github.com/NaimElijah/FinAssist/issues/344)).

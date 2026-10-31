@@ -309,7 +309,7 @@ history; write the commit message well and this file writes itself.
     "could not be reached", though the ledger may have committed it; resending it could duplicate
     the write in the append-only journal. A connection never opened stays 502
     ([ADR-067](docs/ADRs/ADR-067-a-relay-that-times-out-answers-504-outcome-unknown.md)).
-  - **Every malformed body or parameter 400 lists `errors[]`.** On the ledger, an unreadable body,
+  - **Every malformed JSON body or parameter 400 lists `errors[]`.** On the ledger, an unreadable body,
     a body member of the wrong type or range, a parameter of the wrong type and a missing parameter
     now name the field, as ADR-028 says, and none of them echoes what was sent. The assistant names
     `body`, not a character offset, for unparseable JSON.

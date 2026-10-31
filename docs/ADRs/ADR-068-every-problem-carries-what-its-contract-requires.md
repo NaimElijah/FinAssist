@@ -41,7 +41,9 @@ and a `message`.** All three contracts require them, in one `Problem` schema tha
   dropped.
 - **`detail`, `instance` and `errors` stay optional.** Some problems carry none of them.
 
-**Every 400 for a malformed body or parameter lists `errors[]`, one entry per input refused.**
+**Every 400 for a malformed JSON body or parameter lists `errors[]`, naming what it refused.**
+Bean validation lists every constraint a body or parameter breaks. Jackson stops at the first value
+it refuses, so an unreadable body lists that one.
 
 - **A body member Jackson refused** is named by its wire path, as bean validation names a field:
   `entries[1].amount.currency`. That covers an unknown enum constant, a malformed UUID or date, and

@@ -389,7 +389,7 @@ hand rather than by a Jackson polymorphism annotation (ADR-028): HTTP → `HostA
 answered 409, each by its own context's advice, which runs at the highest precedence. Spring
 MVC's own failures — an unknown route, a non-JSON body, a malformed decimal or UUID — keep their
 own statuses (404, 415, 400) through the composition root's fallback, `LedgerProblemHandler`, at
-the lowest precedence, which answers everything no context's advice claimed. **A 400 for a body,
+the lowest precedence, which answers everything no context's advice claimed. **A 400 for a JSON body,
 a parameter or a constraint lists `errors`**, each a `field` and a `message`: a constraint's
 field, a body member Jackson refused by its path (`entries[1].amount.currency`), a path or query
 parameter of the wrong type or left out by its name, and `body` for unparseable JSON or no body.

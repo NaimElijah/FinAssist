@@ -103,8 +103,9 @@ other than 503, so a read that times out is retried once, and a write is never r
 
 - **The gateway cannot find out what happened.** The owner checks by hand, for example the
   account's journal, since no endpoint looks a request up.
-- **A failed read can now take twice the budget to show.** The web client retries a 504 read once,
-  so the owner waits up to about 20 seconds.
+- **A failed read still takes up to twice the budget to show.** The web client retries a 504 read
+  once, as it retried the 502 before, so the owner waits up to about 20 seconds. Nothing here
+  changes that, but a shorter wait would need a per-route budget or no retry.
 - **The read budget includes the connection.** The timer starts when the request is handed to the
   JDK client, before a connection exists. If `read-timeout` were ever set at or below
   `connect-timeout`, a connection stuck opening would be answered 504, though nothing was sent.
