@@ -68,7 +68,28 @@ class ReleasedMigrationsTest {
                     "9301da456c321ee5a32381e685fd98999e47ee4d569857c7c0e80ec912d9b5e7"),
             new Released(
                     "accounting/V1_2__journal_recorded_by.sql",
-                    "b85e62309933fbf996a356c1532243a6cca43f39c39164c32948a32c8fe3e19c"));
+                    "b85e62309933fbf996a356c1532243a6cca43f39c39164c32948a32c8fe3e19c"),
+            new Released(
+                    "accounting/V1_3__journal_entries_close_once_recorded.sql",
+                    "d76372150b51b0f0b5d9a984fea31a793befaf9f664439978c9048a7a30e7446"),
+            new Released(
+                    "accounting/V1_4__journal_state_transitions.sql",
+                    "0e99abc8dfbe9ec865c65ecb0b3397f9b5f7e22e22e0686bfc0cce87fa210a78"),
+            new Released(
+                    "accounting/V1_5__journal_transaction_is_complete.sql",
+                    "d88de8f4c964c22e60178212650ef8d0528035ca5bd0297e04f9bc99dac0c2d8"),
+            new Released(
+                    "accounting/V1_6__journal_entry_in_its_account_currency.sql",
+                    "2addf2609ed6239a5640e71b2fc16956e3d7c7e44a63132e3b9d8a1cc00b3a96"),
+            new Released(
+                    "accounting/V1_7__journal_balance_check_in_header_currency.sql",
+                    "69f462bb3a7abeda7d4be9c9d04aa1fd8dcb91d3e4290c14890a23f1461a2800"),
+            new Released(
+                    "budgeting/V2_2__budget_limit_in_budget_currency.sql",
+                    "ee59b63dfd890dd1b8ade2dcdcba9e4de8d51e9f5f2df65819576b489b4dc06a"),
+            new Released(
+                    "planning/V3_2__scenario_flow_currency.sql",
+                    "3837281eb4840cb0feeebb9318197bf01a7a937ec1589ee02d83db0a02436ad0"));
 
     @Test
     void Given_the_migrations_on_the_classpath_When_each_is_hashed_Then_each_matches_the_digest_it_was_released_with()

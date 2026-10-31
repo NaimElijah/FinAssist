@@ -107,23 +107,39 @@ PostgreSQL, through hand-written SQL over `JdbcClient`, Flyway migrations, and a
 bounded context (ADR-006, ADR-024).
 
 - **The journal is append-only in the database.** Triggers on `accounting.journal_transaction`,
-  `journal_entry` and `journal_transaction_state` refuse an `UPDATE` or a `DELETE`; a lifecycle
-  change is an `INSERT` whose highest `sequence` is the current state. Do not add an `UPDATE` to
-  `JdbcTransactionRepository` — the database will refuse it, which is the point (ADR-020,
-  ADR-024). `budgeting` and `planning` are ordinary mutable tables: ADR-020 binds the record of
-  what happened, and ADR-015 puts intent in another context.
+  `journal_entry` and `journal_transaction_state` refuse an `UPDATE` or a `DELETE`, and `V1_3`'s
+  refuses an entry for a transaction that already has a state row, so a recorded transaction's
+  entries are closed: write the header, then the entries, then the opening state, in one database
+  transaction, as the adapter does; `V1_5`'s deferred check refuses at commit a header with no entry
+  or no opening state. A lifecycle change is an `INSERT` whose highest `sequence` is the current
+  state. Do not add an `UPDATE` to `JdbcTransactionRepository` — the database will refuse it, which
+  is the point (ADR-020, ADR-024). `budgeting` and `planning` are ordinary mutable tables: ADR-020
+  binds the record of what happened, and ADR-015 puts intent in another context.
+- **The state history follows the domain's lifecycle.** `V1_4`'s trigger admits a
+  `journal_transaction_state` row only at the next `sequence`, opening `PENDING` at 0, along a move
+  `Transaction` allows, and dated no earlier than the transaction or the state before it. Save each
+  transition as it happens: an aggregate saved two moves ahead of the stored one is refused, as is
+  a first save in any state but `Pending` (`JournalStateHistoryIT`).
 - **Every journal insert names `recorded_by`; never validate the constraints.** `V1_2` added a
   nullable `recorded_by` and a `CHECK (...) NOT VALID` on `journal_transaction` and
   `journal_transaction_state`, so a row written before it honestly stays `NULL` while every new one
   must name a non-blank subject — the token's `sub`. `JdbcTransactionRepository` writes it on every
-  `INSERT`. Never run
-  `ALTER TABLE ... VALIDATE CONSTRAINT` on either: it would scan the historical `NULL` rows and
-  fail, and the append-only triggers forbid the `UPDATE` a fix would need (ADR-033).
+  `INSERT`. Never run `ALTER TABLE ... VALIDATE CONSTRAINT` on either: it would scan the historical
+  `NULL` rows and fail, and the append-only triggers forbid the `UPDATE` a fix would need (ADR-033).
+- **An entry stays in its account's currency; never validate that key either.** `V1_6` adds
+  `journal_entry_in_account_currency`, a `NOT VALID` foreign key from `journal_entry (account_id,
+  currency)` to a unique index on `account (id, currency)`. It checks every new entry, and refuses a
+  change of currency on an account with entries, so `JdbcAccountRepository.save` throws
+  `DataIntegrityViolationException` for one; it never scanned the entries already stored. Never
+  validate it, for the reason `V1_2`'s checks are never validated.
 - **`logServerErrorDetail=false` stays on the data source** (`application.yml`, under
   `hikari.data-source-properties`; ADR-058). pgjdbc otherwise appends the server's `Detail` line to
   an exception's message, and for a constraint violation that line quotes the failing row, which
   every logged 5xx would carry. The error and the constraint's name remain. Pinned by
-  `LedgerApplicationIT`.
+  `LedgerApplicationIT`. A trigger's own message is the server's error, not its `Detail`, so it is
+  written to name no amount: `V1_7`'s balance check names the transaction and the rule, never the
+  sum (`JdbcTransactionRepositoryIT`), and `V1_4`'s transition refusals name no date
+  (`JournalStateHistoryIT`).
 - **`spring.flyway.out-of-order` stays `true`; never turn it off.** One history table with a major
   version per context (ADR-024) means the next migration for any context but the highest arrives
   below a version already applied, which Flyway classes `IGNORED` and refuses to start over. Safe
@@ -136,11 +152,21 @@ bounded context (ADR-006, ADR-024).
   context against it. Extend it when the applied set changes. Never reach for
   `ignoreMigrationPatterns`, which would start the ledger with the column missing (ADR-035).
 - **Each context's migrations live in `src/main/resources/db/migration/<context>/`, under the
-  major version that context owns** — `accounting` 1, `budgeting` 2, `planning` 3 — so the next
-  accounting migration is `V1_3__<description>.sql`. `ReleasedMigrationsTest` fails a script whose
-  major is not its directory's, and records each released script's SHA-256 in release order:
+  major version that context owns** — `accounting` 1, `budgeting` 2, `planning` 3 — and a context's
+  next migration takes a version above the highest its directory holds: today `V1_8`, `V2_3` and
+  `V3_3`, each as `V<major>_<minor>__<description>.sql`. `ReleasedMigrationsTest` fails a script
+  whose major is not its directory's, and records each released script's SHA-256 in release order:
   append the new one at the end, above every version its context has released, and never change a
   digest once it is merged to `dev`.
+- **A currency held in two tables of one context is tied by a composite foreign key**, to a
+  unique `(id, currency)` on the parent: `journal_entry_in_account_currency` (`V1_6`, `NOT VALID`
+  and never to be validated, like `V1_2`'s checks), `budget_limit_in_budget_currency` (`V2_2`), and
+  the two on `scenario_flow` (`V3_2`), whose own `currency` must equal both its strategy's and its
+  plan's. The store then refuses a row the aggregate would refuse to read back, which would
+  otherwise answer 500 on every read of it. `JdbcScenarioRepository` writes that column from the
+  flow. One pair is the exception: `journal_transaction.currency` and its entries' `currency` are
+  tied by `V1_7`'s deferred balance check, which refuses at commit entries in a currency other
+  than their header's (`JdbcTransactionRepositoryIT`), not by a key.
 - **No foreign key crosses a schema.** `SchemaBoundariesIT` fails the build if one does. It is the
   storage-layer half of `contexts_do_not_depend_on_each_other`, which reads bytecode and so stops
   at the edge of the JVM.

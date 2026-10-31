@@ -26,6 +26,8 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The test that discharges ADR-020.
@@ -57,6 +59,9 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
     @Autowired
     private TransactionRepository transactions;
 
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     /**
      * Every statement the trigger exists to refuse, on every table it guards. {@code
      * journal_transaction_state} has no foreign key pointing at it, so nothing but the trigger stops a
@@ -82,6 +87,35 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
                         jdbc().sql(statement).param("id", recorded.id().value()).update())
                 .hasMessageContaining("the journal is append-only: " + operation + " on accounting." + table
                         + " is refused (ADR-020)");
+    }
+
+    /**
+     * The case above guards the entries a transaction already has; this guards the set itself. A
+     * balanced pair added to a recorded transaction passes every balance check, yet it moves the
+     * balance of each account it touches with no state row saying anything happened: a rewrite by
+     * addition rather than by overwrite. Refused from the opening state on, so it holds for every later
+     * one, and the entries recorded stay the only ones.
+     */
+    @Test
+    void Given_a_recorded_transaction_When_a_balanced_pair_of_entries_is_inserted_Then_the_database_refuses_it() {
+        Transaction recorded = record("12.50");
+
+        assertThatThrownBy(() -> jdbc().sql("""
+                                INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency)
+                                VALUES (:id, 2, :debited, 100.00, 'ILS'),
+                                       (:id, 3, :credited, -100.00, 'ILS')
+                                """)
+                        .param("id", recorded.id().value())
+                        .param(
+                                "debited",
+                                recorded.entries().getFirst().account().value())
+                        .param(
+                                "credited",
+                                recorded.entries().getLast().account().value())
+                        .update())
+                .hasMessageContaining("the journal is append-only: transaction "
+                        + recorded.id().value() + " is already recorded and its entries are closed (ADR-020)");
+        assertThat(entryCount(recorded)).isEqualTo(recorded.entries().size());
     }
 
     /**
@@ -188,18 +222,26 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
     }
 
     /**
-     * A {@code journal_transaction} row is written as a bare header, which the deferred balance check
-     * never sees because it fires on entries. A {@code journal_transaction_state} row needs a
-     * transaction to belong to, so one is recorded first and the row is its next state.
+     * A {@code journal_transaction} row is written as the repository writes one: the header, its
+     * balanced entries and its opening state, in one database transaction, so the deferred checks find
+     * the transaction complete and the recorder is the only thing about it that can be wrong. The
+     * opening state names {@link #RECORDER}, so the header is the one row carrying {@code recordedBy}.
+     * A {@code journal_transaction_state} row needs a transaction to belong to, so one is recorded
+     * first and the row is its next state.
      */
     private void insertWithRecorder(String table, String recordedBy) {
         if (table.equals(TRANSACTION_TABLE)) {
-            jdbc().sql("INSERT INTO accounting.journal_transaction (id, occurred_on, description, currency,"
-                            + " recorded_by) VALUES (:id, :on, 'Groceries', 'ILS', CAST(:recordedBy AS text))")
-                    .param("id", TransactionId.generate().value())
-                    .param("on", MARCH_1)
-                    .param("recordedBy", recordedBy)
-                    .update();
+            TransactionId id = TransactionId.generate();
+            List<Entry> balanced = entries("12.50");
+            inOneTransaction(() -> {
+                jdbc().sql("INSERT INTO accounting.journal_transaction (id, occurred_on, description, currency,"
+                                + " recorded_by) VALUES (:id, :on, 'Groceries', 'ILS', CAST(:recordedBy AS text))")
+                        .param("id", id.value())
+                        .param("on", MARCH_1)
+                        .param("recordedBy", recordedBy)
+                        .update();
+                insertEntriesAndOpeningState(id, balanced);
+            });
         } else {
             Transaction recorded = record("12.50");
             jdbc().sql("INSERT INTO accounting.journal_transaction_state (transaction_id, sequence, state,"
@@ -215,11 +257,16 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
     /** {@link #insertWithRecorder}'s rows, with {@code recorded_by} left out of the column list. */
     private void insertWithoutNamingTheRecorder(String table) {
         if (table.equals(TRANSACTION_TABLE)) {
-            jdbc().sql("INSERT INTO accounting.journal_transaction (id, occurred_on, description, currency)"
-                            + " VALUES (:id, :on, 'Groceries', 'ILS')")
-                    .param("id", TransactionId.generate().value())
-                    .param("on", MARCH_1)
-                    .update();
+            TransactionId id = TransactionId.generate();
+            List<Entry> balanced = entries("12.50");
+            inOneTransaction(() -> {
+                jdbc().sql("INSERT INTO accounting.journal_transaction (id, occurred_on, description, currency)"
+                                + " VALUES (:id, :on, 'Groceries', 'ILS')")
+                        .param("id", id.value())
+                        .param("on", MARCH_1)
+                        .update();
+                insertEntriesAndOpeningState(id, balanced);
+            });
         } else {
             Transaction recorded = record("12.50");
             jdbc().sql("INSERT INTO accounting.journal_transaction_state (transaction_id, sequence, state,"
@@ -230,8 +277,40 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
         }
     }
 
+    /** What the repository writes after a header: each entry in order, then the opening state. */
+    private void insertEntriesAndOpeningState(TransactionId id, List<Entry> entries) {
+        for (int ordinal = 0; ordinal < entries.size(); ordinal++) {
+            Entry entry = entries.get(ordinal);
+            jdbc().sql("INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency)"
+                            + " VALUES (:id, :ordinal, :account, :amount, :currency)")
+                    .param("id", id.value())
+                    .param("ordinal", ordinal)
+                    .param("account", entry.account().value())
+                    .param("amount", entry.amount().amount())
+                    .param("currency", entry.amount().currency().name())
+                    .update();
+        }
+        jdbc().sql("INSERT INTO accounting.journal_transaction_state (transaction_id, sequence, state,"
+                        + " effective_on, reason, recorded_by) VALUES (:id, 0, 'PENDING', NULL, NULL, :recordedBy)")
+                .param("id", id.value())
+                .param("recordedBy", RECORDER.subject())
+                .update();
+    }
+
+    /** The journal is written as the repository writes it: in one database transaction, or not at all. */
+    private void inOneTransaction(Runnable writes) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> writes.run());
+    }
+
     private int states(Transaction transaction) {
         return jdbc().sql("SELECT count(*) FROM accounting.journal_transaction_state WHERE transaction_id = :id")
+                .param("id", transaction.id().value())
+                .query(Integer.class)
+                .single();
+    }
+
+    private int entryCount(Transaction transaction) {
+        return jdbc().sql("SELECT count(*) FROM accounting.journal_entry WHERE transaction_id = :id")
                 .param("id", transaction.id().value())
                 .query(Integer.class)
                 .single();

@@ -57,11 +57,17 @@ public class JdbcPlannedFlowRepository implements PlannedFlowRepository {
     /** {@code PlannedFlowRepository.all}'s contract: start date, then id, every state included. */
     private static final String SELECT_ALL = "SELECT " + COLUMNS + " FROM planning.planned_flow ORDER BY starts_on, id";
 
-    /** Ordered by the position the scenario gave them, which {@code Scenario} treats as its list. */
-    static final String SELECT_FOR_SCENARIO = "SELECT flow." + COLUMNS + """
-                     FROM planning.scenario_flow link
-                     JOIN planning.planned_flow flow ON flow.id = link.flow_id
-                    WHERE link.scenario_id = :scenarioId
+    /**
+     * Ordered by the position the scenario gave them, which {@code Scenario} treats as its list. The
+     * link is narrowed to the two columns the join needs, because it carries a {@code currency} of its
+     * own that would make the unqualified {@code COLUMNS} ambiguous.
+     */
+    static final String SELECT_FOR_SCENARIO = "SELECT " + COLUMNS + """
+                     FROM planning.planned_flow flow
+                     JOIN (SELECT flow_id, ordinal
+                             FROM planning.scenario_flow
+                            WHERE scenario_id = :scenarioId) link
+                       ON link.flow_id = flow.id
                     ORDER BY link.ordinal
                     """;
 

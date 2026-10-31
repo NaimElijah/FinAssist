@@ -49,6 +49,9 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
 
     private static final UUID LARGER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
+    /** Blank to {@code String.isBlank}, and not to PostgreSQL's {@code btrim}, which strips spaces alone. */
+    private static final String TAB = "\t";
+
     @Autowired
     private PlannedFlowRepository flows;
 
@@ -118,11 +121,33 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
                         FEB_10, "too expensive"));
     }
 
+    /**
+     * The flows are listed in another order than they were stored in, so a read that followed the plans'
+     * storage order rather than the scenario's own would fail this.
+     */
     @Test
     void Given_a_scenario_over_flows_When_it_is_read_back_Then_its_flows_come_back_in_order() {
         PlannedFlow car = stored("New car", "40000.00");
         PlannedFlow tuition = stored("Tuition", "20000.00");
-        Scenario scenario = Scenario.of("Spend it all", Currency.ILS, List.of(car, tuition), GrowthAssumption.none());
+        PlannedFlow holiday = stored("Holiday", "8000.00");
+        Scenario scenario =
+                Scenario.of("Spend it all", Currency.ILS, List.of(holiday, car, tuition), GrowthAssumption.none());
+
+        scenarios.save(scenario);
+
+        assertThat(scenarios.findById(scenario.id())).contains(scenario);
+    }
+
+    /**
+     * Each link row carries a currency the keys tie to its plan and its strategy, and the adapter writes
+     * it. A strategy in a currency other than ILS must still save and come back whole.
+     */
+    @Test
+    void Given_a_usd_scenario_over_a_usd_flow_When_it_is_saved_and_read_back_Then_it_is_the_same_scenario() {
+        PlannedFlow car = PlannedFlow.plan(
+                "New car", Money.of("40000.00", Currency.USD), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+        flows.save(car);
+        Scenario scenario = Scenario.of("Buy the car", Currency.USD, List.of(car), GrowthAssumption.none());
 
         scenarios.save(scenario);
 
@@ -317,30 +342,85 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
     }
 
     /**
-     * No constraint ties a flow's currency to a scenario's, because they sit in two tables. {@code
-     * Scenario} refuses the pair, and a stored pair it refuses is a server fault naming the scenario. Its
-     * refusal quotes the flow's description, the owner's own words, so it is not carried into the logged
-     * fault.
+     * Every flow in a strategy is in the strategy's currency, held by the database as well as by {@code
+     * Scenario}. The link row carries a currency that two composite foreign keys tie to both ends, so it
+     * cannot agree with one and not the other. Listed in the scenario's currency, it is refused by the
+     * key to the plan.
      */
     @Test
-    void Given_a_scenario_stored_over_a_flow_in_another_currency_When_read_Then_it_is_a_server_fault() {
+    void
+            Given_a_scenario_in_another_currency_than_a_flow_When_listed_in_the_scenarios_currency_Then_the_database_refuses_it() {
         PlannedFlow car = stored("New car", "40000.00");
-        ScenarioId id = ScenarioId.generate();
-        jdbc().sql("INSERT INTO planning.scenario VALUES (:id, 'In dollars', 'USD', 0)")
-                .param("id", id.value())
-                .update();
-        jdbc().sql("INSERT INTO planning.scenario_flow VALUES (:id, 0, :flow)")
-                .param("id", id.value())
-                .param("flow", car.id().value())
-                .update();
+        ScenarioId id = scenarioStoredDirectly("USD");
+
+        assertThatThrownBy(() -> listDirectly(id, car, "USD")).hasMessageContaining("scenario_flow_in_plan_currency");
+    }
+
+    /** The same link listed in the plan's currency instead: refused by the key to the scenario. */
+    @Test
+    void
+            Given_a_scenario_in_another_currency_than_a_flow_When_listed_in_the_flows_currency_Then_the_database_refuses_it() {
+        PlannedFlow car = stored("New car", "40000.00");
+        ScenarioId id = scenarioStoredDirectly("USD");
+
+        assertThatThrownBy(() -> listDirectly(id, car, "ILS"))
+                .hasMessageContaining("scenario_flow_in_scenario_currency");
+    }
+
+    /**
+     * The key from the plan's side: a plan a strategy lists cannot move to another currency. No
+     * transition changes a plan's amount, so only a writer outside the adapter could try.
+     */
+    @Test
+    void Given_a_flow_a_scenario_lists_When_its_currency_is_changed_directly_Then_the_database_refuses_it() {
+        PlannedFlow car = stored("New car", "40000.00");
+        scenarios.save(Scenario.of("Buy the car", Currency.ILS, List.of(car), GrowthAssumption.none()));
+
+        assertThatThrownBy(() -> jdbc().sql("UPDATE planning.planned_flow SET currency = 'USD' WHERE id = :id")
+                        .param("id", car.id().value())
+                        .update())
+                .hasMessageContaining("scenario_flow_in_plan_currency");
+    }
+
+    /**
+     * {@code Scenario} still checks every rule as a stored row is read back, and the schema states one of
+     * them less strictly: {@code btrim} strips spaces alone, so a name of a tab passes its check and not
+     * {@code String.isBlank}. A stored scenario the aggregate refuses is a server fault naming the
+     * scenario, not a rule a caller broke.
+     */
+    @Test
+    void Given_a_scenario_stored_with_a_name_only_java_counts_as_blank_When_read_Then_it_is_a_server_fault() {
+        ScenarioId id = scenarioStoredDirectly(TAB, "ILS");
 
         assertThatThrownBy(() -> scenarios.findById(id))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("planning.scenario")
                 .hasMessageContaining(id.value().toString())
-                .hasNoCause()
-                .message()
-                .doesNotContain("New car");
+                .hasNoCause();
+    }
+
+    /** A strategy with no flows yet, written past the aggregate so a test can list a bad one. */
+    private ScenarioId scenarioStoredDirectly(String currency) {
+        return scenarioStoredDirectly("Stored directly", currency);
+    }
+
+    private ScenarioId scenarioStoredDirectly(String name, String currency) {
+        ScenarioId id = ScenarioId.generate();
+        jdbc().sql("INSERT INTO planning.scenario VALUES (:id, :name, :currency, 0)")
+                .param("id", id.value())
+                .param("name", name)
+                .param("currency", currency)
+                .update();
+        return id;
+    }
+
+    private void listDirectly(ScenarioId scenario, PlannedFlow flow, String currency) {
+        jdbc().sql("INSERT INTO planning.scenario_flow (scenario_id, ordinal, flow_id, currency)"
+                        + " VALUES (:scenario, 0, :flow, :currency)")
+                .param("scenario", scenario.value())
+                .param("flow", flow.id().value())
+                .param("currency", currency)
+                .update();
     }
 
     private PlannedFlow stored(String description, String amount) {

@@ -194,30 +194,37 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
     }
 
     /**
-     * No constraint ties a limit's currency to its budget's, because they sit in two tables. {@code
-     * Budget} refuses the pair, and a stored pair it refuses is a server fault naming the budget. Its
-     * refusal names the category, the owner's own word, so it is not carried into the logged fault.
+     * Every limit is in its budget's currency, held by the database as well as by {@code Budget}: a
+     * composite foreign key ties a limit's currency to its budget's, so no writer can store a row the
+     * aggregate would refuse, and none can make the budget unreadable.
      */
     @Test
-    void Given_a_limit_stored_in_another_currency_than_its_budget_When_read_Then_it_is_a_server_fault() {
+    void Given_a_budget_in_one_currency_When_a_limit_in_another_is_inserted_directly_Then_the_database_refuses_it() {
         BudgetId id = budgetStoredDirectly();
-        jdbc().sql("INSERT INTO budgeting.budget_limit VALUES (:id, 'groceries', 1200.00, 'USD')")
-                .param("id", id.value())
-                .update();
 
-        assertThatThrownBy(() -> budgets.findById(id))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("budgeting.budget")
-                .hasMessageContaining(id.value().toString())
-                .hasNoCause()
-                .message()
-                .doesNotContain("groceries");
+        assertThatThrownBy(
+                        () -> jdbc().sql("INSERT INTO budgeting.budget_limit VALUES (:id, 'groceries', 1200.00, 'USD')")
+                                .param("id", id.value())
+                                .update())
+                .hasMessageContaining("budget_limit_in_budget_currency");
+    }
+
+    /** The same key from the other side: a budget cannot move to a currency its limits are not in. */
+    @Test
+    void Given_a_budget_with_a_limit_When_its_currency_is_changed_directly_Then_the_database_refuses_it() {
+        Budget budget = Budget.of(MARCH, Currency.ILS, List.of(new CategoryLimit(GROCERIES, ils("1200.00"))));
+        budgets.save(budget);
+
+        assertThatThrownBy(() -> jdbc().sql("UPDATE budgeting.budget SET currency = 'USD' WHERE id = :id")
+                        .param("id", budget.id().value())
+                        .update())
+                .hasMessageContaining("budget_limit_in_budget_currency");
     }
 
     /**
-     * {@code Budget} refuses a budget with no limits, and the schema cannot, because the limits sit in a
-     * table of their own. A stored budget with none is a server fault naming the budget, not a rule the
-     * caller broke.
+     * {@code Budget} refuses a budget with no limits, and no constraint holds that yet (#401). A stored
+     * budget with none is a server fault naming the budget, not a rule the caller broke, and it carries
+     * no cause, so the domain's refusal is never chained into what the log records.
      */
     @Test
     void Given_a_budget_stored_with_no_limits_When_read_Then_it_is_a_server_fault() {
@@ -226,7 +233,8 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
         assertThatThrownBy(() -> budgets.findById(id))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("budgeting.budget")
-                .hasMessageContaining(id.value().toString());
+                .hasMessageContaining(id.value().toString())
+                .hasNoCause();
     }
 
     /** An ILS budget for March with no limits yet, written past the aggregate so a test can add a bad one. */

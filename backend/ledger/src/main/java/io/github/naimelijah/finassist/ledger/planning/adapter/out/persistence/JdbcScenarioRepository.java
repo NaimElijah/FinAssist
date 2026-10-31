@@ -43,8 +43,8 @@ public class JdbcScenarioRepository implements ScenarioRepository {
             """;
 
     private static final String INSERT_FLOW = """
-            INSERT INTO planning.scenario_flow (scenario_id, ordinal, flow_id)
-            VALUES (:scenarioId, :ordinal, :flowId)
+            INSERT INTO planning.scenario_flow (scenario_id, ordinal, flow_id, currency)
+            VALUES (:scenarioId, :ordinal, :flowId, :currency)
             """;
 
     private static final String SELECT_SCENARIO = """
@@ -106,10 +106,13 @@ public class JdbcScenarioRepository implements ScenarioRepository {
 
         List<PlannedFlow> flows = scenario.flows();
         for (int ordinal = 0; ordinal < flows.size(); ordinal++) {
+            PlannedFlow flow = flows.get(ordinal);
             jdbc.sql(INSERT_FLOW)
                     .param("scenarioId", scenario.id().value())
                     .param("ordinal", ordinal)
-                    .param("flowId", flows.get(ordinal).id().value())
+                    .param("flowId", flow.id().value())
+                    // The flow's own currency, so the key to the scenario is what compares the two.
+                    .param("currency", flow.currency().name())
                     .update();
         }
     }
@@ -124,9 +127,11 @@ public class JdbcScenarioRepository implements ScenarioRepository {
     /**
      * Shared by {@link #findById} and {@link #all}, so the two never map a row two different ways.
      *
-     * <p>Each column reads back on its own, but no constraint ties a flow's currency to the scenario's,
-     * because they sit in two tables. {@link Scenario} refuses that pair, and a stored pair it refuses is
-     * a server fault naming the scenario rather than a rule a caller broke.
+     * <p>Each column reads back on its own, and {@code scenario_flow_in_scenario_currency} and {@code
+     * scenario_flow_in_plan_currency} tie every flow's currency to the scenario's (V3_2). {@link Scenario}
+     * still checks every rule on the way back in, some more strictly than the schema can, such as a name
+     * that only Java counts as blank; a stored scenario it refuses is a server fault naming the scenario
+     * rather than a rule a caller broke.
      */
     private Scenario toScenario(ResultSet row, int rowNumber) throws SQLException {
         ScenarioId id = new ScenarioId(row.getObject("id", UUID.class));

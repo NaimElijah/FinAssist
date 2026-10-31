@@ -16,10 +16,13 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 /**
  * The chart of accounts, in PostgreSQL.
  *
- * <p>An account is written once and never rewritten: nothing in the domain changes a name, a type
- * or a currency, so this class holds an insert and two queries and no update. That is not an
- * append-only guarantee of the kind ADR-020 attaches to the journal - it is simply all the
- * behaviour there is.
+ * <p>{@link #save} is an upsert: saving an identity already stored rewrites its name, type and
+ * currency. Nothing in the domain changes any of them today, so no caller asks for a rewrite, but
+ * this class does not refuse one. The database refuses one kind: a change of currency once an entry
+ * is posted to the account, through {@code journal_entry}'s foreign key on {@code (account_id,
+ * currency)}, which surfaces from {@link #save} as a {@code DataIntegrityViolationException}. A
+ * rewritten name or type is stored. None of this is an append-only guarantee of the kind ADR-020
+ * attaches to the journal.
  */
 public class JdbcAccountRepository implements AccountRepository {
 

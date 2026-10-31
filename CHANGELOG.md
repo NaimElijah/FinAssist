@@ -574,6 +574,21 @@ history; write the commit message well and this file writes itself.
 
 ### Security
 
+- **The ledger's store now refuses what the domain refuses across rows.** Scan 6 of 12 in M0
+  ([#343](https://github.com/NaimElijah/FinAssist/issues/343)) read the schema, migrations and
+  queries against ten years of synthetic books. New migrations close each gap it found:
+  - **`V1_3`:** a recorded transaction can no longer gain entries.
+  - **`V1_4`:** its state history follows the legal transitions, in order and forward in time.
+  - **`V1_5`:** a header commits only with its entries and its opening state.
+  - **`V1_6` and `V1_7`:** an entry stays in its account's currency and its header's.
+  - **`V2_2` and `V3_2`:** a budget limit and a strategy's flow stay in their parent's currency.
+
+  The balance refusal no longer prints an amount, and the new transition refusal names no date.
+  Each rule has an IT that was red before its migration, and `LedgerUpgradeIT` starts the ledger
+  on the history an existing database holds
+  ([ADR-066](docs/ADRs/ADR-066-the-store-holds-every-rule-the-domain-holds-across-rows.md)).
+  **Take a backup (`make backup`) before upgrading:** the migrations add triggers and keys to the
+  books.
 - **The containers, Compose and CI were audited, and what the audit found is fixed or filed.**
   Scan 5 of 12 in M0 ([#342](https://github.com/NaimElijah/FinAssist/issues/342)):
   - **`make check-compose` now enforces the Compose rules it was said to:** every published port on
