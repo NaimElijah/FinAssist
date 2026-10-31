@@ -132,6 +132,22 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
         assertThat(scenarios.findById(scenario.id())).contains(scenario);
     }
 
+    /**
+     * Each link row carries a currency the keys tie to its plan and its strategy, and the adapter writes
+     * it. A strategy in a currency other than ILS must still save and come back whole.
+     */
+    @Test
+    void Given_a_usd_scenario_over_a_usd_flow_When_it_is_saved_and_read_back_Then_it_is_the_same_scenario() {
+        PlannedFlow car = PlannedFlow.plan(
+                "New car", Money.of("40000.00", Currency.USD), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+        flows.save(car);
+        Scenario scenario = Scenario.of("Buy the car", Currency.USD, List.of(car), GrowthAssumption.none());
+
+        scenarios.save(scenario);
+
+        assertThat(scenarios.findById(scenario.id())).contains(scenario);
+    }
+
     /** A comparison needs a do-nothing baseline, so an empty flow list has to survive the round trip. */
     @Test
     void Given_a_baseline_scenario_When_it_is_read_back_Then_it_still_names_no_flows() {
