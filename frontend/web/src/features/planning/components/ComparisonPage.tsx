@@ -144,7 +144,12 @@ function ComparisonTables({ comparison }: { readonly comparison: Comparison }) {
 function ComparisonResult({ params }: { readonly params: ComparisonParams }) {
     const query = useComparison(params);
     return (
-        <ReadResult heading="Comparison" pendingMessage="Comparing…" query={query}>
+        <ReadResult
+            heading="Comparison"
+            pendingMessage="Comparing…"
+            query={query}
+            submission={params}
+        >
             {(comparison) => <ComparisonTables comparison={comparison} />}
         </ReadResult>
     );

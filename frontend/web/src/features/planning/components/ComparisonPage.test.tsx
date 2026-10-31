@@ -3,7 +3,7 @@
 // faked, so the feature's real api/ module and its mapping run under test; the account choices
 // src/app would provide are provided here directly, in planning's own terms.
 
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { Outlet, type RouteObject } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -505,6 +505,71 @@ describe('ComparisonPage', () => {
         const urls = requests.filter(isComparison).map((request) => request.url);
         expect(urls).toHaveLength(2);
         expect(urls[1]).toBe(urls[0]);
+    });
+
+    it('Given_two_scenarios_When_compared_Then_the_result_heading_takes_focus_once_the_comparison_lands', async () => {
+        // Compare keeps focus and the answer mounts below the form, so without this a screen
+        // reader user hears nothing of what came back.
+        fakeFetch(ledger(SCENARIOS, () => jsonResponse(COMPARISON)));
+        renderComparison();
+
+        await compare(userEvent.setup({ delay: null }), [
+            'Do nothing (ILS)',
+            'Aggressive saving (ILS)',
+        ]);
+
+        await screen.findByRole('table', { name: 'End states' });
+        await waitFor(() => {
+            expect(document.activeElement).toBe(
+                screen.getByRole('heading', { level: 2, name: 'Comparison' }),
+            );
+        });
+    });
+
+    it('Given_a_comparison_shown_When_its_fields_are_submitted_again_unchanged_Then_the_result_heading_takes_focus_once_the_new_answer_lands', async () => {
+        // The answer refreshes in place, so nothing new mounts to announce it. The second answer
+        // is held, to show focus waits for it rather than following the answer already on screen.
+        let release: (response: Response) => void = () => undefined;
+        let held = false;
+        fakeFetch(
+            ledger(SCENARIOS, () =>
+                held
+                    ? new Promise<Response>((resolve) => {
+                          release = resolve;
+                      })
+                    : jsonResponse(COMPARISON),
+            ),
+        );
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+        await compare(user, ['Do nothing (ILS)', 'Aggressive saving (ILS)']);
+        await screen.findByRole('table', { name: 'End states' });
+
+        held = true;
+        const compareButton = screen.getByRole('button', { name: 'Compare' });
+        await user.click(compareButton);
+        expect(document.activeElement).toBe(compareButton);
+
+        act(() => {
+            release(
+                jsonResponse({
+                    ...COMPARISON,
+                    scenarios: [
+                        DO_NOTHING_COMPARED,
+                        {
+                            ...SAVING_COMPARED,
+                            endState: wirePoint('2026-11-01', '-60.00', '300.00', '240.00'),
+                        },
+                    ],
+                }),
+            );
+        });
+        await screen.findByText('-₪60.00');
+        await waitFor(() => {
+            expect(document.activeElement).toBe(
+                screen.getByRole('heading', { level: 2, name: 'Comparison' }),
+            );
+        });
     });
 
     it('Given_a_comparison_shown_When_it_is_requested_again_and_fails_Then_the_failure_shows_above_the_comparison_it_kept', async () => {

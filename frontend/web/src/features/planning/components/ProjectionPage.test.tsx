@@ -325,6 +325,123 @@ describe('ProjectionPage', () => {
         expect(urls[1]).toBe(urls[0]);
     });
 
+    it('Given_a_scenario_When_projected_Then_the_result_heading_takes_focus_once_the_projection_lands', async () => {
+        // Project keeps focus and the answer mounts below the form, so without this a screen
+        // reader user hears nothing of what came back.
+        fakeFetch(ledger([SAVING], () => jsonResponse(WITH_SHORTFALL)));
+        renderProjection();
+
+        await project(userEvent.setup({ delay: null }));
+
+        await screen.findByRole('table', { name: 'Projection' });
+        await waitFor(() => {
+            expect(document.activeElement).toBe(
+                screen.getByRole('heading', { level: 2, name: 'Projected balances' }),
+            );
+        });
+    });
+
+    it('Given_a_projection_shown_When_its_fields_are_submitted_again_unchanged_Then_the_result_heading_takes_focus_once_the_new_answer_lands', async () => {
+        // The answer refreshes in place, so nothing new mounts to announce it. The second answer
+        // is held, to show focus waits for it rather than following the answer already on screen.
+        let release: (response: Response) => void = () => undefined;
+        let held = false;
+        fakeFetch(
+            ledger([SAVING], () =>
+                held
+                    ? new Promise<Response>((resolve) => {
+                          release = resolve;
+                      })
+                    : jsonResponse(WITH_SHORTFALL),
+            ),
+        );
+        renderProjection();
+        const user = userEvent.setup({ delay: null });
+        await project(user);
+        await screen.findByRole('table', { name: 'Projection' });
+
+        held = true;
+        const projectButton = screen.getByRole('button', { name: 'Project' });
+        await user.click(projectButton);
+        expect(document.activeElement).toBe(projectButton);
+
+        act(() => {
+            release(jsonResponse({ ...WITH_SHORTFALL, firstShortfall: undefined }));
+        });
+        await screen.findByText(paragraph('Cash never falls below zero at a monthly cadence.'));
+        await waitFor(() => {
+            expect(document.activeElement).toBe(
+                screen.getByRole('heading', { level: 2, name: 'Projected balances' }),
+            );
+        });
+    });
+
+    it('Given_focus_moved_to_a_field_while_projecting_When_the_projection_lands_Then_focus_stays_on_that_field', async () => {
+        let release: (response: Response) => void = () => undefined;
+        fakeFetch(
+            ledger(
+                [SAVING],
+                () =>
+                    new Promise<Response>((resolve) => {
+                        release = resolve;
+                    }),
+            ),
+        );
+        renderProjection();
+        await project(userEvent.setup({ delay: null }));
+        await screen.findByText('Projecting…');
+
+        const to = screen.getByLabelText('To');
+        act(() => {
+            to.focus();
+        });
+        act(() => {
+            release(jsonResponse(WITH_SHORTFALL));
+        });
+
+        await screen.findByRole('table', { name: 'Projection' });
+        expect(document.activeElement).toBe(to);
+    });
+
+    it('Given_a_projection_shown_When_it_is_refetched_without_a_submit_Then_focus_stays_where_it_was', async () => {
+        // Focus on the body is the case a submit would move it from, so it proves the refetch
+        // alone is not mistaken for one. The refetch's answer is held until its request is out,
+        // so the page renders it in flight and then settled, as a real one would.
+        let release: (response: Response) => void = () => undefined;
+        let held = false;
+        const requests = fakeFetch(
+            ledger([SAVING], () =>
+                held
+                    ? new Promise<Response>((resolve) => {
+                          release = resolve;
+                      })
+                    : jsonResponse(WITH_SHORTFALL),
+            ),
+        );
+        const { queryClient } = renderProjection();
+        await project(userEvent.setup({ delay: null }));
+        await screen.findByRole('table', { name: 'Projection' });
+        act(() => {
+            if (document.activeElement instanceof HTMLElement) {
+                document.activeElement.blur();
+            }
+        });
+
+        held = true;
+        act(() => {
+            void queryClient.invalidateQueries({ queryKey: planKeys.projections });
+        });
+        await waitFor(() => {
+            expect(requests.filter(isProjection)).toHaveLength(2);
+        });
+        act(() => {
+            release(jsonResponse({ ...WITH_SHORTFALL, firstShortfall: undefined }));
+        });
+
+        await screen.findByText(paragraph('Cash never falls below zero at a monthly cadence.'));
+        expect(document.activeElement).toBe(document.body);
+    });
+
     it('Given_a_projection_shown_When_it_is_requested_again_and_fails_Then_the_failure_shows_above_the_projection_it_kept', async () => {
         // A result stays below a later failure: the owner keeps reading what the ledger last
         // answered, and the failure says the new request did not land.
