@@ -14,7 +14,7 @@
  * on, is listed by hand in `INHERITED_PAIRS`.
  */
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
@@ -166,6 +166,52 @@ function pairsSetTogether(): DrawnPair[] {
     );
 }
 
+/** `file` relative to `src/`, with `/` between its parts on every platform. */
+function srcPath(file: string): string {
+    return relative(SRC, file).split(sep).join('/');
+}
+
+/**
+ * Every rule under `src/` that sets a text colour or a background to anything but one colour
+ * token - a `color-mix()`, `transparent`, `inherit` - so `pairsSetTogether` cannot measure the
+ * pair it takes part in, whether the rule sets the other colour itself or inherits it.
+ */
+function pairsNotMeasured(): string[] {
+    return cssFilesUnder(SRC).flatMap((file) =>
+        rulesOf(readCss(file)).flatMap(({ selector, body }) => {
+            const unmeasurable = [declared(body, 'color'), backgroundOf(body)].some(
+                (value) => value !== undefined && singleToken(value) === undefined,
+            );
+            return unmeasurable ? [`${srcPath(file)} ${selector}`] : [];
+        }),
+    );
+}
+
+/** A rule `pairsSetTogether` cannot measure, and why its contrast holds regardless. */
+interface UnmeasuredPair {
+    readonly drawnBy: string;
+    readonly reason: string;
+}
+
+/**
+ * Every rule setting both colours that the scan passes over, each with the reason it is safe to.
+ * Kept by hand, so a new one fails the test below until someone has looked at it.
+ */
+const UNMEASURED_PAIRS: readonly UnmeasuredPair[] = [
+    {
+        drawnBy: 'app/session/UserMenu.module.css .badge',
+        reason: "transparent, so it shows the header band; measured against the band's own colour below",
+    },
+    {
+        drawnBy: "shared/ui/Button.module.css .button[data-variant='primary']:hover:not(:disabled)",
+        reason: 'mixes --color-accent toward --color-text, away from its --color-on-accent label in both themes, so the hover only adds to the contrast measured for the plain variant',
+    },
+    {
+        drawnBy: "shared/ui/Button.module.css .button[data-variant='danger']:hover:not(:disabled)",
+        reason: 'mixes --color-negative toward --color-text, away from its --color-on-negative label in both themes, so the hover only adds to the contrast measured for the plain variant',
+    },
+];
+
 interface InheritedPair extends DrawnPair {
     readonly minimum: number;
 }
@@ -277,6 +323,14 @@ describe('colour contrast', () => {
     it('Given_the_stylesheets_When_read_Then_some_rule_sets_a_text_and_a_background_colour_together', () => {
         // Guards the scan below from passing vacuously, should the CSS stop parsing as expected.
         expect(pairsSetTogether().length).toBeGreaterThan(0);
+    });
+
+    it('Given_rules_setting_both_colours_the_scan_cannot_measure_When_read_Then_they_are_exactly_the_ones_allowed_with_a_reason', () => {
+        // Passed over silently, a new color-mix() or a transparent background would never be
+        // measured; listed here, each has been looked at once and says why it is safe.
+        expect(pairsNotMeasured().sort()).toEqual(
+            UNMEASURED_PAIRS.map(({ drawnBy }) => drawnBy).sort(),
+        );
     });
 
     // A plain loop rather than it.each, as in tests/architecture.test.ts: one named test per

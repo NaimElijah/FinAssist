@@ -10,6 +10,8 @@ import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
+
 import { DateField } from './DateField';
 import { MonthField } from './MonthField';
 import { SelectField } from './SelectField';
@@ -42,12 +44,6 @@ const FIELDS: readonly {
     },
 ];
 
-/** The text of every element the control's `aria-describedby` names, in order. */
-function descriptionsOf(control: HTMLElement): (string | null | undefined)[] {
-    const ids = (control.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
-    return ids.map((id) => document.getElementById(id)?.textContent);
-}
-
 describe('labelled fields', () => {
     // A plain loop rather than it.each, as in tests/architecture.test.ts: one named test per
     // field.
@@ -68,10 +64,9 @@ describe('labelled fields', () => {
             );
 
             const control = screen.getByLabelText('Account');
-            expect(descriptionsOf(control)).toEqual([
-                'The account the money moves through.',
-                'Choose an account.',
-            ]);
+            expect(accessibleDescriptionOf(control)).toBe(
+                'The account the money moves through. Choose an account.',
+            );
             expect(control.getAttribute('aria-invalid')).toBe('true');
         });
 
@@ -108,10 +103,9 @@ describe('labelled fields', () => {
             );
 
             const control = screen.getByLabelText('Account');
-            expect(descriptionsOf(control)).toEqual([
-                'The account the money moves through.',
-                'Enter a debit or a credit',
-            ]);
+            expect(accessibleDescriptionOf(control)).toBe(
+                'The account the money moves through. Enter a debit or a credit',
+            );
             expect(control.getAttribute('aria-invalid')).toBe('true');
             // The field renders no copy of its own, so the message is shown and read once.
             expect(screen.getAllByText('Enter a debit or a credit')).toHaveLength(1);
@@ -134,12 +128,10 @@ describe('labelled fields', () => {
 
             // Guidance before errors, the field's own first: a screen reader reads what the
             // field takes, then what is wrong with it.
-            expect(descriptionsOf(screen.getByLabelText('Account'))).toEqual([
-                'The account the money moves through.',
-                'Each entry is a debit or a credit, not both.',
-                'Choose an account.',
-                'Enter a debit or a credit',
-            ]);
+            expect(accessibleDescriptionOf(screen.getByLabelText('Account'))).toBe(
+                'The account the money moves through. Each entry is a debit or a credit, not both. ' +
+                    'Choose an account. Enter a debit or a credit',
+            );
             expect(
                 screen.getAllByText('Each entry is a debit or a credit, not both.'),
             ).toHaveLength(1);
@@ -154,9 +146,9 @@ describe('labelled fields', () => {
             );
 
             const control = screen.getByLabelText('Account');
-            expect(descriptionsOf(control)).toEqual([
+            expect(accessibleDescriptionOf(control)).toBe(
                 'Each entry is a debit or a credit, not both.',
-            ]);
+            );
             expect(control.hasAttribute('aria-invalid')).toBe(false);
         });
 

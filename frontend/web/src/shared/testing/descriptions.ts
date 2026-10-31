@@ -2,9 +2,12 @@
  * Accessible-description reading for a component test, where no role query can reach the control.
  */
 
+/** A run of whitespace, which a screen reader reads as a single space. */
+const WHITESPACE_RUN = /\s+/g;
+
 /**
  * The description `element`'s `aria-describedby` gives it: the text of each element it names, in
- * the order named, joined by a space.
+ * the order named, each with its whitespace collapsed to single spaces, joined by a space.
  *
  * Testing Library's `description` option on `getByRole` computes the same thing, but a native
  * month input has no implicit ARIA role, so no role query finds it; a label query and this cover
@@ -23,7 +26,7 @@ export function accessibleDescriptionOf(element: Element): string {
             if (describing === null) {
                 throw new Error(`aria-describedby names "${id}", which matches no element`);
             }
-            return describing.textContent.trim();
+            return describing.textContent.replace(WHITESPACE_RUN, ' ').trim();
         })
         .join(' ');
 }
