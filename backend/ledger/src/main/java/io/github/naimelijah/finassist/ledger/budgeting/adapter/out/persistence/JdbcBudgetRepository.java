@@ -157,9 +157,9 @@ public class JdbcBudgetRepository implements BudgetRepository {
      * Shared by {@link #findById} and {@link #all}, so the two never map a row two different ways.
      *
      * <p>Each column reads back on its own, and {@code budget_limit_in_budget_currency} ties every limit's
-     * currency to its budget's (V2_2). What no constraint can hold is that a budget has at least one
-     * limit, since the limits sit in a table of their own. {@link Budget} refuses a budget with none, and
-     * a stored one it refuses is a server fault naming the budget rather than a rule a caller broke.
+     * currency to its budget's (V2_2). No constraint holds yet that a budget has at least one limit
+     * (#401). {@link Budget} refuses a budget with none, and a stored one it refuses is a server fault
+     * naming the budget rather than a rule a caller broke.
      */
     private Budget toBudget(ResultSet row, int rowNumber) throws SQLException {
         BudgetId id = new BudgetId(row.getObject("id", UUID.class));
