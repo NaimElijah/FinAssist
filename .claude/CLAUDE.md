@@ -152,16 +152,16 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 
 ### Compose (`docker-compose.yml`)
 
-- **Every long-running service takes `restart: *restart-policy` and `logging: *bounded-logs`; the
-  one-shots `auth-smoke` and `secret-check` take neither.** The two `x-` blocks at the top state
-  once the policy, `unless-stopped`, and the bound, three 10 MB `json-file` logs (ADR-039, ADR-019).
-- **Every healthcheck probes readiness**: `/actuator/health/readiness` on the ledger and the
-  gateway, `/ready` on the assistant, `/health/ready` on Keycloak's management port (#142).
+- **Long-running services take `restart: *restart-policy` and `logging: *bounded-logs`, the
+  one-shots `auth-smoke` and `secret-check` neither** (ADR-039, ADR-019). **Healthchecks probe
+  readiness**: `/actuator/health/readiness`, the assistant's `/ready`, Keycloak's `/health/ready`.
+- **All but the databases take `<<: *hardened`**, all but those and Keycloak `read_only: true`;
+  `db` and `keycloak-db` share a network only with the ledger and Keycloak (ADR-063).
 - **`auth-smoke` stays behind exactly `profiles: [smoke]`**: CI validates it but never runs it,
   nor `make restore-check` (ADR-034, ADR-038). **`secret-check` has no profile**: `db`,
   `keycloak-db` and `grafana` wait on it, and CI runs it on a published value (ADR-044).
-- **`make check-compose` fails a break of each restart, logging, probe or profile rule above**, a
-  published port not bound to exactly `127.0.0.1`, and any port on `keycloak-db` (ADR-030).
+- **`make check-compose` fails a break of each rule above but CI's** (#142), a published port not
+  bound to exactly `127.0.0.1`, and any port on `keycloak-db` (ADR-030).
 
 ### Tests
 

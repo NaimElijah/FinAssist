@@ -32,6 +32,8 @@ PASSED = "Every service follows the Compose conventions"
 POLICY = "unless-stopped"
 BOUNDED_LOGS = {"driver": "json-file", "options": {"max-file": "3", "max-size": "10m"}}
 LOOPBACK = "127.0.0.1"
+NO_CAPABILITIES = ["ALL"]
+NO_NEW_PRIVILEGES = ["no-new-privileges:true"]
 
 
 def _probe(path: str) -> dict[str, Any]:
@@ -56,40 +58,102 @@ def _long_running(**members: Any) -> dict[str, Any]:
     return {"restart": POLICY, "logging": copy.deepcopy(BOUNDED_LOGS), **members}
 
 
+def _hardened(service: dict[str, Any]) -> dict[str, Any]:
+    """`service` with the `x-hardened` block's members, as `<<: *hardened` resolves."""
+    return {**service, "cap_drop": list(NO_CAPABILITIES), "security_opt": list(NO_NEW_PRIVILEGES)}
+
+
 def _conforming() -> dict[str, Any]:
     """A resolved file shaped like today's, following every convention, with a secret in it."""
     return {
         "name": "finassist",
         "x-restart-policy": POLICY,
         "x-logging": copy.deepcopy(BOUNDED_LOGS),
+        "x-hardened": {"cap_drop": list(NO_CAPABILITIES), "security_opt": list(NO_NEW_PRIVILEGES)},
         "services": {
-            "db": _long_running(environment={"POSTGRES_PASSWORD": SECRET}, ports=[_port(5432)]),
-            "ledger": _long_running(
-                healthcheck=_probe("/actuator/health/readiness"),
-                environment={"LEDGER_DB_PASSWORD": SECRET, "OTEL_EXPORT_ENABLED": "false"},
-                ports=[_port(8080)],
+            "db": _long_running(
+                environment={"POSTGRES_PASSWORD": SECRET},
+                ports=[_port(5432)],
+                networks={"books": None},
             ),
-            "gateway": _long_running(
-                healthcheck=_probe("/actuator/health/readiness"),
-                environment={"GATEWAY_CLIENT_SECRET": SECRET, "OTEL_EXPORT_ENABLED": "false"},
-                ports=[_port(8090)],
+            "ledger": _hardened(
+                _long_running(
+                    healthcheck=_probe("/actuator/health/readiness"),
+                    environment={"LEDGER_DB_PASSWORD": SECRET, "OTEL_EXPORT_ENABLED": "false"},
+                    ports=[_port(8080)],
+                    read_only=True,
+                    tmpfs=["/tmp"],
+                    networks={"books": None, "default": None},
+                )
             ),
-            "assistant": _long_running(healthcheck=_probe("/ready"), ports=[_port(8000)]),
-            "keycloak-db": _long_running(environment={"POSTGRES_PASSWORD": SECRET}),
-            "keycloak": _long_running(healthcheck=_probe("/health/ready"), ports=[_port(8080)]),
-            "otel-collector": _long_running(
-                profiles=["monitoring"], ports=[_port(4318), _port(4317)]
+            "gateway": _hardened(
+                _long_running(
+                    healthcheck=_probe("/actuator/health/readiness"),
+                    environment={"GATEWAY_CLIENT_SECRET": SECRET, "OTEL_EXPORT_ENABLED": "false"},
+                    ports=[_port(8090)],
+                    read_only=True,
+                    tmpfs=["/tmp"],
+                    networks={"default": None},
+                )
             ),
-            "grafana": _long_running(
-                environment={"GF_SECURITY_ADMIN_PASSWORD": SECRET},
-                profiles=["monitoring"],
-                ports=[_port(3000)],
+            "assistant": _hardened(
+                _long_running(
+                    healthcheck=_probe("/ready"),
+                    ports=[_port(8000)],
+                    read_only=True,
+                    networks={"default": None},
+                )
             ),
-            "secret-check": {"environment": {"POSTGRES_PASSWORD": SECRET}},
-            "auth-smoke": {
-                "environment": {"ASSISTANT_CLIENT_SECRET": SECRET},
-                "profiles": ["smoke"],
-            },
+            "keycloak-db": _long_running(
+                environment={"POSTGRES_PASSWORD": SECRET}, networks={"identity": None}
+            ),
+            "keycloak": _hardened(
+                _long_running(
+                    healthcheck=_probe("/health/ready"),
+                    ports=[_port(8080)],
+                    networks={"default": None, "identity": None},
+                )
+            ),
+            "otel-collector": _hardened(
+                _long_running(
+                    profiles=["monitoring"],
+                    ports=[_port(4318), _port(4317)],
+                    read_only=True,
+                    networks={"default": None},
+                )
+            ),
+            "prometheus": _hardened(
+                _long_running(
+                    profiles=["monitoring"],
+                    ports=[_port(9090)],
+                    read_only=True,
+                    networks={"default": None},
+                )
+            ),
+            "grafana": _hardened(
+                _long_running(
+                    environment={"GF_SECURITY_ADMIN_PASSWORD": SECRET},
+                    profiles=["monitoring"],
+                    ports=[_port(3000)],
+                    read_only=True,
+                    networks={"default": None},
+                )
+            ),
+            "secret-check": _hardened(
+                {
+                    "environment": {"POSTGRES_PASSWORD": SECRET},
+                    "network_mode": "none",
+                    "read_only": True,
+                }
+            ),
+            "auth-smoke": _hardened(
+                {
+                    "environment": {"ASSISTANT_CLIENT_SECRET": SECRET},
+                    "profiles": ["smoke"],
+                    "read_only": True,
+                    "networks": {"default": None},
+                }
+            ),
         },
     }
 
@@ -634,6 +698,168 @@ def Given_secret_check_behind_a_profile_When_checked_Then_it_fails(
     assert lines == ["secret-check: must take no profiles"]
 
 
+# --- Container hardening and the databases' networks (ADR-063) ------------------------------------
+
+
+@pytest.mark.parametrize("member", ["cap_drop", "security_opt"])
+@pytest.mark.parametrize("service", sorted(compose_check.HARDENED_SERVICES))
+def Given_a_hardened_service_without_a_member_of_the_block_When_checked_Then_it_is_named(
+    service: str, member: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    del resolved["services"][service][member]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        f"{service}: needs cap_drop and security_opt as the x-hardened block sets them"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("member", "value"),
+    [
+        ("cap_drop", ["NET_RAW"]),
+        ("cap_drop", []),
+        ("security_opt", ["no-new-privileges:false"]),
+        ("security_opt", ["no-new-privileges:true", "seccomp=unconfined"]),
+    ],
+    ids=["one-capability", "no-capability", "privileges-allowed", "seccomp-unconfined"],
+)
+def Given_a_hardened_service_with_a_weaker_member_When_checked_Then_it_is_named(
+    member: str, value: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["keycloak"][member] = value
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["keycloak: needs cap_drop and security_opt as the x-hardened block sets them"]
+
+
+@pytest.mark.parametrize(
+    ("member", "value"),
+    [("cap_add", ["NET_ADMIN"]), ("privileged", True)],
+    ids=["cap_add", "privileged"],
+)
+def Given_a_hardened_service_that_takes_privilege_back_When_checked_Then_it_is_named(
+    member: str, value: object, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["grafana"][member] = value
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["grafana: must not set cap_add or privileged, which undo the x-hardened block"]
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        None,
+        {"cap_drop": ["NET_RAW"], "security_opt": list(NO_NEW_PRIVILEGES)},
+        {"cap_drop": list(NO_CAPABILITIES), "security_opt": []},
+    ],
+    ids=["missing", "one-capability", "privileges-allowed"],
+)
+def Given_an_x_hardened_block_missing_or_weakened_When_checked_Then_it_fails_saying_so(
+    block: dict[str, Any] | None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    if block is None:
+        del resolved["x-hardened"]
+    else:
+        resolved["x-hardened"] = block
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        "the resolved file's x-hardened block must drop ALL and set no-new-privileges:true"
+    ]
+
+
+def Given_a_database_service_with_capabilities_of_its_own_When_checked_Then_it_passes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["db"]["cap_add"] = ["CHOWN"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_PASSED
+    assert lines == [PASSED]
+
+
+@pytest.mark.parametrize("read_only", [None, False], ids=["unset", "false"])
+@pytest.mark.parametrize("service", sorted(compose_check.READ_ONLY_SERVICES))
+def Given_a_read_only_service_with_a_writable_root_When_checked_Then_it_is_named(
+    service: str, read_only: bool | None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    if read_only is None:
+        del resolved["services"][service]["read_only"]
+    else:
+        resolved["services"][service]["read_only"] = read_only
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: needs read_only: true"]
+
+
+@pytest.mark.parametrize(("service", "network"), sorted(compose_check.DATABASE_NETWORKS.items()))
+@pytest.mark.parametrize(
+    "networks",
+    [{"default": None}, "both", {}],
+    ids=["default-instead", "default-as-well", "none"],
+)
+def Given_a_database_not_on_its_own_network_alone_When_checked_Then_it_is_named(
+    service: str, network: str, networks: object, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["networks"] = (
+        {network: None, "default": None} if networks == "both" else networks
+    )
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: must attach to the {network} network alone"]
+
+
+def Given_a_database_on_the_host_network_When_checked_Then_it_is_named(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    del resolved["services"]["db"]["networks"]
+    resolved["services"]["db"]["network_mode"] = "host"
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["db: must attach to the books network alone"]
+
+
+@pytest.mark.parametrize(
+    ("service", "network"),
+    [("assistant", "books"), ("gateway", "identity"), ("ledger", "identity")],
+)
+def Given_another_service_on_a_databases_network_When_checked_Then_it_is_named(
+    service: str, network: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["networks"][network] = None
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: must not attach to the {network} network"]
+
+
 # --- Input that is not a resolved Compose file ----------------------------------------------------
 
 
@@ -689,6 +915,12 @@ def Given_input_that_is_not_json_When_checked_Then_it_is_refused_without_quoting
             "x-logging": BOUNDED_LOGS,
             "services": {"db": _long_running(ports=[f"0.0.0.0:5432:5432/{SECRET}"])},
         },
+        # `config` resolves a service's networks to a mapping, so anything else is not its output.
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {"assistant": _long_running(networks=SECRET)},
+        },
     ],
     ids=[
         "not-a-mapping",
@@ -699,6 +931,7 @@ def Given_input_that_is_not_json_When_checked_Then_it_is_refused_without_quoting
         "environment-a-list",
         "ports-a-mapping",
         "port-a-string",
+        "networks-a-string",
     ],
 )
 def Given_json_not_shaped_like_a_resolved_file_When_checked_Then_it_is_refused_without_a_value(

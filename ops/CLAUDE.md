@@ -23,15 +23,19 @@ One directory per tool, none of them a deployable service of this repository's (
   and log bound, the one-shots' lack of either, four readiness probes (#142, ADR-039), every
   published port's `host_ip` exactly `127.0.0.1` and no port on `keycloak-db` (ADR-030),
   `auth-smoke` behind exactly `profiles: [smoke]` and `secret-check` behind none (ADR-034,
-  ADR-044), and no `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON`
-  key, in any spelling, nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS`, in the
-  ledger's or the gateway's environment, and no `command` or `entrypoint` on either, each of which
-  would reopen the Actuator exposure their code pins and their tests cannot see; nor a
-  `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key, in any spelling,
-  on the gateway, whose Spring Web and Security loggers write credentials below INFO. It names a
-  service, a key or a member, never a value. `placeholders.env` beside it holds a throwaway value
-  for each `:?` variable, which `make check-compose` exports, so the file resolves without `.env`
-  or the shell's secrets (ADR-049). Its tests are in `ops/compose_check/tests/`.
+  ADR-044); the `x-hardened` block's `cap_drop: [ALL]` and `no-new-privileges:true`, with no
+  `cap_add` or `privileged`, on every service but the two databases, `read_only: true` on every
+  one but those and Keycloak, and `db` and `keycloak-db` each on a network of its own shared with
+  its one client alone, `books` with the ledger and `identity` with Keycloak (ADR-063); and no
+  `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON` key, in any
+  spelling, nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS`, in the ledger's or the
+  gateway's environment, and no `command` or `entrypoint` on either, each of which would reopen
+  the Actuator exposure their code pins and their tests cannot see; nor a `LOGGING_LEVEL_*`,
+  `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key, in any spelling, on the gateway,
+  whose Spring Web and Security loggers write credentials below INFO. It names a service, a key or
+  a member, never a value. `placeholders.env` beside it holds a throwaway value for each `:?`
+  variable, which `make check-compose` exports, so the file resolves without `.env` or the
+  shell's secrets (ADR-049). Its tests are in `ops/compose_check/tests/`.
 - `ops/smoke/auth_smoke.py` — the only file behind the `smoke` Compose profile (ADR-034).
 - The collector, Prometheus and Grafana provisioning that the `monitoring` Compose profile mounts.
 

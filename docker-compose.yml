@@ -8,7 +8,8 @@
 # stand behind a password alone, `keycloak-db` publishes no port at all, and the ledger and the
 # assistant still bind loopback in front of a bearer-token check rather than none, so no port may
 # be reachable from another machine either way. Containers still reach one another by service
-# name on the Compose network, which this leaves untouched.
+# name on the Compose network, except the two databases: each sits on a network of its own, shared
+# with its one client alone (`books`, `identity` below).
 #
 # The monitoring services sit behind a `monitoring` profile, so `docker compose up` stays
 # database-and-every-service-only and `docker compose --profile monitoring up` adds the
@@ -48,6 +49,17 @@ x-logging: &bounded-logs
     max-size: "10m"
     max-file: "3"
 
+# Least privilege for every container whose image runs as a user of its own and needs no Linux
+# capability (ADR-063): every capability dropped, and no process may gain privileges through a
+# setuid or file-capability binary. Applied with `<<: *hardened`; `make check-compose` holds each
+# such service to it, and those it names to `read_only: true` too. Not on `db` or `keycloak-db`:
+# the PostgreSQL image's entrypoint starts as root, takes ownership of its data and socket
+# directories, then drops to the `postgres` user itself; with every capability dropped, its
+# `chmod` and `chown` are refused and it exits.
+x-hardened: &hardened
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
 services:
   # --- Secret check (ADR-044) ----------------------------------------------------------------
   # Refuses to start the stack on a secret that a file in this repository already holds (#302).
@@ -62,6 +74,9 @@ services:
     # talks to nothing.
     user: "65534:65534"
     network_mode: none
+    <<: *hardened
+    # Nothing in its root filesystem is written: it reads its environment and the clone.
+    read_only: true
     volumes:
       # The whole clone, read-only. The script decides what to read the way git decides what to
       # track, so `.env`, the backups and the build output are mounted but never opened.
@@ -92,6 +107,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-finassist}
       POSTGRES_USER: ${POSTGRES_USER:-finassist}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    # On `books` alone, which only the ledger shares, so no other container can reach the books.
+    networks: [books]
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -108,6 +125,12 @@ services:
     build: ./backend/ledger
     restart: *restart-policy
     logging: *bounded-logs
+    <<: *hardened
+    # The JVM writes only under /tmp: its perf data and Tomcat's work and docbase directories.
+    read_only: true
+    tmpfs: [/tmp]
+    # `default` for everything that calls it, `books` for its database.
+    networks: [default, books]
     depends_on:
       db:
         condition: service_healthy
@@ -148,6 +171,9 @@ services:
     build: ./backend/assistant
     restart: *restart-policy
     logging: *bounded-logs
+    <<: *hardened
+    # It writes nothing to its root filesystem: its bytecode is compiled into the image.
+    read_only: true
     depends_on:
       keycloak:
         condition: service_healthy
@@ -213,6 +239,8 @@ services:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
       POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
+    # On `identity` alone, which only Keycloak shares.
+    networks: [identity]
     # No published port: nothing outside this network ever calls it directly, and it shares no
     # role, no backup and no failure domain with the ledger's own database (ADR-031). No init
     # script either, so the owner's existing `db-data` volume is never touched by this service —
@@ -229,6 +257,9 @@ services:
     build: ./ops/keycloak
     restart: *restart-policy
     logging: *bounded-logs
+    <<: *hardened
+    # `default` for the services that fetch tokens and keys, `identity` for its database.
+    networks: [default, identity]
     depends_on:
       keycloak-db:
         condition: service_healthy
@@ -297,6 +328,10 @@ services:
     build: ./backend/gateway
     restart: *restart-policy
     logging: *bounded-logs
+    <<: *hardened
+    # As the ledger: the JVM writes only under /tmp.
+    read_only: true
+    tmpfs: [/tmp]
     depends_on:
       keycloak:
         condition: service_healthy
@@ -341,6 +376,9 @@ services:
     image: otel/opentelemetry-collector-contrib:0.139.0
     restart: *restart-policy
     logging: *bounded-logs
+    <<: *hardened
+    # It writes nothing: its configuration is mounted read-only and it stores no telemetry.
+    read_only: true
     command: ["--config=/etc/otel/config.yaml"]
     volumes:
       - ./ops/otel-collector.yaml:/etc/otel/config.yaml:ro
@@ -353,6 +391,9 @@ services:
     image: prom/prometheus:v3.7.3
     restart: *restart-policy
     logging: *bounded-logs
+    <<: *hardened
+    # It writes only to its `prometheus-data` volume.
+    read_only: true
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=7d
@@ -373,6 +414,11 @@ services:
     image: grafana/grafana:12.3.1
     restart: *restart-policy
     logging: *bounded-logs
+    <<: *hardened
+    # It writes to its `grafana-data` volume, and under /tmp as it downloads the plugins it
+    # installs at start-up.
+    read_only: true
+    tmpfs: [/tmp]
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
       # Local-only tool with one operator; an anonymous sign-up flow would be a login screen
@@ -406,6 +452,9 @@ services:
     # so it runs as a user that owns nothing, as the three application images already drop to a
     # system user of their own.
     user: "65534:65534"
+    <<: *hardened
+    # Nothing in its root filesystem is written: its script is mounted read-only.
+    read_only: true
     depends_on:
       keycloak:
         condition: service_healthy
@@ -431,6 +480,13 @@ services:
       # own mount is read-only. So bytecode caching is switched off outright.
       PYTHONDONTWRITEBYTECODE: "1"
     command: ["python", "/auth_smoke.py"]
+
+# Each database shares a network with its one client alone. Neither network is `internal`: `db`
+# publishes its port to the host's loopback, and Docker publishes no port from a container on an
+# internal network alone.
+networks:
+  books:
+  identity:
 
 volumes:
   db-data:

@@ -2,18 +2,21 @@
 # requires-python = ">=3.13"
 # dependencies = []
 # ///
-"""Checks the resolved Compose file against the stack's restart, log, readiness and exposure rules.
+"""Checks the resolved Compose file against the stack's restart, log, probe and isolation rules.
 
 `make check-compose` pipes `docker compose config --format json`, under every profile, into this
 script's standard input (ADR-049). Every long-running service must take the restart policy and the
 log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, the one-shot services
 must take neither, and four healthchecks must probe readiness (#142, ADR-039). Every published port
 must bind `127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit
-behind exactly the `smoke` profile and `secret-check` behind none (ADR-034, ADR-044). Neither the
-ledger nor the gateway may set, in its environment, a key that reopens the Actuator exposure their
-code pins, nor a `command` or `entrypoint`, whose arguments would reach Spring as properties; nor
-may the gateway set a log level, a log group, a logging configuration or Spring Boot's `debug` or
-`trace` switch, since below INFO it logs credentials.
+behind exactly the `smoke` profile and `secret-check` behind none (ADR-034, ADR-044). Every
+service named hardened must take the `x-hardened` block's `cap_drop` and `security_opt`, and no
+`cap_add` or `privileged`; every service named read-only must set `read_only`; and each database
+must attach to one network alone, shared with its one client and nothing else (ADR-063). Neither
+the ledger nor the gateway may set, in its environment, a key that reopens the Actuator exposure
+their code pins, nor a `command` or `entrypoint`, whose arguments would reach Spring as
+properties; nor may the gateway set a log level, a log group, a logging configuration or Spring
+Boot's `debug` or `trace` switch, since below INFO it logs credentials.
 
 It reads the resolved file, not its text, so an alias that stops resolving fails as surely as a
 service that never took one, and a block copied in with other values fails too.
@@ -75,6 +78,53 @@ UNPUBLISHED_SERVICES: Final = frozenset({"keycloak-db"})
 # `auth-smoke` runs only by hand (ADR-034); `secret-check` runs on every `up`, since the databases
 # and Grafana wait on it (ADR-044). A service missing from the file has no profiles.
 PINNED_PROFILES: Final = {"auth-smoke": ("smoke",), "secret-check": ()}
+# Least privilege for every container whose image runs as a user of its own and needs no Linux
+# capability (ADR-063). Not the two PostgreSQL services: their entrypoint starts as root, takes
+# ownership of its directories and drops to `postgres` itself, which a dropped capability refuses.
+HARDENED_BLOCK: Final = "x-hardened"
+NO_CAPABILITIES: Final = ("ALL",)
+NO_NEW_PRIVILEGES: Final = ("no-new-privileges:true",)
+# The block as `config` resolves it, lists and all, so a service's members compare equal to it.
+_HARDENED_MEMBERS: Final = {
+    "cap_drop": list(NO_CAPABILITIES),
+    "security_opt": list(NO_NEW_PRIVILEGES),
+}
+HARDENED_SERVICES: Final = frozenset(
+    {
+        "assistant",
+        "auth-smoke",
+        "gateway",
+        "grafana",
+        "keycloak",
+        "ledger",
+        "otel-collector",
+        "prometheus",
+        "secret-check",
+    }
+)
+# Either one hands back what `cap_drop` and `no-new-privileges` take away.
+PRIVILEGE_MEMBERS: Final = ("cap_add", "privileged")
+# Each writes nothing outside a tmpfs or a volume, as a run of the whole stack showed (ADR-063).
+# Keycloak is not among them: it writes its transaction log under /opt/keycloak/data.
+READ_ONLY_SERVICES: Final = frozenset(
+    {
+        "assistant",
+        "auth-smoke",
+        "gateway",
+        "grafana",
+        "ledger",
+        "otel-collector",
+        "prometheus",
+        "secret-check",
+    }
+)
+# Each database attaches to one network alone, shared with its one client, so no other container
+# can reach it (ADR-063).
+DATABASE_NETWORKS: Final = {"db": "books", "keycloak-db": "identity"}
+DATABASE_NETWORK_MEMBERS: Final = {
+    "books": frozenset({"db", "ledger"}),
+    "identity": frozenset({"keycloak", "keycloak-db"}),
+}
 PASSED: Final = "Every service follows the Compose conventions"
 
 
@@ -86,8 +136,8 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
     """Every way `resolved`, the output of `docker compose config --format json`, breaks a
     convention: one line per problem, services in name order, and none when it follows them all.
 
-    :raises ComposeCheckError: when `services`, a service, an environment, a healthcheck or a port
-        is not a mapping, or a service's `ports` is not a list.
+    :raises ComposeCheckError: when `services`, a service, an environment, a healthcheck, a port or
+        a service's networks is not a mapping, or a service's `ports` is not a list.
     """
     services = _mapping(resolved.get("services"), "services")
     policy = resolved.get(RESTART_BLOCK)
@@ -95,6 +145,11 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
     found: list[str] = []
     if policy is None or bounded_logs is None:
         found.append(f"the resolved file holds no {RESTART_BLOCK} or {LOGGING_BLOCK} block")
+    if resolved.get(HARDENED_BLOCK) != _HARDENED_MEMBERS:
+        found.append(
+            f"the resolved file's {HARDENED_BLOCK} block must drop {', '.join(NO_CAPABILITIES)} "
+            f"and set {', '.join(NO_NEW_PRIVILEGES)}"
+        )
     for name, definition in sorted(services.items()):
         service = _mapping(definition, "a service")
         if name in ONE_SHOT_SERVICES:
@@ -120,6 +175,8 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
             found.append(f"{name}: each of its ports must bind host_ip {LOOPBACK_HOST_IP}")
         if name in UNPUBLISHED_SERVICES and ports:
             found.append(f"{name}: must publish no ports")
+        found.extend(_hardening_problems(name, service))
+        found.extend(_network_problems(name, service))
     for name, profiles in sorted(PINNED_PROFILES.items()):
         service = _mapping(services.get(name) or {}, "a service")
         if (service.get("profiles") or []) != list(profiles):
@@ -133,6 +190,38 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
         healthcheck = _mapping(service.get("healthcheck") or {}, "a healthcheck")
         if path not in _command(healthcheck.get("test")):
             found.append(f"{name}: its healthcheck must probe {path}")
+    return found
+
+
+def _hardening_problems(name: str, service: Mapping[str, object]) -> list[str]:
+    found: list[str] = []
+    if name in HARDENED_SERVICES:
+        if any(service.get(member) != value for member, value in _HARDENED_MEMBERS.items()):
+            found.append(
+                f"{name}: needs cap_drop and security_opt as the {HARDENED_BLOCK} block sets them"
+            )
+        if any(service.get(member) for member in PRIVILEGE_MEMBERS):
+            found.append(
+                f"{name}: must not set cap_add or privileged, which undo the {HARDENED_BLOCK} block"
+            )
+    if name in READ_ONLY_SERVICES and service.get("read_only") is not True:
+        found.append(f"{name}: needs read_only: true")
+    return found
+
+
+def _network_problems(name: str, service: Mapping[str, object]) -> list[str]:
+    # `config` leaves `networks` out under `network_mode`, so a database moved onto the host's
+    # network, or another container's, attaches to none of its own and fails here.
+    networks = set(_mapping(service.get("networks") or {}, "a service's networks"))
+    found: list[str] = []
+    own = DATABASE_NETWORKS.get(name)
+    if own is not None and networks != {own}:
+        found.append(f"{name}: must attach to the {own} network alone")
+    found.extend(
+        f"{name}: must not attach to the {network} network"
+        for network, members in sorted(DATABASE_NETWORK_MEMBERS.items())
+        if network in networks and name not in members
+    )
     return found
 
 
