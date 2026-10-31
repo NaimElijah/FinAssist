@@ -179,6 +179,31 @@ class LedgerUpgradeIT {
                         """).query(Boolean.class).list()).containsExactly(false);
     }
 
+    /**
+     * The opposite of {@code 1.6}: {@code V2_2} and {@code V3_2} add their keys validated, so each
+     * scanned the limits and links already stored, and every read can trust them. Those tables are
+     * mutable, so a mismatch the scan finds can be corrected before the upgrade is retried. A key
+     * added {@code NOT VALID} would start the ledger over such a row unseen.
+     */
+    @Test
+    void
+            Given_a_database_already_at_1_1_2_1_and_3_1_When_the_ledger_starts_Then_the_budget_and_strategy_keys_are_validated() {
+        assertThat(jdbc.sql("""
+                        SELECT conname || '=' || convalidated
+                        FROM pg_constraint
+                        WHERE connamespace IN ('budgeting'::regnamespace, 'planning'::regnamespace)
+                          AND contype = 'f'
+                          AND conname IN ('budget_limit_in_budget_currency',
+                                          'scenario_flow_in_plan_currency',
+                                          'scenario_flow_in_scenario_currency')
+                        ORDER BY conname
+                        """).query(String.class).list())
+                .containsExactly(
+                        "budget_limit_in_budget_currency=true",
+                        "scenario_flow_in_plan_currency=true",
+                        "scenario_flow_in_scenario_currency=true");
+    }
+
     @Test
     void Given_a_journal_row_written_before_1_2_When_the_ledger_has_started_Then_it_still_names_no_recorder() {
         assertThat(jdbc.sql("SELECT recorded_by FROM accounting.journal_transaction WHERE id = :id")
