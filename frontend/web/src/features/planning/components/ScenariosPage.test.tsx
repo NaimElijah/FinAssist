@@ -361,6 +361,25 @@ describe('ScenariosPage define-scenario form', () => {
         );
     });
 
+    it('Given_the_cleared_selection_reported_When_a_flow_is_ticked_Then_the_status_empties', async () => {
+        // A new selection makes the report stale, and emptying it lets the same sentence be
+        // announced again after the next currency change.
+        fakeFetch(ledger([RENT_ILS, SALARY_USD], []));
+        renderScenarios();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText(/Rent/);
+        await user.selectOptions(screen.getByLabelText('Currency'), 'USD');
+        await user.click(await screen.findByLabelText(/Salary/));
+        await user.selectOptions(screen.getByLabelText('Currency'), 'ILS');
+        const cleared = '1 ticked flow cleared: a scenario in ILS takes flows in ILS only.';
+        expect(statusMessages()).toContain(cleared);
+
+        await user.click(await screen.findByLabelText(/Rent/));
+
+        expect(statusMessages()).not.toContain(cleared);
+        expect(statusMessages()).toContain('');
+    });
+
     it('Given_no_flow_ticked_When_the_currency_changes_Then_no_status_says_anything_was_cleared', async () => {
         fakeFetch(ledger([RENT_ILS, SALARY_USD], []));
         renderScenarios();

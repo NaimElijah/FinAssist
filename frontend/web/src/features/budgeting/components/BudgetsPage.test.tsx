@@ -524,6 +524,43 @@ describe('BudgetsPage defining a budget', () => {
         expect(screen.getByLabelText('Category 1').getAttribute('aria-invalid')).toBeNull();
     });
 
+    it('Given_a_400_naming_every_limit_and_period_path_When_defined_Then_each_is_listed_under_the_forms_label', async () => {
+        // A limit on a later row, index 1, so a label numbered from the wrong end shows; the
+        // period is the Month the owner chose, and a limit's currency is the form's one Currency.
+        const paths = [
+            { field: 'limits[1].category', label: 'Category 2' },
+            { field: 'limits[1].limit', label: 'Limit amount 2' },
+            { field: 'limits[1].limit.amount', label: 'Limit amount 2' },
+            { field: 'limits[1].limit.currency', label: 'Currency' },
+            { field: 'period', label: 'Month' },
+            { field: 'period.start', label: 'Month' },
+            { field: 'period.end', label: 'Month' },
+        ] as const;
+        fakeFetch((request) => {
+            if (request.url === BUDGETS_URL && request.method === 'POST') {
+                return problemResponse({
+                    status: 400,
+                    code: 'MALFORMED_REQUEST',
+                    detail: 'Invalid request content.',
+                    errors: paths.map(({ field }) => ({ field, message: 'is invalid' })),
+                });
+            }
+            if (request.url === BUDGETS_URL) return jsonResponse([]);
+            return unexpectedRequest(request);
+        });
+        renderBudgets();
+        const user = userEvent.setup({ delay: null });
+
+        await defineSeptemberGroceries(user);
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(paths.map(({ label }) => `${label}: is invalid`));
+    });
+
     it('Given_one_limit_row_When_rendered_Then_its_remove_control_is_disabled', async () => {
         fakeFetch((request) =>
             request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
@@ -594,6 +631,24 @@ describe('BudgetsPage defining a budget', () => {
 
         await user.click(await screen.findByRole('button', { name: 'Add category' }));
 
+        expect(statusMessages()).toContain('Limit 2 added.');
+    });
+
+    it('Given_limit_2_added_When_it_is_removed_and_added_again_Then_the_status_empties_and_then_says_so_again', async () => {
+        // The removal empties the line, so the same sentence arrives again as a change to it.
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
+        renderBudgets();
+        const user = userEvent.setup({ delay: null });
+        await user.click(await screen.findByRole('button', { name: 'Add category' }));
+        expect(statusMessages()).toContain('Limit 2 added.');
+
+        await user.click(screen.getByRole('button', { name: 'Remove limit 2' }));
+        expect(statusMessages()).not.toContain('Limit 2 added.');
+        expect(statusMessages()).toContain('');
+
+        await user.click(screen.getByRole('button', { name: 'Add category' }));
         expect(statusMessages()).toContain('Limit 2 added.');
     });
 

@@ -21,7 +21,8 @@ import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { pinClockJustAfterLocalMidnight } from '@/shared/testing/localClock';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
-import { nameStartingWith } from '@/shared/testing/names';
+import { nameIsOrStartsWith, nameStartingWith } from '@/shared/testing/names';
+import { statusMessages } from '@/shared/testing/status';
 
 import { planKeys } from '../hooks/planQueries';
 import { planningRoutes } from '../index';
@@ -141,6 +142,17 @@ afterEach(() => {
 });
 
 describe('PlannedFlowsPage', () => {
+    it('Given_the_flows_still_loading_When_the_page_renders_Then_a_status_says_they_are_loading', async () => {
+        // A status region, so a screen reader hears the list is on its way (WCAG 4.1.3).
+        fakeFetch(() => pendingResponse());
+
+        renderFlows();
+
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading planned flows…']);
+        });
+    });
+
     it('Given_flows_served_in_an_order_When_the_page_renders_Then_rows_keep_that_order_with_positive_amounts_and_direction_labels', async () => {
         fakeFetch(ledger([RENT, SALARY]));
 
@@ -373,9 +385,9 @@ describe('PlannedFlowsPage lifecycle actions', () => {
 
         await screen.findByRole('table', { name: 'Planned flows' });
 
-        expect(screen.queryByRole('button', { name: nameStartingWith('Commit') })).toBeNull();
-        expect(screen.queryByRole('button', { name: nameStartingWith('Realise') })).toBeNull();
-        expect(screen.queryByRole('button', { name: nameStartingWith('Cancel') })).toBeNull();
+        expect(screen.queryByRole('button', { name: nameIsOrStartsWith('Commit') })).toBeNull();
+        expect(screen.queryByRole('button', { name: nameIsOrStartsWith('Realise') })).toBeNull();
+        expect(screen.queryByRole('button', { name: nameIsOrStartsWith('Cancel') })).toBeNull();
     });
 
     it('Given_a_planned_flow_When_committed_Then_it_posts_on_and_the_row_shows_the_Committed_badge_and_invalidates_only_flows', async () => {
@@ -709,7 +721,7 @@ describe('PlannedFlowsPage lifecycle actions', () => {
             expect(document.activeElement?.id).toBe(`flow-state-${RENT_ID}`);
         });
         expect(
-            within(rowOf('Rent')).queryByRole('button', { name: nameStartingWith('Commit') }),
+            within(rowOf('Rent')).queryByRole('button', { name: nameIsOrStartsWith('Commit') }),
         ).toBeNull();
         expect(committedText).toBeDefined();
     });
@@ -1059,6 +1071,42 @@ describe('PlannedFlowsPage plan-flow form', () => {
                 .getAllByRole('listitem')
                 .map((item) => item.textContent),
         ).toEqual(["Repeats: must carry exactly its kind's members"]);
+    });
+
+    it('Given_a_400_naming_every_recurrence_member_When_planned_Then_each_is_listed_under_its_fields_label', async () => {
+        const paths = [
+            { field: 'recurrence.cadence', label: 'Cadence' },
+            { field: 'recurrence.interval', label: 'Every' },
+            { field: 'recurrence.until', label: 'Until' },
+            { field: 'recurrence.count', label: 'Times' },
+        ] as const;
+        fakeFetch(
+            ledger([], (request) => {
+                if (request.url === FLOWS_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: paths.map(({ field }) => ({ field, message: 'is invalid' })),
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('heading', { level: 2, name: 'Plan a flow' });
+
+        await user.type(screen.getByLabelText('Description'), 'Salary');
+        await user.type(screen.getByLabelText('Amount'), '1000.00');
+        await user.click(screen.getByRole('button', { name: 'Plan flow' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(paths.map(({ label }) => `${label}: is invalid`));
     });
 
     it('Given_a_400_naming_amount_amount_When_planned_Then_the_message_is_on_the_Amount_field', async () => {

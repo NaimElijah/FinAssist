@@ -553,6 +553,32 @@ describe('DisposalSection', () => {
         expect(screen.getByLabelText('Quantity').getAttribute('aria-invalid')).toBeNull();
     });
 
+    it('Given_a_400_naming_the_proceeds_currency_When_priced_Then_it_is_listed_under_Currency', async () => {
+        // No field takes it - the Currency select offers only codes the assistant accepts - so it
+        // falls to the error state, still under the label the owner sees.
+        fakeFetch(
+            assistant(() =>
+                problemResponse({
+                    status: 400,
+                    code: 'MALFORMED_REQUEST',
+                    detail: 'The request could not be read; each entry in errors names why.',
+                    errors: [{ field: 'proceeds.currency', message: 'Input should be ILS or USD' }],
+                }),
+            ),
+        );
+        await renderSettledHolding();
+
+        await price(userEvent.setup({ delay: null }));
+
+        const section = screen.getByRole('region', { name: SECTION });
+        const alert = await within(section).findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['Currency: Input should be ILS or USD']);
+    });
+
     it('Given_a_filled_form_When_it_is_submitted_twice_before_it_renders_again_Then_one_request_is_sent', async () => {
         // Two submit events can arrive in one tick, before the pending state has rendered, so a
         // guard that reads render-time state lets both through.

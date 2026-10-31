@@ -340,6 +340,23 @@ describe('RecordTransactionPage entry rows', () => {
 
         expect(statusMessages()).toContain('Entry 3 added.');
     });
+
+    it('Given_entry_3_added_When_it_is_removed_and_added_again_Then_the_status_empties_and_then_says_so_again', async () => {
+        // The removal empties the line, so the same sentence arrives again as a change to it; a
+        // region whose text never changes announces nothing the second time.
+        fakeFetch(ledger());
+        renderForm();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText('Account 1');
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+        expect(statusMessages()).toEqual(['Entry 3 added.']);
+
+        await user.click(screen.getByRole('button', { name: 'Remove entry 3' }));
+        expect(statusMessages()).toEqual(['']);
+
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+        expect(statusMessages()).toEqual(['Entry 3 added.']);
+    });
 });
 
 describe('RecordTransactionPage submission', () => {
@@ -846,5 +863,42 @@ describe('RecordTransactionPage 400 field-error routing', () => {
         await waitFor(() => {
             expect(document.activeElement).toBe(alert);
         });
+    });
+
+    it('Given_a_400_naming_every_entry_path_on_a_later_row_When_submitted_Then_each_is_listed_under_that_rows_label', async () => {
+        // Index 1, not 0, so a label numbered from the wrong end, or not from the index at all,
+        // shows. The amount arrives typed as a debit or a credit, and its currency is the
+        // account's own, so each path names the field the owner can change.
+        const paths = [
+            { field: 'entries[1].account', label: 'Account 2' },
+            { field: 'entries[1].amount', label: 'Debit 2 or Credit 2' },
+            { field: 'entries[1].amount.amount', label: 'Debit 2 or Credit 2' },
+            { field: 'entries[1].amount.currency', label: 'Account 2' },
+        ] as const;
+        fakeFetch(
+            ledger((request) => {
+                if (request.url === RECORD_URL && request.method === 'POST') {
+                    return problemResponse({
+                        status: 400,
+                        code: 'MALFORMED_REQUEST',
+                        detail: 'Invalid request content.',
+                        errors: paths.map(({ field }) => ({ field, message: 'is invalid' })),
+                    });
+                }
+                return unexpectedRequest(request);
+            }),
+        );
+        renderForm();
+        const user = userEvent.setup({ delay: null });
+
+        await fillValidTransaction(user);
+        await user.click(screen.getByRole('button', { name: 'Record transaction' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(paths.map(({ label }) => `${label}: is invalid`));
     });
 });

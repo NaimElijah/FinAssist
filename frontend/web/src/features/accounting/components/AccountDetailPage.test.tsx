@@ -20,7 +20,8 @@ import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { pinClockJustAfterLocalMidnight } from '@/shared/testing/localClock';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
-import { nameStartingWith } from '@/shared/testing/names';
+import { nameIsOrStartsWith, nameStartingWith } from '@/shared/testing/names';
+import { statusMessages } from '@/shared/testing/status';
 
 import { accountKeys } from '../hooks/accountQueries';
 import { accountingRoutes } from '../index';
@@ -533,9 +534,9 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
 
         await screen.findByRole('table', { name: 'Transactions' });
 
-        expect(screen.queryByRole('button', { name: nameStartingWith('Clear') })).toBeNull();
-        expect(screen.queryByRole('button', { name: nameStartingWith('Reconcile') })).toBeNull();
-        expect(screen.queryByRole('button', { name: nameStartingWith('Void') })).toBeNull();
+        expect(screen.queryByRole('button', { name: nameIsOrStartsWith('Clear') })).toBeNull();
+        expect(screen.queryByRole('button', { name: nameIsOrStartsWith('Reconcile') })).toBeNull();
+        expect(screen.queryByRole('button', { name: nameIsOrStartsWith('Void') })).toBeNull();
     });
 
     it('Given_a_reconciled_or_a_voided_transaction_When_rendered_Then_neither_row_offers_any_action', async () => {
@@ -933,9 +934,58 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         });
         expect(
             within(rowOf('Pending purchase')).queryByRole('button', {
-                name: nameStartingWith('Clear'),
+                name: nameIsOrStartsWith('Clear'),
             }),
         ).toBeNull();
         expect(clearedText).toBeDefined();
+    });
+});
+
+describe('AccountDetailPage loading', () => {
+    // Each note is a status region, so a screen reader hears that the part is loading rather
+    // than meeting a blank where it will be (WCAG 4.1.3).
+    it('Given_the_accounts_list_still_loading_When_the_page_renders_Then_a_status_says_the_account_is_loading', async () => {
+        fakeFetch(() => pendingResponse());
+
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading account…']);
+        });
+    });
+
+    it('Given_the_balance_still_loading_When_the_page_renders_Then_a_status_says_the_balance_is_loading', async () => {
+        fakeFetch(
+            ledger(TRANSACTIONS, (request) =>
+                request.url === TRANSACTIONS_URL ? jsonResponse(TRANSACTIONS) : pendingResponse(),
+            ),
+        );
+
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+
+        await screen.findByRole('table', { name: 'Transactions' });
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading balance…']);
+        });
+    });
+
+    it('Given_the_transactions_still_loading_When_the_page_renders_Then_a_status_says_they_are_loading', async () => {
+        fakeFetch(
+            ledger(TRANSACTIONS, (request) =>
+                request.url === BALANCE_URL
+                    ? jsonResponse({
+                          account: CHECKING.id,
+                          balance: { amount: '1234.50', currency: 'ILS' },
+                      })
+                    : pendingResponse(),
+            ),
+        );
+
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+
+        await screen.findByRole('heading', { level: 1, name: 'Checking' });
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading transactions…']);
+        });
     });
 });

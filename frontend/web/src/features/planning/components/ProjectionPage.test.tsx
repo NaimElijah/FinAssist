@@ -250,6 +250,18 @@ describe('ProjectionPage', () => {
         expect(within(rows[1] ?? table).getByText('-₪12,500.00')).toBeDefined();
     });
 
+    it('Given_the_scenarios_still_loading_When_the_page_renders_Then_a_status_says_they_are_loading', async () => {
+        // ScenarioChoice's note, a status region, so a screen reader hears the form is on its
+        // way (WCAG 4.1.3).
+        fakeFetch(() => pendingResponse());
+
+        renderProjection();
+
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading scenarios…']);
+        });
+    });
+
     it('Given_a_projection_in_flight_When_projected_Then_a_status_announces_it_is_pending', async () => {
         fakeFetch(ledger([SAVING], () => pendingResponse()));
         renderProjection();

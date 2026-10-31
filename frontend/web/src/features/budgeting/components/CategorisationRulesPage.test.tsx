@@ -18,6 +18,7 @@ import {
 import type { FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { statusMessages } from '@/shared/testing/status';
 
 import { budgetKeys, categorisationRuleKeys } from '../hooks/budgetQueries';
 import { budgetingRoutes } from '../index';
@@ -63,6 +64,17 @@ describe('CategorisationRulesPage routing', () => {
 });
 
 describe('CategorisationRulesPage', () => {
+    it('Given_the_rules_still_loading_When_the_page_renders_Then_a_status_says_they_are_loading', async () => {
+        // A status region, so a screen reader hears the list is on its way (WCAG 4.1.3).
+        fakeFetch(() => pendingResponse());
+
+        renderRules();
+
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading rules…']);
+        });
+    });
+
     it('Given_rules_served_in_an_order_When_the_page_renders_Then_the_list_keeps_that_order', async () => {
         fakeFetch((request) =>
             request.url === RULES_URL ? jsonResponse(RULES) : unexpectedRequest(request),

@@ -392,3 +392,20 @@ describe('BudgetReviewPage', () => {
         ).toBeDefined();
     });
 });
+
+describe('BudgetReviewPage loading', () => {
+    it('Given_the_budget_known_and_its_review_still_loading_When_the_page_renders_Then_a_status_says_the_review_is_loading', async () => {
+        // A status region, so a screen reader hears the review is on its way (WCAG 4.1.3).
+        fakeFetch((request) => {
+            if (request.url === BUDGETS_URL) return jsonResponse([SEPTEMBER_BUDGET]);
+            if (request.url === reviewUrl(SEPTEMBER_BUDGET.id)) return pendingResponse();
+            return unexpectedRequest(request);
+        });
+
+        renderReview(SEPTEMBER_BUDGET.id);
+
+        await waitFor(() => {
+            expect(statusMessages()).toEqual(['Loading review…']);
+        });
+    });
+});
