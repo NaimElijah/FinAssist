@@ -92,6 +92,15 @@
     text-decoration: none;
 }
 
+/* The open tab joins the page beneath it, so an outset ring would draw its lower edge over the
+   page in the band's ring colour, which is white on near-white in the light theme. Inside the tab
+   the ring sits on the page's own colour instead, in the page's own ring colour; tests/contrast
+   measures that pair. */
+.tab[aria-current='page']:focus-visible {
+    outline-color: var(--color-focus);
+    outline-offset: -4px;
+}
+
 /* Forced-colours mode replaces the tab backgrounds with system colours, and background is all that
    marks the open tab otherwise. A thick rule in the system text colour under the open tab keeps it
    distinguishable; the other tabs reserve the same space in the system canvas colour, so the row

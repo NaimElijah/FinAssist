@@ -329,6 +329,24 @@ describe('colour contrast', () => {
         });
     }
 
+    it('Given_the_open_tab_When_it_takes_keyboard_focus_Then_its_ring_is_drawn_inside_it_in_a_colour_measured_against_it', () => {
+        // The open tab takes the page's colour and joins the page beneath it, so a ring drawn
+        // outside it would run its lower edge over the page in the header band's ring colour.
+        const ring = ruleIn(LAYOUT_FILE, ".tab[aria-current='page']:focus-visible").body;
+        expect(declared(ring, 'outline-offset')).toMatch(/^-/);
+        const ringColour = singleToken(declared(ring, 'outline-color'));
+        const tabBackground = singleToken(
+            backgroundOf(ruleIn(LAYOUT_FILE, ".tab[aria-current='page']").body),
+        );
+        expect([ringColour, tabBackground]).not.toContain(undefined);
+        for (const themeName of THEME_NAMES) {
+            expect(
+                contrastRatio(themes[themeName], ringColour ?? '', tabBackground ?? ''),
+                `the open tab's focus ring in the ${themeName} theme`,
+            ).toBeGreaterThanOrEqual(NON_TEXT_MINIMUM);
+        }
+    });
+
     it('Given_forced_colours_When_backgrounds_are_dropped_Then_the_read_only_badge_keeps_an_edge_in_its_text_colour', () => {
         const border = declared(ruleIn(USER_MENU_FILE, '.badge').body, 'border') ?? '';
 
