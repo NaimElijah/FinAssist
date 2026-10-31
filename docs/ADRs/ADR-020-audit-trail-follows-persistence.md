@@ -1,7 +1,7 @@
 # ADR-020: The journal is the audit record, and it lands with persistence
 
 - **Status:** Accepted, acted on by [ADR-023](ADR-023-domain-events-in-the-ledger.md), extended by
-  [ADR-033](ADR-033-the-journal-records-who.md), its persistence obligation resolved by
+  [ADR-033](ADR-033-the-journal-records-who.md) and [ADR-066](ADR-066-the-store-holds-every-rule-the-domain-holds-across-rows.md), its persistence obligation resolved by
   [ADR-024](ADR-024-jdbc-persistence-and-append-only-schema.md)
 - **Date:** 2026-08-31
 

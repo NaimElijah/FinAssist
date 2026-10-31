@@ -25,19 +25,22 @@ import org.springframework.test.context.DynamicPropertySource;
  * The ledger must start against the database the owner already has, not only against an empty one.
  *
  * <p>Every other {@code *IT} — and every Compose run, and every smoke check — begins on a volume
- * with nothing in it, where Flyway applies {@code 1.1}, {@code 1.2}, {@code 2.1} and {@code 3.1} in
- * version order and nothing can be out of order. A real database is not in that state. {@code
- * V1_1}, {@code V2_1} and {@code V3_1} all entered git in one commit, so the owner's history is
- * {@code 1.1}, {@code 2.1}, {@code 3.1}, and {@code V1_2} arrives <em>below</em> the highest version
- * already applied. Flyway classes such a migration {@code IGNORED} and refuses to start unless it is
- * configured to run out of order (ADR-035), which is the one thing no fresh-volume test can notice.
+ * with nothing in it, where Flyway applies every script in version order and nothing can be out of
+ * order. A real database is not in that state. {@code V1_1}, {@code V2_1} and {@code V3_1} all
+ * entered git in one commit, so the owner's history is {@code 1.1}, {@code 2.1}, {@code 3.1}, and
+ * {@code V1_2}, every accounting script after it and {@code V2_2} arrive <em>below</em> the highest
+ * version already applied. Flyway classes such a migration {@code IGNORED} and refuses to start
+ * unless it is configured to run out of order (ADR-035), which is the one thing no fresh-volume test
+ * can notice.
  *
  * <p>So this test rebuilds that history literally: the three committed scripts, copied byte for byte
  * out of the classpath into a temporary directory and applied by a plain Flyway with no flag set,
- * then a journal transaction seeded the way the pre-{@code V1_2} repository wrote one. Only then is
- * the ledger's own application context started against that database, which is what runs the
- * ledger's own {@code spring.flyway.*} configuration rather than a hand-built copy of it. A context
- * that fails to start is the owner's ledger failing to start.
+ * then seeded with rows the earlier code could leave behind: a journal transaction the way the
+ * pre-{@code V1_2} repository wrote one, an entry whose account changed currency before {@code
+ * V1_6}, a budget with a limit stored before {@code V2_2}, and a strategy listing a plan before
+ * {@code V3_2}. Only then is the ledger's own application context started against that database,
+ * which is what runs the ledger's own {@code spring.flyway.*} configuration rather than a hand-built
+ * copy of it. A context that fails to start is the owner's ledger failing to start.
  *
  * <p>The scripts are copied rather than read from {@code classpath:db/migration} with a {@code
  * target} because the checksums Flyway records have to be the committed files' own: the owner's
@@ -62,6 +65,10 @@ class LedgerUpgradeIT {
 
     private static final UUID HISTORICAL_TRANSACTION = UUID.randomUUID();
 
+    private static final UUID HISTORICAL_BUDGET = UUID.randomUUID();
+
+    private static final UUID HISTORICAL_SCENARIO = UUID.randomUUID();
+
     /**
      * Built while this class is initialised, which is before Spring invokes {@link
      * #pointTheLedgerAtTheOwnersDatabase} and therefore before the context — and its Flyway — exists.
@@ -82,16 +89,45 @@ class LedgerUpgradeIT {
 
     /**
      * {@code installed_rank} order rather than version order on purpose: it records the order the
-     * migrations were actually run in, so this asserts that {@code 1.2} ran last, after a version
-     * higher than itself — the out-of-order application the owner's database needs and a fresh one
-     * never performs.
+     * migrations were actually run in, so this asserts that every accounting migration released
+     * since {@code 1.1}, and then {@code 2.2}, ran after {@code 3.1}, in version order, each after a
+     * version higher than itself — the out-of-order application the owner's database needs and a
+     * fresh one never performs — and that {@code 3.2}, above every version applied, ran last.
      */
     @Test
-    void Given_a_database_already_at_1_1_2_1_and_3_1_When_the_ledger_starts_Then_1_2_is_applied_after_them() {
+    void
+            Given_a_database_already_at_1_1_2_1_and_3_1_When_the_ledger_starts_Then_the_later_migrations_are_applied_after_them() {
         assertThat(jdbc.sql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank")
                         .query(String.class)
                         .list())
-                .containsExactly("1.1", "2.1", "3.1", "1.2");
+                .containsExactly("1.1", "2.1", "3.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "2.2", "3.2");
+    }
+
+    /**
+     * {@code V2_2} adds its foreign key validated, so it scans the limits already stored. One in its
+     * budget's currency, as every limit the adapter wrote is, passes, and stays.
+     */
+    @Test
+    void Given_a_budget_limit_stored_before_2_2_When_the_ledger_has_started_Then_it_is_still_there() {
+        assertThat(jdbc.sql("SELECT currency FROM budgeting.budget_limit WHERE budget_id = :id")
+                        .param("id", HISTORICAL_BUDGET)
+                        .query(String.class)
+                        .list())
+                .containsExactly("ILS");
+    }
+
+    /**
+     * {@code V3_2} gives each link a currency taken from the plan it names, and only then makes the
+     * column {@code NOT NULL} and adds the keys. A link stored before it must come out holding its
+     * plan's currency, not refuse the migration.
+     */
+    @Test
+    void Given_a_scenario_flow_stored_before_3_2_When_the_ledger_has_started_Then_it_holds_its_plans_currency() {
+        assertThat(jdbc.sql("SELECT currency FROM planning.scenario_flow WHERE scenario_id = :id")
+                        .param("id", HISTORICAL_SCENARIO)
+                        .query(String.class)
+                        .list())
+                .containsExactly("USD");
     }
 
     @Test
@@ -125,6 +161,49 @@ class LedgerUpgradeIT {
                         "journal_transaction_recorded_by_shape", "journal_transaction_state_recorded_by_shape");
     }
 
+    /**
+     * The owner's database may already hold an entry in a currency its account no longer has: the
+     * account adapter's upsert rewrote a currency on a re-save until {@code 1.6} refused it. {@code
+     * 1.6}'s foreign key is {@code NOT VALID} so that it is added without scanning such rows; the
+     * context starting at all is the proof it applied, and {@code convalidated} false is the proof it
+     * never scanned.
+     */
+    @Test
+    void
+            Given_an_entry_whose_account_changed_currency_before_1_6_When_the_ledger_starts_Then_the_foreign_key_stays_unvalidated() {
+        assertThat(jdbc.sql("""
+                        SELECT convalidated
+                        FROM pg_constraint
+                        WHERE connamespace = 'accounting'::regnamespace
+                          AND conname = 'journal_entry_in_account_currency'
+                        """).query(Boolean.class).list()).containsExactly(false);
+    }
+
+    /**
+     * The opposite of {@code 1.6}: {@code V2_2} and {@code V3_2} add their keys validated, so each
+     * scanned the limits and links already stored, and every read can trust them. Those tables are
+     * mutable, so a mismatch the scan finds can be corrected before the upgrade is retried. A key
+     * added {@code NOT VALID} would start the ledger over such a row unseen.
+     */
+    @Test
+    void
+            Given_a_database_already_at_1_1_2_1_and_3_1_When_the_ledger_starts_Then_the_budget_and_strategy_keys_are_validated() {
+        assertThat(jdbc.sql("""
+                        SELECT conname || '=' || convalidated
+                        FROM pg_constraint
+                        WHERE connamespace IN ('budgeting'::regnamespace, 'planning'::regnamespace)
+                          AND contype = 'f'
+                          AND conname IN ('budget_limit_in_budget_currency',
+                                          'scenario_flow_in_plan_currency',
+                                          'scenario_flow_in_scenario_currency')
+                        ORDER BY conname
+                        """).query(String.class).list())
+                .containsExactly(
+                        "budget_limit_in_budget_currency=true",
+                        "scenario_flow_in_plan_currency=true",
+                        "scenario_flow_in_scenario_currency=true");
+    }
+
     @Test
     void Given_a_journal_row_written_before_1_2_When_the_ledger_has_started_Then_it_still_names_no_recorder() {
         assertThat(jdbc.sql("SELECT recorded_by FROM accounting.journal_transaction WHERE id = :id")
@@ -147,6 +226,9 @@ class LedgerUpgradeIT {
                 .load()
                 .migrate();
         seedTheTransactionThePreV1_2CodeWrote(JdbcClient.create(database));
+        seedAnAccountWhoseCurrencyChangedUnderItsEntries(JdbcClient.create(database));
+        seedTheBudgetThePreV2_2CodeWrote(JdbcClient.create(database));
+        seedTheScenarioThePreV3_2CodeWrote(JdbcClient.create(database));
         return database;
     }
 
@@ -198,6 +280,67 @@ class LedgerUpgradeIT {
         jdbc.sql("INSERT INTO accounting.journal_transaction_state (transaction_id, sequence, state, effective_on,"
                         + " reason) VALUES (:id, 0, 'PENDING', NULL, NULL)")
                 .param("id", HISTORICAL_TRANSACTION)
+                .update();
+    }
+
+    /**
+     * A transaction posted to a wallet in ILS, after which the wallet was re-saved in USD: the state
+     * the account adapter's upsert could leave, since nothing held an account's currency to its
+     * entries before {@code 1.6}.
+     */
+    private static void seedAnAccountWhoseCurrencyChangedUnderItsEntries(JdbcClient jdbc) {
+        UUID wallet = seedAccount(jdbc, "Wallet", "ASSET");
+        UUID travel = seedAccount(jdbc, "Travel", "EXPENSE");
+        UUID transaction = UUID.randomUUID();
+        jdbc.sql("INSERT INTO accounting.journal_transaction (id, occurred_on, description, currency)"
+                        + " VALUES (:id, :on, 'Train', 'ILS')")
+                .param("id", transaction)
+                .param("on", MARCH_1)
+                .update();
+        jdbc.sql("""
+                        INSERT INTO accounting.journal_entry VALUES
+                            (:id, 0, :travel, 30.00, 'ILS'),
+                            (:id, 1, :wallet, -30.00, 'ILS')
+                        """)
+                .param("id", transaction)
+                .param("travel", travel)
+                .param("wallet", wallet)
+                .update();
+        jdbc.sql("INSERT INTO accounting.journal_transaction_state (transaction_id, sequence, state, effective_on,"
+                        + " reason) VALUES (:id, 0, 'PENDING', NULL, NULL)")
+                .param("id", transaction)
+                .update();
+        jdbc.sql("UPDATE accounting.account SET currency = 'USD' WHERE id = :id")
+                .param("id", wallet)
+                .update();
+    }
+
+    /** A budget with one limit in its own currency, which {@code V2_2}'s foreign key must accept. */
+    private static void seedTheBudgetThePreV2_2CodeWrote(JdbcClient jdbc) {
+        jdbc.sql("INSERT INTO budgeting.budget VALUES (:id, :start, :end, 'ILS')")
+                .param("id", HISTORICAL_BUDGET)
+                .param("start", MARCH_1)
+                .param("end", MARCH_1.plusMonths(1))
+                .update();
+        jdbc.sql("INSERT INTO budgeting.budget_limit VALUES (:id, 'groceries', 1200.00, 'ILS')")
+                .param("id", HISTORICAL_BUDGET)
+                .update();
+    }
+
+    /** A USD strategy listing one USD plan, the link written without the currency it had no column for. */
+    private static void seedTheScenarioThePreV3_2CodeWrote(JdbcClient jdbc) {
+        UUID plan = UUID.randomUUID();
+        jdbc.sql("""
+                        INSERT INTO planning.planned_flow
+                            (id, description, amount, currency, direction, starts_on, recurrence, state)
+                        VALUES (:id, 'New car', 40000.00, 'USD', 'OUTFLOW', :startsOn, 'ONCE', 'PLANNED')
+                        """).param("id", plan).param("startsOn", MARCH_1).update();
+        jdbc.sql("INSERT INTO planning.scenario VALUES (:id, 'Buy the car', 'USD', 0)")
+                .param("id", HISTORICAL_SCENARIO)
+                .update();
+        jdbc.sql("INSERT INTO planning.scenario_flow VALUES (:id, 0, :plan)")
+                .param("id", HISTORICAL_SCENARIO)
+                .param("plan", plan)
                 .update();
     }
 

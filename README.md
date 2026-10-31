@@ -202,8 +202,7 @@ ledger client ([#62](https://github.com/NaimElijah/FinAssist/issues/62)). Keyclo
 secrets into the realm at that first import, and only then
 ([details](docs/operations/operations.md#changing-the-realm-or-its-secrets)). So a secret changed
 later is [rotated in place](docs/operations/operations.md#rotating-a-secret), in Keycloak as well
-as in `.env`. Upgrading a
-`db-data` volume from before `V1_2`?
+as in `.env`. Starting a newer ledger on an existing `db-data` volume?
 [Back it up first](docs/operations/operations.md#upgrading-an-existing-ledger-volume).
 
 With every secret set, start the stack:
@@ -596,7 +595,7 @@ produces each Java service's executable jar, `npm run build` the web client's st
 | Metrics | `GET /actuator/metrics`, `GET /actuator/prometheus` (ledger) | Live, scraped by the `monitoring` profile; no domain metric yet ([ADR-050](docs/ADRs/ADR-050-no-domain-metric-yet-decided-again.md)) |
 | Traces | OTLP to `$OTEL_EXPORTER_OTLP_ENDPOINT` | Exported only when `OTEL_EXPORT_ENABLED=true`; the services start either way |
 | Logs | JSON on stdout, carrying a W3C trace id | ECS in the ledger and the gateway, structlog in the assistant. Redaction is enforced at the assistant's and the web client's logging boundaries; the ledger and the gateway log no credential at all — a refused token as its reason category alone, a failed sign-in as its OAuth2 error code — and the ledger does not expose `/actuator/env` |
-| Audit trail | The append-only journal | The database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)) |
+| Audit trail | The append-only journal | The database refuses an `UPDATE` or a `DELETE` on a recorded transaction, its entries or its states, closes a transaction's entries once it is recorded, and admits only a legal transition to its state ([ADR-020](docs/ADRs/ADR-020-audit-trail-follows-persistence.md)) |
 | Backups | `make backup`, `make restore-check`, `make restore` | On demand and checked by hand, never in CI ([ADR-038](docs/ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md)) |
 | Identity | Keycloak at `http://localhost:8081`: the admin console at `/admin`, the owner's account console at `/realms/finassist/account` | Live under Compose |
 
@@ -608,7 +607,7 @@ with dashboards provisioned from `ops/grafana/`.
 > Never run `docker compose down -v`: it deletes every volume the project has, the ledger's books
 > in `db-data` and the owner's identity in `keycloak-db-data` included. `make stop` keeps both.
 
-Running the stack day to day — restarts and logs, upgrading a ledger volume from before `V1_2`,
+Running the stack day to day — restarts and logs, upgrading an existing ledger volume,
 the authentication smoke check, realm changes, rotating a secret, letting a locked-out owner or
 admin back in, backups and restores, the telemetry backend — is in
 [docs/operations/operations.md](docs/operations/operations.md).

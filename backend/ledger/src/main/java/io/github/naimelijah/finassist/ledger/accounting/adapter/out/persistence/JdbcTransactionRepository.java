@@ -32,7 +32,10 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>The database enforces the same thing independently: triggers on all three tables refuse an
  * update or a delete outright, so a statement added here in future fails rather than quietly
- * rewriting the record (ADR-024).
+ * rewriting the record (ADR-024). Later triggers close a transaction's entries once it is recorded
+ * ({@code V1_3}), admit each state only as the next legal move from the stored one ({@code V1_4}),
+ * and refuse at commit a header without its entries or its opening state ({@code V1_5}). {@link
+ * #save} writes the header, then the entries, then the opening state: the one order they all admit.
  *
  * <p>Both list queries return their results ordered by date and then by identity, which the port
  * makes part of its contract - a projection and a budget review both fold over these lists, and a

@@ -25,11 +25,11 @@ append-only history: to change course, add a new record and mark the old one
 | [017](ADR-017-test-strategy.md) | Coverage measured and never gated; strength by mutation | Accepted, extended by 062 and 065, its Testcontainers deferral resolved by 025 |
 | [018](ADR-018-cross-language-money-vectors.md) | The two Money kernels pinned to a shared vector file | Accepted |
 | [019](ADR-019-opentelemetry-and-structured-logging.md) | OpenTelemetry, structured logs, one redaction boundary | Accepted, extended by 030, 039, 050 and 060, corrected by 047 |
-| [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, acted on by 023, extended by 033, its persistence obligation resolved by 024 |
+| [020](ADR-020-audit-trail-follows-persistence.md) | The journal is the audit record; it lands with persistence | Accepted, acted on by 023, extended by 033 and 066, its persistence obligation resolved by 024 |
 | [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted, extended by 041 and 055 |
 | [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted, extended by 051, with a bounded exception in 028 |
 | [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted, extended by 048, which supersedes its in-memory-log sentence |
-| [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033 and 035 |
+| [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033, 035 and 066 |
 | [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted, extended by 047 |
 | [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted, extended by 030 |
 | [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
@@ -71,6 +71,7 @@ append-only history: to change course, add a new record and mark the old one
 | [063](ADR-063-every-container-holds-only-the-privilege-it-uses.md) | Under Compose, every container holds only the privilege it uses, and `make check-compose` holds it there | Accepted |
 | [064](ADR-064-what-the-build-fetches-is-pinned-by-content.md) | What the build fetches is pinned by content where the tool allows it, and Dependabot moves every pin | Accepted |
 | [065](ADR-065-javac-lint-is-the-java-lint-gate.md) | javac's own lint, every category, is the Java services' lint gate | Accepted |
+| [066](ADR-066-the-store-holds-every-rule-the-domain-holds-across-rows.md) | The ledger's store holds every rule the domain holds across rows | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -343,3 +344,12 @@ warnings it found are fixed rather than suppressed, except two `try` warnings on
 that open a scope for its effect alone. A dependency bump that deprecates a call the code makes
 now fails the build until the call moves
 ([#342](https://github.com/NaimElijah/FinAssist/issues/342)).
+
+066 extends 024 and 020 on 2026-10-31. Scan 6 found the store holding each rule a single row
+expresses, and few that span rows: a recorded transaction could gain entries, the state history
+took any state at any sequence, a header could stand without entries, an account's currency
+could change under its entries, and a budget limit or a strategy's flow could sit in another
+currency than its parent's. `V1_3` to `V1_7`, `V2_2` and `V3_2` now refuse each, by a composite
+foreign key where one can say it without scanning the journal and a trigger otherwise, and the
+balance refusal no longer prints the sum. The journal's new key stays `NOT VALID`, as ADR-033's
+checks do ([#343](https://github.com/NaimElijah/FinAssist/issues/343)).
