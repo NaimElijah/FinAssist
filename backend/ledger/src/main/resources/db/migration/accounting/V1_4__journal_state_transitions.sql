@@ -12,13 +12,17 @@
 --     VOIDED are terminal;
 --   * a state is never dated before the transaction occurred or before the state it follows.
 --
--- Every refusal names the transaction and the states, never a date: a database error's message is
--- logged with every 5xx it causes, and financial data is redacted at the logging boundary rather
--- than handed to it by the database.
+-- Every refusal names the transaction and the states or sequences it compares, never a date: a
+-- database error's message is logged with every 5xx it causes, and financial data is redacted at
+-- the logging boundary rather than handed to it by the database.
 --
--- Two callers transitioning the same transaction at once still collide on the primary key
--- (transaction_id, sequence), as V1_1 intends, and the loser fails rather than appending a state
--- after one it never read; a caller that instead skipped or reused a sequence is refused here.
+-- Each new row is checked against the state stored now, not against the state its writer read. A
+-- row that skips or reuses a sequence is refused here, and two inserts of one sequence at once
+-- still collide on the primary key (transaction_id, sequence). But JdbcTransactionRepository.save
+-- re-reads the current state and appends at the next sequence, so a stale transition is refused
+-- only when its move is illegal from the state now stored; a legal one still lands. A clear and a
+-- void made from one read of a PENDING transaction both succeed, as PENDING, CLEARED, VOIDED.
+-- Refusing a transition its writer made from a state it never read is #370's.
 --
 -- CREATE TRIGGER is DDL and touches no row, so this migration cannot fail on rows already stored,
 -- and a history written before it is not re-checked.

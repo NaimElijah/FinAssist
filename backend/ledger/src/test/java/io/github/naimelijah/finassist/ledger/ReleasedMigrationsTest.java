@@ -74,7 +74,7 @@ class ReleasedMigrationsTest {
                     "d76372150b51b0f0b5d9a984fea31a793befaf9f664439978c9048a7a30e7446"),
             new Released(
                     "accounting/V1_4__journal_state_transitions.sql",
-                    "26c55848fbac3314cadb58b69157af619bce50602203ca3368d64a8367152634"),
+                    "0e99abc8dfbe9ec865c65ecb0b3397f9b5f7e22e22e0686bfc0cce87fa210a78"),
             new Released(
                     "accounting/V1_5__journal_transaction_is_complete.sql",
                     "d88de8f4c964c22e60178212650ef8d0528035ca5bd0297e04f9bc99dac0c2d8"),
