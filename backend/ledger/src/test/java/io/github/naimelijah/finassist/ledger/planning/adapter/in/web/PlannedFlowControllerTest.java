@@ -1,6 +1,10 @@
 package io.github.naimelijah.finassist.ledger.planning.adapter.in.web;
 
+import static io.github.naimelijah.finassist.ledger.ProblemAssertions.requiredProblemMembers;
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -79,6 +83,11 @@ class PlannedFlowControllerTest {
     private static final LocalDate FEBRUARY_15 = LocalDate.of(2026, 2, 15);
     private static final LocalDate NEXT_JANUARY_1 = LocalDate.of(2027, 1, 1);
     private static final String REASON = "bought second-hand instead";
+
+    /** Member names no request type declares, each a marker a response must never repeat. */
+    private static final String UNKNOWN_MEMBER = "unknown-member-5e8c";
+
+    private static final String UNKNOWN_NESTED_MEMBER = "unknown-nested-member-2a7f";
 
     private static final String ON_JANUARY_10 = """
             {"on": "2026-01-10"}
@@ -323,6 +332,56 @@ class PlannedFlowControllerTest {
     }
 
     /**
+     * An interval past what an integer holds is valid JSON naming a known member, so the problem names that
+     * member, as it would any value Jackson refuses, rather than calling the body unparseable.
+     */
+    @Test
+    void Given_an_interval_too_large_for_an_integer_When_planned_Then_it_is_a_400_problem_naming_the_interval()
+            throws Exception {
+        mvc.perform(post(PLANNED_FLOWS).contentType(MediaType.APPLICATION_JSON).content(carRequest("60000.00", """
+                                {"kind": "UNTIL", "cadence": "MONTHLY", "interval": 3000000000, "until": "2027-01-01"}
+                                """)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("recurrence.interval"))
+                .andExpect(jsonPath("$.errors[0].message").value("is not a valid value"));
+
+        verifyNoInteractions(planner);
+    }
+
+    /**
+     * A problem's {@code field} is always a name the ledger declares, never one the caller chose (ADR-068).
+     * An unknown member is ignored, so the 400 names only the known member that broke, and neither unknown
+     * name is repeated anywhere in it.
+     *
+     * <p>The known member breaks a bean-validation constraint on purpose. Validation runs only once Jackson
+     * has read the whole body, so a mapper that refused unknown members would fail first and name one; a
+     * member Jackson itself refuses would not do, because Jackson builds a record before it handles the
+     * unknown members it set aside, and would report the known member either way.
+     */
+    @Test
+    void Given_unknown_members_beside_an_invalid_known_member_When_planned_Then_the_400_names_only_the_known_member()
+            throws Exception {
+        mvc.perform(post(PLANNED_FLOWS).contentType(MediaType.APPLICATION_JSON).content("""
+                        {"%s": "x", "description": " ", "amount": {"amount": "60000.00", "currency": "ILS"},
+                         "direction": "OUTFLOW", "startsOn": "2026-02-15", "recurrence": {"%s": "x", "kind": "ONCE"}}
+                        """.formatted(
+                                UNKNOWN_MEMBER, UNKNOWN_NESTED_MEMBER)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("description"))
+                .andExpect(content()
+                        .string(allOf(
+                                not(containsString(UNKNOWN_MEMBER)), not(containsString(UNKNOWN_NESTED_MEMBER)))));
+
+        verifyNoInteractions(planner);
+    }
+
+    /**
      * A recurrence's numbers are the domain's to refuse, as the amount's sign is: a well-formed request
      * breaking a rule is 422, and it is refused before the port is called.
      */
@@ -467,7 +526,8 @@ class PlannedFlowControllerTest {
                 .andExpect(jsonPath("$.type").value("about:blank"))
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.detail").value(missing.getMessage()))
-                .andExpect(jsonPath("$.code").value("PLAN_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value("PLAN_NOT_FOUND"))
+                .andExpect(requiredProblemMembers());
     }
 
     @ParameterizedTest
@@ -485,7 +545,8 @@ class PlannedFlowControllerTest {
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.type").value("about:blank"))
                 .andExpect(jsonPath("$.detail").value(illegal.getMessage()))
-                .andExpect(jsonPath("$.code").value("ILLEGAL_TRANSITION"));
+                .andExpect(jsonPath("$.code").value("ILLEGAL_TRANSITION"))
+                .andExpect(requiredProblemMembers());
     }
 
     /** Realising, or cancelling a committed plan, on a date before its commitment is a rule, not a state. */

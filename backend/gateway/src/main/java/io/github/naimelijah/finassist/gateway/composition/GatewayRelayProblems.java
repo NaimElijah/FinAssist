@@ -4,7 +4,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpTimeoutException;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cloud.gateway.server.mvc.filter.TokenRelayFilterFunctions;
@@ -29,7 +34,8 @@ import org.springframework.web.client.ResourceAccessException;
  * it would for any {@code @Controller}. This was confirmed empirically: before this class existed,
  * a refused connection surfaced as a bare, unproblemed failure past the dispatcher; adding the
  * {@code @ExceptionHandler} methods below turned it into the {@code UPSTREAM_UNAVAILABLE} problem
- * asserted by {@code GatewayLoginFlowIT}. A downstream {@code 4xx}/{@code 5xx} response, by
+ * asserted by {@code GatewayLoginFlowIT}, and a stalled upstream into the {@code UPSTREAM_TIMEOUT}
+ * problem asserted by {@code GatewayRelayTimeoutIT}. A downstream {@code 4xx}/{@code 5xx} response, by
  * contrast, never reaches this class: {@code RestClientProxyExchange} calls {@code RestClient}'s
  * low-level {@code exchange(...)}, which applies no default status handler, so the ledger's or the
  * assistant's own problem body passes through this gateway untouched.
@@ -86,6 +92,16 @@ final class GatewayRelayProblems {
     private static final byte[] UPSTREAM_UNAVAILABLE_BODY =
             GatewayProblems.write(HttpStatus.BAD_GATEWAY, UPSTREAM_DETAIL, GatewayProblems.UPSTREAM_UNAVAILABLE);
 
+    /**
+     * Read by the owner as it stands: the web client shows a problem's detail verbatim, and this is
+     * the one answer after which resending a change can duplicate it in the append-only journal.
+     */
+    private static final String TIMEOUT_DETAIL = "The upstream service did not answer in time, so the outcome is"
+            + " unknown: a change you sent may already have been applied. Check before sending it again.";
+
+    private static final byte[] UPSTREAM_TIMEOUT_BODY =
+            GatewayProblems.write(HttpStatus.GATEWAY_TIMEOUT, TIMEOUT_DETAIL, GatewayProblems.UPSTREAM_TIMEOUT);
+
     private static final String INTERNAL_DETAIL = "The gateway failed unexpectedly.";
 
     private static final byte[] INTERNAL_ERROR_BODY =
@@ -131,15 +147,51 @@ final class GatewayRelayProblems {
     }
 
     /**
-     * The outbound connection to the ledger or the assistant was refused, timed out, or otherwise
-     * could not be opened — {@code RestClient}'s wrapper for the underlying {@code IOException}.
+     * The relay's outbound call to the ledger or the assistant failed with an I/O error — {@code
+     * RestClient}'s wrapper for the underlying {@code IOException} — and the answer depends on
+     * whether the request was sent (ADR-067).
      *
+     * <p>A read timeout is {@code 504 UPSTREAM_TIMEOUT}: the upstream received the request and may
+     * have committed it, so the detail says the outcome is unknown rather than that nothing was
+     * reached. Anything else — a refused or unresolvable connection, or a connect timeout — is
+     * {@code 502 UPSTREAM_UNAVAILABLE}, as is an I/O failure this class cannot place, whose chain does
+     * not say whether the request was written: a reset after sending is one, and #407 tracks answering
+     * it as outcome unknown. Each is logged at WARN by a fixed line: the wrapper's
+     * message names the relayed URL, query included, so it is never written.
+     *
+     * @param failure the wrapper whose cause chain says which failure this was
+     * @param response the response to answer
      * @throws IOException if the problem body cannot be written
      */
     @ExceptionHandler(ResourceAccessException.class)
-    void upstreamUnavailable(HttpServletResponse response) throws IOException {
+    void upstreamFailed(ResourceAccessException failure, HttpServletResponse response) throws IOException {
+        if (timedOutAwaitingAnswer(failure)) {
+            LOG.warn("A relay's upstream service did not answer in time; the request's outcome is unknown");
+            GatewayProblems.send(response, HttpStatus.GATEWAY_TIMEOUT, UPSTREAM_TIMEOUT_BODY);
+            return;
+        }
         LOG.warn("A relay's upstream service could not be reached");
         GatewayProblems.send(response, HttpStatus.BAD_GATEWAY, UPSTREAM_UNAVAILABLE_BODY);
+    }
+
+    /**
+     * Whether the request was sent and then went unanswered past the read budget. Spring's {@code
+     * JdkClientHttpRequest} raises a read timeout as a bare {@link HttpTimeoutException}; the JDK
+     * raises a connect timeout as {@link HttpConnectTimeoutException}, which extends it, so the
+     * subtype is tested first. The first timeout in the chain decides, and the walk stops at a
+     * cause it has already seen, since {@code initCause} can close a loop.
+     */
+    private static boolean timedOutAwaitingAnswer(ResourceAccessException failure) {
+        Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable cause = failure; cause != null && seen.add(cause); cause = cause.getCause()) {
+            if (cause instanceof HttpConnectTimeoutException) {
+                return false;
+            }
+            if (cause instanceof HttpTimeoutException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -150,7 +202,8 @@ final class GatewayRelayProblems {
      * everything nothing more specific claimed, at the lowest precedence Spring gives an
      * {@code @ExceptionHandler} match.
      *
-     * <p>A framework refusal is peeled off first, at its own status and at WARN. Everything left
+     * <p>A framework refusal is peeled off first, at its own status, with its own headers ({@code
+     * Allow} on a 405) and at WARN. Everything left
      * is a 500, logged at ERROR by class name alone — never the message, never the stack trace —
      * because that branch cannot enumerate what an arbitrary exception's text might quote. A
      * status is read only from an {@link ErrorResponse}, whose contract is to carry one; the
@@ -165,6 +218,10 @@ final class GatewayRelayProblems {
             byte[] refusal = status == null ? null : FRAMEWORK_REFUSALS.get(status);
             if (refusal != null) {
                 LOG.warn("Refused a request no handler here answers: {}", status.value());
+                // The framework's headers are part of the refusal: a 405 must carry Allow (RFC 9110 §15.5.6).
+                framework
+                        .getHeaders()
+                        .forEach((name, values) -> values.forEach(value -> response.addHeader(name, value)));
                 GatewayProblems.send(response, status, refusal);
                 return;
             }

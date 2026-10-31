@@ -28,6 +28,11 @@ public record ProjectionResponse(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Cadence step,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Currency currency,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<BalancePointResponse> points,
+
+        @Schema(
+                description = "The date of the first point at which projected cash is negative; absent when"
+                        + " none is. Only points are checked, so a dip that recovers within one step is not"
+                        + " reported.")
         LocalDate firstShortfall) {
 
     static ProjectionResponse from(ScenarioId scenario, Projection projection) {

@@ -2,9 +2,11 @@ package io.github.naimelijah.finassist.ledger.composition;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
+import io.swagger.v3.oas.models.media.JsonSchema;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.responses.ApiResponses;
@@ -25,8 +27,12 @@ class OpenApiConfigurationTest {
 
     private final OpenApiConfiguration configuration = new OpenApiConfiguration();
 
+    /**
+     * Required is a promise to every client generated from the document, so it names exactly the members
+     * every problem carries: the web client reads {@code status}, and branches on {@code code}.
+     */
     @Test
-    void Given_a_document_When_customised_Then_it_gains_a_problem_schema_that_requires_a_code() {
+    void Given_a_document_When_customised_Then_its_problem_schema_requires_what_every_problem_carries() {
         OpenAPI document = new OpenAPI();
 
         configuration.problemResponses().customise(document);
@@ -34,9 +40,27 @@ class OpenApiConfigurationTest {
         Schema<?> problem = document.getComponents().getSchemas().get("Problem");
         assertThat(problem.getProperties())
                 .containsOnlyKeys("type", "title", "status", "detail", "instance", "code", "errors");
-        assertThat(problem.getRequired()).containsExactly("code");
+        assertThat(problem.getRequired()).containsExactlyInAnyOrder("type", "title", "status", "code");
         Schema<?> errors = problem.getProperties().get("errors");
         assertThat(errors.getItems().getProperties()).containsOnlyKeys("field", "message");
+        assertThat(errors.getItems().getRequired()).containsExactlyInAnyOrder("field", "message");
+    }
+
+    /**
+     * Behind the gateway, a ledger problem's {@code instance} lacks the {@code /ledger} prefix the browser
+     * called, so resolved against that URL it names a path nothing serves. The schema says so.
+     */
+    @Test
+    void Given_a_document_When_customised_Then_the_problem_instance_says_whose_path_it_is() {
+        OpenAPI document = new OpenAPI();
+
+        configuration.problemResponses().customise(document);
+
+        Schema<?> problem = document.getComponents().getSchemas().get("Problem");
+        Schema<?> instance = problem.getProperties().get("instance");
+        assertThat(instance.getDescription())
+                .contains("as received by the service that answered")
+                .contains("/ledger");
     }
 
     /**
@@ -60,6 +84,36 @@ class OpenApiConfigurationTest {
                     .isEqualTo(PROBLEM_REF);
         }
         assertThat(read.getResponses()).containsKey("200");
+    }
+
+    /**
+     * {@code @Size(min = 2)} leaves its maximum at {@link Integer#MAX_VALUE}, which swagger-core publishes
+     * as a bound nothing enforces. A real maximum, and every minimum, stay.
+     */
+    @Test
+    void Given_schemas_sized_by_a_minimum_only_When_customised_Then_the_default_maximum_is_dropped() {
+        Schema<?> entries = new JsonSchema().minItems(2).maxItems(Integer.MAX_VALUE);
+        Schema<?> named = new JsonSchema().minLength(1).maxLength(Integer.MAX_VALUE);
+        Schema<?> bounded = new JsonSchema().minItems(2).maxItems(10);
+        Schema<?> nested = new JsonSchema().maxItems(Integer.MAX_VALUE);
+        OpenAPI document = new OpenAPI()
+                .components(new Components()
+                        .addSchemas(
+                                "Request",
+                                new JsonSchema()
+                                        .addProperty("entries", entries)
+                                        .addProperty("name", named)
+                                        .addProperty("bounded", bounded)
+                                        .addProperty("wrapper", new JsonSchema().items(nested))));
+
+        configuration.unboundedSizes().customise(document);
+
+        assertThat(entries.getMinItems()).isEqualTo(2);
+        assertThat(entries.getMaxItems()).isNull();
+        assertThat(named.getMinLength()).isEqualTo(1);
+        assertThat(named.getMaxLength()).isNull();
+        assertThat(bounded.getMaxItems()).isEqualTo(10);
+        assertThat(nested.getMaxItems()).isNull();
     }
 
     @Test

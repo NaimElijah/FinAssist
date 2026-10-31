@@ -19,7 +19,12 @@ public record PlannedFlowResponse(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String description,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) MoneyDto amount,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Direction direction,
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) LocalDate startsOn,
+
+        @Schema(
+                requiredMode = Schema.RequiredMode.REQUIRED,
+                description = "The date of the first occurrence; every later one is counted from it.")
+        LocalDate startsOn,
+
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) RecurrenceResponse recurrence,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) PlanStateResponse state) {
 

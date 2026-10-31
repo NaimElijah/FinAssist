@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.gateway.composition;
 
+import io.swagger.v3.oas.annotations.Operation;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -48,6 +49,7 @@ class SessionController {
      *     authentication on this path before a handler runs
      * @return the subject, the preferred username and the recognised roles
      */
+    @Operation(summary = "Answers who is signed in: their subject, username and FinAssist roles")
     @GetMapping(value = BffRoutes.ME, produces = MediaType.APPLICATION_JSON_VALUE)
     SessionResponse me(@AuthenticationPrincipal OidcUser user) {
         return new SessionResponse(

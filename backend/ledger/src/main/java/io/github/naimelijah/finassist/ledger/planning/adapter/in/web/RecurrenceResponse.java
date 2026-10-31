@@ -23,7 +23,12 @@ public record RecurrenceResponse(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) RecurrenceKind kind,
         Cadence cadence,
         Integer interval,
+
+        @Schema(
+                description =
+                        "UNTIL only. Exclusive: occurrences fall before it, never on it. Must come after startsOn.")
         LocalDate until,
+
         Integer count) {
 
     static RecurrenceResponse from(Recurrence recurrence) {

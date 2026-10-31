@@ -28,12 +28,25 @@ import type {
     Problem as AssistantProblem,
     ValuationModel,
 } from './contracts/assistant/types.gen';
-import type { LogoutResponse, SessionResponse } from './contracts/gateway/types.gen';
+import type {
+    LogoutResponse,
+    Problem as GatewayProblem,
+    SessionResponse,
+} from './contracts/gateway/types.gen';
 
 describe('generated contract types', () => {
     it('Given_either_services_Problem_When_reading_its_code_Then_it_is_a_string', () => {
         expectTypeOf<LedgerProblem['code']>().toBeString();
         expectTypeOf<AssistantProblem['code']>().toBeString();
+    });
+
+    it('Given_each_services_Problem_When_reading_its_status_Then_it_is_always_a_number', () => {
+        // isProblem in client.ts recognises a problem by its status, so the contracts must promise it.
+        // The gateway answers problems of its own - a relay that timed out, a session that expired -
+        // so its contract must promise the same.
+        expectTypeOf<LedgerProblem['status']>().toBeNumber();
+        expectTypeOf<AssistantProblem['status']>().toBeNumber();
+        expectTypeOf<GatewayProblem['status']>().toBeNumber();
     });
 
     it('Given_a_money_amount_When_read_from_either_document_Then_it_is_a_string_not_a_number', () => {

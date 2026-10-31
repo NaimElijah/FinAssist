@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.accounting.adapter.in.web;
 
+import static io.github.naimelijah.finassist.ledger.ProblemAssertions.requiredProblemMembers;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -130,14 +131,18 @@ class AccountControllerTest {
         verifyNoInteractions(opener);
     }
 
+    /** The entry names the member, so the form can place the error on it (ADR-028). */
     @Test
-    void Given_an_unknown_account_type_When_opening_an_account_Then_it_is_a_400_problem() throws Exception {
+    void Given_an_unknown_account_type_When_opening_an_account_Then_it_is_a_400_problem_naming_the_type()
+            throws Exception {
         mvc.perform(post(ACCOUNTS).contentType(MediaType.APPLICATION_JSON).content("""
                         {"name": "Cash", "type": "PIGGY_BANK", "currency": "ILS"}
                         """))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("type"))
+                .andExpect(jsonPath("$.errors[0].message").isNotEmpty());
 
         verifyNoInteractions(opener);
     }
@@ -186,7 +191,8 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.title").value("Conflict"))
                 .andExpect(jsonPath("$.status").value(409))
                 .andExpect(jsonPath("$.detail").value(duplicate.getMessage()))
-                .andExpect(jsonPath("$.code").value("DUPLICATE_ACCOUNT_NAME"));
+                .andExpect(jsonPath("$.code").value("DUPLICATE_ACCOUNT_NAME"))
+                .andExpect(requiredProblemMembers());
     }
 
     @Test
@@ -201,7 +207,8 @@ class AccountControllerTest {
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.type").value("about:blank"))
                 .andExpect(jsonPath("$.detail").value(missing.getMessage()))
-                .andExpect(jsonPath("$.code").value("ACCOUNT_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value("ACCOUNT_NOT_FOUND"))
+                .andExpect(requiredProblemMembers());
     }
 
     @Test
@@ -263,7 +270,8 @@ class AccountControllerTest {
         mvc.perform(get(ACCOUNTS + "/" + unknown + "/transactions"))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("ACCOUNT_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value("ACCOUNT_NOT_FOUND"))
+                .andExpect(requiredProblemMembers());
     }
 
     private static Account account(String name, AccountType type, Currency currency) {

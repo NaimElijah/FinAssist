@@ -8,6 +8,7 @@ import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Horizon;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Projection;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.ScenarioId;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Cadence;
+import io.swagger.v3.oas.annotations.Parameter;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
@@ -69,11 +70,19 @@ public class ProjectionController {
     @GetMapping("/{id}/projection")
     public ProjectionResponse projectScenario(
             @PathVariable UUID id,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @RequestParam Cadence step,
-            @RequestParam(required = false) List<String> cash,
-            @RequestParam(required = false) List<String> invested) {
+            @Parameter(description = HorizonDescriptions.FROM_PARAMETER)
+                    @RequestParam
+                    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    LocalDate from,
+            @Parameter(description = HorizonDescriptions.TO_PARAMETER)
+                    @RequestParam
+                    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    LocalDate to,
+            @Parameter(description = HorizonDescriptions.STEP_PARAMETER) @RequestParam Cadence step,
+            @Parameter(description = OpeningAccountDescriptions.CASH_PARAMETER) @RequestParam(required = false)
+                    List<String> cash,
+            @Parameter(description = OpeningAccountDescriptions.INVESTED_PARAMETER) @RequestParam(required = false)
+                    List<String> invested) {
         ScenarioId scenario = new ScenarioId(id);
         Projection projection = projector.project(new ProjectScenarioCommand(
                 scenario, new Horizon(from, to), step, accountRefs(cash), accountRefs(invested)));

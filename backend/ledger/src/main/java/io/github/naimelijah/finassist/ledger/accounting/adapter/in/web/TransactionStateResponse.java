@@ -20,7 +20,12 @@ import java.time.LocalDate;
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record TransactionStateResponse(
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Status status, LocalDate on, String reason) {
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Status status,
+
+        @Schema(description = "The date the transaction reached this status; absent while it is pending.")
+        LocalDate on,
+
+        String reason) {
 
     /** The discriminator a client branches on, one constant per state. */
     public enum Status {

@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.accounting.adapter.in.web;
 
+import static io.github.naimelijah.finassist.ledger.ProblemAssertions.requiredProblemMembers;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.mockito.ArgumentMatchers.any;
@@ -186,6 +187,25 @@ class TransactionControllerTest {
         verifyNoInteractions(recorder);
     }
 
+    /** A value Jackson refuses inside a list is named by its full path, index included, as a constraint's is. */
+    @Test
+    void Given_an_unknown_currency_in_the_second_entry_When_recording_Then_it_is_a_400_problem_naming_its_path()
+            throws Exception {
+        mvc.perform(post(TRANSACTIONS).contentType(MediaType.APPLICATION_JSON).content("""
+                        {"occurredOn": "2026-03-03", "description": "Groceries",
+                         "entries": [
+                           {"account": "%s", "amount": {"amount": "12.50", "currency": "ILS"}},
+                           {"account": "%s", "amount": {"amount": "-12.50", "currency": "CHF"}}]}
+                        """.formatted(GROCERIES, CASH)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("entries[1].amount.currency"))
+                .andExpect(jsonPath("$.errors[0].message").isNotEmpty());
+
+        verifyNoInteractions(recorder);
+    }
+
     /** An exponent is not plain decimal text, so it is refused as malformed before {@code Money} sees it. */
     @Test
     void Given_an_amount_written_with_an_exponent_When_recording_Then_it_is_a_400_problem() throws Exception {
@@ -285,7 +305,8 @@ class TransactionControllerTest {
                 .andExpect(status().is(422))
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value(mismatch.getMessage()))
-                .andExpect(jsonPath("$.code").value("CURRENCY_MISMATCH"));
+                .andExpect(jsonPath("$.code").value("CURRENCY_MISMATCH"))
+                .andExpect(requiredProblemMembers());
     }
 
     /**
@@ -399,7 +420,8 @@ class TransactionControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value(missing.getMessage()))
-                .andExpect(jsonPath("$.code").value("TRANSACTION_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value("TRANSACTION_NOT_FOUND"))
+                .andExpect(requiredProblemMembers());
     }
 
     @ParameterizedTest
@@ -416,7 +438,8 @@ class TransactionControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value(illegal.getMessage()))
-                .andExpect(jsonPath("$.code").value("ILLEGAL_TRANSITION"));
+                .andExpect(jsonPath("$.code").value("ILLEGAL_TRANSITION"))
+                .andExpect(requiredProblemMembers());
     }
 
     @ParameterizedTest

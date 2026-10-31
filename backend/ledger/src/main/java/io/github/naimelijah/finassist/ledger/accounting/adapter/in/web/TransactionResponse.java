@@ -12,7 +12,12 @@ import java.util.UUID;
  */
 public record TransactionResponse(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID id,
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) LocalDate occurredOn,
+
+        @Schema(
+                requiredMode = Schema.RequiredMode.REQUIRED,
+                description = "The date the transaction occurred, which a listing's from and to select on.")
+        LocalDate occurredOn,
+
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String description,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<EntryDto> entries,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) TransactionStateResponse state) {

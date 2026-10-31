@@ -1,6 +1,8 @@
 package io.github.naimelijah.finassist.ledger.composition;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -19,9 +21,13 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import java.net.URI;
 import java.util.List;
+import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -32,6 +38,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -65,6 +72,18 @@ class LedgerProblemHandlerTest {
      * like a credential, because the test asserts it reaches the log, and a credential never may.
      */
     private static final String MARKER = "internal-detail-marker-7f3a";
+
+    /** Stands in for a value the caller sent that the ledger cannot read; no type here accepts it. */
+    private static final String REJECTED = "rejected-input-4b2d";
+
+    /** The one detail every malformed request is answered with, as the assistant answers its own. */
+    private static final String MALFORMED_DETAIL = "The request could not be read; each entry in errors names why.";
+
+    /** A well-formed id, fixed so every run sends the same body; only the line beside it is refused. */
+    private static final String READABLE_ID = "3f2c8a1e-6b4d-4e7a-9c05-d1b2a3f4e5c6";
+
+    /** A whole number one past what a Java {@code int} holds, {@code Integer.MAX_VALUE + 1}. */
+    private static final String OVERFLOWING_INT = "2147483648";
 
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new FailingController())
             .setControllerAdvice(new LedgerProblemHandler())
@@ -200,12 +219,223 @@ class LedgerProblemHandlerTest {
                 .andExpect(jsonPath("$.errors").doesNotExist());
     }
 
+    /**
+     * Unparseable JSON has no member to name, so the entry names the body, as the assistant's does for a
+     * body it cannot take whole. The text cut off mid-string is the caller's, and is not repeated.
+     */
     @Test
-    void Given_a_body_that_is_not_json_When_posted_Then_it_is_a_400_problem() throws Exception {
-        mvc.perform(post("/validated").contentType(MediaType.APPLICATION_JSON).content("{\"name\":"))
+    void Given_a_body_that_is_not_json_When_posted_Then_it_is_a_400_problem_naming_the_body() throws Exception {
+        String body = mvc.perform(post("/validated")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + REJECTED))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("body"))
+                .andExpect(jsonPath("$.errors[0].message").value("is not valid JSON"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(body).doesNotContain(REJECTED);
+    }
+
+    @Test
+    void Given_no_body_When_posted_to_a_route_that_needs_one_Then_it_is_a_400_problem_naming_the_body()
+            throws Exception {
+        mvc.perform(post("/validated").contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("body"))
+                .andExpect(jsonPath("$.errors[0].message").value("could not be read"));
+    }
+
+    /** Valid JSON of the wrong shape at its root has no member to name either. */
+    @Test
+    void Given_a_body_that_is_not_an_object_When_posted_Then_it_is_a_400_problem_naming_the_body() throws Exception {
+        mvc.perform(post("/shaped").contentType(MediaType.APPLICATION_JSON).content("[]"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("body"))
+                .andExpect(jsonPath("$.errors[0].message").value("is not a valid value"));
+    }
+
+    /**
+     * A member Jackson cannot read is named by its wire name, so a client can place the error on the field.
+     * Neither the reason nor the detail repeats what was sent: Jackson's own message quotes it, and a
+     * problem body is no place to reflect input back (ADR-019).
+     */
+    @Test
+    void Given_an_invalid_body_member_When_posted_Then_the_400_names_the_member_not_the_value() throws Exception {
+        String body = mvc.perform(post("/shaped")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"kind\":\"" + REJECTED + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.detail").isNotEmpty())
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("kind"))
+                .andExpect(jsonPath("$.errors[0].message").value("is not a valid value"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(body).doesNotContain(REJECTED);
+    }
+
+    /** A nested member is named by its dotted path, an element by its index, as bean validation names them. */
+    @Test
+    void Given_a_nested_member_holding_no_valid_value_When_posted_Then_its_field_is_the_path_to_it() throws Exception {
+        String body = mvc.perform(
+                        post("/shaped").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"kind": "ONE", "lines": [{"id": "%s"}, {"id": "%s"}]}
+                        """.formatted(
+                                        READABLE_ID, REJECTED)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("lines[1].id"))
+                .andExpect(jsonPath("$.errors[0].message").isNotEmpty())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(body).doesNotContain(REJECTED);
+    }
+
+    /**
+     * A whole number too large for its member is valid JSON, so the member is named like any other value
+     * Jackson refuses, never the body as unparseable. Jackson 3 raises it as a stream-read failure, the
+     * type it also uses for text that is not JSON at all, which is why both an {@code Integer} and an
+     * {@code int}, nested in an element, are pinned.
+     */
+    @ParameterizedTest
+    @CsvSource(
+            delimiter = '|',
+            value = {
+                "{\"kind\": \"ONE\", \"count\": " + OVERFLOWING_INT + "} | count",
+                "{\"kind\": \"ONE\", \"tallies\": [{\"times\": " + OVERFLOWING_INT + "}]} | tallies[0].times"
+            })
+    void Given_a_whole_number_too_large_for_its_member_When_posted_Then_the_400_names_the_member_as_an_invalid_value(
+            String json, String field) throws Exception {
+        String body = mvc.perform(
+                        post("/shaped").contentType(MediaType.APPLICATION_JSON).content(json))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value(field))
+                .andExpect(jsonPath("$.errors[0].message").value("is not a valid value"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(body).doesNotContain(OVERFLOWING_INT);
+    }
+
+    /** The same overflow with no member to name, the body itself being the number, names the body. */
+    @Test
+    void Given_a_body_that_is_a_number_too_large_for_it_When_posted_Then_the_400_names_the_body_as_an_invalid_value()
+            throws Exception {
+        mvc.perform(post("/counted").contentType(MediaType.APPLICATION_JSON).content(OVERFLOWING_INT))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("body"))
+                .andExpect(jsonPath("$.errors[0].message").value("is not a valid value"));
+    }
+
+    /** Spring's own detail for a type mismatch quotes the value, so it is replaced. */
+    @Test
+    void Given_a_query_parameter_of_the_wrong_type_When_requested_Then_the_400_names_it_not_the_value()
+            throws Exception {
+        String body = mvc.perform(get("/count").param("value", REJECTED))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.detail").isNotEmpty())
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("value"))
+                .andExpect(jsonPath("$.errors[0].message").value("is not a valid value"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(body).doesNotContain(REJECTED);
+    }
+
+    /**
+     * A path variable is a parameter like any other. Only {@code detail} and the entry are checked for the
+     * value: {@code instance} is the request's path, which holds it.
+     */
+    @Test
+    void Given_a_path_variable_of_the_wrong_type_When_requested_Then_it_is_a_400_problem_naming_the_variable()
+            throws Exception {
+        mvc.perform(get("/status/" + REJECTED))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.detail", not(containsString(REJECTED))))
+                .andExpect(jsonPath("$.errors[0].field").value("value"))
+                .andExpect(jsonPath("$.errors[0].message", not(containsString(REJECTED))))
+                .andExpect(jsonPath("$.errors[0].message").isNotEmpty());
+    }
+
+    @Test
+    void Given_a_required_query_parameter_left_out_When_requested_Then_it_is_a_400_problem_naming_the_parameter()
+            throws Exception {
+        mvc.perform(get("/count"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("value"))
+                .andExpect(jsonPath("$.errors[0].message").value("is required"));
+    }
+
+    /** One request for each way a request can be malformed, each named for what is wrong with it. */
+    static Stream<Arguments> malformedRequests() {
+        return Stream.of(
+                Arguments.of(
+                        "a body member failing bean validation",
+                        post("/validated")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"name\":\" \"}")),
+                Arguments.of("a parameter failing its constraint", get("/count").param("value", "0")),
+                Arguments.of(
+                        "a body that is not JSON",
+                        post("/validated")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"name\":")),
+                Arguments.of("no body", post("/validated").contentType(MediaType.APPLICATION_JSON)),
+                Arguments.of(
+                        "a body member Jackson refuses",
+                        post("/shaped").contentType(MediaType.APPLICATION_JSON).content("{\"kind\":\"TWO\"}")),
+                Arguments.of(
+                        "a query parameter of the wrong type", get("/count").param("value", "many")),
+                Arguments.of("a required query parameter left out", get("/count")));
+    }
+
+    /**
+     * Whatever made a request malformed, its detail is the same fixed sentence, and {@code errors} says
+     * which input and why. Spring's own details differ by the exception that carried the failure, which a
+     * client cannot see and should not have to tell apart.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("malformedRequests")
+    void Given_any_malformed_request_When_handled_Then_its_detail_is_the_one_fixed_sentence(
+            String malformation, RequestBuilder request) throws Exception {
+        mvc.perform(request)
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.detail").value(MALFORMED_DETAIL))
+                .andExpect(jsonPath("$.errors").isNotEmpty());
     }
 
     /**
@@ -301,6 +531,23 @@ class LedgerProblemHandlerTest {
     }
 
     /**
+     * Every problem carries {@code type}, {@code title} and {@code status} (ADR-028), even one whose status
+     * has no {@code HttpStatus} constant, such as 499, and so no reason phrase to serve as a title.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = {409, 413, 418, 503, 499})
+    void Given_a_status_outside_the_table_When_raised_Then_its_problem_carries_a_type_a_title_and_the_status(int status)
+            throws Exception {
+        mvc.perform(get("/status/" + status))
+                .andExpect(status().is(status))
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").isString())
+                .andExpect(jsonPath("$.title").isString())
+                .andExpect(jsonPath("$.title").isNotEmpty())
+                .andExpect(jsonPath("$.status").value(status));
+    }
+
+    /**
      * A 5xx's detail is replaced whoever raised it, not only when this handler built the problem without
      * one. The reason given to a {@link ResponseStatusException} becomes its detail on the way in, and
      * must not survive the way out.
@@ -357,6 +604,23 @@ class LedgerProblemHandlerTest {
 
     /** A body with one constraint, so a validation failure names exactly one field. */
     record Named(@NotBlank String name) {}
+
+    /** What a {@link Shaped} body may name. */
+    enum Kind {
+        ONE
+    }
+
+    /** An element of a list, so a failure inside it has an index in its path. */
+    record Line(UUID id) {}
+
+    /**
+     * An element holding a primitive, apart from {@link Line}: Jackson refuses a primitive left out, which
+     * would otherwise fail every body that sends a line without it.
+     */
+    record Tally(int times) {}
+
+    /** A body whose members Jackson itself refuses, before bean validation runs. */
+    record Shaped(Kind kind, Integer count, List<Line> lines, List<Tally> tallies) {}
 
     /**
      * Fails on demand, one way per route.
@@ -439,6 +703,16 @@ class LedgerProblemHandlerTest {
 
         @PostMapping(value = "/validated", consumes = MediaType.APPLICATION_JSON_VALUE)
         ResponseEntity<Void> validated(@Valid @RequestBody Named body) {
+            return ResponseEntity.noContent().build();
+        }
+
+        @PostMapping(value = "/shaped", consumes = MediaType.APPLICATION_JSON_VALUE)
+        ResponseEntity<Void> shaped(@RequestBody Shaped body) {
+            return ResponseEntity.noContent().build();
+        }
+
+        @PostMapping(value = "/counted", consumes = MediaType.APPLICATION_JSON_VALUE)
+        ResponseEntity<Void> counted(@RequestBody Integer count) {
             return ResponseEntity.noContent().build();
         }
     }

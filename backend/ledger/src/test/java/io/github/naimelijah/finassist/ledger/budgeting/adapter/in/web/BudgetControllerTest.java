@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.budgeting.adapter.in.web;
 
+import static io.github.naimelijah.finassist.ledger.ProblemAssertions.requiredProblemMembers;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -220,7 +221,8 @@ class BudgetControllerTest {
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.type").value("about:blank"))
                 .andExpect(jsonPath("$.detail").value(missing.getMessage()))
-                .andExpect(jsonPath("$.code").value("BUDGET_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value("BUDGET_NOT_FOUND"))
+                .andExpect(requiredProblemMembers());
     }
 
     @Test

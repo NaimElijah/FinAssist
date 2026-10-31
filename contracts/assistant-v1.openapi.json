@@ -154,11 +154,16 @@
                   "type": "string"
                 }
               },
+              "required": [
+                "field",
+                "message"
+              ],
               "type": "object"
             },
             "type": "array"
           },
           "instance": {
+            "description": "The request's path as received by the service that answered. Behind the gateway it omits the gateway's /ledger or /assistant prefix.",
             "type": "string"
           },
           "status": {
@@ -173,7 +178,10 @@
           }
         },
         "required": [
-          "code"
+          "code",
+          "status",
+          "title",
+          "type"
         ],
         "type": "object"
       },
