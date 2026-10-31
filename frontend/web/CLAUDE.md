@@ -188,7 +188,9 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
   native attribute already announces it; never type "required" in a label. A decimal's hint is
   `DECIMAL_HINT` from `src/shared/api/decimal.ts`, which sits beside the pattern it describes. A
   form row that fails as a whole shows its error once and passes its id to both controls as
-  `sharedErrorId`; a group of checkboxes describes every one of them by the group's error.
+  `sharedErrorId`; a rule every row shares is stated once and named on each control as
+  `sharedHintId`. A group of checkboxes states its rule under its legend and describes every box
+  by that rule, then by the group's error.
 - **A row action's accessible name is its visible word, then the row** — "Void Rent, 1 Sept
   2026" — so "Void" stays first (WCAG 2.5.3) and a list of controls tells the rows apart; a
   lifecycle panel's title names the row too. Dates in a name go through `formatCalendarDate`

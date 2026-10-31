@@ -33,6 +33,9 @@ const MINIMUM_SCENARIOS = 2;
 /** The most scenarios the ledger compares in one request; it refuses more with 400. */
 const MAXIMUM_SCENARIOS = 10;
 
+/** The bounds, stated under the Scenarios legend before any submit can be refused by them. */
+const SCENARIOS_HINT = `Choose ${String(MINIMUM_SCENARIOS)} to ${String(MAXIMUM_SCENARIOS)} scenarios.`;
+
 const TOO_FEW_SCENARIOS_MESSAGE = 'Choose at least two scenarios to compare.';
 
 const TOO_MANY_SCENARIOS_MESSAGE = 'Choose at most ten scenarios to compare.';
@@ -163,6 +166,7 @@ function ComparisonForm({
     readonly scenarios: readonly Scenario[];
     readonly onCompare: (params: ComparisonParams) => void;
 }) {
+    const scenariosHintId = useId();
     const scenariosErrorId = useId();
     const scenariosRef = useRef<HTMLFieldSetElement>(null);
     const accountOptions = useAccountOptions();
@@ -204,6 +208,9 @@ function ComparisonForm({
         <form className={styles.form} onSubmit={submit}>
             <fieldset ref={scenariosRef} className={groupStyles.group}>
                 <legend className={groupStyles.legend}>Scenarios</legend>
+                <p id={scenariosHintId} className={styles.hint}>
+                    {SCENARIOS_HINT}
+                </p>
                 <div className={groupStyles.options}>
                     {scenarios.map((scenario) => (
                         <label key={scenario.id} className={groupStyles.option}>
@@ -212,9 +219,12 @@ function ComparisonForm({
                                 checked={chosenIds.has(scenario.id)}
                                 aria-invalid={scenariosError === undefined ? undefined : true}
                                 // On each box rather than the group: focus lands on a box, so
-                                // the box itself carries the error that explains why.
+                                // the box itself carries the rule, and the error that explains
+                                // why it was refused - the rule first, as a field's hint is.
                                 aria-describedby={
-                                    scenariosError === undefined ? undefined : scenariosErrorId
+                                    scenariosError === undefined
+                                        ? scenariosHintId
+                                        : `${scenariosHintId} ${scenariosErrorId}`
                                 }
                                 onChange={() => {
                                     setChosenIds((previous) => toggled(previous, scenario.id));

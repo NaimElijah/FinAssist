@@ -37,6 +37,7 @@ export function SelectField({
     label,
     required,
     hint,
+    sharedHintId,
     error,
     sharedErrorId,
     options,
@@ -48,6 +49,7 @@ export function SelectField({
             label={label}
             required={required}
             hint={hint}
+            sharedHintId={sharedHintId}
             error={error}
             sharedErrorId={sharedErrorId}
             renderControl={(control) => (

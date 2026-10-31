@@ -27,6 +27,7 @@ export function MonthField({
     label,
     required,
     hint,
+    sharedHintId,
     error,
     sharedErrorId,
     className,
@@ -37,6 +38,7 @@ export function MonthField({
             label={label}
             required={required}
             hint={hint}
+            sharedHintId={sharedHintId}
             error={error}
             sharedErrorId={sharedErrorId}
             renderControl={(control) => (

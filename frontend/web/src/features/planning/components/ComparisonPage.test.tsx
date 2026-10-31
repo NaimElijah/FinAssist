@@ -31,6 +31,9 @@ import type { AccountOptions } from '../types/accountOption';
 const SCENARIOS_URL = '/ledger/api/v1/scenarios';
 const COMPARISONS_URL = '/ledger/api/v1/scenario-comparisons';
 
+/** The Scenarios group's standing instruction, stated before any refusal needs it. */
+const SCENARIOS_HINT = 'Choose 2 to 10 scenarios.';
+
 const DO_NOTHING = {
     id: 's-base',
     name: 'Do nothing',
@@ -281,7 +284,21 @@ describe('ComparisonPage', () => {
         });
     });
 
-    it('Given_one_scenario_chosen_When_compared_Then_every_checkbox_is_described_by_an_error_asking_for_two_one_takes_focus_and_nothing_is_sent', async () => {
+    it('Given_the_comparison_form_When_it_renders_Then_the_Scenarios_group_states_its_2_to_10_rule_and_describes_every_checkbox_by_it', async () => {
+        // WCAG 3.3.2: the bounds are stated before a submit, not first learned from a refusal.
+        fakeFetch(ledger(SCENARIOS));
+        renderComparison();
+
+        const group = await screen.findByRole('group', { name: 'Scenarios' });
+
+        expect(within(group).getByText(SCENARIOS_HINT)).toBeDefined();
+        for (const checkbox of scenarioCheckboxes()) {
+            expect(accessibleDescriptionOf(checkbox)).toBe(SCENARIOS_HINT);
+            expect(checkbox.hasAttribute('aria-invalid')).toBe(false);
+        }
+    });
+
+    it('Given_one_scenario_chosen_When_compared_Then_every_checkbox_is_described_by_the_hint_then_an_error_asking_for_two_one_takes_focus_and_nothing_is_sent', async () => {
         const requests = fakeFetch(ledger(SCENARIOS, () => jsonResponse(COMPARISON)));
         renderComparison();
         const user = userEvent.setup({ delay: null });
@@ -292,14 +309,14 @@ describe('ComparisonPage', () => {
         // Focus lands on a checkbox, not the group, so each box carries the error itself.
         for (const checkbox of scenarioCheckboxes()) {
             expect(accessibleDescriptionOf(checkbox)).toBe(
-                'Choose at least two scenarios to compare.',
+                `${SCENARIOS_HINT} Choose at least two scenarios to compare.`,
             );
         }
         expect(document.activeElement).toBe(scenarioCheckbox('Do nothing (ILS)'));
         expect(requests.filter(isComparison)).toHaveLength(0);
     });
 
-    it('Given_more_scenarios_chosen_than_the_ledger_compares_When_compared_Then_every_checkbox_is_described_by_an_error_asking_for_at_most_ten_one_takes_focus_and_nothing_is_sent', async () => {
+    it('Given_more_scenarios_chosen_than_the_ledger_compares_When_compared_Then_every_checkbox_is_described_by_the_hint_then_an_error_asking_for_at_most_ten_one_takes_focus_and_nothing_is_sent', async () => {
         const scenarios = manyScenarios(MAXIMUM_SCENARIOS + 1);
         const requests = fakeFetch(ledger(scenarios, () => jsonResponse(COMPARISON)));
         renderComparison();
@@ -311,7 +328,7 @@ describe('ComparisonPage', () => {
         // Focus lands on a checkbox, not the group, so each box carries the error itself.
         for (const checkbox of scenarioCheckboxes()) {
             expect(accessibleDescriptionOf(checkbox)).toBe(
-                'Choose at most ten scenarios to compare.',
+                `${SCENARIOS_HINT} Choose at most ten scenarios to compare.`,
             );
         }
         expect(document.activeElement).toBe(scenarioCheckbox('Scenario 1 (ILS)'));

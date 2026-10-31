@@ -46,10 +46,10 @@ const MINIMUM_ROWS = 2;
 const INVALID_CONTROL_SELECTOR = '[aria-invalid="true"]';
 
 /**
- * Shown on every Debit and Credit: `entryRowAmount` refuses a row with both or neither filled, and
- * the amount itself is the wire's decimal.
+ * What `entryRowAmount` holds every row to: one of its two amounts filled, never both or neither.
+ * Stated once above the rows, since it binds them all alike, and read after each amount's own hint.
  */
-const ENTRY_AMOUNT_HINT = `A debit or a credit, not both. ${DECIMAL_HINT}`;
+const ENTRY_RULE = 'Each entry is a debit or a credit, not both.';
 
 /** The offered option for a row whose account is not yet chosen. */
 const CHOOSE_ACCOUNT_OPTION: SelectOption = { value: '', label: 'Choose an account' };
@@ -198,6 +198,8 @@ interface EntryRowFieldsProps {
      * are marked invalid and described by it.
      */
     readonly error: string | undefined;
+    /** The id of `ENTRY_RULE`, shown once above the rows, which describes both amounts. */
+    readonly ruleId: string;
     readonly removable: boolean;
     readonly onAccountChange: (accountId: string) => void;
     readonly onDebitChange: (value: string) => void;
@@ -211,6 +213,7 @@ function EntryRowFields({
     row,
     accounts,
     error,
+    ruleId,
     removable,
     onAccountChange,
     onDebitChange,
@@ -233,7 +236,8 @@ function EntryRowFields({
             />
             <TextField
                 label={debitLabel(label)}
-                hint={ENTRY_AMOUNT_HINT}
+                hint={DECIMAL_HINT}
+                sharedHintId={ruleId}
                 inputMode="decimal"
                 autoComplete="off"
                 value={row.debit}
@@ -244,7 +248,8 @@ function EntryRowFields({
             />
             <TextField
                 label={creditLabel(label)}
-                hint={ENTRY_AMOUNT_HINT}
+                hint={DECIMAL_HINT}
+                sharedHintId={ruleId}
                 inputMode="decimal"
                 autoComplete="off"
                 value={row.credit}
@@ -304,6 +309,7 @@ function RecordTransactionForm({
     const navigate = useNavigate();
     const formRef = useRef<HTMLFormElement>(null);
     const errorStateRef = useRef<HTMLDivElement>(null);
+    const entryRuleId = useId();
     const submitting = useRef(false);
     const nextKey = useRef(MINIMUM_ROWS);
 
@@ -473,29 +479,36 @@ function RecordTransactionForm({
                         }}
                     />
                 </div>
-                <div ref={rowsRef} className={styles.rows}>
-                    {rows.map((row, index) => (
-                        <EntryRowFields
-                            key={row.key}
-                            index={index}
-                            row={row}
-                            accounts={accounts}
-                            error={rowErrors.get(row.key)}
-                            removable={rows.length > MINIMUM_ROWS}
-                            onAccountChange={(accountId) => {
-                                updateAccount(index, accountId);
-                            }}
-                            onDebitChange={(value) => {
-                                updateDebit(index, value);
-                            }}
-                            onCreditChange={(value) => {
-                                updateCredit(index, value);
-                            }}
-                            onRemove={() => {
-                                removeRow(row.key);
-                            }}
-                        />
-                    ))}
+                <div className={styles.entries}>
+                    {/* Outside rowsRef: useRowRemovalFocus reads its children as the rows. */}
+                    <p id={entryRuleId} className={styles.entryRule}>
+                        {ENTRY_RULE}
+                    </p>
+                    <div ref={rowsRef} className={styles.rows}>
+                        {rows.map((row, index) => (
+                            <EntryRowFields
+                                key={row.key}
+                                index={index}
+                                row={row}
+                                accounts={accounts}
+                                error={rowErrors.get(row.key)}
+                                ruleId={entryRuleId}
+                                removable={rows.length > MINIMUM_ROWS}
+                                onAccountChange={(accountId) => {
+                                    updateAccount(index, accountId);
+                                }}
+                                onDebitChange={(value) => {
+                                    updateDebit(index, value);
+                                }}
+                                onCreditChange={(value) => {
+                                    updateCredit(index, value);
+                                }}
+                                onRemove={() => {
+                                    removeRow(row.key);
+                                }}
+                            />
+                        ))}
+                    </div>
                 </div>
                 <div className={styles.actions}>
                     <Button ref={addRowRef} type="button" variant="secondary" onClick={addRow}>

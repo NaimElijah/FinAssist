@@ -17,6 +17,20 @@
     gap: var(--space-3) var(--space-4);
 }
 
+/* The rule and the rows it governs, held closer together than the form's sections. */
+.entries {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+/* Read as a hint by every amount below it, so it looks like one: the shared field frame's hint. */
+.entryRule {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--color-muted);
+}
+
 .rows {
     display: flex;
     flex-direction: column;

@@ -19,6 +19,12 @@ export interface FieldLabelling {
     readonly label: string;
     /** Guidance shown above the control, and read as part of its description. */
     readonly hint?: string | undefined;
+    /**
+     * The id of guidance shown outside this field that applies to it as well, such as one rule
+     * stated once for every row of a form. The control is described by it after its own hint, so
+     * the rule is shown and read once per field rather than repeated beside each one.
+     */
+    readonly sharedHintId?: string | undefined;
     /** A validation message. When present the control is marked invalid and described by it. */
     readonly error?: string | undefined;
     /**
@@ -50,9 +56,9 @@ export interface FieldFrameProps extends FieldLabelling {
 /**
  * Lay out a label, required marker, hint, control and error, associated by ids from `useId`.
  *
- * The control is described by the hint, then the error, then a shared error, in that order, and
- * carries `aria-invalid` only while it has either error. Two fields with the same label never
- * share an id.
+ * The control is described by the hint, then a shared hint, then the error, then a shared error,
+ * in that order - what it takes before what is wrong with it - and carries `aria-invalid` only
+ * while it has either error. Two fields with the same label never share an id.
  * The required marker sits outside the label and is hidden from assistive technology: the
  * control's own `required` already announces the state, so the accessible name stays the label
  * alone rather than saying "required" twice.
@@ -63,6 +69,7 @@ export function FieldFrame({
     label,
     required,
     hint,
+    sharedHintId,
     error,
     sharedErrorId,
     renderControl,
@@ -72,6 +79,7 @@ export function FieldFrame({
     const errorId = `${id}-error`;
     const describedBy = [
         hint === undefined ? '' : hintId,
+        sharedHintId ?? '',
         error === undefined ? '' : errorId,
         sharedErrorId ?? '',
     ]

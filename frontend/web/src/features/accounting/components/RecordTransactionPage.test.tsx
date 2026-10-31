@@ -28,6 +28,9 @@ const ACCOUNTS_URL = '/ledger/api/v1/accounts';
 const RECORD_URL = '/ledger/api/v1/transactions';
 const RECORD_TRANSACTION_PATH = '/accounts/transactions/new';
 
+/** The one statement of what every entry row's amounts take, above the rows. */
+const ENTRY_RULE = 'Each entry is a debit or a credit, not both.';
+
 const CHECKING = {
     id: '0b7d2a4e-4d8c-4f3a-9a61-2f1c5e0d9b11',
     name: 'Checking',
@@ -167,14 +170,21 @@ describe('RecordTransactionPage field guidance', () => {
         expect(screen.getAllByText('(required)')).toHaveLength(required.length);
     });
 
-    it('Given_an_entry_row_When_rendered_Then_its_debit_and_credit_are_described_as_one_or_the_other_in_a_plain_decimal', async () => {
+    it('Given_entry_rows_When_rendered_and_one_added_Then_the_debit_or_credit_rule_is_shown_once_and_describes_every_amount_after_its_own_decimal_hint', async () => {
+        // The rule binds every row alike, so it is stated once rather than beside each of the
+        // amounts (WCAG 3.3.2); each amount keeps the format it takes as its own hint.
         fakeFetch(ledger());
         renderForm();
+        await screen.findByLabelText('Debit 1');
+        await userEvent
+            .setup({ delay: null })
+            .click(screen.getByRole('button', { name: 'Add entry' }));
 
-        for (const label of ['Debit 1', 'Credit 1']) {
-            const description = accessibleDescriptionOf(await screen.findByLabelText(label));
-            expect(description).toMatch(/A debit or a credit, not both/);
-            expect(description).toMatch(/A number with no commas, for example 1250\.50/);
+        expect(screen.getAllByText(ENTRY_RULE)).toHaveLength(1);
+        for (const label of ['Debit 1', 'Credit 1', 'Debit 2', 'Credit 2', 'Debit 3', 'Credit 3']) {
+            expect(accessibleDescriptionOf(screen.getByLabelText(label))).toBe(
+                `A number with no commas, for example 1250.50 ${ENTRY_RULE}`,
+            );
         }
     });
 });

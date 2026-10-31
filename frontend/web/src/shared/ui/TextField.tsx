@@ -26,6 +26,7 @@ export function TextField({
     label,
     required,
     hint,
+    sharedHintId,
     error,
     sharedErrorId,
     className,
@@ -36,6 +37,7 @@ export function TextField({
             label={label}
             required={required}
             hint={hint}
+            sharedHintId={sharedHintId}
             error={error}
             sharedErrorId={sharedErrorId}
             renderControl={(control) => (
