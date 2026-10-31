@@ -21,6 +21,12 @@ export interface FieldLabelling {
     readonly hint?: string | undefined;
     /** A validation message. When present the control is marked invalid and described by it. */
     readonly error?: string | undefined;
+    /**
+     * The id of a validation message shown outside this field that applies to it as well, such as
+     * one message for a pair of fields either of which could be the fix. The control is marked
+     * invalid and described by it, so the message is shown and read once rather than per field.
+     */
+    readonly sharedErrorId?: string | undefined;
 }
 
 /** The id and ARIA attributes a framed control must carry. */
@@ -44,26 +50,39 @@ export interface FieldFrameProps extends FieldLabelling {
 /**
  * Lay out a label, required marker, hint, control and error, associated by ids from `useId`.
  *
- * The control is described by the hint and then the error, in that order, and carries
- * `aria-invalid` only while there is an error. Two fields with the same label never share an id.
+ * The control is described by the hint, then the error, then a shared error, in that order, and
+ * carries `aria-invalid` only while it has either error. Two fields with the same label never
+ * share an id.
  * The required marker sits outside the label and is hidden from assistive technology: the
  * control's own `required` already announces the state, so the accessible name stays the label
  * alone rather than saying "required" twice.
  *
  * @param props - see `FieldFrameProps`.
  */
-export function FieldFrame({ label, required, hint, error, renderControl }: FieldFrameProps) {
+export function FieldFrame({
+    label,
+    required,
+    hint,
+    error,
+    sharedErrorId,
+    renderControl,
+}: FieldFrameProps) {
     const id = useId();
     const hintId = `${id}-hint`;
     const errorId = `${id}-error`;
-    const describedBy = [hint === undefined ? '' : hintId, error === undefined ? '' : errorId]
+    const describedBy = [
+        hint === undefined ? '' : hintId,
+        error === undefined ? '' : errorId,
+        sharedErrorId ?? '',
+    ]
         .filter((part) => part !== '')
         .join(' ');
+    const invalid = error !== undefined || sharedErrorId !== undefined;
 
     const control: FieldControlProps = {
         id,
         ...(describedBy === '' ? {} : { 'aria-describedby': describedBy }),
-        ...(error === undefined ? {} : { 'aria-invalid': true }),
+        ...(invalid ? { 'aria-invalid': true } : {}),
     };
 
     return (

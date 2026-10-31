@@ -607,7 +607,7 @@ describe('RecordTransactionPage submission', () => {
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
 
-    it('Given_a_row_with_both_a_debit_and_a_credit_When_submitted_Then_nothing_is_sent_and_the_row_shows_a_field_error', async () => {
+    it('Given_a_row_with_both_a_debit_and_a_credit_When_submitted_Then_nothing_is_sent_and_the_row_shows_its_error_once_on_both_fields', async () => {
         const requests = fakeFetch(ledger());
         renderForm();
         const user = userEvent.setup({ delay: null });
@@ -623,8 +623,17 @@ describe('RecordTransactionPage submission', () => {
 
         await user.click(screen.getByRole('button', { name: 'Record transaction' }));
 
-        // Both sides of row 2 carry the same message, since either one could be the fix.
-        expect(await screen.findAllByText('Enter a debit or a credit')).toHaveLength(2);
+        // Either side could be the fix, so both are invalid and described by the row's one
+        // message, which is shown and read once rather than once per field.
+        expect(await screen.findAllByText('Enter a debit or a credit')).toHaveLength(1);
+        for (const label of ['Debit 2', 'Credit 2']) {
+            const control = screen.getByLabelText(label);
+            expect(control.getAttribute('aria-invalid')).toBe('true');
+            expect(accessibleDescriptionOf(control)).toMatch(/Enter a debit or a credit$/);
+        }
+        await waitFor(() => {
+            expect(document.activeElement).toBe(screen.getByLabelText('Debit 2'));
+        });
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(0);
     });
 

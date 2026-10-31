@@ -20,6 +20,7 @@ interface CommonFieldProps {
     readonly hint?: string;
     readonly error?: string;
     readonly required?: boolean;
+    readonly sharedErrorId?: string;
 }
 
 /** The visible text that marks a field the form cannot be submitted without. */
@@ -91,6 +92,28 @@ describe('labelled fields', () => {
             const marker = screen.getByText(REQUIRED_MARKER);
             expect(marker.closest('[aria-hidden="true"]')).not.toBeNull();
             expect(marker.closest('[hidden]')).toBeNull();
+        });
+
+        it(`Given_a_${name}_sharing_an_error_shown_elsewhere_When_rendered_Then_it_is_invalid_and_described_by_that_one_message`, () => {
+            render(
+                <>
+                    <p id="pair-error">Enter a debit or a credit</p>
+                    {renderField({
+                        label: 'Account',
+                        hint: 'The account the money moves through.',
+                        sharedErrorId: 'pair-error',
+                    })}
+                </>,
+            );
+
+            const control = screen.getByLabelText('Account');
+            expect(descriptionsOf(control)).toEqual([
+                'The account the money moves through.',
+                'Enter a debit or a credit',
+            ]);
+            expect(control.getAttribute('aria-invalid')).toBe('true');
+            // The field renders no copy of its own, so the message is shown and read once.
+            expect(screen.getAllByText('Enter a debit or a credit')).toHaveLength(1);
         });
 
         it(`Given_an_optional_${name}_When_rendered_Then_no_required_marker_shows`, () => {

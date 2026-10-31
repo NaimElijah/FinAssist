@@ -202,11 +202,7 @@ function ComparisonForm({
 
     return (
         <form className={styles.form} onSubmit={submit}>
-            <fieldset
-                ref={scenariosRef}
-                aria-describedby={scenariosError === undefined ? undefined : scenariosErrorId}
-                className={groupStyles.group}
-            >
+            <fieldset ref={scenariosRef} className={groupStyles.group}>
                 <legend className={groupStyles.legend}>Scenarios</legend>
                 <div className={groupStyles.options}>
                     {scenarios.map((scenario) => (
@@ -215,6 +211,11 @@ function ComparisonForm({
                                 type="checkbox"
                                 checked={chosenIds.has(scenario.id)}
                                 aria-invalid={scenariosError === undefined ? undefined : true}
+                                // On each box rather than the group: focus lands on a box, so
+                                // the box itself carries the error that explains why.
+                                aria-describedby={
+                                    scenariosError === undefined ? undefined : scenariosErrorId
+                                }
                                 onChange={() => {
                                     setChosenIds((previous) => toggled(previous, scenario.id));
                                 }}

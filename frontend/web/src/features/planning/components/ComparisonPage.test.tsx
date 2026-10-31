@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import type { WriteAccess } from '@/shared/lib/writeAccess';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -174,6 +175,11 @@ function scenarioCheckbox(label: string): HTMLElement {
     return within(screen.getByRole('group', { name: 'Scenarios' })).getByLabelText(label);
 }
 
+/** Every checkbox in the Scenarios group, in the order offered. */
+function scenarioCheckboxes(): HTMLElement[] {
+    return within(screen.getByRole('group', { name: 'Scenarios' })).getAllByRole('checkbox');
+}
+
 /** The words of every option the Baseline select offers. */
 function baselineOptions(): (string | null)[] {
     const select = screen.getByLabelText('Baseline');
@@ -275,22 +281,25 @@ describe('ComparisonPage', () => {
         });
     });
 
-    it('Given_one_scenario_chosen_When_compared_Then_a_field_error_asks_for_two_takes_focus_and_nothing_is_sent', async () => {
+    it('Given_one_scenario_chosen_When_compared_Then_every_checkbox_is_described_by_an_error_asking_for_two_one_takes_focus_and_nothing_is_sent', async () => {
         const requests = fakeFetch(ledger(SCENARIOS, () => jsonResponse(COMPARISON)));
         renderComparison();
         const user = userEvent.setup({ delay: null });
 
         await compare(user, ['Do nothing (ILS)']);
 
-        const error = await screen.findByText('Choose at least two scenarios to compare.');
-        expect(
-            screen.getByRole('group', { name: 'Scenarios' }).getAttribute('aria-describedby'),
-        ).toBe(error.id);
+        await screen.findByText('Choose at least two scenarios to compare.');
+        // Focus lands on a checkbox, not the group, so each box carries the error itself.
+        for (const checkbox of scenarioCheckboxes()) {
+            expect(accessibleDescriptionOf(checkbox)).toBe(
+                'Choose at least two scenarios to compare.',
+            );
+        }
         expect(document.activeElement).toBe(scenarioCheckbox('Do nothing (ILS)'));
         expect(requests.filter(isComparison)).toHaveLength(0);
     });
 
-    it('Given_more_scenarios_chosen_than_the_ledger_compares_When_compared_Then_a_field_error_asks_for_at_most_ten_takes_focus_and_nothing_is_sent', async () => {
+    it('Given_more_scenarios_chosen_than_the_ledger_compares_When_compared_Then_every_checkbox_is_described_by_an_error_asking_for_at_most_ten_one_takes_focus_and_nothing_is_sent', async () => {
         const scenarios = manyScenarios(MAXIMUM_SCENARIOS + 1);
         const requests = fakeFetch(ledger(scenarios, () => jsonResponse(COMPARISON)));
         renderComparison();
@@ -298,10 +307,13 @@ describe('ComparisonPage', () => {
 
         await compare(user, labelsOf(scenarios));
 
-        const error = await screen.findByText('Choose at most ten scenarios to compare.');
-        expect(
-            screen.getByRole('group', { name: 'Scenarios' }).getAttribute('aria-describedby'),
-        ).toBe(error.id);
+        await screen.findByText('Choose at most ten scenarios to compare.');
+        // Focus lands on a checkbox, not the group, so each box carries the error itself.
+        for (const checkbox of scenarioCheckboxes()) {
+            expect(accessibleDescriptionOf(checkbox)).toBe(
+                'Choose at most ten scenarios to compare.',
+            );
+        }
         expect(document.activeElement).toBe(scenarioCheckbox('Scenario 1 (ILS)'));
         expect(requests.filter(isComparison)).toHaveLength(0);
     });

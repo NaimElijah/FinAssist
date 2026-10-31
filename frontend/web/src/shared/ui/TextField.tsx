@@ -27,6 +27,7 @@ export function TextField({
     required,
     hint,
     error,
+    sharedErrorId,
     className,
     ...inputProps
 }: TextFieldProps) {
@@ -36,6 +37,7 @@ export function TextField({
             required={required}
             hint={hint}
             error={error}
+            sharedErrorId={sharedErrorId}
             renderControl={(control) => (
                 <input
                     {...inputProps}

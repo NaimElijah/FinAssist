@@ -38,6 +38,7 @@ export function SelectField({
     required,
     hint,
     error,
+    sharedErrorId,
     options,
     className,
     ...selectProps
@@ -48,6 +49,7 @@ export function SelectField({
             required={required}
             hint={hint}
             error={error}
+            sharedErrorId={sharedErrorId}
             renderControl={(control) => (
                 <select
                     {...selectProps}

@@ -33,6 +33,15 @@
     border-radius: var(--radius-panel);
 }
 
+/* On a line of its own beneath the row's fields, since it speaks for the debit and credit both. */
+.rowError {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-strong);
+    color: var(--color-negative);
+}
+
 /* The add control and the status line reporting what it did, side by side until the line wraps. */
 .actions {
     display: flex;

@@ -28,6 +28,7 @@ export function MonthField({
     required,
     hint,
     error,
+    sharedErrorId,
     className,
     ...inputProps
 }: MonthFieldProps) {
@@ -37,6 +38,7 @@ export function MonthField({
             required={required}
             hint={hint}
             error={error}
+            sharedErrorId={sharedErrorId}
             renderControl={(control) => (
                 <input
                     {...inputProps}

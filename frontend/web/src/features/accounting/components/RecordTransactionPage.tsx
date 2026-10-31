@@ -1,4 +1,12 @@
-import { type ReactNode, type Ref, type SubmitEvent, useEffect, useRef, useState } from 'react';
+import {
+    type ReactNode,
+    type Ref,
+    type SubmitEvent,
+    useEffect,
+    useId,
+    useRef,
+    useState,
+} from 'react';
 import { useNavigate } from 'react-router';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
@@ -136,8 +144,9 @@ interface EntryRowFieldsProps {
     readonly row: EntryRowState;
     readonly accounts: readonly Account[];
     /**
-     * The row's amount-field error, if any - an account error is never possible (see
-     * `buildEntries`).
+     * The row's amount error, if any - an account error is never possible (see `buildEntries`).
+     * It belongs to the debit/credit pair, so it is shown once beneath the row and both fields
+     * are marked invalid and described by it.
      */
     readonly error: string | undefined;
     readonly removable: boolean;
@@ -147,7 +156,7 @@ interface EntryRowFieldsProps {
     readonly onRemove: () => void;
 }
 
-/** One entry row: an account, a debit, a credit, and a remove button. */
+/** One entry row: an account, a debit, a credit, a remove button, and the row's error if any. */
 function EntryRowFields({
     index,
     row,
@@ -160,6 +169,8 @@ function EntryRowFields({
     onRemove,
 }: EntryRowFieldsProps) {
     const label = index + 1;
+    const errorId = useId();
+    const sharedErrorId = error === undefined ? undefined : errorId;
     return (
         <div className={styles.row}>
             <SelectField
@@ -177,7 +188,7 @@ function EntryRowFields({
                 inputMode="decimal"
                 autoComplete="off"
                 value={row.debit}
-                error={error}
+                sharedErrorId={sharedErrorId}
                 onChange={(event) => {
                     onDebitChange(event.target.value);
                 }}
@@ -188,7 +199,7 @@ function EntryRowFields({
                 inputMode="decimal"
                 autoComplete="off"
                 value={row.credit}
-                error={error}
+                sharedErrorId={sharedErrorId}
                 onChange={(event) => {
                     onCreditChange(event.target.value);
                 }}
@@ -196,6 +207,11 @@ function EntryRowFields({
             <Button type="button" variant="secondary" disabled={!removable} onClick={onRemove}>
                 {`Remove entry ${String(label)}`}
             </Button>
+            {error === undefined ? null : (
+                <p id={errorId} className={styles.rowError}>
+                    {error}
+                </p>
+            )}
         </div>
     );
 }
