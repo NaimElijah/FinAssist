@@ -142,6 +142,10 @@ class JournalStateHistoryIT extends PostgresFixture {
     /**
      * A transaction moves forward in time: it cannot clear or be voided before it occurred, reconcile
      * before it cleared, or be voided before it cleared. Each case is one day too early for its rule.
+     *
+     * <p>The refusal reaches the log with every 5xx that carries it, and financial data is redacted at
+     * the logging boundary, not echoed by the database: the message names the transaction and the
+     * states, never a date — neither the one refused nor the ones it is measured against.
      */
     @ParameterizedTest(name = "{1} from {0}")
     @CsvSource({
@@ -155,8 +159,14 @@ class JournalStateHistoryIT extends PostgresFixture {
         Transaction current = recordIn(from);
 
         assertThatThrownBy(() -> insertState(current.id(), rows(current.id()), to, effectiveOn))
-                .hasMessageContaining("transaction " + current.id().value() + " cannot be " + to + " on " + effectiveOn
-                        + ", before it occurred or before its previous state");
+                .hasMessageContaining("transaction " + current.id().value() + " cannot be " + to
+                        + " before it occurred or before its previous state")
+                .message()
+                .doesNotContain(
+                        effectiveOn.toString(),
+                        MARCH_1.toString(),
+                        MARCH_3.toString(),
+                        String.valueOf(effectiveOn.getYear()));
     }
 
     /**

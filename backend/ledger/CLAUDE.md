@@ -139,7 +139,8 @@ bounded context (ADR-006, ADR-024).
   every logged 5xx would carry. The error and the constraint's name remain. Pinned by
   `LedgerApplicationIT`. A trigger's own message is the server's error, not its `Detail`, so it is
   written to name no amount: `V1_7`'s balance check names the transaction and the rule, never the
-  sum (`JdbcTransactionRepositoryIT`).
+  sum (`JdbcTransactionRepositoryIT`), and `V1_4`'s transition refusals name no date
+  (`JournalStateHistoryIT`).
 - **`spring.flyway.out-of-order` stays `true`; never turn it off.** One history table with a major
   version per context (ADR-024) means the next migration for any context but the highest arrives
   below a version already applied, which Flyway classes `IGNORED` and refuses to start over. Safe

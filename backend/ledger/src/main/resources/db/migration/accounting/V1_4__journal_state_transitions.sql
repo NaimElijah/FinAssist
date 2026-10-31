@@ -12,6 +12,10 @@
 --     VOIDED are terminal;
 --   * a state is never dated before the transaction occurred or before the state it follows.
 --
+-- Every refusal names the transaction and the states, never a date: a database error's message is
+-- logged with every 5xx it causes, and financial data is redacted at the logging boundary rather
+-- than handed to it by the database.
+--
 -- Two callers transitioning the same transaction at once still collide on the primary key
 -- (transaction_id, sequence), as V1_1 intends, and the loser fails rather than appending a state
 -- after one it never read; a caller that instead skipped or reused a sequence is refused here.
@@ -60,8 +64,8 @@ BEGIN
     -- previous.effective_on is NULL for PENDING, and a comparison with NULL is never true, so only
     -- the occurrence date bounds a move out of PENDING.
     IF NEW.effective_on < occurred OR NEW.effective_on < previous.effective_on THEN
-        RAISE EXCEPTION 'transaction % cannot be % on %, before it occurred or before its previous state',
-            NEW.transaction_id, NEW.state, NEW.effective_on;
+        RAISE EXCEPTION 'transaction % cannot be % before it occurred or before its previous state',
+            NEW.transaction_id, NEW.state;
     END IF;
 
     RETURN NEW;
