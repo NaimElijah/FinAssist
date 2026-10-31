@@ -24,8 +24,9 @@ RUN groupadd --system gateway && useradd --system --gid gateway --no-create-home
 WORKDIR /app
 # The narrower glob matters: spring-boot-maven-plugin repackages the artifact in place and
 # renames the pre-repackage jar to *.jar.original, and a bare *.jar would match both.
+# The jar and /app stay root-owned and read-only to the service user, so code running in the JVM
+# cannot replace what every restart runs, as the assistant leaves its .venv (ADR-054).
 COPY --from=build /build/target/gateway-*.jar app.jar
-RUN chown gateway:gateway app.jar
 USER gateway
 
 EXPOSE 8090
