@@ -1,8 +1,8 @@
 import { type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
-import { indexedField } from '@/shared/api/fieldPath';
 import { DECIMAL_HINT } from '@/shared/api/decimal';
+import { indexedField } from '@/shared/api/fieldPath';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import {
     Button,
