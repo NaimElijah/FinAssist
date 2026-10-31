@@ -33,7 +33,10 @@
     border-radius: var(--radius-panel);
 }
 
+/* The add control and the status line reporting what it did, side by side until the line wraps. */
 .actions {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: var(--space-3);
 }

@@ -8,7 +8,9 @@ import {
     MonthField,
     SelectField,
     type SelectOption,
+    StatusLine,
     TextField,
+    useRowRemovalFocus,
 } from '@/shared/ui';
 
 import { useDefineBudget } from '../hooks/budgetQueries';
@@ -136,6 +138,9 @@ interface LimitRowState {
 
 const NEW_ROW: Omit<LimitRowState, 'key'> = { category: '', amount: '' };
 
+/** A budget limits at least one category. */
+const MINIMUM_ROWS = 1;
+
 /** The one row the form starts with. */
 function initialRows(): LimitRowState[] {
     return [{ key: 0, ...NEW_ROW }];
@@ -218,6 +223,9 @@ export interface DefineBudgetFormProps {
  * request, and focus moves to it. Editing any field, or adding or removing a limit, clears a
  * failure that has settled, since it answered the budget as it was sent.
  *
+ * Adding a limit is reported on a status line beside Add category, and removing one moves focus
+ * as `RecordTransactionForm` does, through `useRowRemovalFocus`.
+ *
  * @param props - see `DefineBudgetFormProps`.
  */
 export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
@@ -234,6 +242,8 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
     const [monthRefusals, setMonthRefusals] = useState(0);
     const [currency, setCurrency] = useState<Currency>(DEFAULT_CURRENCY);
     const [rows, setRows] = useState<LimitRowState[]>(initialRows);
+    const [rowsStatus, setRowsStatus] = useState('');
+    const { rowsRef, addRowRef, onRowRemoved } = useRowRemovalFocus(rows.length);
     const defineBudget = useDefineBudget();
     const failure = defineBudget.error;
     const errors = submissionErrors(failure);
@@ -279,12 +289,20 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
         const key = nextKey.current;
         nextKey.current += 1;
         setRows((previous) => [...previous, { key, ...NEW_ROW }]);
+        setRowsStatus(`Limit ${String(rows.length + 1)} added.`);
     }
 
     function removeRow(key: number) {
         clearSettledOutcome(defineBudget, submitting);
+        // A removal recorded but never made would move focus on the next change of row count.
+        if (rows.length <= MINIMUM_ROWS) {
+            return;
+        }
+        onRowRemoved(rows.findIndex((row) => row.key === key));
+        // Emptied so that adding a row again is announced, even where its sentence is unchanged.
+        setRowsStatus('');
         setRows((previous) =>
-            previous.length <= 1 ? previous : previous.filter((row) => row.key !== key),
+            previous.length <= MINIMUM_ROWS ? previous : previous.filter((row) => row.key !== key),
         );
     }
 
@@ -314,6 +332,7 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                     setMonth('');
                     setCurrency(DEFAULT_CURRENCY);
                     setRows(initialRows());
+                    setRowsStatus('');
                     nextKey.current = 1;
                     onDefined(budget);
                 },
@@ -357,13 +376,13 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                         }}
                     />
                 </div>
-                <div className={styles.rows}>
+                <div ref={rowsRef} className={styles.rows}>
                     {rows.map((row, index) => (
                         <LimitRowFields
                             key={row.key}
                             index={index}
                             row={row}
-                            removable={rows.length > 1}
+                            removable={rows.length > MINIMUM_ROWS}
                             onCategoryChange={(category) => {
                                 updateCategory(row.key, category);
                             }}
@@ -377,9 +396,10 @@ export function DefineBudgetForm({ onDefined }: DefineBudgetFormProps) {
                     ))}
                 </div>
                 <div className={styles.actions}>
-                    <Button type="button" variant="secondary" onClick={addRow}>
+                    <Button ref={addRowRef} type="button" variant="secondary" onClick={addRow}>
                         Add category
                     </Button>
+                    <StatusLine message={rowsStatus} />
                 </div>
                 <div>
                     <Button type="submit" pending={defineBudget.isPending}>

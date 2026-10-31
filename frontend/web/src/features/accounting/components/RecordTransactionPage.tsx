@@ -13,8 +13,10 @@ import {
     QueryErrorState,
     SelectField,
     type SelectOption,
+    StatusLine,
     TextField,
     useRetryFocus,
+    useRowRemovalFocus,
 } from '@/shared/ui';
 
 import { useAccounts, useRecordTransaction } from '../hooks/accountQueries';
@@ -209,6 +211,10 @@ function EntryRowFields({
  * `RULE_VIOLATED` - in an `ErrorState` above the form. Focus follows the failure there, the same
  * rule every form in the app keeps. Editing any field, or adding or removing a row, clears a
  * failure that has settled, since it answered the entries as they were sent.
+ *
+ * Adding a row is reported on a status line beside Add entry, since focus stays on the button.
+ * Removing one moves focus to the row now in its place, or to Add entry when the last row went
+ * (`useRowRemovalFocus`), since the pressed button goes with its row.
  */
 function RecordTransactionForm({
     accounts,
@@ -232,6 +238,8 @@ function RecordTransactionForm({
     const [rows, setRows] = useState<EntryRowState[]>(initialRows);
     const [mirrorActive, setMirrorActive] = useState(true);
     const [rowErrors, setRowErrors] = useState<ReadonlyMap<number, string>>(new Map());
+    const [rowsStatus, setRowsStatus] = useState('');
+    const { rowsRef, addRowRef, onRowRemoved } = useRowRemovalFocus(rows.length);
 
     const record = useRecordTransaction();
     const failure = record.error;
@@ -307,10 +315,18 @@ function RecordTransactionForm({
         const key = nextKey.current;
         nextKey.current += 1;
         setRows((previous) => [...previous, { key, ...NEW_ROW }]);
+        setRowsStatus(`Entry ${String(rows.length + 1)} added.`);
     }
 
     function removeRow(key: number) {
         clearSettledOutcome(record, submitting);
+        // A removal recorded but never made would move focus on the next change of row count.
+        if (rows.length <= MINIMUM_ROWS) {
+            return;
+        }
+        onRowRemoved(rows.findIndex((row) => row.key === key));
+        // Emptied so that adding a row again is announced, even where its sentence is unchanged.
+        setRowsStatus('');
         // Removing a row stops the mirror for good too: whichever row now sits at position 1 may
         // hold an amount the owner already typed there on purpose, and the mirror must never
         // overwrite it.
@@ -383,7 +399,7 @@ function RecordTransactionForm({
                         }}
                     />
                 </div>
-                <div className={styles.rows}>
+                <div ref={rowsRef} className={styles.rows}>
                     {rows.map((row, index) => (
                         <EntryRowFields
                             key={row.key}
@@ -408,9 +424,10 @@ function RecordTransactionForm({
                     ))}
                 </div>
                 <div className={styles.actions}>
-                    <Button type="button" variant="secondary" onClick={addRow}>
+                    <Button ref={addRowRef} type="button" variant="secondary" onClick={addRow}>
                         Add entry
                     </Button>
+                    <StatusLine message={rowsStatus} />
                 </div>
                 <div>
                     <Button type="submit" pending={record.isPending}>

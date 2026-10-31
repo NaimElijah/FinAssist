@@ -260,6 +260,46 @@ describe('RecordTransactionPage entry rows', () => {
 
         expect(screen.getByLabelText('Credit 2')).toHaveProperty('value', '');
     });
+
+    it('Given_three_rows_When_Remove_entry_2_is_clicked_Then_focus_moves_to_the_row_now_second', async () => {
+        // The pressed button goes with its row; left alone, focus would fall to the page body and
+        // a keyboard user would start again from the top.
+        fakeFetch(ledger());
+        renderForm();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText('Account 1');
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+
+        await user.click(screen.getByRole('button', { name: 'Remove entry 2' }));
+
+        expect(document.activeElement).not.toBe(document.body);
+        expect(document.activeElement).toBe(screen.getByLabelText('Account 2'));
+    });
+
+    it('Given_three_rows_When_the_last_is_removed_Then_focus_moves_to_Add_entry', async () => {
+        fakeFetch(ledger());
+        renderForm();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText('Account 1');
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+
+        await user.click(screen.getByRole('button', { name: 'Remove entry 3' }));
+
+        expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add entry' }));
+    });
+
+    it('Given_the_form_When_Add_entry_is_clicked_Then_a_status_says_entry_3_was_added', async () => {
+        // Focus stays on Add entry, so without this nothing tells a screen reader user the
+        // fields appeared.
+        fakeFetch(ledger());
+        renderForm();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText('Account 1');
+
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+
+        expect(statusMessages()).toContain('Entry 3 added.');
+    });
 });
 
 describe('RecordTransactionPage submission', () => {

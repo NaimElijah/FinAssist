@@ -331,6 +331,35 @@ describe('ScenariosPage define-scenario form', () => {
         expect(await screen.findByLabelText(/Salary/)).toHaveProperty('checked', false);
     });
 
+    it('Given_a_USD_flow_ticked_When_the_currency_changes_to_ILS_Then_a_status_says_the_ticked_flow_was_cleared', async () => {
+        // The ticked box leaves the page with its currency, so nothing else says the selection
+        // was dropped.
+        fakeFetch(ledger([RENT_ILS, SALARY_USD], []));
+        renderScenarios();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText(/Rent/);
+        await user.selectOptions(screen.getByLabelText('Currency'), 'USD');
+        await user.click(await screen.findByLabelText(/Salary/));
+
+        await user.selectOptions(screen.getByLabelText('Currency'), 'ILS');
+
+        expect(statusMessages()).toContain(
+            '1 ticked flow cleared: a scenario in ILS takes flows in ILS only.',
+        );
+    });
+
+    it('Given_no_flow_ticked_When_the_currency_changes_Then_no_status_says_anything_was_cleared', async () => {
+        fakeFetch(ledger([RENT_ILS, SALARY_USD], []));
+        renderScenarios();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByLabelText(/Rent/);
+
+        await user.selectOptions(screen.getByLabelText('Currency'), 'USD');
+
+        await screen.findByLabelText(/Salary/);
+        expect(statusMessages().filter((message) => message !== '')).toEqual([]);
+    });
+
     it('Given_zero_flows_selected_When_defined_Then_it_posts_an_empty_flows_array_for_the_do_nothing_baseline', async () => {
         const requests = fakeFetch(
             ledger([], [], (request) => {

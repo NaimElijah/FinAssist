@@ -509,6 +509,48 @@ describe('BudgetsPage defining a budget', () => {
         expect(screen.getByLabelText('Category 1')).toHaveProperty('value', 'rent');
     });
 
+    it('Given_two_limit_rows_When_Remove_limit_1_is_clicked_Then_focus_moves_to_the_row_now_first', async () => {
+        // The pressed button goes with its row; left alone, focus would fall to the page body.
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
+        renderBudgets();
+        const user = userEvent.setup({ delay: null });
+        await user.click(await screen.findByRole('button', { name: 'Add category' }));
+
+        await user.click(screen.getByRole('button', { name: 'Remove limit 1' }));
+
+        expect(document.activeElement).not.toBe(document.body);
+        expect(document.activeElement).toBe(screen.getByLabelText('Category 1'));
+    });
+
+    it('Given_two_limit_rows_When_the_last_is_removed_Then_focus_moves_to_Add_category', async () => {
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
+        renderBudgets();
+        const user = userEvent.setup({ delay: null });
+        await user.click(await screen.findByRole('button', { name: 'Add category' }));
+
+        await user.click(screen.getByRole('button', { name: 'Remove limit 2' }));
+
+        expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add category' }));
+    });
+
+    it('Given_the_form_When_Add_category_is_clicked_Then_a_status_says_limit_2_was_added', async () => {
+        // Focus stays on Add category, so without this nothing tells a screen reader user the
+        // fields appeared.
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
+        renderBudgets();
+        const user = userEvent.setup({ delay: null });
+
+        await user.click(await screen.findByRole('button', { name: 'Add category' }));
+
+        expect(statusMessages()).toContain('Limit 2 added.');
+    });
+
     it('Given_an_invalid_month_bypassing_native_validation_When_submitted_Then_the_form_is_not_locked_and_nothing_is_posted', async () => {
         // A real month picker, and the field's own `pattern`, keep this unreachable through the
         // UI; this proves the fallback is still safe when either is bypassed (a scripted value,
