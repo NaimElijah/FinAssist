@@ -11,9 +11,12 @@ on:
 permissions:
   contents: read
 
+# A pull request's runs share its ref's group, so a new commit cancels the superseded run. A push
+# to dev or main is grouped by its own commit, since a shared group would still cancel a run left
+# pending by a third push: every commit that lands there keeps a complete run.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Every action is pinned to a full commit SHA, since a tag can be moved to other code after review
 # (#161). The trailing `# vX.Y.Z` names the release; Dependabot's github-actions entry moves the
