@@ -85,8 +85,10 @@ From `frontend/web`:
 - **No test file commits a `.skip`, `.todo` or `.only`** on `it`, `test`, `describe` or `suite`:
   ESLint's `no-restricted-syntax` fails `npm run lint`. `it.fails`, `skipIf` and `runIf` stay
   allowed — a test that must fail, and a skip a platform decides.
-- **Every colour pair meets WCAG 2.2 AA contrast in both themes**, 4.5:1 for text and 3:1 for a
-  control's edge, a chart line and a focus ring. `tests/contrast.test.ts` measures each rule whose
+- **Every colour pair meets WCAG 2.2 AA contrast in both themes**, 4.5:1 for text and 3:1 for an
+  edge that alone identifies a control, a chart line and a focus ring. An edge round a control its
+  own text identifies, such as a secondary button's on a failure panel or the header band, may fall
+  short and is listed in `EXEMPT_EDGE_PAIRS`. `tests/contrast.test.ts` measures each rule whose
   text and background are each a single token against `src/shared/ui/tokens.css`, so a new such
   rule is read without being listed. A rule that sets either as anything else - a `color-mix()`
   hover, `transparent` - is not measured and fails the build until its selector is in

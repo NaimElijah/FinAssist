@@ -45,6 +45,13 @@ below are how the client meets it and how a regression is caught.
   `transparent`, is not measured and fails the build until `UNMEASURED_PAIRS` lists it with the
   reason its contrast holds anyway.
 
+**3:1 is asked of an edge that alone identifies a control**, as SC 1.4.11 asks, not of every edge.
+A secondary button's edge on a failure panel (2.76:1 light) or on the header band (2.25:1 light)
+surrounds a control its own text identifies, so it is listed in `EXEMPT_EDGE_PAIRS` with that
+reason rather than measured; the test fails once such a pair meets 3:1 in both themes, so it moves
+to the measured pairs. Raising those colours is
+[#230](https://github.com/NaimElijah/FinAssist/issues/230)'s, not this record's.
+
 **`Layout` owns focus and the document title.** On a navigation it moves focus to the page's h1,
 made focusable by script, or to `<main>` where a page has none; a replace such as the `/` redirect
 leaves focus alone. A `MutationObserver` follows an h1 replaced once its data loads, but only while
@@ -130,8 +137,8 @@ a screen reader, zoom and reflow, forced colours and real browsers, which is the
   `PageFocusTargetContext`, `deepestRouteTitle` and `documentTitleFor`.
 - **The announcements:** `LoadingNote`, `StatusLine` and `useRowRemovalFocus`.
 - **The tests:**
-  - `tests/contrast.test.ts` holds every colour pair, with `INHERITED_PAIRS` and
-    `UNMEASURED_PAIRS`.
+  - `tests/contrast.test.ts` holds every colour pair, with `INHERITED_PAIRS`,
+    `UNMEASURED_PAIRS` and `EXEMPT_EDGE_PAIRS`.
   - `App.test.tsx`, `SessionGate.test.tsx`, `SignIn.test.tsx`, `ErrorBoundary.test.tsx`,
     `src/app/Layout.test.tsx` and `src/app/RouteError.test.tsx` hold the page structure and where
     focus lands.

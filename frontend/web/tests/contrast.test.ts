@@ -3,7 +3,9 @@
 // `import.meta.url` is an http: URL and fileURLToPath rejects it.
 /**
  * Every colour pair the web client draws meets WCAG 2.2 level AA contrast in both themes: 4.5:1
- * for text (SC 1.4.3), and 3:1 for a control's edge, a chart line and the focus ring (SC 1.4.11).
+ * for text (SC 1.4.3), and 3:1 for an edge that alone identifies a control, a chart line and the
+ * focus ring (SC 1.4.11). An edge round a control its own text identifies may fall short; each such
+ * pair is listed in `EXEMPT_EDGE_PAIRS` with that reason.
  *
  * jsdom computes no styles, so no screen test can measure contrast. This reads the tokens from
  * `src/shared/ui/tokens.css` itself - the light theme from `:root`, the dark one from `:root`
@@ -26,7 +28,10 @@ const USER_MENU_FILE = join(SRC, 'app', 'session', 'UserMenu.module.css');
 
 /** SC 1.4.3, Contrast (Minimum): text at normal size. */
 const TEXT_MINIMUM = 4.5;
-/** SC 1.4.11, Non-text Contrast: a control's boundary, a meaningful graphic, a focus indicator. */
+/**
+ * SC 1.4.11, Non-text Contrast: a boundary that alone identifies a control, a meaningful graphic,
+ * a focus indicator.
+ */
 const NON_TEXT_MINIMUM = 3;
 
 /** A theme's colour tokens, by name without the leading `--`, each as written in the file. */
@@ -295,6 +300,12 @@ const INHERITED_PAIRS: readonly InheritedPair[] = [
     },
     {
         foreground: 'color-focus',
+        background: 'color-negative-tint',
+        minimum: NON_TEXT_MINIMUM,
+        drawnBy: 'the focus ring on "Try again" in a failure panel',
+    },
+    {
+        foreground: 'color-focus',
         background: 'color-surface',
         minimum: NON_TEXT_MINIMUM,
         drawnBy: 'the focus ring on the page',
@@ -310,6 +321,35 @@ const INHERITED_PAIRS: readonly InheritedPair[] = [
         background: 'color-chrome',
         minimum: NON_TEXT_MINIMUM,
         drawnBy: 'the focus ring on the header band',
+    },
+];
+
+/** An edge drawn below 3:1 on purpose, and why SC 1.4.11 does not require it. */
+interface ExemptEdgePair extends DrawnPair {
+    readonly reason: string;
+}
+
+const IDENTIFIED_BY_TEXT =
+    'the control is identified by its own text, and SC 1.4.11 asks 3:1 only of an edge that alone identifies a control';
+
+/**
+ * Edge pairs looked at and left below 3:1. Kept by hand beside `INHERITED_PAIRS`, so an edge drawn
+ * on a new background is either measured there or exempted here with its reason, never missing.
+ * The colours are #230's to change; an exempted pair that comes to meet 3:1 moves to the measured
+ * pairs, which the test below enforces.
+ */
+const EXEMPT_EDGE_PAIRS: readonly ExemptEdgePair[] = [
+    {
+        foreground: 'color-border-strong',
+        background: 'color-negative-tint',
+        drawnBy: 'the secondary button\'s edge on "Try again" in a failure panel',
+        reason: IDENTIFIED_BY_TEXT,
+    },
+    {
+        foreground: 'color-border-strong',
+        background: 'color-chrome',
+        drawnBy: 'the secondary button\'s edge on "Sign out" on the header band',
+        reason: IDENTIFIED_BY_TEXT,
     },
 ];
 
@@ -331,6 +371,19 @@ describe('colour contrast', () => {
         expect(pairsNotMeasured().sort()).toEqual(
             UNMEASURED_PAIRS.map(({ drawnBy }) => drawnBy).sort(),
         );
+    });
+
+    it('Given_the_exempted_edge_pairs_When_measured_in_both_themes_Then_each_still_falls_short_in_one', () => {
+        // An exemption outliving its shortfall would hide a later regression of the pair, so a
+        // pair meeting 3:1 in both themes has to move to INHERITED_PAIRS and be measured there.
+        const meetingTheMinimumEverywhere = EXEMPT_EDGE_PAIRS.filter(({ foreground, background }) =>
+            THEME_NAMES.every(
+                (themeName) =>
+                    contrastRatio(themes[themeName], foreground, background) >= NON_TEXT_MINIMUM,
+            ),
+        ).map(({ foreground, background }) => `--${foreground} on --${background}`);
+
+        expect(meetingTheMinimumEverywhere, 'move each to INHERITED_PAIRS').toEqual([]);
     });
 
     // A plain loop rather than it.each, as in tests/architecture.test.ts: one named test per

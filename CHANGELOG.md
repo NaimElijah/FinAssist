@@ -310,9 +310,9 @@ history; write the commit message well and this file writes itself.
     header band, 7.85:1 light and 10.04:1 dark. `tests/contrast.test.ts` measures every rule whose
     text and background are each a single token, and the inherited, control-edge and focus-ring
     pairs, against `tokens.css` in both themes, and was red on the badge; a rule it cannot measure,
-    such as a `color-mix()` hover, fails the build until it is listed with its reason. A projection's or comparison's answer
-    landed below its form with nothing announced; focus now moves to its heading once the submit's
-    read settles without an error.
+    such as a `color-mix()` hover, fails the build until it is listed with its reason. A
+    projection's or comparison's answer landed below its form with nothing announced; focus now
+    moves to its heading once the submit's read settles without an error.
   - **The minors.** Every loading note is a `role="status"` region (`LoadingNote`), and a row added
     or removed, or a currency change that clears a scenario's ticked flows, is announced
     (`StatusLine`) with focus kept (`useRowRemovalFocus`). Row actions are named after their row.
