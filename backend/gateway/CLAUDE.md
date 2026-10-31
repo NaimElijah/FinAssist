@@ -115,4 +115,6 @@ From `backend/gateway`:
   service; a native run has no guard. To diagnose a failed sign-in, read `SignInFailureHandler`'s
   WARN line, which names the OAuth2 error code. Keycloak records no sign-in event
   (`eventsListeners: []`), so for an account that may be locked out ask its brute-force detector:
-  `kcadm.sh get attack-detection/brute-force/users/<user-id> -r finassist`.
+  `kcadm.sh get attack-detection/brute-force/users/<user-id> -r finassist --config
+  /tmp/kcadm.config`, signed in as `docs/operations/operations.md` does: the image's home
+  directory is root-owned, so `kcadm.sh` cannot write its default `~/.keycloak` there (ADR-063).
