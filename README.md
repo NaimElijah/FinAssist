@@ -157,6 +157,9 @@ Every version above is pinned in `backend/ledger/pom.xml`, `backend/gateway/pom.
 - **Node 24 and npm**, for the web client (`frontend/web/.nvmrc`).
 - **A JDK 21 and [uv](https://docs.astral.sh/uv/)**, for the native inner loop and the tests. uv
   fetches its own Python 3.13, so no system Python upgrade is needed.
+- **`unzip`**, which `./mvnw` needs to unpack the Maven distribution it pins by SHA-256. Without
+  it, `mvnw` fetches the `.tar.gz` instead, which fails that check
+  ([ADR-064](docs/ADRs/ADR-064-what-the-build-fetches-is-pinned-by-content.md)).
 
 ```bash
 git clone https://github.com/NaimElijah/FinAssist.git
