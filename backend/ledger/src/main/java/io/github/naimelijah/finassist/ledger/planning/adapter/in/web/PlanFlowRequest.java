@@ -2,6 +2,7 @@ package io.github.naimelijah.finassist.ledger.planning.adapter.in.web;
 
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanFlowCommand;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Direction;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -20,7 +21,10 @@ public record PlanFlowRequest(
         @NotBlank String description,
         @NotNull @Valid MoneyDto amount,
         @NotNull Direction direction,
-        @NotNull LocalDate startsOn,
+
+        @NotNull @Schema(description = "The date of the first occurrence; every later one is counted from it.")
+        LocalDate startsOn,
+
         @NotNull @Valid RecurrenceRequest recurrence) {
 
     /**

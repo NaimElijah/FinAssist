@@ -6,6 +6,7 @@ import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Reco
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.TransitionTransactionUseCase;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.ViewTransactionsUseCase;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.TransactionId;
+import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import java.time.LocalDate;
@@ -59,6 +60,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping(path = "/api/v1/transactions", produces = MediaType.APPLICATION_JSON_VALUE)
 public class TransactionController {
 
+    private static final String LIST_FROM =
+            "The first date listed, inclusive: transactions that occurred on or after it.";
+
+    /** The bound a consumer most easily gets wrong: asking for October with the 31st would miss the 31st. */
+    private static final String LIST_TO = "The end of the range, exclusive: transactions that occurred before it,"
+            + " not on it. For a whole month, the first day of the next month. Must come after from.";
+
     private final RecordTransactionUseCase recorder;
     private final ViewTransactionsUseCase journal;
     private final TransitionTransactionUseCase lifecycle;
@@ -93,8 +101,10 @@ public class TransactionController {
      */
     @GetMapping
     public List<TransactionResponse> listTransactions(
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+            @Parameter(description = LIST_FROM) @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    LocalDate from,
+            @Parameter(description = LIST_TO) @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    LocalDate to) {
         if (!from.isBefore(to)) {
             throw new IllegalArgumentException(
                     "A period must start before it ends, but from " + from + " is not before to " + to);

@@ -16,7 +16,12 @@ import java.time.LocalDate;
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record PlanStateResponse(
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) PlanStatus status, LocalDate on, String reason) {
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) PlanStatus status,
+
+        @Schema(description = "The date the plan reached this status; absent while it is planned.")
+        LocalDate on,
+
+        String reason) {
 
     /**
      * The discriminator a client branches on, one constant per state.

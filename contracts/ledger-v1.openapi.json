@@ -62,6 +62,7 @@
             "$ref": "#/components/schemas/MoneyDto"
           },
           "date": {
+            "description": "A step boundary: the horizon's start advanced by a whole number of steps. The point counts the horizon's flows dated before it, not one dated on it.",
             "format": "date",
             "type": "string"
           },
@@ -99,10 +100,12 @@
       "BudgetPeriodDto": {
         "properties": {
           "end": {
+            "description": "The end of the period, exclusive: the first date after it. For a calendar month, the first day of the next month. Must come after start.",
             "format": "date",
             "type": "string"
           },
           "start": {
+            "description": "The first date in the period, inclusive.",
             "format": "date",
             "type": "string"
           }
@@ -402,6 +405,7 @@
             "$ref": "#/components/schemas/MoneyDto"
           },
           "date": {
+            "description": "The step boundary it is measured on: the date of the matching point in both projections.",
             "format": "date",
             "type": "string"
           },
@@ -439,10 +443,12 @@
       "HorizonResponse": {
         "properties": {
           "from": {
+            "description": "The horizon's start, inclusive, and the date of its first point.",
             "format": "date",
             "type": "string"
           },
           "to": {
+            "description": "The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted.",
             "format": "date",
             "type": "string"
           }
@@ -513,6 +519,7 @@
       "PlanCancelRequest": {
         "properties": {
           "on": {
+            "description": "The date of the cancellation. For a committed plan, it may not be before the commitment.",
             "format": "date",
             "type": "string"
           },
@@ -548,6 +555,7 @@
             "$ref": "#/components/schemas/RecurrenceRequest"
           },
           "startsOn": {
+            "description": "The date of the first occurrence; every later one is counted from it.",
             "format": "date",
             "type": "string"
           }
@@ -564,6 +572,7 @@
       "PlanStateResponse": {
         "properties": {
           "on": {
+            "description": "The date the plan reached this status; absent while it is planned.",
             "format": "date",
             "type": "string"
           },
@@ -588,6 +597,7 @@
       "PlanTransitionRequest": {
         "properties": {
           "on": {
+            "description": "The date the plan was committed or realised, sent because no server reads a clock. Realising may not be dated before the commitment.",
             "format": "date",
             "type": "string"
           }
@@ -621,6 +631,7 @@
             "$ref": "#/components/schemas/RecurrenceResponse"
           },
           "startsOn": {
+            "description": "The date of the first occurrence; every later one is counted from it.",
             "format": "date",
             "type": "string"
           },
@@ -701,6 +712,7 @@
             "type": "string"
           },
           "firstShortfall": {
+            "description": "The date of the first point at which projected cash is negative; absent when none is. Only points are checked, so a dip that recovers within one step is not reported.",
             "format": "date",
             "type": "string"
           },
@@ -745,11 +757,11 @@
             "items": {
               "$ref": "#/components/schemas/EntryDto"
             },
-            "maxItems": 2147483647,
             "minItems": 2,
             "type": "array"
           },
           "occurredOn": {
+            "description": "The date the transaction occurred, which a listing's from and to select on. No lifecycle change may be dated before it.",
             "format": "date",
             "type": "string"
           }
@@ -788,6 +800,7 @@
             "type": "string"
           },
           "until": {
+            "description": "UNTIL only. Exclusive: occurrences fall before it, never on it. Must come after startsOn.",
             "format": "date",
             "type": "string"
           }
@@ -824,6 +837,7 @@
             "type": "string"
           },
           "until": {
+            "description": "UNTIL only. Exclusive: occurrences fall before it, never on it. Must come after startsOn.",
             "format": "date",
             "type": "string"
           }
@@ -853,6 +867,7 @@
             "type": "array"
           },
           "growthRatePerStep": {
+            "pattern": "^-?\\d+(\\.\\d+)?$",
             "type": "string"
           },
           "id": {
@@ -888,6 +903,7 @@
             "type": "string"
           },
           "occurredOn": {
+            "description": "The date the transaction occurred, which a listing's from and to select on.",
             "format": "date",
             "type": "string"
           },
@@ -907,6 +923,7 @@
       "TransactionStateResponse": {
         "properties": {
           "on": {
+            "description": "The date the transaction reached this status; absent while it is pending.",
             "format": "date",
             "type": "string"
           },
@@ -931,6 +948,7 @@
       "TransitionRequest": {
         "properties": {
           "on": {
+            "description": "The date the change took effect, sent because no server reads a clock. Clearing may not be dated before the transaction occurred, nor reconciling before it cleared.",
             "format": "date",
             "type": "string"
           }
@@ -958,6 +976,7 @@
       "VoidRequest": {
         "properties": {
           "on": {
+            "description": "The date of the void. It may not be before the transaction occurred, nor, for a cleared one, before it cleared.",
             "format": "date",
             "type": "string"
           },
@@ -1578,6 +1597,7 @@
             }
           },
           {
+            "description": "The horizon's start, inclusive, and the date of its first point. That point is the opening position, before any flow or growth.",
             "in": "query",
             "name": "from",
             "required": true,
@@ -1587,6 +1607,7 @@
             }
           },
           {
+            "description": "The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted. It must fall a whole number of steps after from, and at most 100 years after it.",
             "in": "query",
             "name": "to",
             "required": true,
@@ -1596,6 +1617,7 @@
             }
           },
           {
+            "description": "The spacing of the points: each is the horizon's start advanced by a whole number of steps.",
             "in": "query",
             "name": "step",
             "required": true,
@@ -1743,6 +1765,7 @@
             }
           },
           {
+            "description": "The horizon's start, inclusive, and the date of its first point. That point is the opening position, before any flow or growth.",
             "in": "query",
             "name": "from",
             "required": true,
@@ -1752,6 +1775,7 @@
             }
           },
           {
+            "description": "The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted. It must fall a whole number of steps after from, and at most 100 years after it.",
             "in": "query",
             "name": "to",
             "required": true,
@@ -1761,6 +1785,7 @@
             }
           },
           {
+            "description": "The spacing of the points: each is the horizon's start advanced by a whole number of steps.",
             "in": "query",
             "name": "step",
             "required": true,
@@ -1828,6 +1853,7 @@
         "operationId": "listTransactions",
         "parameters": [
           {
+            "description": "The first date listed, inclusive: transactions that occurred on or after it.",
             "in": "query",
             "name": "from",
             "required": true,
@@ -1837,6 +1863,7 @@
             }
           },
           {
+            "description": "The end of the range, exclusive: transactions that occurred before it, not on it. For a whole month, the first day of the next month. Must come after from.",
             "in": "query",
             "name": "to",
             "required": true,

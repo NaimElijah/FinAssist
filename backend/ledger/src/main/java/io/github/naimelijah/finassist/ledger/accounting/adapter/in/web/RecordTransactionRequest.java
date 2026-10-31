@@ -2,6 +2,7 @@ package io.github.naimelijah.finassist.ledger.accounting.adapter.in.web;
 
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.RecordTransactionCommand;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -14,7 +15,12 @@ import java.util.List;
  * entries. It has no id, because identity is generated inside the service (ADR-021).
  */
 public record RecordTransactionRequest(
-        @NotNull LocalDate occurredOn,
+        @NotNull
+        @Schema(
+                description = "The date the transaction occurred, which a listing's from and to select on. No"
+                        + " lifecycle change may be dated before it.")
+        LocalDate occurredOn,
+
         @NotBlank String description,
 
         @NotNull @Size(min = RecordTransactionRequest.MINIMUM_ENTRIES)
