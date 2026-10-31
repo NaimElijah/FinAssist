@@ -16,6 +16,7 @@ import {
 } from '@/shared/testing/fakeFetch';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { nameStartingWith } from '@/shared/testing/names';
 import { statusMessages } from '@/shared/testing/status';
 
 import { budgetKeys } from '../hooks/budgetQueries';
@@ -343,7 +344,7 @@ describe('BudgetReviewPage', () => {
             return unexpectedRequest(request);
         });
         const { router } = renderRoutes(budgetingRoutes, '/budgets');
-        await screen.findByRole('link', { name: 'Review' });
+        await screen.findByRole('link', { name: nameStartingWith('Review') });
 
         await act(() => router.navigate(`/budgets/${laterId}`));
 

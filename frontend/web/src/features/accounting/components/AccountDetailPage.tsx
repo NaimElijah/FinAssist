@@ -16,6 +16,7 @@ import {
     DateText,
     EmptyState,
     ErrorState,
+    formatCalendarDate,
     LoadingNote,
     MoneyText,
     QueryErrorState,
@@ -104,6 +105,15 @@ const ACTION_TITLES: Readonly<Record<LifecycleKind, string>> = {
 };
 
 /**
+ * A transaction as the row shows it - its description and date - for the accessible names of the
+ * controls acting on it, so each says which row it acts on out of the table's context. Two
+ * transactions sharing both on one account share it.
+ */
+function transactionName(transaction: Transaction): string {
+    return `${transaction.description}, ${formatCalendarDate(transaction.occurredOn)}`;
+}
+
+/**
  * The id of one transaction's actions cell, so focus can be restored to it after its panel closes.
  */
 function actionsCellId(transactionId: string): string {
@@ -125,9 +135,12 @@ function stateCellId(transactionId: string): string {
  */
 function LifecycleButtons({
     status,
+    rowName,
     onOpen,
 }: {
     readonly status: TransactionStatus;
+    /** The row the buttons act on, from `transactionName`, after each button's own word. */
+    readonly rowName: string;
     readonly onOpen: (kind: LifecycleKind) => void;
 }) {
     const { canWrite } = useWriteAccess();
@@ -141,6 +154,9 @@ function LifecycleButtons({
                 <Button
                     key={kind}
                     data-action={kind}
+                    // The visible word comes first, so a voice command naming it still matches
+                    // (WCAG 2.5.3).
+                    aria-label={`${ACTION_LABELS[kind]} ${rowName}`}
                     variant={kind === 'VOID' ? 'danger' : 'secondary'}
                     onClick={() => {
                         onOpen(kind);
@@ -170,10 +186,13 @@ function LifecycleButtons({
 function LifecycleActionPanel({
     kind,
     transactionId,
+    rowName,
     onClose,
 }: {
     readonly kind: LifecycleKind;
     readonly transactionId: string;
+    /** The row the panel acts on, from `transactionName`, so its title says which. */
+    readonly rowName: string;
     /** Called with the transaction's new status on success, or with none on cancel. */
     readonly onClose: (newStatus?: TransactionStatus) => void;
 }) {
@@ -221,7 +240,7 @@ function LifecycleActionPanel({
 
     return (
         <ActionPanel
-            title={ACTION_TITLES[kind]}
+            title={`${ACTION_TITLES[kind]}: ${rowName}`}
             headingLevel={2}
             submitLabel={ACTION_LABELS[kind]}
             onSubmit={submit}
@@ -278,11 +297,13 @@ function TransactionActionsCell({
                 <LifecycleActionPanel
                     kind={active.kind}
                     transactionId={transaction.id}
+                    rowName={transactionName(transaction)}
                     onClose={onClose}
                 />
             ) : (
                 <LifecycleButtons
                     status={transaction.state.status}
+                    rowName={transactionName(transaction)}
                     onOpen={(kind) => {
                         onOpen(transaction.id, kind);
                     }}

@@ -20,6 +20,7 @@ import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { pinClockJustAfterLocalMidnight } from '@/shared/testing/localClock';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { nameStartingWith } from '@/shared/testing/names';
 
 import { accountKeys } from '../hooks/accountQueries';
 import { accountingRoutes } from '../index';
@@ -467,9 +468,47 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         await screen.findByRole('table', { name: 'Transactions' });
         const row = rowOf('Pending purchase');
 
-        expect(within(row).getByRole('button', { name: 'Clear' })).toBeDefined();
-        expect(within(row).getByRole('button', { name: 'Void' })).toBeDefined();
-        expect(within(row).queryByRole('button', { name: 'Reconcile' })).toBeNull();
+        expect(within(row).getByRole('button', { name: nameStartingWith('Clear') })).toBeDefined();
+        expect(within(row).getByRole('button', { name: nameStartingWith('Void') })).toBeDefined();
+        expect(
+            within(row).queryByRole('button', { name: nameStartingWith('Reconcile') }),
+        ).toBeNull();
+    });
+
+    it('Given_a_pending_transaction_When_rendered_Then_each_action_is_named_by_its_word_then_the_row', async () => {
+        // Out of the table, every row's "Clear" sounds alike; the row's description and date tell
+        // them apart, after the visible word so a voice command naming it still matches (2.5.3).
+        fakeFetch(lifecycleLedger(() => [PENDING_TX], unexpectedRequest));
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+
+        await screen.findByRole('table', { name: 'Transactions' });
+        const row = rowOf('Pending purchase');
+
+        expect(
+            within(row).getByRole('button', { name: 'Clear Pending purchase, 1 Sept 2026' }),
+        ).toBeDefined();
+        expect(
+            within(row).getByRole('button', { name: 'Void Pending purchase, 1 Sept 2026' }),
+        ).toBeDefined();
+    });
+
+    it('Given_a_cleared_transaction_When_Reconcile_is_opened_Then_the_panel_title_names_the_row', async () => {
+        fakeFetch(lifecycleLedger(() => [CLEARED_TX], unexpectedRequest));
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Transactions' });
+
+        await user.click(
+            within(rowOf('Cleared purchase')).getByRole('button', {
+                name: 'Reconcile Cleared purchase, 20 Aug 2026',
+            }),
+        );
+
+        expect(
+            screen.getByRole('region', {
+                name: 'Reconcile transaction: Cleared purchase, 20 Aug 2026',
+            }),
+        ).toBeDefined();
     });
 
     it('Given_a_cleared_transaction_When_rendered_Then_its_row_offers_Reconcile_and_Void_but_not_Clear', async () => {
@@ -479,9 +518,11 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         await screen.findByRole('table', { name: 'Transactions' });
         const row = rowOf('Cleared purchase');
 
-        expect(within(row).getByRole('button', { name: 'Reconcile' })).toBeDefined();
-        expect(within(row).getByRole('button', { name: 'Void' })).toBeDefined();
-        expect(within(row).queryByRole('button', { name: 'Clear' })).toBeNull();
+        expect(
+            within(row).getByRole('button', { name: nameStartingWith('Reconcile') }),
+        ).toBeDefined();
+        expect(within(row).getByRole('button', { name: nameStartingWith('Void') })).toBeDefined();
+        expect(within(row).queryByRole('button', { name: nameStartingWith('Clear') })).toBeNull();
     });
 
     it('Given_a_read_only_session_When_rendered_Then_no_row_offers_Clear_Reconcile_or_Void', async () => {
@@ -492,9 +533,9 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
 
         await screen.findByRole('table', { name: 'Transactions' });
 
-        expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
-        expect(screen.queryByRole('button', { name: 'Reconcile' })).toBeNull();
-        expect(screen.queryByRole('button', { name: 'Void' })).toBeNull();
+        expect(screen.queryByRole('button', { name: nameStartingWith('Clear') })).toBeNull();
+        expect(screen.queryByRole('button', { name: nameStartingWith('Reconcile') })).toBeNull();
+        expect(screen.queryByRole('button', { name: nameStartingWith('Void') })).toBeNull();
     });
 
     it('Given_a_reconciled_or_a_voided_transaction_When_rendered_Then_neither_row_offers_any_action', async () => {
@@ -531,7 +572,11 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
 
-        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Clear' }));
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Clear'),
+            }),
+        );
         await user.click(screen.getByRole('button', { name: 'Clear' }));
 
         expect(await within(rowOf('Pending purchase')).findByText('Cleared')).toBeDefined();
@@ -574,7 +619,9 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         await screen.findByRole('table', { name: 'Transactions' });
 
         await user.click(
-            within(rowOf('Cleared purchase')).getByRole('button', { name: 'Reconcile' }),
+            within(rowOf('Cleared purchase')).getByRole('button', {
+                name: nameStartingWith('Reconcile'),
+            }),
         );
         await user.click(screen.getByRole('button', { name: 'Reconcile' }));
 
@@ -591,7 +638,11 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
 
-        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Void' }));
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Void'),
+            }),
+        );
         await user.click(screen.getByRole('button', { name: 'Void' }));
 
         const reasonField = screen.getByLabelText('Reason');
@@ -628,7 +679,11 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
 
-        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Void' }));
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Void'),
+            }),
+        );
         await user.type(screen.getByLabelText('Reason'), 'Entered twice');
         await user.click(screen.getByRole('button', { name: 'Void' }));
 
@@ -670,7 +725,11 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
 
-        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Clear' }));
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Clear'),
+            }),
+        );
         await user.click(screen.getByRole('button', { name: 'Clear' }));
 
         const alert = await screen.findByRole('alert');
@@ -722,7 +781,9 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
             const user = userEvent.setup({ delay: null });
             await screen.findByRole('table', { name: 'Transactions' });
             await user.click(
-                within(rowOf('Pending purchase')).getByRole('button', { name: 'Void' }),
+                within(rowOf('Pending purchase')).getByRole('button', {
+                    name: nameStartingWith('Void'),
+                }),
             );
             await user.type(screen.getByLabelText('Reason'), 'Entered twice');
             await user.click(screen.getByRole('button', { name: 'Void' }));
@@ -751,7 +812,11 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
-        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Clear' }));
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Clear'),
+            }),
+        );
         const form = screen.getByLabelText('On').closest('form');
         if (form === null) {
             throw new Error('the On field is not inside a form');
@@ -773,7 +838,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
         const clearButton = within(rowOf('Pending purchase')).getByRole('button', {
-            name: 'Clear',
+            name: nameStartingWith('Clear'),
         });
 
         await user.click(clearButton);
@@ -782,7 +847,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         // Cancelling changes nothing about the transaction, so PENDING still offers Clear: the
         // same action is back, and focus returns to it.
         const restoredButton = within(rowOf('Pending purchase')).getByRole('button', {
-            name: 'Clear',
+            name: nameStartingWith('Clear'),
         });
         expect(restoredButton).toBeDefined();
         await waitFor(() => {
@@ -813,7 +878,11 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
 
-        await user.click(within(rowOf('Pending purchase')).getByRole('button', { name: 'Clear' }));
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Clear'),
+            }),
+        );
         await user.click(screen.getByRole('button', { name: 'Clear' }));
 
         const clearedText = await within(rowOf('Pending purchase')).findByText('Cleared');
@@ -823,7 +892,9 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
             expect(document.activeElement?.id).toBe(`transaction-state-${PENDING_TX.id}`);
         });
         expect(
-            within(rowOf('Pending purchase')).queryByRole('button', { name: 'Clear' }),
+            within(rowOf('Pending purchase')).queryByRole('button', {
+                name: nameStartingWith('Clear'),
+            }),
         ).toBeNull();
         expect(clearedText).toBeDefined();
     });

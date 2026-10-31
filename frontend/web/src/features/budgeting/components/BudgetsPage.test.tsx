@@ -18,6 +18,7 @@ import {
 import { changeValue, type FieldEdit } from '@/shared/testing/fieldEdits';
 import { focusedElementHolds } from '@/shared/testing/focus';
 import { renderRoutes } from '@/shared/testing/renderRoutes';
+import { nameStartingWith } from '@/shared/testing/names';
 import { statusMessages } from '@/shared/testing/status';
 
 import { budgetKeys } from '../hooks/budgetQueries';
@@ -88,9 +89,32 @@ describe('BudgetsPage', () => {
         expect(within(rowOf('1 Sept 2026 – 19 Sept 2026')).getByText('US$300.00')).toBeDefined();
         expect(
             screen
-                .getAllByRole('link', { name: 'Review' })
+                .getAllByRole('link', { name: nameStartingWith('Review') })
                 .map((link) => link.getAttribute('href')),
         ).toEqual([`/budgets/${SEPTEMBER_BUDGET.id}`, `/budgets/${CUSTOM_PERIOD_BUDGET.id}`]);
+    });
+
+    it('Given_two_budgets_When_the_page_renders_Then_each_Review_link_is_named_by_its_word_then_the_row', async () => {
+        // Out of the table, every "Review" sounds alike; the period and currency tell them apart,
+        // after the visible word so a voice command naming it still matches (WCAG 2.5.3).
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL
+                ? jsonResponse([SEPTEMBER_BUDGET, CUSTOM_PERIOD_BUDGET])
+                : unexpectedRequest(request),
+        );
+
+        renderBudgets();
+
+        expect(
+            (await screen.findByRole('link', { name: 'Review September 2026, ILS' })).getAttribute(
+                'href',
+            ),
+        ).toBe(`/budgets/${SEPTEMBER_BUDGET.id}`);
+        expect(
+            screen
+                .getByRole('link', { name: 'Review 1 Sept 2026 – 19 Sept 2026, USD' })
+                .getAttribute('href'),
+        ).toBe(`/budgets/${CUSTOM_PERIOD_BUDGET.id}`);
     });
 
     it('Given_the_budgets_still_loading_When_the_page_renders_Then_a_status_announces_it', async () => {
@@ -117,7 +141,7 @@ describe('BudgetsPage', () => {
         await screen.findByRole('heading', { level: 1, name: 'Budgets' });
         expect(screen.queryByRole('button', { name: 'Define budget' })).toBeNull();
         expect(screen.queryByLabelText('Month')).toBeNull();
-        expect(await screen.findByRole('link', { name: 'Review' })).toBeDefined();
+        expect(await screen.findByRole('link', { name: nameStartingWith('Review') })).toBeDefined();
         expect(screen.getByRole('link', { name: 'Categorisation rules' })).toBeDefined();
     });
 
@@ -235,7 +259,7 @@ describe('BudgetsPage defining a budget', () => {
         await user.type(screen.getByLabelText('Limit amount 2'), '4000.00');
         await user.click(screen.getByRole('button', { name: 'Define budget' }));
 
-        expect(await screen.findByRole('link', { name: 'Review' })).toBeDefined();
+        expect(await screen.findByRole('link', { name: nameStartingWith('Review') })).toBeDefined();
         const posts = requests
             .filter((request) => request.method === 'POST')
             // Projected before comparing: RecordedRequest also carries headers, which this
@@ -286,7 +310,7 @@ describe('BudgetsPage defining a budget', () => {
 
         await defineSeptemberGroceries(user);
 
-        await screen.findByRole('link', { name: 'Review' });
+        await screen.findByRole('link', { name: nameStartingWith('Review') });
         const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
         expect(invalidatedKeys).toEqual([budgetKeys.list]);
         // Never actively observed on this page, so nothing refetches it and the flag stays put.
@@ -310,7 +334,7 @@ describe('BudgetsPage defining a budget', () => {
 
         await defineSeptemberGroceries(user);
 
-        const link = await screen.findByRole('link', { name: 'Review' });
+        const link = await screen.findByRole('link', { name: nameStartingWith('Review') });
         await waitFor(() => {
             expect(document.activeElement).toBe(link);
         });

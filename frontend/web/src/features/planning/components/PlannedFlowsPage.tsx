@@ -12,6 +12,7 @@ import {
     DateText,
     EmptyState,
     ErrorState,
+    formatCalendarDate,
     LoadingNote,
     MoneyText,
     QueryErrorState,
@@ -115,6 +116,15 @@ function actionsCellId(flowId: string): string {
     return `flow-actions-${flowId}`;
 }
 
+/**
+ * A flow as the row shows it - its description and start - for the accessible names of the
+ * controls acting on it, so each says which row it acts on out of the table's context. Two flows
+ * sharing both share it.
+ */
+function flowName(flow: PlannedFlow): string {
+    return `${flow.description}, starting ${formatCalendarDate(flow.startsOn)}`;
+}
+
 /** The id of one flow's state cell, the fallback focus target when its own action is gone. */
 function stateCellId(flowId: string): string {
     return `flow-state-${flowId}`;
@@ -127,9 +137,12 @@ function stateCellId(flowId: string): string {
  */
 function LifecycleButtons({
     status,
+    rowName,
     onOpen,
 }: {
     readonly status: PlanStatus;
+    /** The row the buttons act on, from `flowName`, after each button's own word. */
+    readonly rowName: string;
     readonly onOpen: (kind: LifecycleKind) => void;
 }) {
     const { canWrite } = useWriteAccess();
@@ -143,6 +156,9 @@ function LifecycleButtons({
                 <Button
                     key={kind}
                     data-action={kind}
+                    // The visible word comes first, so a voice command naming it still matches
+                    // (WCAG 2.5.3).
+                    aria-label={`${ACTION_LABELS[kind]} ${rowName}`}
                     variant={kind === 'CANCEL' ? 'danger' : 'secondary'}
                     onClick={() => {
                         onOpen(kind);
@@ -171,10 +187,13 @@ function LifecycleButtons({
 function LifecycleActionPanel({
     kind,
     flowId,
+    rowName,
     onClose,
 }: {
     readonly kind: LifecycleKind;
     readonly flowId: string;
+    /** The row the panel acts on, from `flowName`, so its title says which. */
+    readonly rowName: string;
     /** Called with the flow's new status on success, or with none on cancel. */
     readonly onClose: (newStatus?: PlanStatus) => void;
 }) {
@@ -222,7 +241,7 @@ function LifecycleActionPanel({
 
     return (
         <ActionPanel
-            title={ACTION_TITLES[kind]}
+            title={`${ACTION_TITLES[kind]}: ${rowName}`}
             headingLevel={2}
             submitLabel={SUBMIT_LABELS[kind]}
             onSubmit={submit}
@@ -276,10 +295,16 @@ function FlowActionsCell({
     return (
         <div id={actionsCellId(flow.id)}>
             {active?.flowId === flow.id ? (
-                <LifecycleActionPanel kind={active.kind} flowId={flow.id} onClose={onClose} />
+                <LifecycleActionPanel
+                    kind={active.kind}
+                    flowId={flow.id}
+                    rowName={flowName(flow)}
+                    onClose={onClose}
+                />
             ) : (
                 <LifecycleButtons
                     status={flow.state.status}
+                    rowName={flowName(flow)}
                     onOpen={(kind) => {
                         onOpen(flow.id, kind);
                     }}

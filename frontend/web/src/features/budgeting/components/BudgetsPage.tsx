@@ -14,6 +14,7 @@ import {
 
 import { useBudgets } from '../hooks/budgetQueries';
 import type { Budget } from '../types/budget';
+import { periodLabel } from '../types/period';
 import styles from './BudgetsPage.module.css';
 import { DefineBudgetForm } from './DefineBudgetForm';
 import { budgetReviewPath, CATEGORISATION_RULES_PATH } from './paths';
@@ -45,7 +46,14 @@ function ReviewLink({
     }, [focused, onFocused]);
 
     return (
-        <Link ref={ref} to={budgetReviewPath(budget.id)}>
+        <Link
+            ref={ref}
+            to={budgetReviewPath(budget.id)}
+            // The row's period and currency say which budget it opens out of the table's context,
+            // after the visible word so a voice command naming it still matches (WCAG 2.5.3). Two
+            // budgets sharing both share the name.
+            aria-label={`Review ${periodLabel(budget.period)}, ${budget.currency}`}
+        >
             Review
         </Link>
     );
