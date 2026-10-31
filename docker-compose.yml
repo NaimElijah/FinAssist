@@ -401,7 +401,7 @@ services:
 
   prometheus:
     profiles: [monitoring]
-    image: prom/prometheus:v3.7.3
+    image: prom/prometheus:v3.15.1
     restart: *restart-policy
     logging: *bounded-logs
     <<: *hardened
