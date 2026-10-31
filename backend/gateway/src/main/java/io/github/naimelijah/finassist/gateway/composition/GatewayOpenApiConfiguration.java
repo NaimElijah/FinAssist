@@ -123,8 +123,21 @@ public class GatewayOpenApiConfiguration {
     private static final String XSRF_TOKEN_SCHEME = "xsrfToken";
 
     private static final String LOGOUT_RESPONSE_SCHEMA = "LogoutResponse";
+
+    /**
+     * The document is OpenAPI 3.1, and a schema resolved for 3.0 states its {@code object} type in a
+     * member the 3.1 writer does not read, so it reached the contract with no {@code type} at all.
+     */
+    private static final boolean OPENAPI_31 = true;
+
     private static final String LOGOUT_SUMMARY = "Ends the gateway's session and answers the URL that ends Keycloak's";
-    private static final String LOGOUT_OPERATION_ID = "logout";
+
+    /**
+     * Not {@code logout}: the web client's generator derives {@code LogoutResponse} from that id for
+     * the operation's response, the name {@link LogoutResponse}'s schema already holds, and renames
+     * one of the two {@code LogoutResponse2} rather than failing.
+     */
+    private static final String LOGOUT_OPERATION_ID = "signOut";
 
     /** The document's identity and the one server it names. */
     @Bean
@@ -208,7 +221,7 @@ public class GatewayOpenApiConfiguration {
      * reaches the contract without a second edit here.
      */
     private static void addLogoutPath(OpenAPI document) {
-        ResolvedSchema resolved = ModelConverters.getInstance().readAllAsResolvedSchema(LogoutResponse.class);
+        ResolvedSchema resolved = ModelConverters.getInstance(OPENAPI_31).readAllAsResolvedSchema(LogoutResponse.class);
         resolved.referencedSchemas.forEach(document.getComponents()::addSchemas);
 
         Operation logout = new Operation()

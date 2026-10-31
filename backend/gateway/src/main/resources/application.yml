@@ -75,6 +75,10 @@ springdoc:
   # transparent proxy to services that publish their own contracts and must never be described
   # here too (GatewayOpenApiConfiguration's javadoc says why).
   paths-to-match: /bff/**
+  # No operation is tagged, as in the assistant's contract: springdoc's default tag names the
+  # controller's class, which POST /bff/logout, built by hand, is not served by, and two
+  # operations need no grouping (GatewayContractIT).
+  auto-tag-classes: false
 
 spring:
   application:
