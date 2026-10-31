@@ -19,6 +19,7 @@ import {
 import { App } from './App';
 import { createQueryClient } from './queryClient';
 import { routes } from './routes';
+import { sessionKeys } from './session/sessionQueries';
 
 /** The four areas, in the order the primary navigation lists them, with their paths. */
 const AREAS = [
@@ -35,9 +36,6 @@ const SCENARIOS_URL = '/ledger/api/v1/scenarios';
 const RULES_URL = '/ledger/api/v1/categorisation-rules';
 const HOLDINGS_URL = '/assistant/api/v1/portfolio/holdings';
 const ME_URL = '/bff/me';
-
-/** Longer than the app's client waits before its one automatic retry of a failed read. */
-const RETRY_BACKOFF_WAIT_MS = 3000;
 
 /** The signed-in owner every test in this file runs as, unless a test overrides the session. */
 const OWNER_SESSION = { subject: 'sub-owner', name: 'Naim', roles: ['owner'] };
@@ -360,7 +358,7 @@ describe('App', () => {
     it('Given_the_session_check_fails_with_a_5xx_When_try_again_succeeds_Then_focus_moves_to_the_pages_heading', async () => {
         // Failing until the outage shows, since the app's own client retries a 5xx once first.
         let failing = true;
-        fakeFetch((request) => {
+        const requests = fakeFetch((request) => {
             if (request.url === ME_URL) {
                 return failing
                     ? problemResponse({ status: 500, code: 'INTERNAL' })
@@ -369,12 +367,13 @@ describe('App', () => {
             return NO_ACCOUNTS(request);
         });
         const router = createMemoryRouter(routes, { initialEntries: ['/accounts'] });
-        render(<App router={router} queryClient={createQueryClient()} />);
-        const tryAgain = await screen.findByRole(
-            'button',
-            { name: 'Try again' },
-            { timeout: RETRY_BACKOFF_WAIT_MS },
-        );
+        // The app's own retry still runs, but without TanStack's real backoff of about a second,
+        // which would otherwise outlast findByRole's default wait.
+        const queryClient = createQueryClient();
+        queryClient.setQueryDefaults(sessionKeys.me, { retryDelay: 0 });
+        render(<App router={router} queryClient={queryClient} />);
+        const tryAgain = await screen.findByRole('button', { name: 'Try again' });
+        expect(requests.filter((request) => request.url === ME_URL)).toHaveLength(2);
         failing = false;
 
         await userEvent.setup().click(tryAgain);

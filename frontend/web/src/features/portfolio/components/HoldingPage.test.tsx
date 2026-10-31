@@ -210,8 +210,10 @@ describe('HoldingPage', () => {
         renderHolding();
 
         const valuation = await screen.findByRole('region', { name: 'Valuation' });
+        // The loading note's region, not its text: the note stays empty for its first moments,
+        // so a text check would pass while the valuation is still loading.
         await waitFor(() => {
-            expect(within(valuation).queryByText('Loading valuation…')).toBeNull();
+            expect(within(valuation).queryByRole('status')).toBeNull();
         });
         expect(screen.queryByRole('alert')).toBeNull();
         expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
