@@ -484,12 +484,14 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
     command: ["python", "/auth_smoke.py"]
 
-# Each database shares a network with its one client alone. Neither network is `internal`: `db`
-# publishes its port to the host's loopback, and Docker publishes no port from a container on an
-# internal network alone.
+# Each database shares a network with its one client alone. `identity` is `internal`, so
+# `keycloak-db`, which publishes no port, has no route off it; Keycloak keeps its egress through
+# `default`. `books` cannot be: `db` publishes its port to the host's loopback, and Docker
+# publishes no port from a container on an internal network alone.
 networks:
   books:
   identity:
+    internal: true
 
 volumes:
   db-data:

@@ -15,14 +15,14 @@ and every one but those and Keycloak must set `read_only`; no service, a databas
 set `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as root by
 `user`, or bind-mount the Docker socket; and each database must attach to one network alone,
 shared with its one client and nothing else, judged by the Docker network each key resolves to,
-so that no other key may resolve to it, and neither database network may be `external`
-(ADR-063). No service may set `network_mode` but `secret-check`, whose must be exactly `none`,
-and Prometheus's `command` must carry exactly `--web.cors.origin=`, the empty regex, which
-grants no origin, with no `entrypoint` to run it otherwise (ADR-057). Neither the ledger nor the
-gateway may set, in its environment, a key that reopens the Actuator exposure their code pins,
-nor a `command` or `entrypoint`, whose arguments would reach Spring as properties; nor may the
-gateway set a log level, a log group, a logging configuration or Spring Boot's `debug` or `trace`
-switch, since below INFO it logs credentials.
+so that no other key may resolve to it, neither database network may be `external`, and
+`identity` must be `internal` (ADR-063). No service may set `network_mode` but `secret-check`,
+whose must be exactly `none`, and Prometheus's `command` must carry exactly `--web.cors.origin=`,
+the empty regex, which grants no origin, with no `entrypoint` to run it otherwise (ADR-057).
+Neither the ledger nor the gateway may set, in its environment, a key that reopens the Actuator
+exposure their code pins, nor a `command` or `entrypoint`, whose arguments would reach Spring as
+properties; nor may the gateway set a log level, a log group, a logging configuration or Spring
+Boot's `debug` or `trace` switch, since below INFO it logs credentials.
 
 It reads the resolved file, not its text, so an alias that stops resolving fails as surely as a
 service that never took one, and a block copied in with other values fails too.
@@ -119,6 +119,9 @@ DATABASE_NETWORK_MEMBERS: Final = {
     "books": frozenset({"db", "ledger"}),
     "identity": frozenset({"keycloak", "keycloak-db"}),
 }
+# An internal network has no route off it, so `keycloak-db`, which publishes no port, has no
+# egress. Not `books`: Docker publishes no port from a container on an internal network alone.
+INTERNAL_NETWORKS: Final = frozenset({"identity"})
 # Prometheus defaults this regex to `.*` and echoes any page's Origin back as allowed; the anchored
 # empty regex grants none (ADR-057). Exactly one such argument, so a later one cannot override it.
 CORS_PINNED_SERVICE: Final = "prometheus"
@@ -287,8 +290,11 @@ def _database_network_problems(
         if own not in names:
             continue
         # An external network is one another project, or anything on the host, can also join.
-        if _mapping(declared[own], "a network").get("external"):
+        network = _mapping(declared[own], "a network")
+        if network.get("external"):
             found.append(f"the {own} network must not be external")
+        if own in INTERNAL_NETWORKS and network.get("internal") is not True:
+            found.append(f"the {own} network must be internal")
         found.extend(
             f"the {key} network must not resolve to the same network as {own}"
             for key in sorted(names)

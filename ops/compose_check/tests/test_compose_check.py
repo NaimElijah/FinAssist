@@ -211,7 +211,7 @@ def _conforming() -> dict[str, Any]:
         "networks": {
             "books": {"name": "finassist_books", "ipam": {}},
             "default": {"name": "finassist_default", "ipam": {}},
-            "identity": {"name": "finassist_identity", "ipam": {}},
+            "identity": {"name": "finassist_identity", "ipam": {}, "internal": True},
         },
     }
 
@@ -1011,6 +1011,22 @@ def Given_books_resolving_to_the_default_networks_name_When_checked_Then_each_jo
         "otel-collector: must not attach to the books network",
         "prometheus: must not attach to the books network",
     ]
+
+
+@pytest.mark.parametrize("internal", [None, False], ids=["unset", "false"])
+def Given_the_identity_network_not_internal_When_checked_Then_it_is_named(
+    internal: bool | None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    if internal is None:
+        del resolved["networks"]["identity"]["internal"]
+    else:
+        resolved["networks"]["identity"]["internal"] = internal
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["the identity network must be internal"]
 
 
 @pytest.mark.parametrize("network", ["books", "identity"])
