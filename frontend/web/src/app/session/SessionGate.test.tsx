@@ -3,7 +3,7 @@
 // need a DOM.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -17,6 +17,7 @@ import {
     problemResponse,
     unexpectedRequest,
 } from '@/shared/testing/fakeFetch';
+import { focusedElementHolds } from '@/shared/testing/focus';
 import { statusMessages } from '@/shared/testing/status';
 
 import { SessionGate } from './SessionGate';
@@ -54,6 +55,55 @@ describe('SessionGate', () => {
         // A test that lands on a URL of its own, such as a failed sign-in redirect, must not
         // leave it for the next: SignIn reads the query string on every render.
         window.history.pushState({}, '', '/');
+        // Each screen titles the document; a title left by one test must not pass the next.
+        document.title = '';
+    });
+
+    it('Given_the_session_is_still_loading_When_rendered_Then_a_main_region_headed_by_the_check_titles_the_document', async () => {
+        renderGate(() => pendingResponse());
+
+        const main = screen.getByRole('main');
+        expect(
+            within(main).getByRole('heading', { level: 1, name: 'Checking your session' }),
+        ).toBeDefined();
+        await waitFor(() => {
+            expect(document.title).toBe('Checking your session · FinAssist');
+        });
+    });
+
+    it('Given_the_session_check_fails_with_a_5xx_When_rendered_Then_a_main_region_headed_service_unavailable_titles_the_document', async () => {
+        renderGate((request) =>
+            request.url === ME_URL
+                ? problemResponse({ status: 500, code: 'INTERNAL' })
+                : unexpectedRequest(request),
+        );
+
+        const alert = await screen.findByRole('alert');
+        const main = screen.getByRole('main');
+        expect(main.contains(alert)).toBe(true);
+        expect(
+            within(main).getByRole('heading', { level: 1, name: 'Service unavailable' }),
+        ).toBeDefined();
+        await waitFor(() => {
+            expect(document.title).toBe('Service unavailable · FinAssist');
+        });
+    });
+
+    it('Given_nobody_is_signed_in_When_the_session_check_answers_401_Then_a_main_region_headed_sign_in_titles_the_document', async () => {
+        renderGate((request) =>
+            request.url === ME_URL
+                ? problemResponse({ status: 401, code: 'UNAUTHENTICATED' })
+                : unexpectedRequest(request),
+        );
+
+        // The check's own screen is a main region too, so wait for the sign-in link first.
+        const link = await screen.findByRole('link', { name: /sign in/i });
+        const main = screen.getByRole('main');
+        expect(main.contains(link)).toBe(true);
+        expect(within(main).getByRole('heading', { level: 1, name: 'Sign in' })).toBeDefined();
+        await waitFor(() => {
+            expect(document.title).toBe('Sign in · FinAssist');
+        });
     });
 
     it('Given_the_session_is_still_loading_When_rendered_Then_a_status_announces_the_check', async () => {
@@ -155,6 +205,26 @@ describe('SessionGate', () => {
 
         await waitFor(() => {
             expect(screen.getByText(`${CHILD_TEXT}: Naim`)).toBeDefined();
+        });
+    });
+
+    it('Given_the_session_check_fails_with_a_5xx_When_try_again_succeeds_Then_focus_moves_to_the_restored_app', async () => {
+        let attempt = 0;
+        renderGate((request) => {
+            if (request.url !== ME_URL) return unexpectedRequest(request);
+            attempt += 1;
+            return attempt === 1
+                ? problemResponse({ status: 500, code: 'INTERNAL' })
+                : jsonResponse({ subject: 'sub-1', name: 'Naim', roles: ['owner'] });
+        });
+        await screen.findByRole('alert');
+
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }));
+
+        // The button that held focus is gone with the outage screen, so without this focus would
+        // fall to the page body and a screen reader would announce nothing of what came back.
+        await waitFor(() => {
+            expect(focusedElementHolds(screen.getByText(`${CHILD_TEXT}: Naim`))).toBe(true);
         });
     });
 });

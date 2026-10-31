@@ -1,5 +1,7 @@
 import { BFF_API } from '@/shared/api/client';
 
+import { StandalonePage } from '../StandalonePage';
+
 /** The gateway's OIDC login entry (ADR-030): a browser navigation here starts a real sign-in. */
 const LOGIN_ENTRY_URL = `${BFF_API}/oauth2/authorization/keycloak`;
 
@@ -28,10 +30,9 @@ export function SignIn() {
         SIGNIN_FAILED_VALUE;
 
     return (
-        <div>
-            <h1>Sign in</h1>
+        <StandalonePage title="Sign in">
             {failed ? <p role="alert">Sign-in failed. Try again.</p> : null}
             <a href={LOGIN_ENTRY_URL}>Sign in with Keycloak</a>
-        </div>
+        </StandalonePage>
     );
 }

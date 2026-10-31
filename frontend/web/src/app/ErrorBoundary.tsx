@@ -9,12 +9,18 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 import { log } from '@/shared/lib/logger';
+import { ErrorState } from '@/shared/ui';
 
 import { failureFields } from './failureFields';
+import { StandalonePage } from './StandalonePage';
 
 interface Props {
     readonly children: ReactNode;
-    /** Rendered in place of the failed subtree. Defaults to a plain, unstyled message. */
+    /**
+     * Rendered in place of the failed subtree. Defaults to a page of its own, since the boundary
+     * sits above the app's layout: a `<main>` headed "Unexpected error", with `ErrorState`'s
+     * generic sentence telling the owner to reload.
+     */
     readonly fallback?: ReactNode;
 }
 
@@ -41,7 +47,15 @@ export class ErrorBoundary extends Component<Props, State> {
 
     override render(): ReactNode {
         if (this.state.failed) {
-            return this.props.fallback ?? <p role="alert">Something went wrong.</p>;
+            return (
+                this.props.fallback ?? (
+                    // No error is handed on: what a render throws is never the owner's to read,
+                    // and an ApiError's detail may carry their own words (see componentDidCatch).
+                    <StandalonePage title="Unexpected error">
+                        <ErrorState error={null} />
+                    </StandalonePage>
+                )
+            );
         }
         return this.props.children;
     }

@@ -2,8 +2,9 @@ import type { ReactNode } from 'react';
 
 import { hasProblemCode } from '@/shared/api/client';
 import { WriteAccessContext } from '@/shared/lib/writeAccess';
-import { LoadingNote, QueryErrorState } from '@/shared/ui';
+import { LoadingNote, QueryErrorState, useRetryFocus } from '@/shared/ui';
 
+import { StandalonePage } from '../StandalonePage';
 import { writeAccessFor } from './access';
 import { SessionContext } from './sessionContext';
 import { useSession } from './sessionQueries';
@@ -11,6 +12,12 @@ import { SignIn } from './SignIn';
 
 /** ADR-030's problem code for "no session", answered by every one of the three services. */
 const UNAUTHENTICATED = 'UNAUTHENTICATED';
+
+/** Heads the screen shown while the session check is in flight. */
+const CHECKING_TITLE = 'Checking your session';
+
+/** Heads the screen shown when the session check fails for any reason but "not signed in". */
+const OUTAGE_TITLE = 'Service unavailable';
 
 export interface SessionGateProps {
     readonly children: ReactNode;
@@ -34,6 +41,11 @@ export interface SessionGateProps {
  * pending read in this app shows (`AccountsPage`'s "Loading accounts…", for one), rather than a
  * blank screen or a bespoke spinner.
  *
+ * Each of those three screens stands in for the whole app, so each is a `StandalonePage`: a
+ * `<main>`, an h1 and a document title of its own. A retry that restores the session moves focus
+ * to the app it brings back (`useRetryFocus`), since the button that held focus goes with the
+ * outage screen.
+ *
  * It also provides `WriteAccessContext` (ADR-032), computed once from the session's roles through
  * `writeAccessFor`, so every screen reads whether to offer a control that changes data from the
  * same resolved session rather than each recomputing it. Hiding a control there is a UX courtesy
@@ -43,9 +55,20 @@ export interface SessionGateProps {
  */
 export function SessionGate({ children }: SessionGateProps) {
     const session = useSession();
+    const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
+        session.error,
+        session.isFetching,
+        () => {
+            void session.refetch();
+        },
+    );
 
     if (session.status === 'pending') {
-        return <LoadingNote message="Checking your session…" />;
+        return (
+            <StandalonePage title={CHECKING_TITLE}>
+                <LoadingNote message="Checking your session…" />
+            </StandalonePage>
+        );
     }
 
     if (session.status === 'error') {
@@ -53,20 +76,25 @@ export function SessionGate({ children }: SessionGateProps) {
             return <SignIn />;
         }
         return (
-            <QueryErrorState
-                error={session.error}
-                retrying={session.isFetching}
-                onRetry={() => {
-                    void session.refetch();
-                }}
-            />
+            <StandalonePage title={OUTAGE_TITLE}>
+                <QueryErrorState
+                    error={session.error}
+                    retrying={session.isFetching}
+                    onRetry={onRetry}
+                />
+            </StandalonePage>
         );
     }
 
     return (
         <SessionContext value={session.data}>
             <WriteAccessContext value={writeAccessFor(session.data.roles)}>
-                {children}
+                {/* The app's own page renders inside the router below, out of this component's
+                    reach, so a successful retry focuses this wrapper around it: the next Tab
+                    starts at the app's first control, as on a fresh load, not at the body. */}
+                <div ref={targetRef} tabIndex={-1}>
+                    {children}
+                </div>
             </WriteAccessContext>
         </SessionContext>
     );
