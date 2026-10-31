@@ -217,7 +217,8 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
     @ParameterizedTest(name = "{5}")
     @CsvSource({
         "ILS, 10.00, ILS, -10.00, USD, mixes 2 currencies",
-        "ILS, 10.00, ILS, -9.00, ILS, does not balance: its entries sum to 1.00"
+        "ILS, 10.00, ILS, -9.00, ILS, does not balance: its entries do not sum to zero",
+        "USD, 10.00, ILS, -10.00, ILS, posts its entries in a currency other than its own"
     })
     void Given_entries_the_trigger_refuses_When_written_directly_Then_the_database_refuses_them(
             String header,
@@ -250,6 +251,34 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                 .rootCause()
                 .hasMessageContaining("transaction " + id.value())
                 .hasMessageContaining(refusal);
+    }
+
+    /**
+     * The trigger's refusal reaches the log with every 5xx that carries it, and financial data is
+     * redacted at the logging boundary, not echoed by the database: the message names the transaction
+     * and the rule it breaks, never an amount, and not the sum by which it fails.
+     */
+    @Test
+    void Given_entries_that_do_not_sum_to_zero_When_the_database_refuses_them_Then_its_message_carries_no_amount() {
+        TransactionId id = TransactionId.generate();
+
+        assertThatThrownBy(() -> inOneTransaction(() -> {
+                    insertHeader(id, "ILS", "Wrong");
+                    jdbc().sql("""
+                                    INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency) VALUES
+                                        (:id, 0, :groceries, 123.45, 'ILS'),
+                                        (:id, 1, :cash, -100.00, 'ILS')
+                                    """)
+                            .param("id", id.value())
+                            .param("groceries", groceries.id().value())
+                            .param("cash", cash.id().value())
+                            .update();
+                    insertOpeningState(id);
+                }))
+                .rootCause()
+                .hasMessageContaining("transaction " + id.value() + " does not balance")
+                .message()
+                .doesNotContain("23.45", "123.45", "100.00");
     }
 
     /**
