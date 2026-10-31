@@ -394,7 +394,9 @@ a parameter or a constraint lists `errors`**, each a `field` and a `message`: a 
 field, a body member Jackson refused by its path (`entries[1].amount.currency`), a path or query
 parameter of the wrong type or left out by its name, and `body` for unparseable JSON or no body.
 Neither the entry nor the detail quotes what was sent, as on the assistant
-([ADR-028](../ADRs/ADR-028-http-wire-conventions.md)). **A body declared as
+([ADR-028](../ADRs/ADR-028-http-wire-conventions.md), [ADR-068](../ADRs/ADR-068-every-problem-carries-what-its-contract-requires.md)). Every problem carries
+`type`, `title`, `status` and `code`: a status with no reason phrase of its own is titled "Unexpected
+Status", so `title` is never dropped. **A body declared as
 multipart that cannot be parsed, one whose type names no boundary say, is 400
 `MALFORMED_REQUEST`**: Spring MVC parses multipart before it chooses a route, a `GET`'s included,
 and nothing in the ledger takes multipart, so the fallback treats the failure as the request's ([ADR-058](../ADRs/ADR-058-each-service-bounds-what-one-request-can-cost.md)). **A path Spring Security's
@@ -922,6 +924,7 @@ the classes and tests that enforce them in
 | **No path or query parameter carries money or a decimal**: none is a `MoneyDto`, carries the decimal-text pattern a request's decimals are published with, or is named after an amount, price, money, value, quantity, rate or balance | `LedgerContractIT.Given_the_generated_document_When_url_parameters_are_read_Then_none_carries_money_or_a_decimal` |
 | **Every date parameter and date member in the ledger's contract describes itself**, saying whether a bound is inclusive or exclusive, so `to` on the transactions list (exclusive) cannot be read as `to` on a projection | `LedgerContractIT.Given_the_generated_document_When_date_parameters_and_members_are_read_Then_each_describes_itself`; `LedgerContractIT.Given_the_generated_document_When_exclusive_bounds_are_read_Then_each_says_so` |
 | **No schema publishes `Integer.MAX_VALUE` as a maximum**: a `@Size` with only a minimum documents only that minimum | `OpenApiConfigurationTest.Given_schemas_sized_by_a_minimum_only_When_customised_Then_the_default_maximum_is_dropped`; `LedgerContractIT.Given_the_generated_document_When_a_transactions_entries_are_read_Then_only_their_minimum_is_bounded` |
+| **Every problem the three services write carries `type`, `title`, `status` and `code`, and each `errors` entry a `field` and a `message`; the three contracts require them, in one `Problem` schema** | `OpenApiConfigurationTest.Given_a_document_When_customised_Then_its_problem_schema_requires_what_every_problem_carries`; `LedgerProblemHandlerTest.Given_a_status_outside_the_table_When_raised_Then_its_problem_carries_a_type_a_title_and_the_status`; `tests/test_problems.py` (every problem it reads); `GatewaySecurityTest`; `GatewayContractIT` and `tests/test_contract.py` (the schema identical to the ledger's) ([ADR-068](../ADRs/ADR-068-every-problem-carries-what-its-contract-requires.md)) |
 | No inward assistant layer imports a framework or the standard library's I/O — the network, files, processes, a database or an event loop — and none calls the builtin `open` | `test_architecture.py::…Then_it_imports_no_framework`; `test_architecture.py::…Then_it_opens_no_file` |
 | No inward assistant layer imports the adapters | `test_architecture.py::…Then_it_imports_no_adapter` |
 | **No assistant domain module imports the application layer**, so dependencies point inward inside a context too | `test_architecture.py::…Then_it_imports_no_application_layer` |

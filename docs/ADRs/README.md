@@ -33,7 +33,7 @@ append-only history: to change course, add a new record and mark the old one
 | [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted, extended by 047 |
 | [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted, extended by 030 |
 | [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
-| [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030, 056 and 058 |
+| [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030, 056, 058 and 068 |
 | [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056, 057 and 062 |
 | [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, 053, 057, 058 and 067, corrected by 047 |
 | [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 and 060, corrected by 047 and 064 |
@@ -73,6 +73,7 @@ append-only history: to change course, add a new record and mark the old one
 | [065](ADR-065-javac-lint-is-the-java-lint-gate.md) | javac's own lint, every category, is the Java services' lint gate | Accepted |
 | [066](ADR-066-the-store-holds-every-rule-the-domain-holds-across-rows.md) | The ledger's store holds every rule the domain holds across rows | Accepted |
 | [067](ADR-067-a-relay-that-times-out-answers-504-outcome-unknown.md) | A relay that times out answers 504, outcome unknown | Accepted |
+| [068](ADR-068-every-problem-carries-what-its-contract-requires.md) | Every problem carries what its contract requires | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -362,3 +363,11 @@ append-only journal keeps. A read timeout is now 504 `UPSTREAM_TIMEOUT`, whose d
 outcome is unknown and to check before sending again; a refused or unresolvable connection and a
 connect timeout stay 502. The two are told apart by exception type, never by message
 ([#344](https://github.com/NaimElijah/FinAssist/issues/344)).
+
+068 extends 028 on 2026-10-31. Scan 7 found the three contracts requiring only `code` of a problem
+though every writer sends `type`, `title` and `status` and the web client relies on `status`, and
+the ledger answering a malformed body or parameter 400 with no `errors[]`, which ADR-028's table
+promises. Every problem now carries all four members and every `errors` entry a `field` and a
+`message`, and all three contracts require them; every malformed body or parameter 400 names what it
+refused, in fixed text that quotes nothing sent; and `instance` says it is the path the answering
+service received ([#344](https://github.com/NaimElijah/FinAssist/issues/344)).
