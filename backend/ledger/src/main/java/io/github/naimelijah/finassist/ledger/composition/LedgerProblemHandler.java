@@ -55,8 +55,9 @@ import tools.jackson.databind.DatabindException;
  *       {@code message}: every bean-validation failure; a body member Jackson refused, by its path
  *       ({@code entries[1].amount.currency}); a path or query parameter of the wrong type, or a
  *       required one left out, by its name; and unparseable JSON or a missing body as {@code body}.
- *       For the last three, the message and the detail are fixed, never Jackson's or Spring's, which
- *       can quote what was sent (ADR-019);
+ *       Every one shares a fixed detail, never Spring's, which differs by the exception that carried
+ *       the failure. For the last three the message is fixed as well, never Jackson's or Spring's,
+ *       which can quote what was sent (ADR-019);
  *   <li>{@link IllegalArgumentException} is 422 {@code RULE_VIOLATED}, with the exception's message as
  *       the detail. It signals that a well-formed request broke a rule: the domain raises it for its own
  *       invariants, and an inbound adapter for a rule about the request itself, such as a period that
@@ -212,7 +213,7 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(
             HttpMessageNotReadableException exception, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        return malformed(exception, unreadableBody(exception.getCause()), headers, status, request);
+        return malformed(exception, List.of(unreadableBody(exception.getCause())), headers, status, request);
     }
 
     /**
@@ -222,7 +223,8 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> handleTypeMismatch(
             TypeMismatchException exception, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        return malformed(exception, violation(exception.getPropertyName(), INVALID_VALUE), headers, status, request);
+        return malformed(
+                exception, List.of(violation(exception.getPropertyName(), INVALID_VALUE)), headers, status, request);
     }
 
     @Override
@@ -231,19 +233,21 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
             HttpHeaders headers,
             HttpStatusCode status,
             WebRequest request) {
-        return malformed(exception, violation(exception.getParameterName(), REQUIRED_VALUE), headers, status, request);
+        return malformed(
+                exception, List.of(violation(exception.getParameterName(), REQUIRED_VALUE)), headers, status, request);
     }
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException exception, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        ProblemDetail problem = exception.updateAndGetBody(getMessageSource(), LocaleContextHolder.getLocale());
-        problem.setProperty(
-                Problems.ERRORS_MEMBER,
+        return malformed(
+                exception,
                 exception.getBindingResult().getAllErrors().stream()
                         .map(error -> violation(error, error.getObjectName()))
-                        .toList());
-        return handleExceptionInternal(exception, problem, headers, status, request);
+                        .toList(),
+                headers,
+                status,
+                request);
     }
 
     /**
@@ -260,17 +264,24 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
             HttpHeaders headers,
             HttpStatusCode status,
             WebRequest request) {
-        ProblemDetail problem = exception.updateAndGetBody(getMessageSource(), LocaleContextHolder.getLocale());
         if (status.is4xxClientError()) {
-            problem.setProperty(
-                    Problems.ERRORS_MEMBER,
+            return malformed(
+                    exception,
                     exception.getParameterValidationResults().stream()
                             .flatMap(result -> result.getResolvableErrors().stream()
                                     .map(error -> violation(
                                             error, result.getMethodParameter().getParameterName())))
-                            .toList());
+                            .toList(),
+                    headers,
+                    status,
+                    request);
         }
-        return handleExceptionInternal(exception, problem, headers, status, request);
+        return handleExceptionInternal(
+                exception,
+                exception.updateAndGetBody(getMessageSource(), LocaleContextHolder.getLocale()),
+                headers,
+                status,
+                request);
     }
 
     /** Every problem passes through here, this class's and the framework's alike. */
@@ -315,15 +326,18 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
                 exception, problem, new HttpHeaders(), HttpStatusCode.valueOf(problem.getStatus()), request);
     }
 
-    /** A malformed request that one input explains, answered with a fixed detail and that one entry. */
+    /**
+     * A malformed request, answered with the one fixed detail every malformed request shares and an entry
+     * for each input that was rejected, so a client reads why from {@code errors} alone.
+     */
     private ResponseEntity<Object> malformed(
             Exception exception,
-            Map<String, String> violation,
+            List<Map<String, String>> violations,
             HttpHeaders headers,
             HttpStatusCode status,
             WebRequest request) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, MALFORMED_REQUEST_DETAIL);
-        problem.setProperty(Problems.ERRORS_MEMBER, List.of(violation));
+        problem.setProperty(Problems.ERRORS_MEMBER, violations);
         return handleExceptionInternal(exception, problem, headers, status, request);
     }
 

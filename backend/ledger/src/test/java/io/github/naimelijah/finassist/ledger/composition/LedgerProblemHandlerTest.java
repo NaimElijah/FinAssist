@@ -22,9 +22,12 @@ import jakarta.validation.constraints.Positive;
 import java.net.URI;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -35,6 +38,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -71,6 +75,9 @@ class LedgerProblemHandlerTest {
 
     /** Stands in for a value the caller sent that the ledger cannot read; no type here accepts it. */
     private static final String REJECTED = "rejected-input-4b2d";
+
+    /** The one detail every malformed request is answered with, as the assistant answers its own. */
+    private static final String MALFORMED_DETAIL = "The request could not be read; each entry in errors names why.";
 
     /** A well-formed id, fixed so every run sends the same body; only the line beside it is refused. */
     private static final String READABLE_ID = "3f2c8a1e-6b4d-4e7a-9c05-d1b2a3f4e5c6";
@@ -389,6 +396,46 @@ class LedgerProblemHandlerTest {
                 .andExpect(jsonPath("$.errors.length()").value(1))
                 .andExpect(jsonPath("$.errors[0].field").value("value"))
                 .andExpect(jsonPath("$.errors[0].message").value("is required"));
+    }
+
+    /** One request for each way a request can be malformed, each named for what is wrong with it. */
+    static Stream<Arguments> malformedRequests() {
+        return Stream.of(
+                Arguments.of(
+                        "a body member failing bean validation",
+                        post("/validated")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"name\":\" \"}")),
+                Arguments.of("a parameter failing its constraint", get("/count").param("value", "0")),
+                Arguments.of(
+                        "a body that is not JSON",
+                        post("/validated")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"name\":")),
+                Arguments.of("no body", post("/validated").contentType(MediaType.APPLICATION_JSON)),
+                Arguments.of(
+                        "a body member Jackson refuses",
+                        post("/shaped").contentType(MediaType.APPLICATION_JSON).content("{\"kind\":\"TWO\"}")),
+                Arguments.of(
+                        "a query parameter of the wrong type", get("/count").param("value", "many")),
+                Arguments.of("a required query parameter left out", get("/count")));
+    }
+
+    /**
+     * Whatever made a request malformed, its detail is the same fixed sentence, and {@code errors} says
+     * which input and why. Spring's own details differ by the exception that carried the failure, which a
+     * client cannot see and should not have to tell apart.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("malformedRequests")
+    void Given_any_malformed_request_When_handled_Then_its_detail_is_the_one_fixed_sentence(
+            String malformation, RequestBuilder request) throws Exception {
+        mvc.perform(request)
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.detail").value(MALFORMED_DETAIL))
+                .andExpect(jsonPath("$.errors").isNotEmpty());
     }
 
     /**
