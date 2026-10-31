@@ -77,10 +77,10 @@ From `backend/gateway`:
   `GatewaySecurityTest` the chain, to `ledger-v1` and `assistant-v1` (#339); a new method needs both.
 - **The catch-all answers a framework refusal at its own status.**
   `GatewayRelayProblems.relayFailed` peels an `ErrorResponse` off first — 405
-  `METHOD_NOT_ALLOWED` and 406 `NOT_ACCEPTABLE`, the only two `GET /bff/me` can provoke — and logs
-  it at WARN, so ERROR still means a true 5xx. A status with no code in that map stays a 500 rather
-  than being passed through under an invented one. `GatewaySecurityTest` and
-  `GatewayRelayProblemsTest` fail the build if either half is lost.
+  `METHOD_NOT_ALLOWED`, with its `Allow` header, and 406 `NOT_ACCEPTABLE`, the only two `GET
+  /bff/me` can provoke — and logs it at WARN, so ERROR still means a true 5xx. A status with no
+  code in that map stays a 500 rather than being passed through under an invented one.
+  `GatewaySecurityTest` and `GatewayRelayProblemsTest` fail the build if either half is lost.
 - **Every call to Keycloak is built from Boot's own HTTP builders**, in `KeycloakRegistration`: the
   authorization-code client and the `refresh_token` client from `RestClient.Builder`, and the ID
   token's `JwtDecoderFactory` from `RestTemplateBuilder`. Spring Security's defaults for all three

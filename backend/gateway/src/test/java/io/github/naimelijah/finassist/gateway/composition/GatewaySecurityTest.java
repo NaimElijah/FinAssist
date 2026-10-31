@@ -487,7 +487,8 @@ class GatewaySecurityTest {
      * for any method, and the CSRF token is sent — so Spring raises {@code
      * HttpRequestMethodNotSupportedException}, which {@code GatewayRelayProblems}' catch-all would
      * otherwise turn into a 500 {@code INTERNAL_ERROR}, logged at ERROR. Nothing failed here but
-     * the request.
+     * the request. RFC 9110 §15.5.6 requires a 405 to name the methods the resource does support,
+     * as the ledger's and the assistant's do.
      */
     @Test
     void Given_a_signed_in_session_When_a_method_no_handler_supports_is_used_Then_it_is_405_not_500() throws Exception {
@@ -496,6 +497,7 @@ class GatewaySecurityTest {
 
         mvc.perform(named(post(ME)).session(session).cookie(csrf).header(XSRF_HEADER, csrf.getValue()))
                 .andExpect(status().isMethodNotAllowed())
+                .andExpect(header().string(HttpHeaders.ALLOW, "GET"))
                 .andExpect(content().contentTypeCompatibleWith(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
     }
