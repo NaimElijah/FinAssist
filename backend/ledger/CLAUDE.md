@@ -164,7 +164,9 @@ bounded context (ADR-006, ADR-024).
   the two on `scenario_flow` (`V3_2`), whose own `currency` must equal both its strategy's and its
   plan's. The store then refuses a row the aggregate would refuse to read back, which would
   otherwise answer 500 on every read of it. `JdbcScenarioRepository` writes that column from the
-  flow.
+  flow. One pair is the exception: `journal_transaction.currency` and its entries' `currency` are
+  tied by `V1_7`'s deferred balance check, which refuses at commit entries in a currency other
+  than their header's (`JdbcTransactionRepositoryIT`), not by a key.
 - **No foreign key crosses a schema.** `SchemaBoundariesIT` fails the build if one does. It is the
   storage-layer half of `contexts_do_not_depend_on_each_other`, which reads bytecode and so stops
   at the edge of the JVM.
