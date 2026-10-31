@@ -37,7 +37,10 @@ It holds no bounded context: everything is in its `composition/` root. The parts
 - `ProblemAuthenticationEntryPoint` (401), `ProblemAccessDeniedHandler` (403),
   `ProblemRequestRejectedHandler` (400, a URL the firewall refuses), `GatewayProblems` (the problem
   codes and writer) and `GatewayRelayProblems` (a relay's failures) answer problem+json.
-  `GatewayOpenApiConfiguration` shapes the committed contract.
+  `GatewayOpenApiConfiguration` shapes the committed contract. `GatewayContractIT` holds every
+  operation to a summary and no tag (`springdoc.auto-tag-classes: false`), every schema to
+  `"type": "object"`, and every `operationId` clear of the names the web client's generator
+  derives from a schema — hence `signOut`, not `logout`, beside `LogoutResponse`.
 
 The realm file, `ops/keycloak/finassist-realm.json`, is pinned by `KeycloakRealmTest` and
 `KeycloakRealmIT` in this module; its rules are in `ops/CLAUDE.md`.

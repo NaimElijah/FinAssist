@@ -9,7 +9,8 @@
         },
         "required": [
           "logoutUrl"
-        ]
+        ],
+        "type": "object"
       },
       "Problem": {
         "properties": {
@@ -106,7 +107,7 @@
   "paths": {
     "/bff/logout": {
       "post": {
-        "operationId": "logout",
+        "operationId": "signOut",
         "responses": {
           "200": {
             "content": {
@@ -168,9 +169,7 @@
             "sessionCookie": []
           }
         ],
-        "tags": [
-          "session-controller"
-        ]
+        "summary": "Answers who is signed in: their subject, username and FinAssist roles"
       }
     }
   },
