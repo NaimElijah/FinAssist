@@ -44,7 +44,7 @@ import tools.jackson.databind.DatabindException;
  * Exception} would make each of them a 500. {@code spring.mvc.problemdetails.enabled} stays unset,
  * because it would register a second handler of this kind.
  *
- * <p>Every problem it answers carries {@code type} and {@code code}:
+ * <p>Every problem it answers carries {@code type}, {@code title}, {@code status} and {@code code}:
  *
  * <ul>
  *   <li>a failure Spring MVC raised is coded from its status: 400 {@code MALFORMED_REQUEST}, 404
@@ -87,6 +87,13 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
     private static final Logger LOG = LoggerFactory.getLogger(LedgerProblemHandler.class);
 
     private static final String INTERNAL_ERROR_DETAIL = "The ledger failed to handle this request.";
+
+    /**
+     * The title of a problem whose status has no {@link HttpStatus} constant. Such a status has no reason
+     * phrase for {@link ProblemDetail#getTitle()} to fall back on, and the problem mix-in's {@code
+     * NON_EMPTY} would then drop {@code title}, which every other problem carries (ADR-028).
+     */
+    private static final String UNNAMED_STATUS_TITLE = "Unexpected Status";
 
     private static final String UNPARSEABLE_MULTIPART_DETAIL =
             "The request declares a multipart body that cannot be parsed; the ledger reads JSON only.";
@@ -277,7 +284,7 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
 
     /**
      * The last step before a problem is written, and the one place that guarantees its shape. A {@code
-     * type} or {@code code} already set is kept; a 5xx detail is always replaced.
+     * type}, {@code title} or {@code code} already set is kept; a 5xx detail is always replaced.
      */
     @Override
     protected ResponseEntity<Object> createResponseEntity(
@@ -285,6 +292,9 @@ public class LedgerProblemHandler extends ResponseEntityExceptionHandler {
         if (body instanceof ProblemDetail problem) {
             if (problem.getType() == null) {
                 problem.setType(Problems.BLANK_TYPE);
+            }
+            if (problem.getTitle() == null) {
+                problem.setTitle(UNNAMED_STATUS_TITLE);
             }
             if (statusCode.is5xxServerError()) {
                 problem.setDetail(INTERNAL_ERROR_DETAIL);
