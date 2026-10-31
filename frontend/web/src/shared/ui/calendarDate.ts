@@ -29,7 +29,7 @@ const DATE_FORMAT = new Intl.DateTimeFormat(DISPLAY_LOCALE, {
 export function formatCalendarDate(value: string): string {
     const match = ISO_DATE.exec(value);
     if (match === null) {
-        throw new Error('DateText expects an ISO date, YYYY-MM-DD');
+        throw new Error('formatCalendarDate expects an ISO date, YYYY-MM-DD');
     }
     const year = Number(match[1]);
     const monthIndex = Number(match[2]) - 1;
@@ -43,7 +43,7 @@ export function formatCalendarDate(value: string): string {
         instant.getUTCMonth() !== monthIndex ||
         instant.getUTCDate() !== day
     ) {
-        throw new Error('DateText was given a value that is not a calendar date');
+        throw new Error('formatCalendarDate was given a value that is not a calendar date');
     }
     return DATE_FORMAT.format(instant);
 }
