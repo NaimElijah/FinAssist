@@ -30,6 +30,11 @@ __all__ = ["BEARER_SECURITY_SCHEME", "PROBLEM_SCHEMA", "document_problems", "doc
 
 PROBLEM_SCHEMA_NAME: Final = "Problem"
 
+_INSTANCE_DESCRIPTION: Final = (
+    "The request's path as received by the service that answered."
+    " Behind the gateway it omits the gateway's /ledger or /assistant prefix."
+)
+
 PROBLEM_SCHEMA: Final[dict[str, Any]] = {
     "type": "object",
     "properties": {
@@ -37,23 +42,27 @@ PROBLEM_SCHEMA: Final[dict[str, Any]] = {
         "title": {"type": "string"},
         "status": {"type": "integer"},
         "detail": {"type": "string"},
-        "instance": {"type": "string"},
+        "instance": {"type": "string", "description": _INSTANCE_DESCRIPTION},
         "code": {"type": "string"},
         "errors": {
             "type": "array",
             "items": {
                 "type": "object",
                 "properties": {"field": {"type": "string"}, "message": {"type": "string"}},
+                "required": ["field", "message"],
             },
         },
     },
-    "required": ["code"],
+    # Sorted, as swagger-core writes the ledger's, so that the two schemas compare equal.
+    "required": ["code", "status", "title", "type"],
 }
 """RFC 9457's members and the ``code`` and ``errors`` extensions, as the ledger describes them.
 
 Written out rather than generated from a model, because it has to equal the ledger's schema and a
-generator would add titles the ledger's lacks; ``tests/test_contract.py`` compares the two. Only
-``code`` is required, as on the ledger: it is what a client branches on.
+generator would add titles the ledger's lacks; ``tests/test_contract.py`` compares the two.
+``type``, ``title``, ``status`` and ``code`` are required, as on the ledger, because
+:func:`~finassist_assistant.adapters.problems.problem_response` writes all four on every problem,
+and ``field`` and ``message`` on every ``errors`` entry; a client may rely on them.
 """
 
 _PROBLEM_RESPONSE: Final[dict[str, Any]] = {

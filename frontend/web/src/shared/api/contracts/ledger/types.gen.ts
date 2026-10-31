@@ -162,13 +162,16 @@ export type Problem = {
     code: string;
     detail?: string;
     errors?: Array<{
-        field?: string;
-        message?: string;
+        field: string;
+        message: string;
     }>;
+    /**
+     * The request's path as received by the service that answered. Behind the gateway it omits the gateway's /ledger or /assistant prefix.
+     */
     instance?: string;
-    status?: number;
-    title?: string;
-    type?: string;
+    status: number;
+    title: string;
+    type: string;
 };
 
 export type ProjectionResponse = {
