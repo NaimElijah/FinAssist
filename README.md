@@ -521,7 +521,7 @@ take each bump in one PR, and Temurin and Python stay on 21 and 3.13 until an AD
 | Assistant | Source-parsing architecture rules; FIFO cost basis, grounding, staleness and Money, with Hypothesis; token verification and authorization, including a removed key, an outage past the key set's lifespan and the fetch backoff, and every route of every type declaring a permission; the 64 KiB body limit; the bounded `h11` header block, no WebSocket upgrade, no proxy or `server` header, and a registered secret scrubbed from a log line; Money past a million digits; the problem shape; the OpenAPI contract | `make test-assistant` |
 | Backup CLI | Redaction, the manifest checks, every restore precondition, a backup's refusals, the command line and the owner-project guard, without Docker | `make test-backup` |
 | Secret check | It reads exactly the files git does not ignore, matches a value literally and only as a whole token, refuses a value shorter than 32 characters, and refuses by variable name, never by value | `make test-secret-check` |
-| Compose check | Each restart, log-bound and readiness rule fails on a crafted resolved file, a missing `x-` block fails, an Actuator-exposure key in the ledger's or the gateway's environment fails, a `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key on the gateway fails in any spelling, input that is not a resolved file exits 2, the script run as a process exits 0, 1 and 2 as `make check-compose` reads them, and no report quotes a resolved value | `make test-compose-check` |
+| Compose check | Each restart, log-bound and readiness rule fails on a crafted resolved file, a missing `x-` block fails, a published port not bound to exactly `127.0.0.1`, a port on `keycloak-db`, `auth-smoke` outside exactly the `smoke` profile and `secret-check` behind any profile each fail, an Actuator-exposure key in the ledger's or the gateway's environment fails, a `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key on the gateway fails in any spelling, input that is not a resolved file exits 2, the script run as a process exits 0, 1 and 2 as `make check-compose` reads them, and no report quotes a resolved value | `make test-compose-check` |
 | Web | The file-tree architecture rules; the shared primitives; the sign-in gate; the read-only viewer; every screen end to end against a faked `fetch` | `make test-web` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
 
@@ -537,7 +537,8 @@ the secret check's and the Compose check's lint and tests);
 the web client (`make check-web-api`, which regenerates the contract types and fails on any diff,
 then lint, format check, typecheck, tests, production build and `npm audit`); and
 `make check-compose`, which runs `docker compose config` across every profile and fails a service
-without the shared restart and log policy, or a healthcheck that probes anything but readiness.
+without the shared restart and log policy, a healthcheck that probes anything but readiness, a
+published port not bound to `127.0.0.1`, or a profile moved on `auth-smoke` or `secret-check`.
 The compose job also runs `secret-check` against a published value, and requires it to refuse all
 eight secrets by name and keep `db` from starting; that step, with the `.env` seeding it needs,
 stays inline in `ci.yml` because it starts containers under the default Compose project name

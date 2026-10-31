@@ -170,7 +170,7 @@ check-web-api: ## Fail if regenerating the web client's contract types changes a
 # starts no container, so this never touches a Compose project (ADR-049). The script's PEP 723
 # `requires-python` is a minimum, so `--python` pins the assistant's .python-version: otherwise uv
 # may pick, or on CI download, a newer CPython than the one lint-compose-check's mypy targets.
-check-compose: ## Validate docker-compose.yml under every profile, then its restart, log and readiness conventions; never reads .env, and every `:?` secret is a placeholder even if exported
+check-compose: ## Validate docker-compose.yml under every profile, then its restart, log, readiness, port and profile conventions; never reads .env, and every `:?` secret is a placeholder even if exported
 	$(COMPOSE_CONFIG) --profile monitoring config --quiet
 	$(COMPOSE_CONFIG) --profile smoke config --quiet
 	$(COMPOSE_CONFIG) --profile monitoring --profile smoke config --quiet

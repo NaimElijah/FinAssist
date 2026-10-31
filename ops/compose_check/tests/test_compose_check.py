@@ -31,10 +31,25 @@ SECRET = "Fixture-only-5Wd8Jq2Ns6"
 PASSED = "Every service follows the Compose conventions"
 POLICY = "unless-stopped"
 BOUNDED_LOGS = {"driver": "json-file", "options": {"max-file": "3", "max-size": "10m"}}
+LOOPBACK = "127.0.0.1"
 
 
 def _probe(path: str) -> dict[str, Any]:
     return {"test": ["CMD", "curl", "-f", f"http://localhost:8080{path}"]}
+
+
+def _port(target: int, host_ip: str | None = LOOPBACK) -> dict[str, Any]:
+    """A published port as `config` resolves `"127.0.0.1:<port>:<target>"`, or with no `host_ip`
+    when `host_ip` is None, as it resolves a port given without an address."""
+    port: dict[str, Any] = {
+        "mode": "ingress",
+        "target": target,
+        "published": str(target),
+        "protocol": "tcp",
+    }
+    if host_ip is not None:
+        port["host_ip"] = host_ip
+    return port
 
 
 def _long_running(**members: Any) -> dict[str, Any]:
@@ -48,20 +63,33 @@ def _conforming() -> dict[str, Any]:
         "x-restart-policy": POLICY,
         "x-logging": copy.deepcopy(BOUNDED_LOGS),
         "services": {
-            "db": _long_running(environment={"POSTGRES_PASSWORD": SECRET}),
+            "db": _long_running(environment={"POSTGRES_PASSWORD": SECRET}, ports=[_port(5432)]),
             "ledger": _long_running(
                 healthcheck=_probe("/actuator/health/readiness"),
                 environment={"LEDGER_DB_PASSWORD": SECRET, "OTEL_EXPORT_ENABLED": "false"},
+                ports=[_port(8080)],
             ),
             "gateway": _long_running(
                 healthcheck=_probe("/actuator/health/readiness"),
                 environment={"GATEWAY_CLIENT_SECRET": SECRET, "OTEL_EXPORT_ENABLED": "false"},
+                ports=[_port(8090)],
             ),
-            "assistant": _long_running(healthcheck=_probe("/ready")),
-            "keycloak": _long_running(healthcheck=_probe("/health/ready")),
-            "grafana": _long_running(environment={"GF_SECURITY_ADMIN_PASSWORD": SECRET}),
+            "assistant": _long_running(healthcheck=_probe("/ready"), ports=[_port(8000)]),
+            "keycloak-db": _long_running(environment={"POSTGRES_PASSWORD": SECRET}),
+            "keycloak": _long_running(healthcheck=_probe("/health/ready"), ports=[_port(8080)]),
+            "otel-collector": _long_running(
+                profiles=["monitoring"], ports=[_port(4318), _port(4317)]
+            ),
+            "grafana": _long_running(
+                environment={"GF_SECURITY_ADMIN_PASSWORD": SECRET},
+                profiles=["monitoring"],
+                ports=[_port(3000)],
+            ),
             "secret-check": {"environment": {"POSTGRES_PASSWORD": SECRET}},
-            "auth-smoke": {"environment": {"ASSISTANT_CLIENT_SECRET": SECRET}},
+            "auth-smoke": {
+                "environment": {"ASSISTANT_CLIENT_SECRET": SECRET},
+                "profiles": ["smoke"],
+            },
         },
     }
 
@@ -474,6 +502,138 @@ def Given_a_logging_level_on_a_service_without_spring_When_checked_Then_it_passe
     assert lines == [PASSED]
 
 
+# --- Published ports and profiles (ADR-030, ADR-034, ADR-044) ------------------------------------
+
+
+@pytest.mark.parametrize(
+    "host_ip",
+    ["0.0.0.0", "::", "::1", "127.0.0.2", ""],
+    ids=["wildcard", "ipv6-wildcard", "ipv6-loopback", "other-loopback", "empty"],
+)
+def Given_a_port_bound_to_an_address_other_than_127_0_0_1_When_checked_Then_the_service_is_named(
+    host_ip: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["grafana"]["ports"] = [_port(3000, host_ip)]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["grafana: each of its ports must bind host_ip 127.0.0.1"]
+
+
+def Given_a_port_published_with_no_host_ip_When_checked_Then_the_service_is_named(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["ledger"]["ports"] = [_port(8080, host_ip=None)]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["ledger: each of its ports must bind host_ip 127.0.0.1"]
+
+
+def Given_several_ports_of_which_one_is_unbound_When_checked_Then_the_service_is_named_once(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["otel-collector"]["ports"] = [_port(4318), _port(4317, "0.0.0.0")]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["otel-collector: each of its ports must bind host_ip 127.0.0.1"]
+
+
+def Given_unbound_ports_on_two_services_When_checked_Then_each_is_named_in_name_order(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["keycloak"]["ports"] = [_port(8080, "0.0.0.0")]
+    resolved["services"]["db"]["ports"] = [_port(5432, host_ip=None)]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        "db: each of its ports must bind host_ip 127.0.0.1",
+        "keycloak: each of its ports must bind host_ip 127.0.0.1",
+    ]
+
+
+def Given_keycloak_db_publishing_a_port_even_on_loopback_When_checked_Then_it_fails(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["keycloak-db"]["ports"] = [_port(5432)]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["keycloak-db: must publish no ports"]
+
+
+def Given_keycloak_db_publishing_a_port_on_every_interface_When_checked_Then_both_rules_fail(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["keycloak-db"]["ports"] = [_port(5432, "0.0.0.0")]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        "keycloak-db: each of its ports must bind host_ip 127.0.0.1",
+        "keycloak-db: must publish no ports",
+    ]
+
+
+@pytest.mark.parametrize(
+    "profiles",
+    [None, [], ["monitoring"], ["smoke", "monitoring"]],
+    ids=["none", "empty", "another", "a-second"],
+)
+def Given_auth_smoke_not_behind_exactly_the_smoke_profile_When_checked_Then_it_fails(
+    profiles: list[str] | None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    if profiles is None:
+        del resolved["services"]["auth-smoke"]["profiles"]
+    else:
+        resolved["services"]["auth-smoke"]["profiles"] = profiles
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["auth-smoke: its profiles must be exactly [smoke]"]
+
+
+def Given_auth_smoke_missing_from_the_file_When_checked_Then_its_profile_is_reported_missing(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    del resolved["services"]["auth-smoke"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["auth-smoke: its profiles must be exactly [smoke]"]
+
+
+@pytest.mark.parametrize("profiles", [["smoke"], ["monitoring"]], ids=["smoke", "monitoring"])
+def Given_secret_check_behind_a_profile_When_checked_Then_it_fails(
+    profiles: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["secret-check"]["profiles"] = profiles
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["secret-check: must take no profiles"]
+
+
 # --- Input that is not a resolved Compose file ----------------------------------------------------
 
 
@@ -517,6 +677,18 @@ def Given_input_that_is_not_json_When_checked_Then_it_is_refused_without_quoting
                 "gateway": _long_running(environment=[f"SPRING_APPLICATION_JSON={SECRET}"]),
             },
         },
+        # `config` resolves every port to a mapping in a list, so anything else would hide a port
+        # from the loopback rule.
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {"db": _long_running(ports={"5432": SECRET})},
+        },
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {"db": _long_running(ports=[f"0.0.0.0:5432:5432/{SECRET}"])},
+        },
     ],
     ids=[
         "not-a-mapping",
@@ -525,6 +697,8 @@ def Given_input_that_is_not_json_When_checked_Then_it_is_refused_without_quoting
         "service-a-string",
         "healthcheck",
         "environment-a-list",
+        "ports-a-mapping",
+        "port-a-string",
     ],
 )
 def Given_json_not_shaped_like_a_resolved_file_When_checked_Then_it_is_refused_without_a_value(

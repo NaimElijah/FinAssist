@@ -2,24 +2,26 @@
 # requires-python = ">=3.13"
 # dependencies = []
 # ///
-"""Checks the resolved Compose file against the stack's restart, log and readiness conventions.
+"""Checks the resolved Compose file against the stack's restart, log, readiness and exposure rules.
 
 `make check-compose` pipes `docker compose config --format json`, under every profile, into this
 script's standard input (ADR-049). Every long-running service must take the restart policy and the
 log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, the one-shot services
-must take neither, and four healthchecks must probe readiness (#142, ADR-039). Neither the ledger
-nor the gateway may set, in its environment, a key that reopens the Actuator exposure their code
-pins, nor a `command` or `entrypoint`, whose arguments would reach Spring as properties; nor may the
-gateway set a log level, a log group, a logging configuration or Spring Boot's `debug` or `trace`
-switch, since below INFO it logs credentials.
+must take neither, and four healthchecks must probe readiness (#142, ADR-039). Every published port
+must bind `127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit
+behind exactly the `smoke` profile and `secret-check` behind none (ADR-034, ADR-044). Neither the
+ledger nor the gateway may set, in its environment, a key that reopens the Actuator exposure their
+code pins, nor a `command` or `entrypoint`, whose arguments would reach Spring as properties; nor
+may the gateway set a log level, a log group, a logging configuration or Spring Boot's `debug` or
+`trace` switch, since below INFO it logs credentials.
 
 It reads the resolved file, not its text, so an alias that stops resolving fails as surely as a
 service that never took one, and a block copied in with other values fails too.
 
 The resolved file carries every secret Compose interpolated, so the report names a service, an
-`x-` block, a probe path or an environment key, never a value. Input that is not JSON is reported
-by the error's type alone, input nested too deeply to parse as such, and JSON of the wrong shape by
-the part that is not a mapping. Standard library only; run it with `uv run`, as
+`x-` block, a probe path, an environment key or a member, never a value. Input that is not JSON is
+reported by the error's type alone, input nested too deeply to parse as such, and JSON of the wrong
+shape by the part that is not a mapping or a list. Standard library only; run it with `uv run`, as
 `ops/backup/backup.py` is.
 """
 
@@ -65,6 +67,14 @@ LOGGING_CONFIG: Final = "LOGGING_CONFIG"
 # Spring Boot's LoggingApplicationListener lowers the `web` group to DEBUG for `debug`, and all of
 # `org.springframework` to TRACE for `trace`, set to anything but `false`, even the empty string.
 SPRING_LOG_SWITCHES: Final = frozenset({"DEBUG", "TRACE"})
+# Every published port binds the host's IPv4 loopback alone, so none is reachable from another
+# machine (ADR-030). Exactly this address: a wildcard, an IPv6 address or no address is not it.
+LOOPBACK_HOST_IP: Final = "127.0.0.1"
+# Keycloak's store is reached by Keycloak alone, over the Compose network (ADR-031).
+UNPUBLISHED_SERVICES: Final = frozenset({"keycloak-db"})
+# `auth-smoke` runs only by hand (ADR-034); `secret-check` runs on every `up`, since the databases
+# and Grafana wait on it (ADR-044). A service missing from the file has no profiles.
+PINNED_PROFILES: Final = {"auth-smoke": ("smoke",), "secret-check": ()}
 PASSED: Final = "Every service follows the Compose conventions"
 
 
@@ -76,8 +86,8 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
     """Every way `resolved`, the output of `docker compose config --format json`, breaks a
     convention: one line per problem, services in name order, and none when it follows them all.
 
-    :raises ComposeCheckError: when `services`, a service, an environment or a healthcheck is not a
-        mapping.
+    :raises ComposeCheckError: when `services`, a service, an environment, a healthcheck or a port
+        is not a mapping, or a service's `ports` is not a list.
     """
     services = _mapping(resolved.get("services"), "services")
     policy = resolved.get(RESTART_BLOCK)
@@ -105,6 +115,19 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
                 for member in COMMAND_LINE_MEMBERS
                 if service.get(member)
             )
+        ports = _ports(service.get("ports"))
+        if any(port.get("host_ip") != LOOPBACK_HOST_IP for port in ports):
+            found.append(f"{name}: each of its ports must bind host_ip {LOOPBACK_HOST_IP}")
+        if name in UNPUBLISHED_SERVICES and ports:
+            found.append(f"{name}: must publish no ports")
+    for name, profiles in sorted(PINNED_PROFILES.items()):
+        service = _mapping(services.get(name) or {}, "a service")
+        if (service.get("profiles") or []) != list(profiles):
+            found.append(
+                f"{name}: its profiles must be exactly [{', '.join(profiles)}]"
+                if profiles
+                else f"{name}: must take no profiles"
+            )
     for name, path in READINESS_PROBES.items():
         service = _mapping(services.get(name) or {}, "a service")
         healthcheck = _mapping(service.get("healthcheck") or {}, "a healthcheck")
@@ -117,6 +140,14 @@ def _mapping(value: object, what: str) -> Mapping[str, object]:
     if not isinstance(value, dict):
         raise ComposeCheckError(f"{what} is not a mapping")
     return value
+
+
+def _ports(value: object) -> list[Mapping[str, object]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ComposeCheckError("a service's ports is not a list")
+    return [_mapping(port, "a port") for port in value]
 
 
 def _canonical(key: str) -> str:

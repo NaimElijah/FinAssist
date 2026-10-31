@@ -20,16 +20,18 @@ One directory per tool, none of them a deployable service of this repository's (
   (ADR-044). Its tests are in `ops/secret_check/tests/`.
 - `ops/compose_check/compose_check.py` — a standard-library check, run on the host with
   `uv run`, of the resolved Compose file it reads on stdin: each long-running service's restart
-  and log bound, the one-shots' lack of either, four readiness probes (#142, ADR-039), and no
-  `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON` key, in any
-  spelling, nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS`, in the ledger's or the
-  gateway's environment, and no `command` or `entrypoint` on either, each of which would reopen
-  the Actuator exposure their code pins and their tests cannot see; nor a `LOGGING_LEVEL_*`,
-  `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key, in any spelling, on the gateway,
-  whose Spring Web and Security loggers write credentials below INFO. It names a service, a key or
-  a member, never a value. `placeholders.env` beside it holds a throwaway value for each `:?`
-  variable, which `make check-compose` exports, so the file resolves without `.env` or the
-  shell's secrets (ADR-049). Its tests are in `ops/compose_check/tests/`.
+  and log bound, the one-shots' lack of either, four readiness probes (#142, ADR-039), every
+  published port's `host_ip` exactly `127.0.0.1` and no port on `keycloak-db` (ADR-030),
+  `auth-smoke` behind exactly `profiles: [smoke]` and `secret-check` behind none (ADR-034,
+  ADR-044), and no `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON`
+  key, in any spelling, nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS`, in the
+  ledger's or the gateway's environment, and no `command` or `entrypoint` on either, each of which
+  would reopen the Actuator exposure their code pins and their tests cannot see; nor a
+  `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key, in any spelling,
+  on the gateway, whose Spring Web and Security loggers write credentials below INFO. It names a
+  service, a key or a member, never a value. `placeholders.env` beside it holds a throwaway value
+  for each `:?` variable, which `make check-compose` exports, so the file resolves without `.env`
+  or the shell's secrets (ADR-049). Its tests are in `ops/compose_check/tests/`.
 - `ops/smoke/auth_smoke.py` — the only file behind the `smoke` Compose profile (ADR-034).
 - The collector, Prometheus and Grafana provisioning that the `monitoring` Compose profile mounts.
 
@@ -90,8 +92,8 @@ From the repository root unless stated:
   each one's report on stdout is its product, written by one `print` marked `# noqa: T201` with
   its reason.
 - **The Compose check's report never quotes a resolved value.** The file it reads carries every
-  secret Compose interpolated; it names a service, an `x-` block, a probe path or an environment
-  key, and an input it cannot read by the error's type alone, or as nested too deeply.
+  secret Compose interpolated; it names a service, an `x-` block, a probe path, an environment key
+  or a member, and an input it cannot read by the error's type alone, or as nested too deeply.
   `ops/compose_check/tests` pins this, in-process and with the script run as its own process.
 - **The secret check's report names a variable, never its value, and never the file holding it.**
   In a public repository, naming the file gives the value away. An error it did not foresee is
