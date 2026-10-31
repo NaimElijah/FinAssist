@@ -15,6 +15,11 @@ ENV KC_DB=postgres
 # KeycloakRealmIT reads every deprecated feature back from the built image as disabled.
 ENV KC_FEATURES_DISABLED=twitter-broker,identity-brokering-api
 RUN /opt/keycloak/bin/kc.sh build
+# Upstream sets group-write on the whole tree for gid 0, which the runtime stage's root ownership
+# does not remove: a container run with group 0, by a `user: "1000:0"` override or an added
+# group, could write it all again. Cleared here, where uid 1000 still owns every file, so the
+# runtime stage's COPY carries the modes and the shipped image gains no layer for them.
+RUN chmod -R g-w /opt/keycloak
 
 FROM quay.io/keycloak/keycloak:26.8.1
 # The whole optimized distribution, not a jar: `kc.sh build`'s output is a reconfigured
@@ -60,8 +65,8 @@ RUN chown 0:0 /opt/keycloak \
     && install -d -o 1000 -g 1000 -m 0700 /opt/keycloak/data/transaction-logs
 
 # Upstream's own non-root user, uid 1000 in 26.8.1, stated here so an upstream change cannot
-# silently move the user this image runs as. The group is stated too: upstream's passwd entry
-# gives uid 1000 the primary group 0, which the tree's group-write bits would still admit.
+# silently move the user this image runs as. The group is stated too, so the runtime user is not
+# in group 0: upstream's passwd entry gives uid 1000 that primary group, which owns the tree.
 USER 1000:1000
 
 ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]
