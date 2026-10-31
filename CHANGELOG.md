@@ -307,9 +307,10 @@ history; write the commit message well and this file writes itself.
   [requirements](docs/requirements/requirements.md#non-functional-requirements)):
   - **The two majors.** The Read-only badge was white on white in the light theme, 1.00:1, so a
     viewer saw no badge and no reason every write control was missing; it is now outlined on the
-    header band, 7.85:1 light and 10.04:1 dark. `tests/contrast.test.ts` measures every stylesheet
-    rule's text and background pair, and the inherited, control-edge and focus-ring pairs, against
-    `tokens.css` in both themes, and was red on the badge. A projection's or comparison's answer
+    header band, 7.85:1 light and 10.04:1 dark. `tests/contrast.test.ts` measures every rule whose
+    text and background are each a single token, and the inherited, control-edge and focus-ring
+    pairs, against `tokens.css` in both themes, and was red on the badge; a rule it cannot measure,
+    such as a `color-mix()` hover, fails the build until it is listed with its reason. A projection's or comparison's answer
     landed below its form with nothing announced; focus now moves to its heading once the submit's
     read settles without an error.
   - **The minors.** Every loading note is a `role="status"` region (`LoadingNote`), and a row added
@@ -321,13 +322,23 @@ history; write the commit message well and this file writes itself.
     title (`StandalonePage`). Focus on navigation lands on the page's heading, not an unnamed
     `<main>`, and each planning screen has an h1 of its own. A refused field is listed by its
     form's label, not its wire path. A table is a named region only while it overflows, and the
-    open tab's focus ring is drawn inside it.
+    open tab's focus ring is drawn inside it. The decisions are recorded in
+    [ADR-069](docs/ADRs/ADR-069-the-web-client-targets-wcag-2-2-aa-and-holds-it-with-tests.md).
+  - **Found in review of those fixes.** A projection paused offline no longer takes focus before
+    its answer lands. The comparison states "Choose 2 to 10 scenarios." and the entry's
+    debit-or-credit rule once, up front, rather than after a refusal or on every amount. A planned
+    flow's lifecycle panel is an h3 under its section, keeping the heading tree whole, and a route
+    that fails opens with an h1 naming it. A failure of the layout itself gets a page of its own,
+    with a `<main>`, one h1 and a title, where it had none.
   - **What is left.** No automated accessibility check runs yet
     ([#78](https://github.com/NaimElijah/FinAssist/issues/78)); phone-width layout is
     [#220](https://github.com/NaimElijah/FinAssist/issues/220) and the restyle
     [#230](https://github.com/NaimElijah/FinAssist/issues/230), which must keep these fixes; WCAG
     3.3.4 for a write into the append-only books awaits the owner's decision
-    ([#411](https://github.com/NaimElijah/FinAssist/issues/411)); and a manual screen-reader, zoom,
+    ([#411](https://github.com/NaimElijah/FinAssist/issues/411)); a retry that fails again leaves
+    focus on the page body ([#412](https://github.com/NaimElijah/FinAssist/issues/412)); a retry
+    paused offline is taken for a settled read
+    ([#413](https://github.com/NaimElijah/FinAssist/issues/413)); and a manual screen-reader, zoom,
     forced-colours and real-browser focus pass is the owner's.
 - **The three HTTP contracts now promise what their services do, and a relay timeout no longer
   invites a duplicate write.** Scan 7 of 12 in M0
