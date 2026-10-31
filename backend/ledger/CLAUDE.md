@@ -111,10 +111,10 @@ bounded context (ADR-006, ADR-024).
   refuses an entry for a transaction that already has a state row, so a recorded transaction's
   entries are closed: write the header, then the entries, then the opening state, in one database
   transaction, as the adapter does; `V1_5`'s deferred check refuses at commit a header with no entry
-  or no opening state. A lifecycle change is an `INSERT` whose highest `sequence` is the current state. Do not
-  add an `UPDATE` to `JdbcTransactionRepository` — the database will refuse it, which is the point
-  (ADR-020, ADR-024). `budgeting` and `planning` are ordinary mutable tables: ADR-020 binds the
-  record of what happened, and ADR-015 puts intent in another context.
+  or no opening state. A lifecycle change is an `INSERT` whose highest `sequence` is the current
+  state. Do not add an `UPDATE` to `JdbcTransactionRepository` — the database will refuse it, which
+  is the point (ADR-020, ADR-024). `budgeting` and `planning` are ordinary mutable tables: ADR-020
+  binds the record of what happened, and ADR-015 puts intent in another context.
 - **The state history follows the domain's lifecycle.** `V1_4`'s trigger admits a
   `journal_transaction_state` row only at the next `sequence`, opening `PENDING` at 0, along a move
   `Transaction` allows, and dated no earlier than the transaction or the state before it. Save each
@@ -124,9 +124,8 @@ bounded context (ADR-006, ADR-024).
   nullable `recorded_by` and a `CHECK (...) NOT VALID` on `journal_transaction` and
   `journal_transaction_state`, so a row written before it honestly stays `NULL` while every new one
   must name a non-blank subject — the token's `sub`. `JdbcTransactionRepository` writes it on every
-  `INSERT`. Never run
-  `ALTER TABLE ... VALIDATE CONSTRAINT` on either: it would scan the historical `NULL` rows and
-  fail, and the append-only triggers forbid the `UPDATE` a fix would need (ADR-033).
+  `INSERT`. Never run `ALTER TABLE ... VALIDATE CONSTRAINT` on either: it would scan the historical
+  `NULL` rows and fail, and the append-only triggers forbid the `UPDATE` a fix would need (ADR-033).
 - **An entry stays in its account's currency; never validate that key either.** `V1_6` adds
   `journal_entry_in_account_currency`, a `NOT VALID` foreign key from `journal_entry (account_id,
   currency)` to a unique index on `account (id, currency)`. It checks every new entry, and refuses a
@@ -153,9 +152,10 @@ bounded context (ADR-006, ADR-024).
   context against it. Extend it when the applied set changes. Never reach for
   `ignoreMigrationPatterns`, which would start the ledger with the column missing (ADR-035).
 - **Each context's migrations live in `src/main/resources/db/migration/<context>/`, under the
-  major version that context owns** — `accounting` 1, `budgeting` 2, `planning` 3 — so the next
-  accounting migration is `V1_3__<description>.sql`. `ReleasedMigrationsTest` fails a script whose
-  major is not its directory's, and records each released script's SHA-256 in release order:
+  major version that context owns** — `accounting` 1, `budgeting` 2, `planning` 3 — and a context's
+  next migration takes a version above the highest its directory holds: today `V1_8`, `V2_3` and
+  `V3_3`, each as `V<major>_<minor>__<description>.sql`. `ReleasedMigrationsTest` fails a script
+  whose major is not its directory's, and records each released script's SHA-256 in release order:
   append the new one at the end, above every version its context has released, and never change a
   digest once it is merged to `dev`.
 - **A currency held in two tables of one context is tied by a composite foreign key**, to a
