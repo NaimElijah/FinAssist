@@ -12,10 +12,8 @@ import { DocumentTitleContext } from '@/shared/lib/documentTitle';
 import { titleOf } from '@/shared/lib/routeHandle';
 
 import styles from './Layout.module.css';
+import { documentTitleFor, PRODUCT_NAME } from './productName';
 import { UserMenu } from './session/UserMenu';
-
-/** Shown in the header, and closes every document title. */
-const PRODUCT_NAME = 'FinAssist';
 
 /** The main region's id, which the skip link targets. */
 const MAIN_ID = 'main-content';
@@ -47,13 +45,13 @@ function documentTitle(
     override: string | undefined,
     matches: readonly { readonly handle: unknown }[],
 ): string {
-    const title =
+    return documentTitleFor(
         override ??
-        matches
-            .map((match) => titleOf(match.handle))
-            .filter((candidate) => candidate !== undefined)
-            .at(-1);
-    return title === undefined ? PRODUCT_NAME : `${title} · ${PRODUCT_NAME}`;
+            matches
+                .map((match) => titleOf(match.handle))
+                .filter((candidate) => candidate !== undefined)
+                .at(-1),
+    );
 }
 
 /**
