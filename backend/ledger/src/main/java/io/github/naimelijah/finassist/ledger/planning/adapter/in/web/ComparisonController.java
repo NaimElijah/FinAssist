@@ -106,8 +106,10 @@ public class ComparisonController {
                     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
                     LocalDate to,
             @Parameter(description = HorizonDescriptions.STEP_PARAMETER) @RequestParam Cadence step,
-            @RequestParam(required = false) List<String> cash,
-            @RequestParam(required = false) List<String> invested) {
+            @Parameter(description = OpeningAccountDescriptions.CASH_PARAMETER) @RequestParam(required = false)
+                    List<String> cash,
+            @Parameter(description = OpeningAccountDescriptions.INVESTED_PARAMETER) @RequestParam(required = false)
+                    List<String> invested) {
         List<ScenarioId> scenarios = scenario.stream().map(ScenarioId::new).toList();
         ScenarioId reference = new ScenarioId(baseline);
         if (!scenarios.contains(reference)) {
