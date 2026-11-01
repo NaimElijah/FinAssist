@@ -33,6 +33,49 @@ def Given_an_amount_with_too_many_decimals_When_constructed_Then_it_is_rejected(
         Money.of("12.505", Currency.ILS)
 
 
+# Far longer than any refusal needs, and far shorter than an amount expanded digit by digit.
+MESSAGE_BOUND = 1_000
+
+
+@pytest.mark.parametrize("amount", ["1E-2147483647", "1E-1000000"])
+def Given_an_amount_at_a_vast_negative_exponent_When_parsed_Then_it_is_refused_with_a_short_message(
+    amount: str,
+) -> None:
+    # The mirror of the Java case, where writing the amount out in full threw OutOfMemoryError in
+    # place of the refusal. str() of a Decimal keeps the exponent, so this side always passed.
+    with pytest.raises(ValueError, match="more precision") as refused:
+        Money.of(amount, Currency.USD)
+
+    assert type(refused.value) is ValueError
+    assert len(str(refused.value)) < MESSAGE_BOUND
+
+
+@pytest.mark.parametrize(
+    ("amount", "currency"),
+    [
+        ("1E+2147483647", Currency.USD),
+        ("1E+2147483646", Currency.USD),
+        ("1E+2147483648", Currency.JPY),
+    ],
+    ids=[
+        "exponent-past-a-java-int",
+        "minor-units-past-a-java-int",
+        "zero-decimal-at-the-int-minimum",
+    ],
+)
+def Given_minor_units_overflowing_a_java_int_When_parsed_Then_it_is_refused_for_its_precision(
+    amount: str, currency: Currency
+) -> None:
+    # Each scale fits a Java int, but the ledger's setScale computes the minor units minus the
+    # scale past one and refuses the amount; the shared vectors pin the first case on both sides.
+    # This side accepted all three, by building a coefficient of over two billion digits.
+    with pytest.raises(ValueError, match="more precision") as refused:
+        Money.of(amount, currency)
+
+    assert type(refused.value) is ValueError
+    assert len(str(refused.value)) < MESSAGE_BOUND
+
+
 def Given_a_zero_decimal_currency_When_given_decimals_Then_it_is_rejected() -> None:
     with pytest.raises(ValueError):
         Money.of("100.50", Currency.JPY)
@@ -173,3 +216,88 @@ def Given_a_non_finite_multiplier_When_multiplied_Then_it_is_refused(
 
     with pytest.raises(ValueError, match="finite"):
         getattr(money, operation)(Decimal(multiplier))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        " 12.50 ",
+        "12.50\n",
+        "1_000.00",
+        "abc",
+        "",
+        ".",
+        "1e",
+        "--1",
+        "+-1",
+        "0x10",
+        "1,000",
+        "12.50d",
+        "NaN",
+        "Infinity",
+        "sNaN",
+        "1E-2147483648",
+        "1E+9999999999999999999",
+        "\U0001d7cf",
+    ],
+    ids=[
+        "padded",
+        "trailing-newline",
+        "underscore",
+        "letters",
+        "empty",
+        "point-alone",
+        "exponent-without-digits",
+        "double-sign",
+        "two-signs",
+        "hexadecimal",
+        "grouping-comma",
+        "suffix",
+        "nan",
+        "infinity",
+        "signalling-nan",
+        "scale-past-a-java-int",
+        "exponent-past-python",
+        "digit-outside-the-bmp",
+    ],
+)
+def Given_text_that_new_BigDecimal_refuses_When_parsed_Then_it_is_refused(text: str) -> None:
+    # Java has no counterpart case: Money.of there is new BigDecimal(text), whose grammar is the
+    # whole contract. Python's Decimal is laxer - it strips whitespace, reads underscores and
+    # NaN - and raised decimal.InvalidOperation, an ArithmeticError, for text it could not read.
+    with pytest.raises(ValueError, match="not a decimal number"):
+        Money.of(text, Currency.USD)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("+1", "1.00"),
+        (".5", "0.50"),
+        ("+.5", "0.50"),
+        ("1.", "1.00"),
+        ("1e2", "100.00"),
+        ("1E+2", "100.00"),
+        ("-0.50", "-0.50"),
+        ("\u0661\u0662.\u0665\u0660", "12.50"),
+        ("\uff11\uff12", "12.00"),
+    ],
+    ids=[
+        "plus-sign",
+        "no-integer-part",
+        "signed-no-integer-part",
+        "no-fraction-part",
+        "exponent",
+        "signed-exponent",
+        "negative",
+        "arabic-indic-digits",
+        "fullwidth-digits",
+    ],
+)
+def Given_text_that_new_BigDecimal_accepts_When_parsed_Then_it_is_the_same_amount(
+    text: str, expected: str
+) -> None:
+    # Pinned so that refusing what BigDecimal refuses does not also refuse what it accepts.
+    # BigDecimal reads any digit Character.digit knows, in the Basic Multilingual Plane; the wire
+    # pattern refuses non-ASCII digits long before anything reaches Money.
+    assert str(Money.of(text, Currency.USD)) == f"{expected} USD"

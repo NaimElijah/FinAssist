@@ -6,6 +6,7 @@
  * (ADR-029). `recurrenceSummary` and `buildRecurrence` are pure and used both by the flows table
  * and the plan-flow form.
  */
+import { formatCalendarDate } from '@/shared/lib/calendarDate';
 import { DISPLAY_LOCALE } from '@/shared/lib/locale';
 
 /** The three cadences a repeating flow can step at, in the order the form offers them. */
@@ -140,38 +141,13 @@ export function buildRecurrence(form: RecurrenceFormState): Recurrence {
     };
 }
 
-/** A calendar date, `YYYY-MM-DD`, as the wire and the form both carry one. */
-const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-/**
- * Formats in UTC, mirroring `DateText`: the date string carries no time and no zone, so applying
- * neither at either end is what keeps the day shown equal to the day written.
- */
+/** A long calendar date, such as "1 January 2027", in UTC as `formatCalendarDate` requires. */
 const LONG_DATE_FORMAT = new Intl.DateTimeFormat(DISPLAY_LOCALE, {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
     timeZone: 'UTC',
 });
-
-/**
- * `value`, formatted as a long calendar date such as "1 January 2027", for `recurrenceSummary`'s
- * sentence. Unlike `DateText`, this is not a rendering boundary: `value` is already a validated
- * ISO date, either typed into a native `DateField` or received from the ledger.
- *
- * @throws Error - when `value` is not `YYYY-MM-DD`.
- */
-function formatUntilDate(value: string): string {
-    const match = ISO_DATE.exec(value);
-    if (match === null) {
-        throw new Error('Expected an ISO date, YYYY-MM-DD');
-    }
-    // The year is set on its own, never through `Date.UTC`, which reads a year from 0 to 99 as 1900
-    // to 1999: a date field accepts year 27, and it must not be summarised as 1927.
-    const instant = new Date(0);
-    instant.setUTCFullYear(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-    return LONG_DATE_FORMAT.format(instant);
-}
 
 /**
  * A human summary of how a flow repeats, for the flows table's Recurrence column: "Once", "Every
@@ -192,5 +168,5 @@ export function recurrenceSummary(recurrence: Recurrence): string {
             : `Every ${words.singular}`;
     return recurrence.kind === 'TIMES'
         ? `${everyPhrase}, ${String(recurrence.count)} times`
-        : `${everyPhrase} until ${formatUntilDate(recurrence.until)}`;
+        : `${everyPhrase} until ${formatCalendarDate(recurrence.until, LONG_DATE_FORMAT)}`;
 }

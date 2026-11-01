@@ -46,9 +46,3 @@
     gap: var(--space-1);
     margin: 0;
 }
-
-.amount {
-    font-size: var(--font-size-xl);
-    font-weight: var(--font-weight-strong);
-    line-height: var(--line-height-tight);
-}

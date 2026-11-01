@@ -68,6 +68,13 @@ class PlanningHttpIT extends PostgresFixture {
              "startsOn": "2026-02-15", "recurrence": {"kind": "ONCE"}}
             """;
 
+    /** 100.00 ILS on 1 January 2026, then every billion years, a step that passes {@code LocalDate.MAX}. */
+    private static final String EVERY_BILLION_YEARS = """
+            {"description": "Windfall", "amount": {"amount": "100.00", "currency": "ILS"}, "direction": "INFLOW",
+             "startsOn": "2026-01-01",
+             "recurrence": {"kind": "UNTIL", "cadence": "YEARLY", "interval": 1000000000, "until": "2030-01-01"}}
+            """;
+
     /** One client for the class, closed afterwards, for the reason {@code LedgerApplicationIT} gives. */
     private static final HttpClient CLIENT = HttpClient.newHttpClient();
 
@@ -276,6 +283,18 @@ class PlanningHttpIT extends PostgresFixture {
                 get(SCENARIOS + "/" + doNothing + "/projection?from=2026-01-01&to=2026-02-15&step=MONTHLY");
 
         assertProblem(response, 422, "RULE_VIOLATED");
+    }
+
+    /** The second occurrence lies past the calendar's end, so only the first may be counted, and no 500. */
+    @Test
+    void
+            Given_a_flow_whose_interval_passes_the_last_representable_date_When_projected_Then_it_is_a_200_with_its_first_occurrence()
+                    throws Exception {
+        String windfall = define("Windfall", "0", plan(EVERY_BILLION_YEARS));
+
+        JsonNode projection = ok(get(SCENARIOS + "/" + windfall + "/projection?" + YEAR_2026));
+
+        assertThat(cashOn(projection.path("points"), 12)).isEqualTo("100.00");
     }
 
     /** The composition root's translation turns accounting's not-found into planning's rule signal. */

@@ -1,6 +1,7 @@
 import { type Ref, type SubmitEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiError, type ProblemFieldError } from '@/shared/api/client';
+import { DECIMAL_HINT } from '@/shared/api/decimal';
 import { indexedField } from '@/shared/api/fieldPath';
 import { clearSettledOutcome } from '@/shared/lib/settledMutation';
 import {
@@ -37,6 +38,12 @@ const DEFAULT_CURRENCY: Currency = 'ILS';
 
 /** The rate a do-nothing scenario carries: no growth at all. */
 const DEFAULT_GROWTH_RATE = '0';
+
+/**
+ * The growth rate's hint: how to write the decimal, and that it is a fraction, since typing 5 for
+ * 5% would define 500% growth per step.
+ */
+const GROWTH_RATE_HINT = `${DECIMAL_HINT}; a fraction per step, for example 0.005 for 0.5%`;
 
 /** ADR-028 lists field `errors` only on a 400. */
 const MALFORMED_REQUEST_STATUS = 400;
@@ -381,7 +388,7 @@ export function DefineScenarioForm({ onDefined }: DefineScenarioFormProps) {
                         inputMode="decimal"
                         required
                         autoComplete="off"
-                        hint="e.g. 0.005 per step"
+                        hint={GROWTH_RATE_HINT}
                         value={growthRatePerStep}
                         error={errors.fields.growthRatePerStep}
                         onChange={(event) => {

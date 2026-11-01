@@ -44,6 +44,9 @@ class Lot:
     acquired_on: date
 
     def __post_init__(self) -> None:
+        # Checked before the comparison below, which raises decimal.InvalidOperation on a NaN.
+        if not self.quantity.is_finite():
+            raise ValueError(f"A lot must hold a finite quantity but held {self.quantity}")
         if self.quantity <= 0:
             raise ValueError(f"A lot must hold a positive quantity but held {self.quantity}")
         if self.unit_cost.is_negative:

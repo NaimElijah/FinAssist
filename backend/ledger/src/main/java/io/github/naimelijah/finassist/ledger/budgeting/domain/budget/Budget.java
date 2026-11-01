@@ -17,9 +17,9 @@ import java.util.Optional;
  * wanted. A stored spend total would be a copy of the ledger that drifts from it, which is the same
  * mistake as a stored account balance.
  *
- * <p>Invariants: at least one limit; one limit per category; every limit in the budget's currency.
- * Two limits for the same category are refused rather than merged — merging would guess at an intent
- * the owner never expressed.
+ * <p>Invariants: at least one limit; one limit per category; every limit positive and in the
+ * budget's currency. Two limits for the same category are refused rather than merged — merging would
+ * guess at an intent the owner never expressed.
  *
  * <p>Limits are held as a map keyed by category, because "one limit per category" is precisely what
  * makes a map the right shape. Validating with a map and then storing a list would throw that
@@ -44,6 +44,7 @@ public record Budget(BudgetId id, BudgetPeriod period, Currency currency, Map<Ca
         }
         for (Map.Entry<Category, Money> limit : limits.entrySet()) {
             requireBudgetCurrency(limit.getKey(), limit.getValue(), currency);
+            requirePositive(limit.getKey(), limit.getValue());
         }
     }
 
@@ -81,11 +82,21 @@ public record Budget(BudgetId id, BudgetPeriod period, Currency currency, Map<Ca
      *
      * <p>Negative when overspent — that is a fact worth reporting, not an error to reject. Empty when
      * the budget sets no limit for the category at all. A limit of zero is not a possible state,
-     * because {@link CategoryLimit} refuses one.
+     * because the constructor refuses one, as {@link CategoryLimit} does.
      */
     public Optional<Money> remaining(Category category, Money spent) {
         Objects.requireNonNull(spent, "spent");
         return limitFor(category).map(limit -> limit.minus(spent));
+    }
+
+    /**
+     * Repeats {@link CategoryLimit}'s rule, because the public constructor takes bare amounts and
+     * builds no {@code CategoryLimit}.
+     */
+    private static void requirePositive(Category category, Money limit) {
+        if (!limit.isPositive()) {
+            throw new IllegalArgumentException("Limit for " + category + " must be positive");
+        }
     }
 
     private static void requireBudgetCurrency(Category category, Money limit, Currency currency) {

@@ -25,7 +25,9 @@ public record GrowthAssumption(BigDecimal ratePerStep) {
     public GrowthAssumption {
         Objects.requireNonNull(ratePerStep, "ratePerStep");
         if (ratePerStep.compareTo(MINIMUM_EXCLUSIVE) <= 0) {
-            throw new IllegalArgumentException("A growth rate of " + ratePerStep.toPlainString()
+            // toString, never toPlainString, which writes a rate such as -1E+2147483647 out digit by
+            // digit and throws OutOfMemoryError in place of this refusal.
+            throw new IllegalArgumentException("A growth rate of " + ratePerStep.toString()
                     + " would destroy or invert the balance; it must be greater than -1");
         }
         // Normalised for the same reason Money normalises its amount: a record's generated equals

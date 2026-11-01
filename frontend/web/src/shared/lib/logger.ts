@@ -9,7 +9,10 @@
  * anywhere is a decision that needs a collector endpoint the client does not have yet.
  */
 
-/** Severity levels, ordered. `debug` is developer-facing and dropped in a production build. */
+/**
+ * Severity levels, ordered. `debug` is meant for the developer, but nothing filters by level: it is
+ * written in every build, a production one included, and redacted like any other record.
+ */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 /** Structured fields attached to a record. Values are redacted before they are written. */

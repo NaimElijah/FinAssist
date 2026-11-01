@@ -171,6 +171,19 @@ describe('BudgetsPage', () => {
         expect(screen.queryByRole('table')).toBeNull();
     });
 
+    it('Given_no_budgets_and_a_read_only_session_When_the_page_renders_Then_the_empty_state_invites_nothing_it_cannot_do', async () => {
+        // A viewer is offered no form to define a budget, so "define one below" would point at
+        // nothing.
+        fakeFetch((request) =>
+            request.url === BUDGETS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
+
+        renderRoutes(budgetingRoutes, '/budgets', { access: { canWrite: false } });
+
+        expect(await screen.findByText('No budgets yet')).toBeDefined();
+        expect(screen.queryByText(/define one/)).toBeNull();
+    });
+
     it('Given_the_list_fails_When_the_page_renders_Then_an_error_state_offers_a_retry_that_refetches', async () => {
         let failing = true;
         const requests = fakeFetch((request) => {

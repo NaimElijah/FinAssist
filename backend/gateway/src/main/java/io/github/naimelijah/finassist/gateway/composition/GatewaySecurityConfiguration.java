@@ -4,6 +4,7 @@ import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.DispatcherType;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.server.Cookie;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -98,7 +99,7 @@ public class GatewaySecurityConfiguration {
      */
     @Bean
     Origin webOrigin(@Value("${finassist.web.public-url}") String publicUrl) {
-        return new Origin(publicUrl);
+        return new Origin(Origin.Setting.GATEWAY_PUBLIC_URL, publicUrl);
     }
 
     /**
@@ -107,16 +108,23 @@ public class GatewaySecurityConfiguration {
      * cause a request to be sent with the session cookie, but it cannot read a cookie from another
      * origin to put the token in a header.
      *
-     * <p>{@code secure} and {@code SameSite} are set to match the session cookie rather than left
-     * to Spring's default of "whatever the current request's scheme is", which behind a
-     * TLS-terminating proxy the gateway deliberately does not trust would be the wrong answer.
+     * <p>{@code secure} and {@code SameSite} are read from the properties the session cookie is
+     * built from, so the two cookies cannot disagree, rather than left to Spring's default of
+     * "whatever the current request's scheme is", which behind a TLS-terminating proxy the gateway
+     * deliberately does not trust would be the wrong answer.
+     *
+     * @param cookieSecure {@code finassist.http.cookie-secure}, which the session cookie reads too
+     * @param sameSite {@code server.servlet.session.cookie.same-site}, the session cookie's own;
+     *     {@code omitted} leaves the attribute off both
      */
     @Bean
-    CsrfTokenRepository csrfTokenRepository(@Value("${finassist.http.cookie-secure}") boolean cookieSecure) {
+    CsrfTokenRepository csrfTokenRepository(
+            @Value("${finassist.http.cookie-secure}") boolean cookieSecure,
+            @Value("${server.servlet.session.cookie.same-site}") Cookie.SameSite sameSite) {
         CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
         repository.setCookieName(CSRF_COOKIE_NAME);
         repository.setHeaderName(CSRF_HEADER_NAME);
-        repository.setCookieCustomizer(cookie -> cookie.secure(cookieSecure).sameSite("Lax"));
+        repository.setCookieCustomizer(cookie -> cookie.secure(cookieSecure).sameSite(sameSite.attributeValue()));
         return repository;
     }
 

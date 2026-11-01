@@ -696,6 +696,78 @@ describe('RecordTransactionPage submission', () => {
         expect(screen.getByLabelText('Debit 2').getAttribute('aria-invalid')).toBeNull();
         expect(screen.getByLabelText('Credit 2').getAttribute('aria-invalid')).toBeNull();
     });
+
+    /**
+     * Three rows, with row 2 holding both a debit and a credit and row 3 holding neither, submitted
+     * so that rows 2 and 3 each show "Enter a debit or a credit" and row 1 shows nothing.
+     */
+    async function refuseRows2And3(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+        await user.type(await screen.findByLabelText('Description'), 'Rent');
+        await user.click(screen.getByRole('button', { name: 'Add entry' }));
+        await user.selectOptions(screen.getByLabelText('Account 1'), CHECKING.id);
+        await user.selectOptions(screen.getByLabelText('Account 2'), RENT.id);
+        await user.selectOptions(screen.getByLabelText('Account 3'), CHECKING.id);
+        await user.type(screen.getByLabelText('Debit 1'), '100.00');
+        // Row 2's credit was mirrored from row 1; editing it directly stops the mirror.
+        await user.clear(screen.getByLabelText('Credit 2'));
+        await user.type(screen.getByLabelText('Credit 2'), '50.00');
+        await user.type(screen.getByLabelText('Debit 2'), '50.00');
+        await user.click(screen.getByRole('button', { name: 'Record transaction' }));
+        await waitFor(() => {
+            expect(screen.getAllByText('Enter a debit or a credit')).toHaveLength(2);
+        });
+    }
+
+    /** Whether row `position`'s two amounts are both marked invalid. */
+    function rowMarkedInvalid(position: number): boolean {
+        return [`Debit ${String(position)}`, `Credit ${String(position)}`].every(
+            (label) => screen.getByLabelText(label).getAttribute('aria-invalid') === 'true',
+        );
+    }
+
+    for (const field of ['Debit 2', 'Credit 2']) {
+        it(`Given_a_rows_error_shown_When_its_${field.replace(' ', '_')}_is_edited_Then_that_rows_error_and_marking_clear_and_the_other_rows_stay`, async () => {
+            // The error answered the row as it was submitted; once the owner edits it, the
+            // message no longer describes what the row holds. Another row's still does.
+            fakeFetch(ledger());
+            renderForm();
+            const user = userEvent.setup({ delay: null });
+            await refuseRows2And3(user);
+
+            await user.clear(screen.getByLabelText(field));
+
+            expect(screen.getAllByText('Enter a debit or a credit')).toHaveLength(1);
+            expect(rowMarkedInvalid(2)).toBe(false);
+            expect(accessibleDescriptionOf(screen.getByLabelText('Debit 2'))).not.toMatch(
+                /Enter a debit or a credit/,
+            );
+            expect(rowMarkedInvalid(3)).toBe(true);
+            // Row 3's error still stands, but focus stays where the owner is typing.
+            expect(document.activeElement).toBe(screen.getByLabelText(field));
+        });
+    }
+
+    it('Given_both_rows_refused_while_the_mirror_is_active_When_Debit_1_is_typed_Then_row_2s_mirrored_error_clears_too', async () => {
+        // Typing on row 1 also writes row 2's credit, so row 2 was edited as well, and its error
+        // no longer describes what it holds.
+        fakeFetch(ledger());
+        renderForm();
+        const user = userEvent.setup({ delay: null });
+        await user.type(await screen.findByLabelText('Description'), 'Rent');
+        await user.selectOptions(screen.getByLabelText('Account 1'), CHECKING.id);
+        await user.selectOptions(screen.getByLabelText('Account 2'), RENT.id);
+        await user.click(screen.getByRole('button', { name: 'Record transaction' }));
+        await waitFor(() => {
+            expect(screen.getAllByText('Enter a debit or a credit')).toHaveLength(2);
+        });
+
+        await user.type(screen.getByLabelText('Debit 1'), '100.00');
+
+        expect(screen.getByLabelText('Credit 2')).toHaveProperty('value', '100.00');
+        expect(screen.queryByText('Enter a debit or a credit')).toBeNull();
+        expect(rowMarkedInvalid(1)).toBe(false);
+        expect(rowMarkedInvalid(2)).toBe(false);
+    });
 });
 
 describe('RecordTransactionPage accounts read', () => {

@@ -7,6 +7,7 @@ import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -253,6 +254,18 @@ describe('ScenariosPage define-scenario form', () => {
         expect(await screen.findByText('Baseline')).toBeDefined();
         expect(screen.queryByRole('heading', { level: 2, name: 'Define a scenario' })).toBeNull();
         expect(screen.queryByLabelText('Name')).toBeNull();
+    });
+
+    it('Given_the_define_form_When_it_renders_Then_the_growth_rate_states_its_decimal_format_and_that_it_is_a_fraction', async () => {
+        // Typing 5 for 5% would define 500% growth per step, so the hint says the rate is a
+        // fraction as well as how to write a decimal.
+        fakeFetch(ledger([], []));
+        renderScenarios();
+        await screen.findByRole('heading', { level: 2, name: 'Define a scenario' });
+
+        expect(accessibleDescriptionOf(screen.getByLabelText('Growth rate per step'))).toBe(
+            'A number with no commas, for example 1250.50; a fraction per step, for example 0.005 for 0.5%',
+        );
     });
 
     it('Given_flows_in_two_currencies_When_ILS_is_the_chosen_currency_Then_only_the_ILS_flow_is_offered', async () => {
@@ -663,7 +676,7 @@ describe('ScenariosPage define-scenario form', () => {
         await user.click(screen.getByRole('button', { name: 'Define scenario' }));
 
         const error = await screen.findByText('must be a decimal number');
-        // Also described by its hint ("e.g. 0.005 per step"), so the error id is one of two.
+        // Also described by its hint, so the error id is one of two.
         expect(
             screen
                 .getByLabelText('Growth rate per step')

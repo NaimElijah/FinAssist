@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.naimelijah.finassist.gateway.GatewayApplication;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -28,11 +30,23 @@ import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
  */
 class KeycloakRegistrationTest {
 
-    private static final Origin BROWSER_FACING = new Origin("http://keycloak.example:8081");
-    private static final Origin BACKCHANNEL = new Origin("http://keycloak-internal:8080");
-    private static final Origin WEB = new Origin("http://web.example:5173");
+    private static final String BROWSER_FACING_URL = "http://keycloak.example:8081";
+    private static final String BACKCHANNEL_URL = "http://keycloak-internal:8080";
+
+    private static final Origin BROWSER_FACING = new Origin(Origin.Setting.GATEWAY_OIDC_PUBLIC_URL, BROWSER_FACING_URL);
+    private static final Origin BACKCHANNEL = new Origin(Origin.Setting.GATEWAY_OIDC_INTERNAL_URL, BACKCHANNEL_URL);
+    private static final Origin WEB = new Origin(Origin.Setting.GATEWAY_PUBLIC_URL, "http://web.example:5173");
 
     private static final String SECRET = "a-test-client-secret";
+
+    private static final String PASSWORD_IN_THE_URL = "s3cret-in-the-url";
+
+    /** Refused for its user-info, by the component refusal. */
+    private static final String REFUSED_COMPONENT = "http://owner:" + PASSWORD_IN_THE_URL + "@keycloak-internal:8080";
+
+    /** Refused as not absolute: an underscore in the host leaves the JDK finding no host at all. */
+    private static final String REFUSED_AS_NOT_ABSOLUTE =
+            "http://owner:" + PASSWORD_IN_THE_URL + "@keycloak_internal:8080";
 
     private static ClientRegistration registration() {
         return KeycloakRegistration.keycloak(BROWSER_FACING, BACKCHANNEL, WEB, SECRET);
@@ -107,7 +121,8 @@ class KeycloakRegistrationTest {
      */
     @Test
     void Given_a_base_url_with_a_trailing_slash_When_a_path_is_appended_Then_the_slash_is_not_doubled() {
-        assertThat(new Origin("http://keycloak.example:8081/").path("/realms/finassist"))
+        assertThat(new Origin(Origin.Setting.GATEWAY_OIDC_PUBLIC_URL, "http://keycloak.example:8081/")
+                        .path("/realms/finassist"))
                 .isEqualTo("http://keycloak.example:8081/realms/finassist");
     }
 
@@ -119,9 +134,110 @@ class KeycloakRegistrationTest {
     @ParameterizedTest
     @ValueSource(strings = {"localhost:5173", "/", "ftp://localhost:5173", "http://"})
     void Given_a_public_url_that_is_not_absolute_When_an_origin_is_built_Then_it_is_refused(String url) {
-        assertThatThrownBy(() -> new Origin(url))
+        assertThatThrownBy(() -> new Origin(Origin.Setting.GATEWAY_PUBLIC_URL, url))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("absolute");
+    }
+
+    /**
+     * A path is appended to every origin, so anything after the path in the configured URL would
+     * end up in the middle of the result: {@code http://localhost:5173/#/} would hand the browser
+     * {@code http://localhost:5173/#//?signin=failed}. A user-info would be handed out in every
+     * redirect built from it.
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "http://localhost:5173/#/",
+                "http://localhost:5173#",
+                "http://localhost:5173?x=1",
+                "http://localhost:5173/?",
+                "http://owner:pw@localhost:5173"
+            })
+    void Given_a_public_url_carrying_a_query_fragment_or_user_info_When_an_origin_is_built_Then_it_is_refused(
+            String url) {
+        assertThatThrownBy(() -> new Origin(Origin.Setting.GATEWAY_PUBLIC_URL, url))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * A user-info can hold a password, and the refusal reaches the start-up log, so the message
+     * names what was wrong without quoting the URL that carried it.
+     */
+    @Test
+    void Given_a_public_url_carrying_a_password_When_it_is_refused_Then_the_message_does_not_quote_it() {
+        assertThatThrownBy(() ->
+                        new Origin(Origin.Setting.GATEWAY_PUBLIC_URL, "http://owner:s3cret-in-the-url@localhost:5173"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("user-info")
+                .hasMessageNotContaining("s3cret-in-the-url")
+                .hasMessageNotContaining("owner");
+    }
+
+    /**
+     * A URL refused for not being absolute can still carry a password: an underscore in the host
+     * makes the JDK read the authority as registry-based, so no host is found, and a space makes it
+     * no URI at all. Whatever reaches the start-up log, message and causes alike, quotes neither.
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {"http://owner:s3cret-in-the-url@local_host:5173", "http://owner:s3cret-in-the-url@local host"})
+    void Given_a_malformed_public_url_carrying_a_password_When_it_is_refused_Then_nothing_logged_quotes_it(String url) {
+        assertThatThrownBy(() -> new Origin(Origin.Setting.GATEWAY_PUBLIC_URL, url))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("absolute")
+                .satisfies(refusal -> {
+                    StringWriter logged = new StringWriter();
+                    refusal.printStackTrace(new PrintWriter(logged));
+                    assertThat(logged.toString()).doesNotContain("s3cret-in-the-url");
+                });
+    }
+
+    /**
+     * The two Keycloak URLs are refused from one line, and neither refusal may quote its URL, so
+     * only the setting's name tells a bad {@code GATEWAY_OIDC_INTERNAL_URL} from a bad {@code
+     * GATEWAY_OIDC_PUBLIC_URL}. Both refusals are covered: a user-info refused as a component, and a
+     * host the JDK cannot read refused as not absolute.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {REFUSED_COMPONENT, REFUSED_AS_NOT_ABSOLUTE})
+    void Given_a_refused_backchannel_url_When_the_registration_is_built_Then_the_refusal_names_that_setting_alone(
+            String url) {
+        assertThatThrownBy(() ->
+                        new KeycloakRegistration().clientRegistrationRepository(BROWSER_FACING_URL, url, WEB, SECRET))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("GATEWAY_OIDC_INTERNAL_URL")
+                .hasMessageNotContaining("GATEWAY_OIDC_PUBLIC_URL")
+                .hasMessageNotContaining(PASSWORD_IN_THE_URL);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {REFUSED_COMPONENT, REFUSED_AS_NOT_ABSOLUTE})
+    void Given_a_refused_browser_facing_url_When_the_registration_is_built_Then_the_refusal_names_that_setting_alone(
+            String url) {
+        assertThatThrownBy(() ->
+                        new KeycloakRegistration().clientRegistrationRepository(url, BACKCHANNEL_URL, WEB, SECRET))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("GATEWAY_OIDC_PUBLIC_URL")
+                .hasMessageNotContaining("GATEWAY_OIDC_INTERNAL_URL")
+                .hasMessageNotContaining(PASSWORD_IN_THE_URL);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {REFUSED_COMPONENT, REFUSED_AS_NOT_ABSOLUTE})
+    void Given_a_refused_web_url_When_its_origin_is_built_Then_the_refusal_names_GATEWAY_PUBLIC_URL(String url) {
+        assertThatThrownBy(() -> new GatewaySecurityConfiguration().webOrigin(url))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("GATEWAY_PUBLIC_URL")
+                .hasMessageNotContaining(PASSWORD_IN_THE_URL);
+    }
+
+    /** A path prefix is allowed, as for a Keycloak served under {@code /auth}, and keeps its place. */
+    @Test
+    void Given_a_base_url_with_a_path_prefix_When_a_path_is_appended_Then_it_follows_the_prefix() {
+        assertThat(new Origin(Origin.Setting.GATEWAY_OIDC_PUBLIC_URL, "http://keycloak.example:8081/auth/")
+                        .path("/realms/finassist"))
+                .isEqualTo("http://keycloak.example:8081/auth/realms/finassist");
     }
 
     /**

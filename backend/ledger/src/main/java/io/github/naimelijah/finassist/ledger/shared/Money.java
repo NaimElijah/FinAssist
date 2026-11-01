@@ -36,9 +36,14 @@ public record Money(BigDecimal amount, Currency currency) {
         try {
             amount = amount.setScale(currency.minorUnits(), RoundingMode.UNNECESSARY);
         } catch (ArithmeticException cause) {
+            // toString, never toPlainString: an amount refused here has an exponent far from the
+            // currency's scale, in either direction - more decimal places than it admits, as in
+            // 1E-1000000, or so many places the other way that setScale overflows an int, as in
+            // 1E+2147483647. toPlainString writes either out digit by digit: a million characters
+            // for the first, and an OutOfMemoryError in place of this refusal for the second.
             throw new IllegalArgumentException(
                     "Amount "
-                            + amount.toPlainString()
+                            + amount.toString()
                             + " carries more precision than "
                             + currency
                             + " admits ("

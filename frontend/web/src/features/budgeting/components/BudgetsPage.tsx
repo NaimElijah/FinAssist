@@ -22,6 +22,9 @@ import { PeriodLabel } from './PeriodLabel';
 
 const EMPTY_MESSAGE = 'No budgets yet — define one below';
 
+/** The empty list for a viewer, who is offered no form to define one with (ADR-032). */
+const READ_ONLY_EMPTY_MESSAGE = 'No budgets yet';
+
 /** A budget's "Review" link, taking focus once when it was just defined. */
 function ReviewLink({
     budget,
@@ -108,6 +111,7 @@ function BudgetsList({
     readonly onFocused: () => void;
 }) {
     const budgets = useBudgets();
+    const { canWrite } = useWriteAccess();
     const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
         budgets.error,
         budgets.isFetching,
@@ -129,7 +133,7 @@ function BudgetsList({
         <div ref={targetRef} tabIndex={-1} className={styles.stack}>
             {failure}
             {budgets.data.length === 0 ? (
-                <EmptyState message={EMPTY_MESSAGE} />
+                <EmptyState message={canWrite ? EMPTY_MESSAGE : READ_ONLY_EMPTY_MESSAGE} />
             ) : (
                 <DataTable
                     caption="Budgets"

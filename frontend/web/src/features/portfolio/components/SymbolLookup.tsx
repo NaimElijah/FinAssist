@@ -8,16 +8,22 @@ import { holdingPath } from './paths';
 import styles from './SymbolLookup.module.css';
 
 /**
- * Matches a value with at least one character that is not white space. `required` alone accepts a
- * value of only spaces, which trims to nothing and would lead to no holding at all.
+ * Matches a value with at least one character that is not white space, and that is not `.` or
+ * `..` once trimmed. `required` alone accepts a value of only spaces, which trims to nothing and
+ * would lead to no holding at all; and `generatePath` leaves a dot segment as it is, which the
+ * router resolves to another page - `..` to the app's root. No ticker is either.
  */
-const NOT_BLANK_PATTERN = '.*\\S.*';
+const SYMBOL_PATTERN = '(?!\\s*\\.{1,2}\\s*$).*\\S.*';
 
 /**
- * What the Symbol field takes. The pattern asks only for something not blank; the assistant
- * upper-cases a symbol, so `vwce` and `VWCE` name one holding and the case typed does not matter.
+ * What the Symbol field takes and refuses. The pattern asks only for something not blank and not
+ * a dot segment; the assistant upper-cases a symbol, so `vwce` and `VWCE` name one holding and the
+ * case typed does not matter. The browser's own message for a pattern mismatch does not say which
+ * rule failed, so the dot segment is named here - in words, since a screen reader skips
+ * punctuation at its default verbosity and would read "a lone . or .." as "a lone or".
  */
-const SYMBOL_HINT = 'A ticker, in any letter case, for example VWCE';
+const SYMBOL_HINT =
+    'A ticker, in any letter case, for example VWCE; a lone dot or two dots is not a ticker';
 
 /** What the lookup's section is called. */
 export interface SymbolLookupProps {
@@ -43,7 +49,12 @@ export function SymbolLookup({ heading }: SymbolLookupProps) {
 
     function lookUp(event: SubmitEvent<HTMLFormElement>) {
         event.preventDefault();
-        // Native `required` and `pattern` refuse a blank symbol before this runs.
+        // Native `required` and `pattern` refuse a blank or dot symbol before a submit the browser
+        // validated; one dispatched by script arrives unvalidated, so the same rule is checked
+        // here, and its native message shown, before anything navigates.
+        if (!event.currentTarget.reportValidity()) {
+            return;
+        }
         const trimmed = symbol.trim();
         refreshHolding(trimmed);
         void navigate(holdingPath(trimmed));
@@ -60,7 +71,7 @@ export function SymbolLookup({ heading }: SymbolLookupProps) {
                     name="symbol"
                     hint={SYMBOL_HINT}
                     required
-                    pattern={NOT_BLANK_PATTERN}
+                    pattern={SYMBOL_PATTERN}
                     autoComplete="off"
                     spellCheck={false}
                     value={symbol}

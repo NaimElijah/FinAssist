@@ -4,13 +4,23 @@
  * Every query key comes from `planKeys`, so a mutation invalidates exactly what a query reads
  * rather than a key spelled twice.
  */
-import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+    type NetworkMode,
+    type QueryClient,
+    useIsMutating,
+    useMutation,
+    useQuery,
+    useQueryClient,
+} from '@tanstack/react-query';
+
+import { hasProblemCode } from '@/shared/api/client';
 
 import {
     cancelFlow,
     commitFlow,
     compareScenarios,
     defineScenario,
+    ILLEGAL_TRANSITION,
     listPlannedFlows,
     listScenarios,
     planFlow,
@@ -192,10 +202,73 @@ export function usePlanFlow() {
     });
 }
 
+/**
+ * The mutation key Commit, Realise and Cancel share, so a page can tell that one is in flight. It
+ * lives in the mutation cache, apart from every query key in `planKeys`.
+ */
+const FLOW_LIFECYCLE_KEY = [...PLANS_KEY, 'lifecycle'] as const;
+
+/**
+ * How Commit, Realise and Cancel meet the network. `'always'` sends one submitted offline at once,
+ * so it fails as a retryable network error the panel shows. TanStack Query's default,
+ * `'online'`, holds it paused and pending instead, while the panel disables Cancel and the page
+ * every other row's action: the owner would be stuck, with nothing on screen saying why.
+ */
+const LIFECYCLE_NETWORK_MODE: NetworkMode = 'always';
+
+/** Whether a flow lifecycle mutation is in flight, read two ways. */
+export interface LifecycleInFlight {
+    /** As of the last render, for disabling the controls that would start another. */
+    readonly pending: boolean;
+    /**
+     * Read from the mutation cache at call time, for an event handler: a click can land after
+     * `mutate` has started a request but before the render that disables those controls.
+     */
+    readonly isPendingNow: () => boolean;
+}
+
+/**
+ * Whether a Commit, Realise or Cancel is in flight anywhere on screen.
+ *
+ * A page holding one lifecycle panel at a time reads it before replacing the open panel: the panel
+ * owns its mutation's `mutate` callbacks, which TanStack Query drops once their observer
+ * unmounts, so replacing it mid-flight would lose the outcome - a 504 "outcome unknown" included
+ * (ADR-067).
+ *
+ * @returns the in-flight state, as rendered and as of now.
+ */
+export function useFlowLifecycleInFlight(): LifecycleInFlight {
+    const queryClient = useQueryClient();
+    const pending = useIsMutating({ mutationKey: FLOW_LIFECYCLE_KEY }) > 0;
+    return {
+        pending,
+        isPendingNow: () => queryClient.isMutating({ mutationKey: FLOW_LIFECYCLE_KEY }) > 0,
+    };
+}
+
 /** One lifecycle mutation's variables: which flow, and the date the action took effect. */
 interface TransitionVariables {
     readonly flowId: string;
     readonly on: string;
+}
+
+/**
+ * After a lifecycle action fails, refetch the flows list when the ledger refused it as 409
+ * `ILLEGAL_TRANSITION`: the flow moved elsewhere since the page read it, and refetch on focus is
+ * off, so its row would otherwise keep showing the stale state and offering the action just
+ * refused. Any other failure answered the request as sent and changed nothing, so nothing is
+ * refetched.
+ *
+ * @returns the settled refetch on a 409, so a caller can return it from `onError` and stay
+ *   pending until the row reflects the refusal; otherwise `undefined`.
+ */
+function refreshAfterIllegalTransition(
+    queryClient: QueryClient,
+    error: unknown,
+): Promise<unknown> | undefined {
+    return hasProblemCode(error, ILLEGAL_TRANSITION)
+        ? queryClient.invalidateQueries({ queryKey: planKeys.flows })
+        : undefined;
 }
 
 /**
@@ -210,8 +283,11 @@ interface TransitionVariables {
 export function useCommitFlow() {
     const queryClient = useQueryClient();
     return useMutation({
+        mutationKey: FLOW_LIFECYCLE_KEY,
+        networkMode: LIFECYCLE_NETWORK_MODE,
         mutationFn: ({ flowId, on }: TransitionVariables) => commitFlow(flowId, on),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: planKeys.flows }),
+        onError: (error) => refreshAfterIllegalTransition(queryClient, error),
     });
 }
 
@@ -246,8 +322,11 @@ function invalidateAfterLeavingProjection(queryClient: QueryClient): Promise<unk
 export function useRealiseFlow() {
     const queryClient = useQueryClient();
     return useMutation({
+        mutationKey: FLOW_LIFECYCLE_KEY,
+        networkMode: LIFECYCLE_NETWORK_MODE,
         mutationFn: ({ flowId, on }: TransitionVariables) => realiseFlow(flowId, on),
         onSuccess: () => invalidateAfterLeavingProjection(queryClient),
+        onError: (error) => refreshAfterIllegalTransition(queryClient, error),
     });
 }
 
@@ -266,8 +345,11 @@ interface CancelVariables extends TransitionVariables {
 export function useCancelFlow() {
     const queryClient = useQueryClient();
     return useMutation({
+        mutationKey: FLOW_LIFECYCLE_KEY,
+        networkMode: LIFECYCLE_NETWORK_MODE,
         mutationFn: ({ flowId, on, reason }: CancelVariables) => cancelFlow(flowId, on, reason),
         onSuccess: () => invalidateAfterLeavingProjection(queryClient),
+        onError: (error) => refreshAfterIllegalTransition(queryClient, error),
     });
 }
 

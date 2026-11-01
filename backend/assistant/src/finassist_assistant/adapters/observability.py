@@ -143,11 +143,6 @@ def set_correlation_id(value: str | None) -> None:
     _correlation_id.set(value)
 
 
-def current_correlation_id() -> str | None:
-    """The correlation id bound to the current context, if any."""
-    return _correlation_id.get()
-
-
 def trace_id_of(traceparent: str | None) -> str | None:
     """Extract the trace id from a ``traceparent``, or ``None`` if it is not one.
 

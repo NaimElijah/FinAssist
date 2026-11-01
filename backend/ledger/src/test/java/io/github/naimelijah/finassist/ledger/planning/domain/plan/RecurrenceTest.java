@@ -12,6 +12,9 @@ class RecurrenceTest {
     private static final LocalDate JANUARY = LocalDate.of(2026, 1, 1);
     private static final LocalDate NEXT_JANUARY = LocalDate.of(2027, 1, 1);
 
+    /** A billion years: one step from 2026 passes {@link LocalDate#MAX}'s year of 999,999,999. */
+    private static final int HUGE_INTERVAL = 1_000_000_000;
+
     @Test
     void Given_a_one_off_within_the_range_When_expanded_Then_it_yields_its_own_date() {
         assertThat(new Recurrence.Once().occurrences(JANUARY, JANUARY, NEXT_JANUARY))
@@ -52,6 +55,43 @@ class RecurrenceTest {
 
         assertThat(everyOther.occurrences(JANUARY, JANUARY, NEXT_JANUARY))
                 .containsExactly(JANUARY, LocalDate.of(2026, 3, 1), LocalDate.of(2026, 5, 1));
+    }
+
+    /**
+     * The expansion stops at the whole months between the start and the range's end, ten here; the
+     * tenth step, 15 December, is the last that lands inside and must not be cut off.
+     */
+    @Test
+    void Given_a_monthly_recurrence_whose_last_occurrence_is_the_final_whole_month_When_expanded_Then_it_is_kept() {
+        Recurrence monthly = new Recurrence.Times(Cadence.MONTHLY, 1, 12);
+        LocalDate midFebruary = LocalDate.of(2026, 2, 15);
+
+        assertThat(monthly.occurrences(midFebruary, midFebruary, NEXT_JANUARY))
+                .containsExactly(
+                        midFebruary,
+                        LocalDate.of(2026, 3, 15),
+                        LocalDate.of(2026, 4, 15),
+                        LocalDate.of(2026, 5, 15),
+                        LocalDate.of(2026, 6, 15),
+                        LocalDate.of(2026, 7, 15),
+                        LocalDate.of(2026, 8, 15),
+                        LocalDate.of(2026, 9, 15),
+                        LocalDate.of(2026, 10, 15),
+                        LocalDate.of(2026, 11, 15),
+                        LocalDate.of(2026, 12, 15));
+    }
+
+    /**
+     * Two whole months separate 31 January from 1 April, and the second step lands on the bound
+     * exactly: 31 March is inside the range and must be yielded.
+     */
+    @Test
+    void Given_an_every_other_month_recurrence_from_the_31st_When_its_step_lands_on_the_bound_Then_it_is_kept() {
+        Recurrence everyOther = new Recurrence.Times(Cadence.MONTHLY, 2, 3);
+        LocalDate endOfJanuary = LocalDate.of(2026, 1, 31);
+
+        assertThat(everyOther.occurrences(endOfJanuary, endOfJanuary, LocalDate.of(2026, 4, 1)))
+                .containsExactly(endOfJanuary, LocalDate.of(2026, 3, 31));
     }
 
     @Test
@@ -110,6 +150,25 @@ class RecurrenceTest {
         Recurrence yearly = new Recurrence.Times(Cadence.YEARLY, 1, 5);
 
         assertThat(yearly.occurrences(JANUARY, JANUARY, NEXT_JANUARY)).containsExactly(JANUARY);
+    }
+
+    /**
+     * An interval is bounded below only, so a caller can plan one so long that its second occurrence
+     * lies past the last date {@link LocalDate} can hold. Only the first can fall in any range, and
+     * computing the second must not be attempted, or the expansion throws rather than answers.
+     */
+    @Test
+    void Given_a_bounded_recurrence_with_an_interval_beyond_the_calendar_When_expanded_Then_it_yields_only_the_first() {
+        Recurrence until = new Recurrence.Until(Cadence.YEARLY, HUGE_INTERVAL, LocalDate.of(2030, 1, 1));
+
+        assertThat(until.occurrences(JANUARY, JANUARY, NEXT_JANUARY)).containsExactly(JANUARY);
+    }
+
+    @Test
+    void Given_a_counted_recurrence_with_an_interval_beyond_the_calendar_When_expanded_Then_it_yields_only_the_first() {
+        Recurrence times = new Recurrence.Times(Cadence.YEARLY, HUGE_INTERVAL, 3);
+
+        assertThat(times.occurrences(JANUARY, JANUARY, NEXT_JANUARY)).containsExactly(JANUARY);
     }
 
     /**

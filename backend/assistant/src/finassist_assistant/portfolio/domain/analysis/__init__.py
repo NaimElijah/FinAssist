@@ -114,10 +114,15 @@ def consume_fifo(lots: tuple[Lot, ...], quantity: Decimal) -> Disposal:
     The lots must be one holding, as :func:`position` requires, and are refused before anything
     is consumed, whatever the quantity.
 
-    :raises ValueError: if the quantity is not positive, or the lots cover more than one symbol
+    :raises ValueError: if the quantity is not finite or not positive, or the lots cover more
+        than one symbol
     :raises CurrencyMismatchError: if the lots cost more than one currency
     :raises InsufficientHoldingError: if fewer units are held than requested
     """
+    # Checked before the comparison below, which raises decimal.InvalidOperation on a NaN, as
+    # Lot does; an infinite quantity would otherwise be refused as a holding too small.
+    if not quantity.is_finite():
+        raise ValueError(f"A disposal must be of a finite quantity but was {quantity}")
     if quantity <= 0:
         raise ValueError(f"A disposal must be of a positive quantity but was {quantity}")
     _require_one_holding(lots)

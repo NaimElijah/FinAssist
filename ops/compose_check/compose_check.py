@@ -6,23 +6,28 @@
 
 `make check-compose` pipes `docker compose config --format json`, under every profile, into this
 script's standard input (ADR-049). Every long-running service must take the restart policy and the
-log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, the one-shot services
-must take neither, and four healthchecks must probe readiness (#142, ADR-039). Every published port
-must bind `127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit
-behind exactly the `smoke` profile and `secret-check` behind none (ADR-034, ADR-044). Every
-service but the two databases must take the `x-hardened` block's `cap_drop` and `security_opt`,
-and every one but those and Keycloak must set `read_only`; no service, a database included, may
-set `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as root by
-`user`, or bind-mount a file named `docker.sock`; and each database must attach to one network
-alone, shared with its one client and nothing else, judged by the Docker network each key resolves
-to, so that no other key may resolve to it, neither database network may be `external`, and
-`identity` must be `internal` (ADR-063). No service may set `network_mode` but `secret-check`, whose
-must be exactly `none`, and Prometheus's `command` must carry exactly `--web.cors.origin=`, the
-empty regex, which grants no origin, with no `entrypoint` to run it otherwise (ADR-057). Neither the
-ledger nor the gateway may set, in its environment, a key that reopens the Actuator exposure their
-code pins, nor a `command` or `entrypoint`, whose arguments would reach Spring as properties; nor
-may the gateway set a log level, a log group, a logging configuration or Spring Boot's `debug` or
-`trace` switch, since below INFO it logs credentials.
+log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, those blocks must hold
+ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shot services must take
+neither, and four healthchecks must probe readiness, any that runs `curl` doing so in exec form with
+`-f`, so that a 503 fails it (#142, ADR-039). Every published port must bind `127.0.0.1` and
+`keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit behind exactly the `smoke`
+profile and `secret-check` behind none, and `db`, `keycloak-db` and `grafana` must each depend on
+`secret-check` with `condition: service_completed_successfully` (ADR-034, ADR-044). Every service
+but the two databases must take the `x-hardened` block's `cap_drop` and `security_opt`, and every
+one but those and Keycloak must set `read_only`; no service, a database included, may set `cap_add`,
+`privileged`, `pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as root by `user`, or bind-mount
+a file named `docker.sock`; and each database must attach to one network alone, shared with its one
+client and nothing else, judged by the Docker network each key resolves to, so that no other key may
+resolve to it, neither database network may be `external`, and `identity` must be `internal`
+(ADR-063). No service may set `network_mode` but `secret-check`, whose must be exactly `none`, and
+Prometheus's `command` must carry exactly `--web.cors.origin=`, the empty regex, which grants no
+origin, with no `entrypoint` to run it otherwise (ADR-057). Neither the ledger nor the gateway may
+set, in its environment, a key that reopens the Actuator exposure their code pins, nor a `command`
+or `entrypoint`, whose arguments would reach Spring as properties, nor a volume, `volumes_from`, a
+config, a secret or a `working_dir`, which could put a configuration file in the working directory
+or its `config/`, where Spring reads one; nor may the gateway set a log level, a log group, a
+logging configuration or Spring Boot's `debug` or `trace` switch, since below INFO it logs
+credentials.
 
 It reads the resolved file, not its text, so an alias that stops resolving fails as surely as a
 service that never took one, and a block copied in with other values fails too.
@@ -47,6 +52,16 @@ EXIT_FAILED: Final = 1
 EXIT_MISCONFIGURED: Final = 2
 RESTART_BLOCK: Final = "x-restart-policy"
 LOGGING_BLOCK: Final = "x-logging"
+# ADR-039's decision, so a block changed in the file, every service following it, still fails.
+RESTART_POLICY: Final = "unless-stopped"
+LOG_DRIVER: Final = "json-file"
+LOG_MAX_SIZE: Final = "10m"
+LOG_MAX_FILES: Final = "3"
+# The block as `config` resolves it, so it compares equal to the resolved file's.
+_BOUNDED_LOGS: Final = {
+    "driver": LOG_DRIVER,
+    "options": {"max-size": LOG_MAX_SIZE, "max-file": LOG_MAX_FILES},
+}
 # Their failure must stay a failure rather than loop (docker-compose.yml).
 ONE_SHOT_SERVICES: Final = frozenset({"auth-smoke", "secret-check"})
 # Readiness, not liveness, so `service_healthy` means "can serve" (docker-compose.yml).
@@ -56,6 +71,164 @@ READINESS_PROBES: Final = {
     "assistant": "/ready",
     "keycloak": "/health/ready",
 }
+# curl exits 0 on any HTTP status unless told to fail, so without one of these a readiness probe
+# passes on the 503 a service that is not ready answers. `-f` may sit in a cluster such as `-fsS`;
+# the later of an option and its `--no-` form wins, so a negation anywhere is refused.
+CURL: Final = "curl"
+CURL_FAIL_OPTIONS: Final = frozenset({"-f", "--fail", "--fail-with-body"})
+CURL_NO_FAIL_OPTIONS: Final = frozenset({"--no-fail", "--no-fail-with-body"})
+# Only exec form runs curl with exactly the arguments read here: a shell could run another command
+# first, test curl's output instead of its status, or turn its failure into success.
+EXEC_FORM: Final = "CMD"
+# curl's short options that take no argument (`curl --help all`, 8.17), digits and `#` among them.
+# Any other character in a cluster takes the rest of it, or the next word, as its argument, so
+# `-sofile` writes to `file` and `-4o -f` to a file named `-f`, and neither fails; an unlisted
+# character is assumed to take one, so an unknown option fails the rule. `-:` (`--next`) takes none
+# but starts another URL's options, so it stays unlisted and fails closed.
+CURL_FLAG_SHORTS: Final = frozenset("aBfgGiIjJklLMnNOpqRsSvVZ012346#")
+# A single dash and anything but a second one opens a cluster, whatever character follows it; a
+# bare `-` is no option.
+_SHORT_OPTIONS: Final = re.compile(r"-[^-].*", re.DOTALL)
+# curl's long options that take no argument (`curl --help all`, 8.17). Any other takes the next word
+# as its argument, so `--output -f` writes to a file named `-f` and never fails; an unlisted one is
+# assumed to take one, as an unlisted short option is, and curl refuses an option it does not know
+# anyway.
+# The `--no-<name>` form of each, where curl has one, takes none either. `--name=value` is a single
+# word, which curl 8.17 refuses as unknown, so it takes nothing further.
+CURL_FLAG_LONGS: Final = frozenset(
+    {
+        "--anyauth",
+        "--append",
+        "--basic",
+        "--ca-native",
+        "--cert-status",
+        "--compressed",
+        "--compressed-ssh",
+        "--create-dirs",
+        "--crlf",
+        "--digest",
+        "--disable",
+        "--disable-eprt",
+        "--disable-epsv",
+        "--disallow-username-in-url",
+        "--doh-cert-status",
+        "--doh-insecure",
+        "--dump-ca-embed",
+        "--fail",
+        "--fail-early",
+        "--fail-with-body",
+        "--false-start",
+        "--follow",
+        "--form-escape",
+        "--ftp-create-dirs",
+        "--ftp-pasv",
+        "--ftp-pret",
+        "--ftp-skip-pasv-ip",
+        "--ftp-ssl-ccc",
+        "--ftp-ssl-control",
+        "--get",
+        "--globoff",
+        "--haproxy-protocol",
+        "--head",
+        "--http0.9",
+        "--http1.0",
+        "--http1.1",
+        "--http2",
+        "--http2-prior-knowledge",
+        "--http3",
+        "--http3-only",
+        "--ignore-content-length",
+        "--insecure",
+        "--ipv4",
+        "--ipv6",
+        "--junk-session-cookies",
+        "--list-only",
+        "--location",
+        "--location-trusted",
+        "--mail-rcpt-allowfails",
+        "--manual",
+        "--metalink",
+        "--mptcp",
+        "--negotiate",
+        "--netrc",
+        "--netrc-optional",
+        "--next",
+        "--no-alpn",
+        "--no-buffer",
+        "--no-clobber",
+        "--no-keepalive",
+        "--no-npn",
+        "--no-progress-meter",
+        "--no-sessionid",
+        "--ntlm",
+        "--ntlm-wb",
+        "--out-null",
+        "--parallel",
+        "--parallel-immediate",
+        "--path-as-is",
+        "--post301",
+        "--post302",
+        "--post303",
+        "--progress-bar",
+        "--proxy-anyauth",
+        "--proxy-basic",
+        "--proxy-ca-native",
+        "--proxy-digest",
+        "--proxy-http2",
+        "--proxy-insecure",
+        "--proxy-negotiate",
+        "--proxy-ntlm",
+        "--proxy-ssl-allow-beast",
+        "--proxy-ssl-auto-client-cert",
+        "--proxy-tlsv1",
+        "--proxytunnel",
+        "--raw",
+        "--remote-header-name",
+        "--remote-name",
+        "--remote-name-all",
+        "--remote-time",
+        "--remove-on-error",
+        "--retry-all-errors",
+        "--retry-connrefused",
+        "--sasl-ir",
+        "--show-error",
+        "--show-headers",
+        "--silent",
+        "--skip-existing",
+        "--socks5-basic",
+        "--socks5-gssapi",
+        "--socks5-gssapi-nec",
+        "--ssl",
+        "--ssl-allow-beast",
+        "--ssl-auto-client-cert",
+        "--ssl-no-revoke",
+        "--ssl-reqd",
+        "--ssl-revoke-best-effort",
+        "--sslv2",
+        "--sslv3",
+        "--styled-output",
+        "--suppress-connect-headers",
+        "--tcp-fastopen",
+        "--tcp-nodelay",
+        "--tftp-no-options",
+        "--tls-earlydata",
+        "--tlsv1",
+        "--tlsv1.0",
+        "--tlsv1.1",
+        "--tlsv1.2",
+        "--tlsv1.3",
+        "--tr-encoding",
+        "--trace-ids",
+        "--trace-time",
+        "--use-ascii",
+        "--verbose",
+        "--version",
+        "--xattr",
+    }
+)
+CURL_LONG_PREFIX: Final = "--"
+CURL_NEGATION_PREFIX: Final = "--no-"
+CURL_INLINE_VALUE: Final = "="
 # The Spring services pin their Actuator exposure in code, and their tests read the test JVM's
 # environment, never Compose's: so a Compose key that reopens it would pass every other test.
 SPRING_SERVICES: Final = frozenset({"ledger", "gateway"})
@@ -68,6 +241,10 @@ SPRING_CONFIG_PREFIX: Final = "SPRING_CONFIG_"
 # reads from one of these, or an argument a Compose command appends, outranks application.yml too.
 JVM_OPTION_VARIABLES: Final = frozenset({"JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS"})
 COMMAND_LINE_MEMBERS: Final = ("command", "entrypoint")
+# Spring Boot also reads `application.*` from its working directory, `/app` in both images, and from
+# `config/` beneath it, so a file put there, or a working directory moved onto one, sets properties
+# as surely as SPRING_CONFIG_*. Today both services mount only a tmpfs on /tmp.
+CONFIGURATION_FILE_MEMBERS: Final = ("volumes", "volumes_from", "configs", "secrets", "working_dir")
 # DEBUG on the gateway's Spring Web or Security loggers writes the authorization code, its PKCE
 # verifier and a refresh grant's form body: so its levels stay as application.yml sets them.
 LEVEL_PINNED_SERVICES: Final = frozenset({"gateway"})
@@ -84,6 +261,13 @@ UNPUBLISHED_SERVICES: Final = frozenset({"keycloak-db"})
 # `auth-smoke` runs only by hand (ADR-034); `secret-check` runs on every `up`, since the databases
 # and Grafana wait on it (ADR-044). A service missing from the file has no profiles.
 PINNED_PROFILES: Final = {"auth-smoke": ("smoke",), "secret-check": ()}
+# The secret check gates every database and Grafana, and every other service holding a secret
+# waits on one of those (ADR-044). Only a pass releases them: `service_started` would not wait for
+# its verdict, and `required: false` lets the service start without it. Compose defaults
+# `required` to true, so a resolved file that omits it is gated.
+SECRET_CHECK: Final = "secret-check"
+GATED_SERVICES: Final = frozenset({"db", "keycloak-db", "grafana"})
+GATE_CONDITION: Final = "service_completed_successfully"
 # Least privilege for every container (ADR-063): the rules name the exemptions, never the services
 # held to them, so a service added later is hardened unless it is exempted here on purpose.
 HARDENED_BLOCK: Final = "x-hardened"
@@ -145,13 +329,14 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
     convention: one line per problem, and none when it follows them all.
 
     The lines come in a fixed order: the file's own `x-` blocks and networks first, then each
-    service's problems with the services in name order, then the pinned profiles, Prometheus's
-    CORS flag and entrypoint, and the readiness probes last.
+    service's problems with the services in name order, then the pinned profiles, the secret
+    check's gate, Prometheus's CORS flag and entrypoint, and the readiness probes last.
 
     :raises ComposeCheckError: when `services`, a service, an environment, a healthcheck, a port,
-        a volume, a service's networks, the top-level `networks` or a network in it is not a
-        mapping, a service's `ports` or `volumes` is not a list, its `user` is not a string, a
-        network has no name, or a service names a network the file does not declare.
+        a volume, a service's networks or `depends_on`, a dependency in it, the top-level
+        `networks` or a network in it is not a mapping, a service's `ports` or `volumes` is not a
+        list, its `user` is not a string, a network has no name, or a service names a network the
+        file does not declare.
     """
     services = _mapping(resolved.get("services"), "services")
     policy = resolved.get(RESTART_BLOCK)
@@ -159,6 +344,13 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
     found: list[str] = []
     if policy is None or bounded_logs is None:
         found.append(f"the resolved file holds no {RESTART_BLOCK} or {LOGGING_BLOCK} block")
+    if policy is not None and policy != RESTART_POLICY:
+        found.append(f"the resolved file's {RESTART_BLOCK} block must be {RESTART_POLICY}")
+    if bounded_logs is not None and bounded_logs != _BOUNDED_LOGS:
+        found.append(
+            f"the resolved file's {LOGGING_BLOCK} block must be {LOG_DRIVER}, "
+            f"max-size {LOG_MAX_SIZE}, max-file {LOG_MAX_FILES}"
+        )
     if resolved.get(HARDENED_BLOCK) != _HARDENED_MEMBERS:
         found.append(
             f"the resolved file's {HARDENED_BLOCK} block must drop {', '.join(NO_CAPABILITIES)} "
@@ -187,6 +379,12 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
                 for member in COMMAND_LINE_MEMBERS
                 if service.get(member)
             )
+            found.extend(
+                f"{name}: must not set {member}, which can put a configuration where Spring "
+                "reads one"
+                for member in CONFIGURATION_FILE_MEMBERS
+                if service.get(member)
+            )
         ports = _ports(service.get("ports"))
         if any(port.get("host_ip") != LOOPBACK_HOST_IP for port in ports):
             found.append(f"{name}: each of its ports must bind host_ip {LOOPBACK_HOST_IP}")
@@ -204,6 +402,12 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
                 if profiles
                 else f"{name}: must take no profiles"
             )
+    for name in sorted(GATED_SERVICES):
+        service = _mapping(services.get(name) or {}, "a service")
+        dependencies = _mapping(service.get("depends_on") or {}, "a service's depends_on")
+        gate = _mapping(dependencies.get(SECRET_CHECK) or {}, "a dependency")
+        if gate.get("condition") != GATE_CONDITION or gate.get("required", True) is not True:
+            found.append(f"{name}: must depend on {SECRET_CHECK} with condition {GATE_CONDITION}")
     prometheus = _mapping(services.get(CORS_PINNED_SERVICE) or {}, "a service")
     cors = [
         argument
@@ -225,9 +429,58 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
     for name, path in READINESS_PROBES.items():
         service = _mapping(services.get(name) or {}, "a service")
         healthcheck = _mapping(service.get("healthcheck") or {}, "a healthcheck")
-        if path not in _command(healthcheck.get("test")):
+        test = _arguments(healthcheck.get("test"))
+        command = " ".join(test)
+        if path not in command:
             found.append(f"{name}: its healthcheck must probe {path}")
+        else:
+            found.extend(_curl_probe_problems(name, test))
     return found
+
+
+def _curl_probe_problems(name: str, test: list[str]) -> list[str]:
+    # A word merely containing curl counts, so a quoted `'curl'` or a `$(curl` is caught too.
+    if not any(CURL in _file_name(word) for word in " ".join(test).split()):
+        return []
+    if not (len(test) > 1 and test[0] == EXEC_FORM and _file_name(test[1]) == CURL):
+        return [f"{name}: a curl probe must run curl directly in exec form"]
+    options = frozenset(_curl_options(test[2:]))
+    if not options & CURL_FAIL_OPTIONS:
+        return [f"{name}: its curl probe must pass -f, so a failing status fails it"]
+    if options & CURL_NO_FAIL_OPTIONS:
+        return [
+            f"{name}: its curl probe must not cancel -f with "
+            f"{' or '.join(sorted(CURL_NO_FAIL_OPTIONS))}"
+        ]
+    return []
+
+
+def _curl_options(arguments: list[str]) -> list[str]:
+    """The options curl reads from these arguments, a cluster's characters each as `-<character>`.
+
+    A word curl takes as an option's argument is no option, wherever it starts with a dash.
+    """
+    options: list[str] = []
+    words = iter(arguments)
+    for word in words:
+        if _SHORT_OPTIONS.fullmatch(word):
+            letters = word[1:]
+            for position, letter in enumerate(letters):
+                options.append(f"-{letter}")
+                if letter not in CURL_FLAG_SHORTS:
+                    if position == len(letters) - 1:
+                        next(words, None)
+                    break
+        elif word.startswith(CURL_LONG_PREFIX):
+            options.append(word)
+            if not _takes_no_argument(word):
+                next(words, None)
+    return options
+
+
+def _takes_no_argument(option: str) -> bool:
+    flag = CURL_LONG_PREFIX + option.removeprefix(CURL_NEGATION_PREFIX)
+    return CURL_INLINE_VALUE in option or option in CURL_FLAG_LONGS or flag in CURL_FLAG_LONGS
 
 
 def _hardening_problems(name: str, service: Mapping[str, object]) -> list[str]:
@@ -394,17 +647,10 @@ def _lowers_log_level(key: str) -> bool:
 
 
 def _arguments(command: object) -> list[str]:
-    """A service's `command` as its arguments, or none when it is not a list of strings."""
+    """A `command` or a healthcheck's `test` as its words, or none unless a list of strings."""
     if isinstance(command, list) and all(isinstance(part, str) for part in command):
         return command
     return []
-
-
-def _command(test: object) -> str:
-    """A healthcheck's command as one string, or empty when it has none Compose could run."""
-    if isinstance(test, list) and all(isinstance(part, str) for part in test):
-        return " ".join(test)
-    return ""
 
 
 def _report(line: str) -> None:

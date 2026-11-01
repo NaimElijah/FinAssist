@@ -9,11 +9,7 @@
 import { BFF_API, requestJson, sendJson } from '@/shared/api/client';
 import type { LogoutResponse, SessionResponse } from '@/shared/api/contracts/gateway/types.gen';
 
-/** The realm role ADR-032 grants only read permissions to. */
-const VIEWER_ROLE = 'viewer';
-
-/** The realm role ADR-032 grants read and write permissions to. */
-const OWNER_ROLE = 'owner';
+import { OWNER_ROLE, VIEWER_ROLE } from './roles';
 
 /** Who is signed in, in the app's own words: the gateway's `subject`, `name` and realm `roles`. */
 export interface Session {

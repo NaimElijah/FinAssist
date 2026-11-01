@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from decimal import (
     MAX_EMAX,
@@ -11,10 +12,26 @@ from decimal import (
     Context,
     Decimal,
     Inexact,
+    InvalidOperation,
     localcontext,
 )
 
 from finassist_assistant.shared.currency import Currency
+
+# What the ledger's Money.of reads: new BigDecimal(text) admits an optional sign, digits with an
+# optional point, and an optional exponent, and nothing else - no whitespace, underscores, NaN or
+# Infinity, all of which Python's Decimal accepts. Its digits are any Unicode decimal digit
+# Character.digit knows, read one UTF-16 unit at a time, so one outside the Basic Multilingual
+# Plane is refused; the lookahead keeps \d to that plane.
+_DIGIT = r"(?:(?![\U00010000-\U0010FFFF])\d)"
+_DECIMAL_TEXT = re.compile(
+    rf"[+-]?(?:{_DIGIT}+(?:\.{_DIGIT}*)?|\.{_DIGIT}+)(?:[eE][+-]?{_DIGIT}+)?"
+)
+
+# BigDecimal's scale is a Java int, so text whose scale falls outside one is refused as an
+# exponent overflow before the ledger's Money ever sees it.
+_MIN_SCALE = -(2**31)
+_MAX_SCALE = 2**31 - 1
 
 
 class CurrencyMismatchError(ValueError):
@@ -145,8 +162,34 @@ class Money:
 
         Text rather than a float literal on purpose: ``Decimal(12.50)`` captures the binary
         approximation of 12.5, which is not 12.50.
+
+        Reads exactly the text the ledger's ``Money.of`` reads, and refuses the same scales, so
+        one amount cannot parse on one side and be refused on the other. An amount too large for
+        Java's ``BigInteger``, around 1E+646456993, is still refused by the ledger alone: whether
+        to bound an amount's size is #416's decision.
+
+        :raises ValueError: if ``amount`` is not plain decimal text, or names an amount the
+            currency cannot represent
         """
-        return cls(Decimal(amount), currency)
+        if _DECIMAL_TEXT.fullmatch(amount) is None:
+            raise ValueError(f"Amount {amount!r} is not a decimal number")
+        try:
+            parsed = Decimal(amount)
+        except InvalidOperation as cause:
+            # Only an exponent past Decimal's own range gets here, far past a Java int's.
+            raise ValueError(f"Amount {amount!r} is not a decimal number") from cause
+        scale = -int(parsed.as_tuple().exponent)
+        if not _MIN_SCALE <= scale <= _MAX_SCALE:
+            raise ValueError(f"Amount {amount!r} is not a decimal number: its exponent overflows")
+        if currency.minor_units - scale > _MAX_SCALE:
+            # The ledger's setScale computes this difference as a long and refuses one past an
+            # int, which its Money reports as excess precision. Refused here before the
+            # constructor, which would otherwise write out over two billion digits to accept it.
+            raise ValueError(
+                f"Amount {amount!r} carries more precision than {currency.name} admits "
+                f"({currency.minor_units} decimal places); its exponent overflows a Java int"
+            )
+        return cls(parsed, currency)
 
     @classmethod
     def zero(cls, currency: Currency) -> Money:

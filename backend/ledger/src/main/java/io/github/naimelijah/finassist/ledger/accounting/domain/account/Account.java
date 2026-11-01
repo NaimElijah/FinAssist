@@ -17,7 +17,8 @@ import java.util.Objects;
  * an {@code Account}, so nothing in the domain can look the currency up. Enforcing it needs a
  * repository, so it belongs to the application layer: {@code RecordTransactionUseCase} refuses a
  * mis-currencied entry with {@code EntryCurrencyMismatchException} before anything is stored, and
- * {@code V1_1__accounting_schema.sql}'s deferred balancing trigger refuses one again at commit.
+ * {@code V1_6}'s foreign key {@code journal_entry_in_account_currency} refuses one again as it is
+ * inserted.
  */
 public record Account(AccountId id, String name, AccountType type, Currency currency) {
 

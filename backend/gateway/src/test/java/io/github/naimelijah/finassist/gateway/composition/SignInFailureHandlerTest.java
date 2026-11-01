@@ -82,7 +82,8 @@ class SignInFailureHandlerTest {
     private MockHttpServletResponse failWith(AuthenticationException failure) throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/bff/login/oauth2/code/keycloak");
         MockHttpServletResponse response = new MockHttpServletResponse();
-        new SignInFailureHandler(new Origin(WEB_ORIGIN)).onAuthenticationFailure(request, response, failure);
+        new SignInFailureHandler(new Origin(Origin.Setting.GATEWAY_PUBLIC_URL, WEB_ORIGIN))
+                .onAuthenticationFailure(request, response, failure);
         return response;
     }
 

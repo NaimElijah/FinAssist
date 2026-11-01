@@ -49,6 +49,9 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
 
     private static final Actor RECORDER = new Actor("owner-user");
 
+    /** Blank to {@code String.isBlank}, and not to PostgreSQL's {@code btrim}, which strips spaces alone. */
+    private static final String TAB = "\t";
+
     @Autowired
     private AccountRepository accounts;
 
@@ -401,6 +404,56 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                 .hasNoCause()
                 .message()
                 .doesNotContain("10.005");
+    }
+
+    /**
+     * {@code journal_transaction_description_not_blank} uses {@code btrim}, which strips spaces alone, so
+     * a description of a tab passes it and not {@code String.isBlank}. A stored transaction {@code
+     * Transaction} refuses is a server fault naming the transaction, not a 422 rule the caller broke,
+     * and it carries no cause, so the domain's refusal is never chained into what the log records.
+     */
+    @Test
+    void Given_a_transaction_stored_with_a_description_only_java_counts_as_blank_When_read_Then_it_is_a_server_fault() {
+        TransactionId id = TransactionId.generate();
+        inOneTransaction(() -> {
+            insertHeader(id, "ILS", TAB);
+            jdbc().sql("""
+                            INSERT INTO accounting.journal_entry (transaction_id, ordinal, account_id, amount, currency) VALUES
+                                (:id, 0, :groceries, 10.00, 'ILS'),
+                                (:id, 1, :cash, -10.00, 'ILS')
+                            """)
+                    .param("id", id.value())
+                    .param("groceries", groceries.id().value())
+                    .param("cash", cash.id().value())
+                    .update();
+            insertOpeningState(id);
+        });
+
+        assertThatThrownBy(() -> transactions.findById(id))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("accounting.journal_transaction")
+                .hasMessageContaining(id.value().toString())
+                .hasNoCause();
+    }
+
+    /** The state row's own check uses {@code btrim} too, so a void's reason of a tab is stored and refused on read. */
+    @Test
+    void Given_a_void_stored_with_a_reason_only_java_counts_as_blank_When_read_Then_it_is_a_server_fault() {
+        Transaction recorded = record(MARCH_1, "Groceries", "12.50");
+        jdbc().sql("INSERT INTO accounting.journal_transaction_state"
+                        + " (transaction_id, sequence, state, effective_on, reason, recorded_by)"
+                        + " VALUES (:id, 1, 'VOIDED', :on, :reason, :recordedBy)")
+                .param("id", recorded.id().value())
+                .param("on", MARCH_15)
+                .param("reason", TAB)
+                .param("recordedBy", RECORDER.subject())
+                .update();
+
+        assertThatThrownBy(() -> transactions.findById(recorded.id()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("accounting.journal_transaction_state")
+                .hasMessageContaining(recorded.id().value().toString())
+                .hasNoCause();
     }
 
     /**

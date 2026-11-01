@@ -2,7 +2,7 @@
 // Renders the portfolio lookup through the feature's own routes and drives its form, so it needs a
 // DOM. fetch is faked, so any read the page starts is one the test planned for.
 
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -48,13 +48,15 @@ describe('PortfolioPage', () => {
         expect(screen.getByLabelText('Symbol')).toHaveProperty('required', true);
     });
 
-    it('Given_the_lookup_When_rendered_Then_the_symbol_field_says_what_it_takes', async () => {
+    it('Given_the_lookup_When_rendered_Then_the_symbol_field_says_what_it_takes_and_refuses', async () => {
+        // The pattern refuses a lone dot or two, and the browser's own message for a mismatch
+        // does not say why. Spelled in words, since a screen reader skips punctuation by default.
         fakeFetch(unexpectedRequest);
 
         renderPortfolio();
 
         expect(accessibleDescriptionOf(await screen.findByLabelText('Symbol'))).toBe(
-            'A ticker, in any letter case, for example VWCE',
+            'A ticker, in any letter case, for example VWCE; a lone dot or two dots is not a ticker',
         );
     });
 
@@ -110,6 +112,19 @@ describe('PortfolioPage', () => {
         expect(router.state.location.pathname).toBe('/portfolio/BRK%20B');
     });
 
+    it('Given_a_symbol_containing_a_dot_When_looked_up_Then_it_navigates_to_that_holding', async () => {
+        // Only a lone dot segment is refused; a class suffix such as BRK.B is a ticker.
+        fakeFetch(readsOf('BRK.B'));
+        const { router } = renderPortfolio();
+        const user = userEvent.setup({ delay: null });
+
+        await user.type(await screen.findByLabelText('Symbol'), 'BRK.B');
+        await user.click(screen.getByRole('button', { name: 'Look up' }));
+
+        expect(await screen.findByRole('heading', { level: 1, name: 'BRK.B' })).toBeDefined();
+        expect(router.state.location.pathname).toBe('/portfolio/BRK.B');
+    });
+
     it('Given_a_symbol_of_only_spaces_When_looked_up_Then_native_validation_refuses_it_and_nothing_navigates', async () => {
         const requests = fakeFetch(unexpectedRequest);
         const { router } = renderPortfolio();
@@ -119,6 +134,47 @@ describe('PortfolioPage', () => {
         await user.click(screen.getByRole('button', { name: 'Look up' }));
 
         expect(screen.getByLabelText('Symbol')).toHaveProperty('validity.patternMismatch', true);
+        expect(router.state.location.pathname).toBe('/portfolio');
+        expect(requests).toHaveLength(0);
+    });
+
+    // Encoding leaves a dot segment alone, and the router resolves it: `..` would lead to `/`.
+    for (const { name, typed } of [
+        { name: 'a_dot', typed: '.' },
+        { name: 'two_dots', typed: '..' },
+        { name: 'two_dots_padded_with_spaces', typed: '  ..  ' },
+    ]) {
+        it(`Given_${name}_as_the_symbol_When_looked_up_Then_native_validation_refuses_it_and_nothing_navigates`, async () => {
+            const requests = fakeFetch(unexpectedRequest);
+            const { router } = renderPortfolio();
+            const user = userEvent.setup({ delay: null });
+
+            await user.type(await screen.findByLabelText('Symbol'), typed);
+            await user.click(screen.getByRole('button', { name: 'Look up' }));
+
+            expect(screen.getByLabelText('Symbol')).toHaveProperty(
+                'validity.patternMismatch',
+                true,
+            );
+            expect(router.state.location.pathname).toBe('/portfolio');
+            expect(requests).toHaveLength(0);
+        });
+    }
+
+    it('Given_two_dots_as_the_symbol_When_the_form_is_submitted_without_the_browsers_validation_Then_nothing_navigates', async () => {
+        // A submit event can arrive without the browser having validated the form first, such as
+        // one dispatched by script; the lookup checks the same rule itself.
+        const requests = fakeFetch(unexpectedRequest);
+        const { router } = renderPortfolio();
+        const user = userEvent.setup({ delay: null });
+        await user.type(await screen.findByLabelText('Symbol'), '..');
+        const form = screen.getByLabelText('Symbol').closest('form');
+        if (form === null) {
+            throw new Error('the Symbol field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+
         expect(router.state.location.pathname).toBe('/portfolio');
         expect(requests).toHaveLength(0);
     });

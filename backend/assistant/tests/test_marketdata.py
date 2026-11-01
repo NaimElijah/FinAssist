@@ -4,8 +4,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from finassist_assistant.adapters.auth import DEFAULT_LEEWAY
 from finassist_assistant.marketdata.domain.model import Instrument, Quote, Ticker
-from finassist_assistant.marketdata.domain.normalisation import age, is_stale, normalise
+from finassist_assistant.marketdata.domain.normalisation import (
+    FUTURE_TOLERANCE,
+    age,
+    is_stale,
+    normalise,
+)
 from finassist_assistant.shared import Currency, Money
 
 NOON = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
@@ -77,6 +83,11 @@ def Given_a_price_that_is_not_a_number_When_normalised_Then_it_is_refused() -> N
         normalise("VWCE", "n/a", Currency.USD, NOON)
 
 
+def Given_a_price_padded_with_spaces_When_normalised_Then_it_is_refused() -> None:
+    with pytest.raises(ValueError, match="not a decimal number"):
+        normalise("VWCE", " 120.50 ", Currency.USD, NOON)
+
+
 def Given_a_price_too_precise_for_the_currency_When_normalised_Then_it_is_refused() -> None:
     with pytest.raises(ValueError, match="more precision"):
         normalise("VWCE", "120.5051", Currency.USD, NOON)
@@ -98,19 +109,34 @@ def Given_a_naive_timestamp_When_normalised_Then_it_is_refused() -> None:
 
 
 def Given_a_price_that_is_not_finite_When_normalised_Then_it_is_refused() -> None:
-    # Decimal accepts "NaN" and "Infinity", so these slip past the InvalidOperation handler and
-    # are caught by Money's own finiteness check instead - a different message, same refusal.
-    with pytest.raises(ValueError, match="finite"):
+    # Decimal reads "NaN", but the ledger's BigDecimal does not, so Money.of refuses it as text
+    # before Money's own finiteness check is reached.
+    with pytest.raises(ValueError, match="not a decimal number"):
         normalise("VWCE", "NaN", Currency.USD, NOON)
 
 
-def Given_a_quote_dated_in_the_future_When_aged_Then_the_age_is_negative_and_it_is_not_stale() -> (
-    None
-):
-    future = quote_at(NOON + timedelta(hours=1))
+def Given_a_quote_dated_in_the_future_When_aged_Then_the_age_is_negative() -> None:
+    assert age(quote_at(NOON + timedelta(hours=1)), NOON) == timedelta(hours=-1)
 
-    assert age(future, NOON) == timedelta(hours=-1)
-    assert is_stale(future, NOON, timedelta(hours=1)) is False
+
+def Given_a_quote_dated_past_the_future_tolerance_When_checked_Then_it_is_stale() -> None:
+    # A negative age is never greater than max_age, so without a bound on the future side a quote
+    # dated a year ahead would be judged current for a year.
+    assert is_stale(quote_at(NOON + timedelta(days=365)), NOON, timedelta(hours=1))
+    assert is_stale(
+        quote_at(NOON + FUTURE_TOLERANCE + timedelta(microseconds=1)), NOON, timedelta(hours=1)
+    )
+
+
+def Given_a_quote_dated_within_the_future_tolerance_When_checked_Then_it_is_not_stale() -> None:
+    assert not is_stale(quote_at(NOON + timedelta(microseconds=5)), NOON, timedelta(hours=1))
+    assert not is_stale(quote_at(NOON + FUTURE_TOLERANCE), NOON, timedelta(hours=1))
+
+
+def Given_the_future_tolerance_When_read_Then_it_equals_the_token_verifiers_leeway() -> None:
+    # Compared with the leeway itself, not a copy of its value: the service tolerates one amount of
+    # clock skew, so changing either alone must fail here.
+    assert FUTURE_TOLERANCE == DEFAULT_LEEWAY
 
 
 def Given_a_negative_maximum_age_When_staleness_is_judged_Then_it_is_refused() -> None:

@@ -13,29 +13,63 @@
 /** Every dev/preview process binds here, never a wildcard interface (ADR-030). */
 export const LOOPBACK_HOST = '127.0.0.1';
 
-/**
- * The gateway's own address: a server-to-server call the dev server makes, not a URL a person
- * opens in a browser, so loopback is the right literal here (ADR-030). All three proxy entries
- * below share this one target - the gateway is the only thing the web client talks to directly.
- */
-export const GATEWAY_TARGET = `http://${LOOPBACK_HOST}:8090`;
+/** The variable naming the gateway's published port, as Compose and `.env.example` spell it. */
+export const GATEWAY_PORT_VARIABLE = 'GATEWAY_PORT';
 
-/** A prefix reached through the proxy: its path in the browser, and the origin it is sent to. */
+/** The port Compose publishes the gateway on when `GATEWAY_PORT` is unset or empty. */
+export const DEFAULT_GATEWAY_PORT = 8090;
+
+/** The highest TCP port; 0 is no port a service can be reached on. */
+const HIGHEST_PORT = 65535;
+
+/** Digits only, so a sign, a decimal point, an exponent or whitespace is refused, not coerced. */
+const PORT_DIGITS = /^\d+$/;
+
+/**
+ * The gateway's own address, which every proxy entry shares - the gateway is the only thing the
+ * web client talks to directly. A server-to-server call the dev server makes, not a URL a person
+ * opens in a browser, so loopback is the right literal here (ADR-030).
+ *
+ * The port follows `GATEWAY_PORT` exactly as Compose publishes it, `${GATEWAY_PORT:-8090}`, so
+ * moving the gateway moves the proxy with it: unset or empty means `DEFAULT_GATEWAY_PORT`.
+ *
+ * @param environment - the variables to read `GATEWAY_PORT` from; only that key is read.
+ * @returns the gateway's origin, such as `"http://127.0.0.1:8090"`.
+ * @throws Error - when `GATEWAY_PORT` is set to anything but a whole number from 1 to 65535, so a
+ *   mistyped port fails when the config loads rather than as every proxied call failing.
+ */
+export function gatewayTarget(environment: Readonly<Record<string, string | undefined>>): string {
+    const value = environment[GATEWAY_PORT_VARIABLE];
+    if (value === undefined || value === '') {
+        return `http://${LOOPBACK_HOST}:${String(DEFAULT_GATEWAY_PORT)}`;
+    }
+    const port = Number(value);
+    if (!PORT_DIGITS.test(value) || port < 1 || port > HIGHEST_PORT) {
+        // A port is not a secret, and naming the value is what lets the owner find the typo.
+        throw new Error(
+            `${GATEWAY_PORT_VARIABLE} must be a port number from 1 to ${String(HIGHEST_PORT)}, ` +
+                `but is ${JSON.stringify(value)}`,
+        );
+    }
+    return `http://${LOOPBACK_HOST}:${String(port)}`;
+}
+
+/**
+ * A prefix reached through the proxy: its path in the browser. Every one is sent to the gateway,
+ * at `gatewayTarget`.
+ */
 export interface ProxiedBackend {
     readonly prefix: string;
-    readonly target: string;
 }
 
 /** The ledger: accounting, budgeting and planning, proxied at `/ledger` through the gateway. */
 export const LEDGER_BACKEND: ProxiedBackend = {
     prefix: '/ledger',
-    target: GATEWAY_TARGET,
 };
 
 /** The assistant: portfolio, proxied at `/assistant` through the gateway. */
 export const ASSISTANT_BACKEND: ProxiedBackend = {
     prefix: '/assistant',
-    target: GATEWAY_TARGET,
 };
 
 /**
@@ -48,5 +82,4 @@ export const BFF_PREFIX = '/bff';
 /** The gateway's own endpoints, proxied at `BFF_PREFIX` exactly like the two backends above. */
 export const BFF_BACKEND: ProxiedBackend = {
     prefix: BFF_PREFIX,
-    target: GATEWAY_TARGET,
 };

@@ -153,6 +153,36 @@ def Given_a_non_ascii_secret_When_a_utf8_file_holds_it_Then_it_is_refused(
     assert secret not in output
 
 
+# Windows PowerShell 5.1's `>` writes UTF-16LE with a byte-order mark, so `Get-Content .env >
+# env-notes.txt` copies every secret into a file no UTF-8 search finds (ADR-038 names the shell).
+@pytest.mark.parametrize(
+    ("byte_order_mark", "encoding"),
+    [(b"\xff\xfe", "utf-16-le"), (b"\xfe\xff", "utf-16-be")],
+    ids=["utf-16-le", "utf-16-be"],
+)
+@pytest.mark.parametrize(
+    "secret",
+    [PUBLISHED, "Fixture-only-Ünïcødé-שלום-long-enough-to-pass"],
+    ids=["ascii", "non-ascii"],
+)
+def Given_a_secret_a_utf16_file_holds_When_checked_Then_it_is_refused_by_name_alone(
+    byte_order_mark: bytes,
+    encoding: str,
+    secret: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    copy = byte_order_mark + f"GRAFANA_ADMIN_PASSWORD={secret}\r\n".encode(encoding)
+    root = _clone(tmp_path, {"env-notes.txt": copy})
+
+    status, output = _run(root, _environment(GRAFANA_ADMIN_PASSWORD=secret), capsys)
+
+    assert status == secret_check.EXIT_REFUSED
+    assert "REFUSED: GRAFANA_ADMIN_PASSWORD appears" in output
+    assert secret not in output
+    assert "env-notes.txt" not in output
+
+
 def Given_an_unset_or_empty_secret_When_checked_Then_it_is_skipped_rather_than_matched(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

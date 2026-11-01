@@ -45,6 +45,9 @@ export const DUPLICATE_ACCOUNT_NAME = 'DUPLICATE_ACCOUNT_NAME';
 /** The ledger's code for an account id in the path that names no account (ADR-028: 404). */
 export const ACCOUNT_NOT_FOUND = 'ACCOUNT_NOT_FOUND';
 
+/** The ledger's code for a lifecycle action the transaction's state does not admit (409). */
+export const ILLEGAL_TRANSITION = 'ILLEGAL_TRANSITION';
+
 const ACCOUNTS_URL = `${LEDGER_API}/accounts`;
 const TRANSACTIONS_URL = `${LEDGER_API}/transactions`;
 

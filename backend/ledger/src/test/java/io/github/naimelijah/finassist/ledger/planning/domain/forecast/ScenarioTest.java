@@ -11,11 +11,16 @@ import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** A strategy is a named set of flows in one currency, and the empty one is the baseline. */
 class ScenarioTest {
 
     private static final LocalDate MARCH = LocalDate.of(2026, 3, 1);
+
+    /** Far longer than any refusal needs, and far shorter than a rate expanded digit by digit. */
+    private static final int MESSAGE_BOUND = 1_000;
 
     private static PlannedFlow purchaseOf(String amount, Currency currency) {
         return PlannedFlow.plan(
@@ -94,6 +99,22 @@ class ScenarioTest {
         assertThatThrownBy(() -> GrowthAssumption.perStep("-1"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("greater than -1");
+    }
+
+    /**
+     * A rate this far below minus one is refused like any other, and the refusal does not write it
+     * out: {@code -1E+2147483647} in full is longer than any String can be, which once let an
+     * {@code OutOfMemoryError} escape in place of the refusal, and {@code -1E+1000000} is a million
+     * characters.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"-1E+2147483647", "-1E+1000000"})
+    void Given_a_growth_rate_at_a_vast_exponent_below_minus_one_When_an_assumption_is_built_Then_it_is_refused_briefly(
+            String rate) {
+        assertThatThrownBy(() -> GrowthAssumption.perStep(rate))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("greater than -1")
+                .satisfies(refusal -> assertThat(refusal.getMessage()).hasSizeLessThan(MESSAGE_BOUND));
     }
 
     @Test

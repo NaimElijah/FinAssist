@@ -9,6 +9,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * The Money contract.
@@ -19,6 +20,9 @@ import org.junit.jupiter.params.provider.MethodSource;
  * the drift this pair exists to catch.
  */
 class MoneyTest {
+
+    /** Far longer than any refusal needs, and far shorter than an amount expanded digit by digit. */
+    private static final int MESSAGE_BOUND = 1_000;
 
     @Test
     void Given_an_amount_with_fewer_decimals_When_constructed_Then_it_is_normalised_to_the_currency() {
@@ -31,6 +35,22 @@ class MoneyTest {
         assertThatThrownBy(() -> Money.of("12.505", Currency.ILS))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("more precision");
+    }
+
+    /**
+     * Refused for its precision like any other amount, and with a message of ordinary length. The
+     * refusal once wrote the amount out in full: for a scale at Java's int limit that is longer than
+     * any String can be, so an {@code OutOfMemoryError} escaped in place of the refusal, and for
+     * {@code 1E-1000000} it is a million characters.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"1E-2147483647", "1E-1000000"})
+    void Given_an_amount_at_a_vast_negative_exponent_When_parsed_Then_it_is_refused_with_a_short_message(
+            String amount) {
+        assertThatThrownBy(() -> Money.of(amount, Currency.USD))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("more precision")
+                .satisfies(refusal -> assertThat(refusal.getMessage()).hasSizeLessThan(MESSAGE_BOUND));
     }
 
     @Test

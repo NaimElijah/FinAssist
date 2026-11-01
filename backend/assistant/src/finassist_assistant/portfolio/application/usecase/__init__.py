@@ -112,7 +112,7 @@ class DisposeUnits:
         """
         :raises HoldingNotFoundError: if nothing is held for the symbol
         :raises InsufficientHoldingError: if fewer units are held than requested
-        :raises ValueError: if the quantity is not positive
+        :raises ValueError: if the quantity is not finite or not positive
         :raises CurrencyMismatchError: if the lots cost more than one currency, or the proceeds
             are in a currency other than theirs
         """

@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cloud.gateway.server.mvc.common.MvcUtils;
 import org.springframework.cloud.gateway.server.mvc.filter.TokenRelayFilterFunctions;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.core.OAuth2AuthorizationException;
@@ -19,6 +20,7 @@ import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 /**
  * Turns a failure raised while relaying a request to the ledger or the assistant into an RFC 9457
@@ -70,11 +72,12 @@ import org.springframework.web.client.ResourceAccessException;
  * 500} with Boot's error body instead, reaching neither this class nor any code {@link
  * GatewayProblems} declares.
  *
- * <p><b>Nothing here logs a token.</b> The refresh failure is logged with a fixed message only,
- * matching {@link SignInFailureHandler}'s rule for the same reason: Keycloak's error description
- * can quote the request that was refused. The catch-all for anything else logs the exception's
- * class name alone, never its message or its stack trace, because an arbitrary unexpected failure
- * is the one case this class cannot enumerate the safety of.
+ * <p><b>Nothing here logs a token.</b> The refresh failure is logged by its OAuth2 error code
+ * alone, held to the same {@link OAuth2ErrorVocabulary} {@link SignInFailureHandler} uses, for the
+ * same reason: Keycloak's error description can quote the request that was refused. The catch-all
+ * for anything else logs the exception's class name alone, never its message or its stack trace,
+ * because an arbitrary unexpected failure is the one case this class cannot enumerate the safety
+ * of.
  */
 @RestControllerAdvice
 final class GatewayRelayProblems {
@@ -107,6 +110,9 @@ final class GatewayRelayProblems {
     private static final byte[] INTERNAL_ERROR_BODY =
             GatewayProblems.write(HttpStatus.INTERNAL_SERVER_ERROR, INTERNAL_DETAIL, GatewayProblems.INTERNAL_ERROR);
 
+    /** Stands in for a route id the request does not carry, so the line still says one is missing. */
+    private static final String UNKNOWN_ROUTE = "unknown";
+
     private static final String METHOD_NOT_ALLOWED_DETAIL = "This path answers no such method.";
 
     private static final String NOT_ACCEPTABLE_DETAIL = "This path produces no representation this request accepts.";
@@ -130,6 +136,13 @@ final class GatewayRelayProblems {
      * A relay's authorization could not be renewed: the refresh token Keycloak was asked to redeem
      * was refused, or the manager could not authorize the relay for some other reason.
      *
+     * <p>Logged by its error code alone. A refusal, such as {@code invalid_grant} for an expired
+     * session, is WARN: it concerns one session. {@code invalid_token_response} is ERROR, in a
+     * message of its own: Spring raises it when the token endpoint could not be used at all, so
+     * every session's refresh is failing, the same outage the resource servers log for an unusable
+     * key source.
+     *
+     * @param failure the manager's refusal, whose error code is the only part of it logged
      * @param request carries the session to invalidate; absent when none exists, which is not an
      *     error — there is nothing left to discard
      * @param response the response to answer, since a filter later in the chain may not write to
@@ -137,8 +150,20 @@ final class GatewayRelayProblems {
      * @throws IOException if the problem body cannot be written
      */
     @ExceptionHandler(OAuth2AuthorizationException.class)
-    void authorizationFailed(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        LOG.warn("A relay's authorization could not be renewed; invalidating the session");
+    void authorizationFailed(
+            OAuth2AuthorizationException failure, HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
+        String code = OAuth2ErrorVocabulary.loggableCode(failure.getError());
+        if (OAuth2ErrorVocabulary.INVALID_TOKEN_RESPONSE.equals(code)) {
+            LOG.error(
+                    "A relay's authorization could not be renewed: the identity provider's token endpoint was"
+                            + " unusable, OAuth2 error code {}; invalidating the session",
+                    code);
+        } else {
+            LOG.warn(
+                    "A relay's authorization could not be renewed with OAuth2 error code {}; invalidating the session",
+                    code);
+        }
         HttpSession session = request.getSession(false);
         if (session != null) {
             session.invalidate();
@@ -156,21 +181,30 @@ final class GatewayRelayProblems {
      * reached. Anything else — a refused or unresolvable connection, or a connect timeout — is
      * {@code 502 UPSTREAM_UNAVAILABLE}, as is an I/O failure this class cannot place, whose chain does
      * not say whether the request was written: a reset after sending is one, and #407 tracks answering
-     * it as outcome unknown. Each is logged at WARN by a fixed line: the wrapper's
-     * message names the relayed URL, query included, so it is never written.
+     * it as outcome unknown. Each is logged at WARN by a fixed line naming the route, {@code
+     * ledger} or {@code assistant}, and nothing else: the wrapper's message names the relayed URL,
+     * query included, so it is never written.
      *
      * @param failure the wrapper whose cause chain says which failure this was
+     * @param request carries the id of the route that matched, which Server MVC sets as {@link
+     *     MvcUtils#GATEWAY_ROUTE_ID_ATTR} from {@code application.yml}, never from the request
      * @param response the response to answer
      * @throws IOException if the problem body cannot be written
      */
     @ExceptionHandler(ResourceAccessException.class)
-    void upstreamFailed(ResourceAccessException failure, HttpServletResponse response) throws IOException {
+    void upstreamFailed(ResourceAccessException failure, HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
+        String route = request.getAttribute(MvcUtils.GATEWAY_ROUTE_ID_ATTR) instanceof String routeId
+                ? routeId
+                : UNKNOWN_ROUTE;
         if (timedOutAwaitingAnswer(failure)) {
-            LOG.warn("A relay's upstream service did not answer in time; the request's outcome is unknown");
+            LOG.warn(
+                    "A relay's upstream service on route {} did not answer in time; the request's outcome is unknown",
+                    route);
             GatewayProblems.send(response, HttpStatus.GATEWAY_TIMEOUT, UPSTREAM_TIMEOUT_BODY);
             return;
         }
-        LOG.warn("A relay's upstream service could not be reached");
+        LOG.warn("A relay's upstream service on route {} could not be reached", route);
         GatewayProblems.send(response, HttpStatus.BAD_GATEWAY, UPSTREAM_UNAVAILABLE_BODY);
     }
 
@@ -192,6 +226,26 @@ final class GatewayRelayProblems {
             }
         }
         return false;
+    }
+
+    /**
+     * The browser went away while its answer was being written: spring-webmvc's {@code
+     * HandlerFunctionAdapter} wraps every response, and the wrapper raises a failed write to the
+     * client as this exception, the relayed body's copy included. Nobody is left to read an answer,
+     * the response is usually committed already, and nothing in the gateway failed, so nothing is
+     * written and the line is DEBUG, as the ledger's {@code ResponseEntityExceptionHandler} answers
+     * the same exception.
+     *
+     * <p>Matched by type rather than by Spring's {@code DisconnectedClientHelper}, which also
+     * claims an {@code EOFException}: on a relay that can be a truncated upstream body, a failure
+     * the catch-all must still report.
+     *
+     * @param response declared, and deliberately left untouched, so Spring treats the failure as
+     *     handled and renders nothing in its place
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    void clientDisconnected(HttpServletResponse response) {
+        LOG.debug("A relay's client disconnected before its answer was written");
     }
 
     /**

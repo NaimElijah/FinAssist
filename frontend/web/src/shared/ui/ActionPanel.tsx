@@ -2,9 +2,16 @@ import { type ReactNode, useEffect, useId, useRef } from 'react';
 
 import styles from './ActionPanel.module.css';
 import { Button } from './Button';
+import { StatusLine } from './StatusLine';
 
 /** Matches the controls a person fills in, so focus lands on a field rather than a button. */
 const FIELD_SELECTOR = 'input, select, textarea';
+
+/**
+ * Announced while the panel's request is in flight: disabled buttons and `aria-busy` alone tell a
+ * screen reader nothing, and the page also disables every other row's action meanwhile.
+ */
+const PENDING_MESSAGE = 'Sending…';
 
 /** A panel's title level: below the page's h1, and no deeper than an h4 in a screen this size. */
 export type ActionPanelHeadingLevel = 2 | 3 | 4;
@@ -26,13 +33,21 @@ export interface ActionPanelProps {
     /** The submit button's text, naming what happens, such as "Void". */
     readonly submitLabel: string;
     /**
-     * Called when the form is submitted, by the button or by Enter in a field. Never called while
-     * `pending`, so one action cannot be sent twice.
+     * Called when the form is submitted, by the button or by Enter in a field. Never called again
+     * until a render shows `pending` false, so one action cannot be sent twice. It must start the
+     * request that `pending` reports, synchronously, as a TanStack Query `mutate` does; a call that
+     * starts nothing leaves the panel ignoring submits until its caller renders it again.
      */
     readonly onSubmit: () => void;
-    /** Called by the Cancel button. The caller closes the panel by unmounting it. */
+    /**
+     * Called by the Cancel button. The caller closes the panel by unmounting it. Never called while
+     * `pending`.
+     */
     readonly onCancel: () => void;
-    /** A request this panel started is in flight: submit is disabled until it clears. */
+    /**
+     * A request this panel started is in flight: submit and Cancel are disabled until it clears,
+     * and the panel's polite status line says it is sending.
+     */
     readonly pending: boolean;
 }
 
@@ -58,11 +73,20 @@ export function ActionPanel({
 }: ActionPanelProps) {
     const titleId = useId();
     const regionRef = useRef<HTMLElement>(null);
+    const submitting = useRef(false);
     const Heading = HEADING_ELEMENTS[headingLevel];
 
     useEffect(() => {
         regionRef.current?.querySelector<HTMLElement>(FIELD_SELECTOR)?.focus();
     }, []);
+
+    // Released by any render that shows no request pending, not only by `pending` turning false: a
+    // request that fails at once can settle before its pending state ever renders.
+    useEffect(() => {
+        if (!pending) {
+            submitting.current = false;
+        }
+    });
 
     return (
         <section ref={regionRef} aria-labelledby={titleId} className={styles.panel}>
@@ -75,9 +99,12 @@ export function ActionPanel({
                     event.preventDefault();
                     // The disabled button stops a click, not a submit event from elsewhere, and a
                     // repeated void or clear is permanent in an append-only journal (ADR-028).
-                    if (pending) {
+                    // `pending` is the last render's, so two submits in one tick both read it
+                    // false; the ref is set at once.
+                    if (pending || submitting.current) {
                         return;
                     }
+                    submitting.current = true;
                     onSubmit();
                 }}
             >
@@ -86,9 +113,13 @@ export function ActionPanel({
                     <Button type="submit" pending={pending}>
                         {submitLabel}
                     </Button>
-                    <Button variant="secondary" onClick={onCancel}>
+                    {/* Cancelling unmounts the panel that holds the request, and TanStack Query
+                        runs a `mutate` call's callbacks only while its observer is mounted, so its
+                        answer - a success, or a 504 whose outcome is unknown - would never show. */}
+                    <Button variant="secondary" onClick={onCancel} disabled={pending}>
                         Cancel
                     </Button>
+                    <StatusLine message={pending ? PENDING_MESSAGE : ''} />
                 </div>
             </form>
         </section>

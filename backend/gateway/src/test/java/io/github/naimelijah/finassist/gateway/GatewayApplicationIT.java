@@ -678,4 +678,38 @@ class GatewayApplicationIT {
             assertThat(setCookie(response, CSRF_COOKIE)).contains("Secure");
         }
     }
+
+    /**
+     * {@code server.servlet.session.cookie.same-site} decides {@code SameSite} for both cookies,
+     * as {@code finassist.http.cookie-secure} decides {@code Secure}. The shipped {@code lax} is
+     * asserted above, and a CSRF cookie that spelled {@code Lax} itself would pass that too, so the
+     * property is only shown to be honoured by changing it and watching both cookies follow.
+     */
+    @Nested
+    @SpringBootTest(
+            webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+            properties = {
+                "finassist.oidc.client-secret=a-test-client-secret",
+                "finassist.http.allowed-hosts=localhost,127.0.0.1",
+                "finassist.http.cookie-secure=false",
+                "server.servlet.session.cookie.same-site=strict"
+            })
+    class StrictSameSite {
+
+        @LocalServerPort
+        private int strictPort;
+
+        @Test
+        void Given_same_site_is_strict_When_the_cookies_are_written_Then_both_carry_it() throws Exception {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("http://localhost:" + strictPort + LOGIN_ENTRY))
+                    .timeout(TIMEOUT)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertThat(setCookie(response, SESSION_COOKIE)).contains("SameSite=Strict");
+            assertThat(setCookie(response, CSRF_COOKIE)).contains("SameSite=Strict");
+        }
+    }
 }

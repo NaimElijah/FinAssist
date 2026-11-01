@@ -3,6 +3,7 @@ package io.github.naimelijah.finassist.ledger.planning.domain.plan;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.stream.IntStream;
@@ -81,6 +82,19 @@ class RecurrencePropertiesTest {
         assertThat(recurrence.occurrences(start, from, to)).isEqualTo(recurrence.occurrences(start, from, to));
     }
 
+    /**
+     * Completeness, the half the properties above leave open: the expansion stops at
+     * {@code Cadence.between} rather than at the first date past the window, and this proves that
+     * bound drops no occurrence. The reference steps until a date reaches the window's end, which is
+     * safe here only because the generated intervals are small enough never to overflow.
+     */
+    @ParameterizedTest
+    @MethodSource("schedules")
+    void Given_any_schedule_When_occurrences_are_listed_Then_none_that_the_naive_expansion_finds_is_dropped(
+            Recurrence recurrence, LocalDate start, LocalDate from, LocalDate to) {
+        assertThat(recurrence.occurrences(start, from, to)).isEqualTo(naiveOccurrences(recurrence, start, from, to));
+    }
+
     @ParameterizedTest
     @MethodSource("schedules")
     void Given_a_counted_schedule_When_occurrences_are_listed_Then_there_are_never_more_than_the_count(
@@ -110,5 +124,42 @@ class RecurrencePropertiesTest {
 
             assertThat(occurrences).isEqualTo(startIsInsideTheWindow ? List.of(start) : List.of());
         }
+    }
+
+    /** Steps from the start until a date reaches the window's end, the count, or the end date. */
+    private static List<LocalDate> naiveOccurrences(
+            Recurrence recurrence, LocalDate start, LocalDate from, LocalDate to) {
+        Cadence cadence;
+        int interval;
+        long count;
+        LocalDate until;
+        switch (recurrence) {
+            case Recurrence.Once once -> {
+                return !start.isBefore(from) && start.isBefore(to) ? List.of(start) : List.of();
+            }
+            case Recurrence.Times times -> {
+                cadence = times.cadence();
+                interval = times.interval();
+                count = times.count();
+                until = LocalDate.MAX;
+            }
+            case Recurrence.Until bounded -> {
+                cadence = bounded.cadence();
+                interval = bounded.interval();
+                count = Long.MAX_VALUE;
+                until = bounded.until();
+            }
+        }
+        List<LocalDate> dates = new ArrayList<>();
+        for (long period = 0; period < count; period++) {
+            LocalDate date = cadence.advance(start, period * interval);
+            if (!date.isBefore(to) || !date.isBefore(until)) {
+                break;
+            }
+            if (!date.isBefore(from)) {
+                dates.add(date);
+            }
+        }
+        return dates;
     }
 }
