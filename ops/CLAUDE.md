@@ -14,8 +14,9 @@ One directory per tool, none of them a deployable service of this repository's (
   723 block declares Python 3.13 and no dependency. It backs up and restores each database on its
   own, and proves a backup restores (ADR-038). Its tests are in `ops/backup/tests/`.
 - `ops/secret_check/secret_check.py` — a standard-library check, one file with no dependency,
-  that refuses a secret that any file git does not ignore holds (#302), or one shorter than its
-  `MIN_SECRET_LENGTH`, 32 characters. It names a variable, never a value, its length or a file.
+  that refuses a secret that any file git does not ignore holds (#302), in UTF-8 or UTF-16, or one
+  shorter than its `MIN_SECRET_LENGTH`, 32 characters. It names a variable, never a value, its
+  length or a file.
   It runs as the one-shot `secret-check` service that both databases and Grafana wait on
   (ADR-044). Its tests are in `ops/secret_check/tests/`.
 - `ops/compose_check/compose_check.py` — a standard-library check, run on the host with
