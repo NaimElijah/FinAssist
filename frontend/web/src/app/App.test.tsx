@@ -199,6 +199,15 @@ describe('App', () => {
         expect(screen.getByRole('navigation', { name: 'Primary' })).toBeDefined();
     });
 
+    it('Given_the_not_found_page_When_its_way_back_is_followed_Then_it_lands_where_the_root_path_does', async () => {
+        const router = renderAt('/nope');
+
+        await userEvent.setup().click(await screen.findByRole('link', { name: 'Go to Accounts' }));
+
+        expect(await screen.findByRole('heading', { level: 1, name: 'Accounts' })).toBeDefined();
+        expect(router.state.location.pathname).toBe('/accounts');
+    });
+
     it('Given_the_Accounts_area_When_Budgets_is_clicked_Then_the_Budgets_heading_is_shown', async () => {
         renderAt('/accounts');
         const user = userEvent.setup();

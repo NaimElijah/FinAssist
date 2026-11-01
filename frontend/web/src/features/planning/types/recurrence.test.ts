@@ -75,6 +75,18 @@ describe('recurrenceSummary', () => {
 
         expect(recurrenceSummary(recurrence)).toBe('Every month until 1 January 27');
     });
+
+    it('Given_an_until_date_that_does_not_exist_When_summarised_Then_it_throws_as_DateText_does', () => {
+        // Rolling 30 February into 2 March would summarise a date the ledger never holds.
+        const recurrence: Recurrence = {
+            kind: 'UNTIL',
+            cadence: 'MONTHLY',
+            interval: 1,
+            until: '2027-02-30',
+        };
+
+        expect(() => recurrenceSummary(recurrence)).toThrow(/not a calendar date/);
+    });
 });
 
 describe('buildRecurrence', () => {

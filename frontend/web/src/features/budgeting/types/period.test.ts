@@ -166,6 +166,14 @@ describe('periodLabel', () => {
         expect(periodLabel({ start: '0026-09-01', end: '0026-10-01' })).toBe('September 26');
     });
 
+    it('Given_a_period_starting_on_a_day_that_does_not_exist_When_labelled_Then_it_throws_as_PeriodLabel_does', () => {
+        // PeriodLabel renders each date through DateText, which refuses 30 February rather than
+        // rolling it into March; the plain-text label must not show a date the page cannot.
+        expect(() => periodLabel({ start: '2026-02-30', end: '2026-03-10' })).toThrow(
+            /not a calendar date/,
+        );
+    });
+
     it('Given_a_non_month_period_in_a_year_below_100_When_labelled_Then_its_dates_name_that_year_not_one_in_the_1900s', () => {
         expect(periodLabel({ start: '0026-09-01', end: '0026-09-20' })).toBe(
             '1 Sept 26 – 19 Sept 26',

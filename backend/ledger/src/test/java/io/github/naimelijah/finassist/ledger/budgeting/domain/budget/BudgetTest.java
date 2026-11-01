@@ -9,8 +9,11 @@ import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** Budget invariants, and the fact that spend is never stored here. */
 class BudgetTest {
@@ -65,6 +68,18 @@ class BudgetTest {
     @Test
     void Given_a_limit_of_zero_When_built_Then_it_is_refused() {
         assertThatThrownBy(() -> new CategoryLimit(GROCERIES, Money.zero(Currency.ILS)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must be positive");
+    }
+
+    /**
+     * The public constructor is the path the store reads through, and it takes a bare map of
+     * {@link Money}, so {@link CategoryLimit}'s own refusal never runs there.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"0.00", "-5.00"})
+    void Given_a_limit_that_is_not_positive_When_a_budget_is_constructed_directly_Then_it_is_refused(String amount) {
+        assertThatThrownBy(() -> new Budget(BudgetId.generate(), MARCH, Currency.ILS, Map.of(GROCERIES, ils(amount))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must be positive");
     }

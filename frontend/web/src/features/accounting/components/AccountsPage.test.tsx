@@ -146,6 +146,19 @@ describe('AccountsPage', () => {
         expect(screen.queryByRole('table')).toBeNull();
     });
 
+    it('Given_no_accounts_and_a_read_only_session_When_the_page_renders_Then_the_empty_state_invites_nothing_it_cannot_do', async () => {
+        // A viewer is offered no form to open an account, so "open one below" would point at
+        // nothing.
+        fakeFetch((request) =>
+            request.url === ACCOUNTS_URL ? jsonResponse([]) : unexpectedRequest(request),
+        );
+
+        renderRoutes(accountingRoutes, '/accounts', { access: { canWrite: false } });
+
+        expect(await screen.findByText('No accounts yet')).toBeDefined();
+        expect(screen.queryByText(/open one/)).toBeNull();
+    });
+
     it('Given_one_balance_fails_When_the_page_renders_Then_only_that_row_shows_unavailable', async () => {
         fakeFetch((request) => {
             if (request.url === ACCOUNTS_URL) return jsonResponse([CHECKING, SAVINGS]);

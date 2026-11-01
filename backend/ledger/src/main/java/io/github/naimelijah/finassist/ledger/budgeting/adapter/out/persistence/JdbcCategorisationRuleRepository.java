@@ -3,6 +3,8 @@ package io.github.naimelijah.finassist.ledger.budgeting.adapter.out.persistence;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.CategorisationRuleRepository;
 import io.github.naimelijah.finassist.ledger.budgeting.domain.category.CategorisationRule;
 import io.github.naimelijah.finassist.ledger.budgeting.domain.category.Category;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -18,8 +20,10 @@ import org.springframework.jdbc.core.simple.JdbcClient;
  */
 public class JdbcCategorisationRuleRepository implements CategorisationRuleRepository {
 
+    private static final String TABLE = "budgeting.categorisation_rule";
+
     private static final String SELECT_ALL = """
-            SELECT fragment, category FROM budgeting.categorisation_rule ORDER BY ordinal
+            SELECT ordinal, fragment, category FROM budgeting.categorisation_rule ORDER BY ordinal
             """;
 
     private static final String INSERT = """
@@ -35,8 +39,7 @@ public class JdbcCategorisationRuleRepository implements CategorisationRuleRepos
     @Override
     public List<CategorisationRule> all() {
         return jdbc.sql(SELECT_ALL)
-                .query((row, rowNumber) ->
-                        new CategorisationRule(row.getString("fragment"), Category.of(row.getString("category"))))
+                .query(JdbcCategorisationRuleRepository::toRule)
                 .list();
     }
 
@@ -47,5 +50,21 @@ public class JdbcCategorisationRuleRepository implements CategorisationRuleRepos
                 .param("fragment", rule.fragment())
                 .param("category", rule.category().name())
                 .update();
+    }
+
+    /**
+     * {@link CategorisationRule} and {@link Category} still check their text on the way back in, more
+     * strictly than the schema's {@code btrim} checks can (#402); a stored rule they refuse is a server
+     * fault naming the rule by its ordinal rather than a rule a caller broke.
+     */
+    private static CategorisationRule toRule(ResultSet row, int rowNumber) throws SQLException {
+        long ordinal = row.getLong("ordinal");
+        String fragment = row.getString("fragment");
+        String category = row.getString("category");
+        try {
+            return new CategorisationRule(fragment, Category.of(category));
+        } catch (IllegalArgumentException refused) {
+            throw BudgetingRows.unreconstructable("categorisation rule", "ordinal=" + ordinal, TABLE);
+        }
     }
 }

@@ -97,6 +97,10 @@ class MoneyVectorsTest {
         return group("construct");
     }
 
+    private static List<JsonNode> parse() {
+        return group("parse");
+    }
+
     private static List<JsonNode> binary() {
         return group("binary");
     }
@@ -109,10 +113,16 @@ class MoneyVectorsTest {
         return new Money(new BigDecimal(amount), Currency.valueOf(currency));
     }
 
-    /** Categories to this language's exception types; the file names neither. */
+    /**
+     * Categories to this language's exception types; the file names neither. Each is matched on
+     * its exact type, because {@code NumberFormatException} extends {@code IllegalArgumentException}:
+     * matched by {@code isInstanceOf}, a text refused as not a decimal would pass as
+     * {@code PRECISION_EXCEEDED}, and the vectors would report agreement where there is none.
+     */
     private static Class<? extends Throwable> exceptionFor(String category) {
         return switch (category) {
             case "PRECISION_EXCEEDED" -> IllegalArgumentException.class;
+            case "NOT_A_DECIMAL" -> NumberFormatException.class;
             case "CURRENCY_MISMATCH" -> CurrencyMismatchException.class;
             default -> throw new IllegalArgumentException("unknown error category: " + category);
         };
@@ -138,7 +148,7 @@ class MoneyVectorsTest {
      * Every group this suite knows how to read. Pinned, so a group added to the file that neither
      * language reads fails here rather than sitting in the file specifying nothing.
      */
-    private static final Set<String> GROUPS = Set.of("currencies", "construct", "binary", "scalar");
+    private static final Set<String> GROUPS = Set.of("currencies", "construct", "parse", "binary", "scalar");
 
     /** Prose and metadata rather than vectors, so not expected to be read as a group. */
     private static final Set<String> NOT_GROUPS = Set.of("about", "version");
@@ -152,6 +162,7 @@ class MoneyVectorsTest {
         assertThat(VECTORS.get("version").asInt()).isEqualTo(1);
         assertThat(currencies()).hasSize(Currency.values().length);
         assertThat(construct()).isNotEmpty();
+        assertThat(parse()).isNotEmpty();
         assertThat(binary()).isNotEmpty();
         assertThat(scalar()).isNotEmpty();
     }
@@ -174,7 +185,7 @@ class MoneyVectorsTest {
     @Test
     void Given_the_vector_file_When_read_Then_every_id_is_unique() {
         List<String> ids = new ArrayList<>();
-        for (String name : List.of("construct", "binary", "scalar")) {
+        for (String name : List.of("construct", "parse", "binary", "scalar")) {
             group(name).forEach(vector -> ids.add(vector.get("id").asString()));
         }
         Set<String> unique = new HashSet<>(ids);
@@ -199,10 +210,29 @@ class MoneyVectorsTest {
 
         if (vector.has("error")) {
             assertThatThrownBy(() -> money(amount, currency))
-                    .isInstanceOf(exceptionFor(vector.get("error").asString()));
+                    .isExactlyInstanceOf(exceptionFor(vector.get("error").asString()));
             return;
         }
         assertThat(money(amount, currency).toString())
+                .isEqualTo(vector.get("expect").asString());
+    }
+
+    /**
+     * Through {@code Money.of}, the text boundary, where {@code construct} hands the constructor a
+     * decimal already parsed: what one language reads as an amount the other must not refuse.
+     */
+    @ParameterizedTest
+    @MethodSource("parse")
+    void Given_a_parse_vector_When_read_as_text_Then_it_matches(JsonNode vector) {
+        String amount = vector.get("amount").asString();
+        Currency currency = Currency.valueOf(vector.get("currency").asString());
+
+        if (vector.has("error")) {
+            assertThatThrownBy(() -> Money.of(amount, currency))
+                    .isExactlyInstanceOf(exceptionFor(vector.get("error").asString()));
+            return;
+        }
+        assertThat(Money.of(amount, currency).toString())
                 .isEqualTo(vector.get("expect").asString());
     }
 
@@ -218,7 +248,7 @@ class MoneyVectorsTest {
 
         if (vector.has("error")) {
             assertThatThrownBy(() -> apply(operation, left, right))
-                    .isInstanceOf(exceptionFor(vector.get("error").asString()));
+                    .isExactlyInstanceOf(exceptionFor(vector.get("error").asString()));
             return;
         }
         assertThat(apply(operation, left, right).toString())
@@ -235,7 +265,7 @@ class MoneyVectorsTest {
 
         if (vector.has("error")) {
             assertThatThrownBy(() -> applyScalar(operation, amount, multiplier))
-                    .isInstanceOf(exceptionFor(vector.get("error").asString()));
+                    .isExactlyInstanceOf(exceptionFor(vector.get("error").asString()));
             return;
         }
         assertThat(applyScalar(operation, amount, multiplier).toString())

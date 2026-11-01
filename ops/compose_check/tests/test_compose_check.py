@@ -69,6 +69,11 @@ READ_ONLY_SERVICES = [
 ]
 # Each database and the one network it may attach to.
 DATABASE_NETWORKS = [("db", "books"), ("keycloak-db", "identity")]
+# The services that wait on the secret check (ADR-044).
+GATED_SERVICES = ["db", "grafana", "keycloak-db"]
+GATED_BY_SECRET_CHECK = {
+    "secret-check": {"condition": "service_completed_successfully", "required": True}
+}
 PROMETHEUS_COMMAND = [
     "--config.file=/etc/prometheus/prometheus.yml",
     "--storage.tsdb.retention.time=7d",
@@ -120,6 +125,7 @@ def _conforming() -> dict[str, Any]:
                 environment={"POSTGRES_PASSWORD": SECRET},
                 ports=[_port(5432)],
                 networks={"books": None},
+                depends_on=copy.deepcopy(GATED_BY_SECRET_CHECK),
             ),
             "ledger": _hardened(
                 _long_running(
@@ -150,7 +156,9 @@ def _conforming() -> dict[str, Any]:
                 )
             ),
             "keycloak-db": _long_running(
-                environment={"POSTGRES_PASSWORD": SECRET}, networks={"identity": None}
+                environment={"POSTGRES_PASSWORD": SECRET},
+                networks={"identity": None},
+                depends_on=copy.deepcopy(GATED_BY_SECRET_CHECK),
             ),
             "keycloak": _hardened(
                 _long_running(
@@ -180,6 +188,10 @@ def _conforming() -> dict[str, Any]:
                 _long_running(
                     environment={"GF_SECURITY_ADMIN_PASSWORD": SECRET},
                     profiles=["monitoring"],
+                    depends_on={
+                        "prometheus": {"condition": "service_started", "required": True},
+                        **copy.deepcopy(GATED_BY_SECRET_CHECK),
+                    },
                     ports=[_port(3000)],
                     read_only=True,
                     networks={"default": None},
@@ -327,6 +339,162 @@ def Given_a_probed_service_missing_from_the_file_When_checked_Then_its_probe_is_
     assert lines == ["keycloak: its healthcheck must probe /health/ready"]
 
 
+# Without -f, curl exits 0 on a 503, so a probe of a service that is not ready would pass.
+@pytest.mark.parametrize(
+    "test",
+    [
+        ["CMD", "curl", "http://localhost:8080{path}"],
+        ["CMD", "curl", "-sS", "http://localhost:8080{path}"],
+        ["CMD", "/usr/bin/curl", "--silent", "http://localhost:8080{path}"],
+        # The `f` is the file -o writes to, not curl's -f.
+        ["CMD", "curl", "-sofile", "http://localhost:8080{path}"],
+        ["CMD", "curl", "-o", "-f", "http://localhost:8080{path}"],
+        # A cluster may start with a digit or `#`, each a flag, before the -o that takes `-f`.
+        ["CMD", "curl", "-4o", "-f", "http://localhost:8080{path}"],
+        ["CMD", "curl", "-#o", "-f", "http://localhost:8080{path}"],
+        # -: (--next) starts another URL's options, so it is assumed to take one, failing closed.
+        ["CMD", "curl", "-:", "-f", "http://localhost:8080{path}"],
+        # A long option takes the next word as its argument too: curl writes a file named `-f`.
+        ["CMD", "curl", "--output", "-f", "http://localhost:8080{path}"],
+        ["CMD", "curl", "--header", "-f", "http://localhost:8080{path}"],
+        # An option the check does not know is assumed to take one.
+        ["CMD", "curl", "--not-a-curl-option", "-f", "http://localhost:8080{path}"],
+        # Written with `=`, the value is part of the word, never an option of its own.
+        ["CMD", "curl", "--output=-f", "http://localhost:8080{path}"],
+    ],
+    ids=[
+        "bare",
+        "other-flags",
+        "full-path",
+        "attached-argument",
+        "separate-argument",
+        "digit-cluster-output",
+        "hash-cluster-output",
+        "next-cluster",
+        "long-option-argument",
+        "long-header-argument",
+        "unknown-long-option",
+        "long-option-equals",
+    ],
+)
+@pytest.mark.parametrize(("service", "path"), READINESS_PROBES)
+def Given_a_curl_readiness_probe_without_fail_When_checked_Then_it_is_named(
+    service: str, path: str, test: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["healthcheck"] = {
+        "test": [part.format(path=path) for part in test]
+    }
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: its curl probe must pass -f, so a failing status fails it"]
+
+
+# The later of an option and its negation wins, so curl given both may end up not failing: a
+# negation anywhere is refused, and named as the reason.
+@pytest.mark.parametrize(
+    "test",
+    [
+        ["CMD", "curl", "-f", "--no-fail", "http://localhost:8080{path}"],
+        ["CMD", "curl", "--fail-with-body", "--no-fail-with-body", "http://localhost:8080{path}"],
+        ["CMD", "curl", "-sSf", "--no-fail", "http://localhost:8080{path}"],
+        # A flag's own negation takes no argument, so the `--no-fail` after it is still read.
+        ["CMD", "curl", "-f", "--no-silent", "--no-fail", "http://localhost:8080{path}"],
+    ],
+    ids=["no-fail", "no-fail-with-body", "cluster", "after-a-negated-flag"],
+)
+@pytest.mark.parametrize(("service", "path"), READINESS_PROBES)
+def Given_a_curl_readiness_probe_cancelling_fail_When_checked_Then_the_negation_is_named(
+    service: str, path: str, test: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["healthcheck"] = {
+        "test": [part.format(path=path) for part in test]
+    }
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        f"{service}: its curl probe must not cancel -f with --no-fail or --no-fail-with-body"
+    ]
+
+
+# Only an exec-form curl can be judged by its arguments: a shell can run another command first, test
+# curl's output rather than its status, or turn its failure into success.
+@pytest.mark.parametrize(
+    "test",
+    [
+        ["CMD-SHELL", "curl http://localhost:8080{path} || exit 1"],
+        ["CMD-SHELL", "curl -sf http://localhost:8080{path} || exit 1"],
+        ["CMD-SHELL", "test -f /tmp/x; curl -s http://localhost:8080{path}"],
+        ["CMD-SHELL", "curl -sf http://localhost:8080{path} || true"],
+        ["CMD-SHELL", 'test -n "$(curl -s http://localhost:8080{path})"'],
+        ["CMD", "sh", "-c", "'curl' -s http://localhost:8080{path}"],
+    ],
+    ids=["shell", "shell-with-fail", "after-a-test", "or-true", "substitution", "quoted"],
+)
+@pytest.mark.parametrize(("service", "path"), READINESS_PROBES)
+def Given_a_curl_readiness_probe_through_a_shell_When_checked_Then_it_is_named(
+    service: str, path: str, test: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["healthcheck"] = {
+        "test": [part.format(path=path) for part in test]
+    }
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: a curl probe must run curl directly in exec form"]
+
+
+@pytest.mark.parametrize(
+    "test",
+    [
+        ["CMD", "curl", "--fail", "http://localhost:8080/ready"],
+        ["CMD", "curl", "--fail-with-body", "http://localhost:8080/ready"],
+        ["CMD", "curl", "-fsS", "http://localhost:8080/ready"],
+        ["CMD", "curl", "-sS", "http://localhost:8080/ready", "-f"],
+        ["CMD", "curl", "-sSf", "http://localhost:8080/ready"],
+        ["CMD", "curl", "-4f", "http://localhost:8080/ready"],
+        ["CMD", "curl", "-#sf", "http://localhost:8080/ready"],
+        ["CMD", "/usr/bin/curl", "-f", "http://localhost:8080/ready"],
+        ["CMD", "curl", "--silent", "--show-error", "-f", "http://localhost:8080/ready"],
+        ["CMD", "curl", "--no-progress-meter", "--fail", "http://localhost:8080/ready"],
+        ["CMD", "curl", "--max-time", "5", "-f", "http://localhost:8080/ready"],
+        # The `-f` is curl's own, not the argument of an option written with `=`.
+        ["CMD", "curl", "--max-time=5", "-f", "http://localhost:8080/ready"],
+    ],
+    ids=[
+        "long",
+        "with-body",
+        "cluster",
+        "after-the-url",
+        "cluster-end",
+        "after-a-digit",
+        "after-a-hash",
+        "full-path",
+        "after-long-flags",
+        "after-a-negative-flag",
+        "after-a-long-argument",
+        "after-a-long-equals",
+    ],
+)
+def Given_a_curl_readiness_probe_that_fails_on_an_error_status_When_checked_Then_it_passes(
+    test: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["assistant"]["healthcheck"] = {"test": test}
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_PASSED
+    assert lines == [PASSED]
+
+
 @pytest.mark.parametrize("block", ["x-restart-policy", "x-logging"])
 def Given_an_x_block_missing_from_the_resolved_file_When_checked_Then_it_fails_saying_so(
     block: str, capsys: pytest.CaptureFixture[str]
@@ -340,6 +508,48 @@ def Given_an_x_block_missing_from_the_resolved_file_When_checked_Then_it_fails_s
     assert lines[0] == "the resolved file holds no x-restart-policy or x-logging block"
     # With nothing to compare against, every long-running service fails as well.
     assert "db: needs restart and logging as the x- blocks set them" in lines
+
+
+@pytest.mark.parametrize(
+    ("block", "value", "problem"),
+    [
+        (
+            "x-restart-policy",
+            "always",
+            "the resolved file's x-restart-policy block must be unless-stopped",
+        ),
+        (
+            "x-logging",
+            {"driver": "json-file", "options": {"max-file": "3", "max-size": "500m"}},
+            "the resolved file's x-logging block must be json-file, max-size 10m, max-file 3",
+        ),
+        (
+            "x-logging",
+            {"driver": "local", "options": {"max-file": "3", "max-size": "10m"}},
+            "the resolved file's x-logging block must be json-file, max-size 10m, max-file 3",
+        ),
+        (
+            "x-logging",
+            {"driver": "json-file"},
+            "the resolved file's x-logging block must be json-file, max-size 10m, max-file 3",
+        ),
+    ],
+    ids=["restart-always", "logs-larger", "logs-another-driver", "logs-unbounded"],
+)
+def Given_an_x_block_changed_and_every_service_following_it_When_checked_Then_the_block_is_named(
+    block: str, value: object, problem: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved[block] = value
+    member = {"x-restart-policy": "restart", "x-logging": "logging"}[block]
+    for name, service in resolved["services"].items():
+        if name not in ONE_SHOT_SERVICES:
+            service[member] = copy.deepcopy(value)
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [problem]
 
 
 def Given_several_problems_When_checked_Then_each_is_reported_with_services_in_name_order(
@@ -460,6 +670,32 @@ def Given_a_spring_service_overriding_its_command_line_When_checked_Then_the_mem
 
     assert status == compose_check.EXIT_FAILED
     assert lines == [f"{service}: must not set {member}, which reaches Spring as an argument"]
+
+
+@pytest.mark.parametrize(
+    ("member", "value"),
+    [
+        ("volumes", [_bind("/repo/debug-config", "/app/config")]),
+        ("volumes_from", ["grafana"]),
+        ("configs", [{"source": "debug", "target": "/app/config/application.yml"}]),
+        ("secrets", [{"source": "debug", "target": "/app/application.yml"}]),
+        ("working_dir", "/tmp"),
+    ],
+    ids=["volumes", "volumes_from", "configs", "secrets", "working_dir"],
+)
+@pytest.mark.parametrize("service", ["ledger", "gateway"])
+def Given_a_spring_service_given_a_file_where_spring_reads_config_When_checked_Then_it_is_named(
+    service: str, member: str, value: object, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service][member] = value
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        f"{service}: must not set {member}, which can put a configuration where Spring reads one"
+    ]
 
 
 def Given_a_command_on_a_service_without_spring_When_checked_Then_it_passes(
@@ -754,6 +990,60 @@ def Given_secret_check_behind_a_profile_When_checked_Then_it_fails(
 
     assert status == compose_check.EXIT_FAILED
     assert lines == ["secret-check: must take no profiles"]
+
+
+@pytest.mark.parametrize(
+    "depends_on",
+    [
+        None,
+        {},
+        {"prometheus": {"condition": "service_started", "required": True}},
+        {"secret-check": {"condition": "service_started", "required": True}},
+        {"secret-check": {"condition": "service_healthy", "required": True}},
+        {"secret-check": {"condition": "service_completed_successfully", "required": False}},
+        {"secret-check": {"required": True}},
+    ],
+    ids=["none", "empty", "another-service", "started", "healthy", "not-required", "no-condition"],
+)
+@pytest.mark.parametrize("service", GATED_SERVICES)
+def Given_a_gated_service_not_waiting_for_the_secret_check_to_pass_When_checked_Then_it_is_named(
+    service: str, depends_on: dict[str, Any] | None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["depends_on"] = depends_on
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        f"{service}: must depend on secret-check with condition service_completed_successfully"
+    ]
+
+
+def Given_a_gate_with_no_required_member_When_checked_Then_it_passes_as_compose_defaults_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    del resolved["services"]["db"]["depends_on"]["secret-check"]["required"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_PASSED
+    assert lines == [PASSED]
+
+
+def Given_a_gated_service_missing_from_the_file_When_checked_Then_its_gate_is_reported_missing(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    del resolved["services"]["grafana"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        "grafana: must depend on secret-check with condition service_completed_successfully"
+    ]
 
 
 # --- Container hardening and the databases' networks (ADR-063) ------------------------------------
@@ -1372,6 +1662,17 @@ def Given_input_that_is_not_json_When_checked_Then_it_is_refused_without_quoting
             "x-logging": BOUNDED_LOGS,
             "services": {"grafana": _long_running(user=0)},
         },
+        # `config` resolves `depends_on` to a mapping of mappings, so a list would hide the gate.
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {"db": _long_running(depends_on=["secret-check", SECRET])},
+        },
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {"db": _long_running(depends_on={"secret-check": SECRET})},
+        },
     ],
     ids=[
         "not-a-mapping",
@@ -1390,6 +1691,8 @@ def Given_input_that_is_not_json_When_checked_Then_it_is_refused_without_quoting
         "volumes-a-mapping",
         "volume-a-string",
         "user-a-number",
+        "depends-on-a-list",
+        "dependency-a-string",
     ],
 )
 def Given_json_not_shaped_like_a_resolved_file_When_checked_Then_it_is_refused_without_a_value(

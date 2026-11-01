@@ -46,6 +46,9 @@ from typing import IO, Final
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 COMPOSE_FILE: Final = REPO_ROOT / "docker-compose.yml"
+# Compose's global option, so it precedes every subcommand. Without it, `up` writes its progress
+# ("Network ... Creating") to stderr before its error, and `_withheld` reports only the first line.
+QUIET_PROGRESS: Final = ("--progress", "quiet")
 
 # Where a backup goes unless BACKUP_DIR says otherwise. `/backups/` is git-ignored, and the owner
 # chose this place on 2026-10-13 (ADR-038). It sits on the same disk as the Docker volumes.
@@ -309,7 +312,7 @@ class Compose:
     environment: tuple[tuple[str, str], ...] = ()
 
     def _command(self, *args: str) -> list[str]:
-        command = ["docker", "compose", "-f", str(COMPOSE_FILE)]
+        command = ["docker", "compose", *QUIET_PROGRESS, "-f", str(COMPOSE_FILE)]
         if self.project is not None:
             command += ["-p", self.project]
         return [*command, *args]
@@ -478,8 +481,14 @@ def backup(compose: Compose, root: Path, now: datetime) -> Path:
     Both database containers must already be running: this never starts one, because `up` in the
     owner's project could recreate a database under a running ledger.
 
+    Whatever is raised once the folder exists, an interrupt included, is re-raised unchanged after
+    the partial folder is removed.
+
     :return: the new backup folder.
-    :raises BackupError: on any failure, after removing the partial folder.
+    :raises BackupError: if a Compose command fails, a database is not running, a dump is empty or
+        does not read back, or the books change while they are being backed up.
+    :raises OSError: if `root`, the folder or a file in it cannot be created or written:
+        `FileExistsError` when a backup was already taken under `root` in the same second.
     """
     project = compose.project_name()
     _report(f"Compose project: {project}")
@@ -538,7 +547,9 @@ def _read_manifest(folder: Path) -> dict[str, object]:
         if manifest["format"] != MANIFEST_FORMAT:
             raise BackupError(f"{path} is format {manifest['format']}, not {MANIFEST_FORMAT}")
         return manifest
-    except (json.JSONDecodeError, KeyError, TypeError) as error:
+    # ValueError covers both JSONDecodeError and the UnicodeDecodeError of a manifest re-saved in
+    # another encoding, such as PowerShell 5.1's UTF-16.
+    except (ValueError, KeyError, TypeError) as error:
         raise BackupError(f"{path} is not a manifest this made ({type(error).__name__})") from None
 
 
@@ -670,7 +681,11 @@ class _CheckRun:
 
     def __init__(self) -> None:
         self.passed = 0
-        self.current = "0 (setting up)"
+        self.current = "set-up"
+
+    def set_up(self, name: str) -> None:
+        """Names a step that is not a check, so a failure in it is not blamed on the last one."""
+        self.current = f"set-up ({name})"
 
     def check[**P, R](
         self, name: str, step: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs
@@ -681,7 +696,7 @@ class _CheckRun:
             `current`, which already names this check.
         """
         number = self.passed + 1
-        self.current = f"{number} ({name})"
+        self.current = f"check {number} ({name})"
         result = step(*args, **kwargs)
         _report(f"{number}. {name}: PASS")
         self.passed = number
@@ -912,6 +927,7 @@ def _run_checks(run: _CheckRun, compose: Compose, folder: Path) -> int:
         # The backup is read first, so a mistyped folder or a changed dump fails here, before a
         # single database has been started for it.
         run.check("both dumps match their manifest", _verify_backup, folder)
+        run.set_up("a clean project with db and keycloak-db started")
         _clean_up(compose)
         compose.require(
             "starting db and keycloak-db",
@@ -940,15 +956,15 @@ def _run_checks(run: _CheckRun, compose: Compose, folder: Path) -> int:
             "the owner's credentials survive Keycloak's start", _otp_unchanged, compose, before
         )
     except BackupError as failure:
-        _report(f"FAILED check {run.current}: {failure}")
+        _report(f"FAILED {run.current}: {failure}")
         return 1
     except OSError as error:
-        _report(f"FAILED check {run.current}: {type(error).__name__}: {error}")
+        _report(f"FAILED {run.current}: {type(error).__name__}: {error}")
         return 1
     except Exception as error:
         # Last resort, so every failure still names its check. The type alone: a message could
         # quote a row or a response body.
-        _report(f"FAILED check {run.current}: unexpected {type(error).__name__}")
+        _report(f"FAILED {run.current}: unexpected {type(error).__name__}")
         return 1
     _report(f"{run.passed}/{run.passed} checks passed")
     return 0

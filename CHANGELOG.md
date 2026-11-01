@@ -301,6 +301,59 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **A generalist review of every codebase, and the fixes it called for.** Scan 9 of 12 in M0
+  ([#346](https://github.com/NaimElijah/FinAssist/issues/346)) ran `code-reviewer` over all
+  production code at `d258c13`:
+  - **The majors.**
+    - The web client crashed, for good, on any date in the years 1 to 99, which the ledger
+      accepts. `Date.UTC` reads them as 1900 to 1999. Every date now goes through one helper in
+      `shared/lib`.
+    - A lifecycle action's outcome, including a 504 whose outcome is unknown, was lost when Cancel
+      or another row's action unmounted its panel mid-flight. Both now wait for the answer.
+    - A planned flow with a huge interval made every projection of its scenario answer 500.
+    - A quote dated in the future was served as current. One more than 30 s ahead is now stale.
+    - A failed restore check reported a Compose progress line instead of its error.
+  - **The minors.**
+    - **Ledger:**
+      - a stored row the domain refuses is a logged server fault, not an unlogged 422;
+      - budget and scenario reads hold one pooled connection, not two;
+      - `Budget` enforces positive limits;
+      - a refused amount or growth rate (`GrowthAssumption` too) at an extreme scale is an
+        `IllegalArgumentException`, not an `OutOfMemoryError`.
+    - **Assistant:**
+      - `Money.of` reads exactly what the ledger's `BigDecimal` reads, pinned by a new `parse`
+        group in `contracts/money-vectors.v1.json`;
+      - a `Lot` or a disposal (`consume_fifo`) refuses a quantity that is not finite;
+      - Host and body-limit refusals log at WARNING, as the ledger's do.
+    - **Gateway:**
+      - a failed refresh is logged by its OAuth2 error code, with an unusable token endpoint at
+        ERROR;
+      - a browser gone mid-relay is no longer an ERROR;
+      - an origin URL with a query, fragment or user-info is refused at start-up, without being
+        quoted;
+      - the CSRF cookie's `SameSite` follows the session cookie's property;
+      - a relay's upstream failure lines name the route.
+    - **Web:**
+      - `ActionPanel` guards its submit with an in-flight ref, and announces an action in
+        flight;
+      - a lifecycle action submitted offline fails at once rather than waiting silently;
+      - an unreadable answer to a successful write no longer says "Try again";
+      - a 409 refetches the stale row;
+      - the dev proxy follows `GATEWAY_PORT`.
+    - **Ops:**
+      - the Compose check pins the `x-` blocks to ADR-039, holds the `secret-check` gate on both
+        databases and Grafana, refuses a mount, config, secret or moved `working_dir` on the Spring
+        services, and requires a curl probe to run curl directly in exec form with `-f` (a long
+        option's argument does not count);
+      - the secret check finds a secret in a UTF-16 file.
+  - **Also fixed:** false comments in every codebase, and other nits.
+  - **Filed:**
+    - [#416](https://github.com/NaimElijah/FinAssist/issues/416): the owner's decision on bounding
+      what one projection can compute;
+    - [#417](https://github.com/NaimElijah/FinAssist/issues/417): deterministic log-level tests in
+      the assistant;
+    - [#418](https://github.com/NaimElijah/FinAssist/issues/418): a write submitted offline that
+      waits silently.
 - **Every screen of the web client is held to WCAG 2.2 level AA, and the fixes that review found
   are in.** Scan 8 of 12 in M0 ([#345](https://github.com/NaimElijah/FinAssist/issues/345))
   reviewed the web client against the requirement the owner accepted on 2026-10-31 (see

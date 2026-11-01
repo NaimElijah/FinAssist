@@ -55,6 +55,10 @@ function isSessionQuery(query: Pick<Query, 'queryKey'>): boolean {
  * which would 401 again, which would invalidate it again - an infinite loop for exactly the
  * ordinary signed-out state `SessionGate` already renders `SignIn` for.
  *
+ * A recheck already in flight is joined, never restarted: one expired session fails every query on
+ * the screen at once, and TanStack Query's default would cancel a loaded session's refetch and
+ * start another for each of those 401s.
+ *
  * @param queryClient - invalidated once a qualifying 401 is seen. Read through a holder rather
  *   than closed over directly, since the client this function is attached to does not exist yet
  *   at the point `QueryCache`/`MutationCache` are constructed.
@@ -69,7 +73,10 @@ function recheckSessionOn401(
 ): void {
     const isUnauthenticated = error instanceof ApiError && error.status === UNAUTHENTICATED_STATUS;
     if (isUnauthenticated && !(query !== undefined && isSessionQuery(query))) {
-        void queryClient.current?.invalidateQueries({ queryKey: sessionKeys.me });
+        void queryClient.current?.invalidateQueries(
+            { queryKey: sessionKeys.me },
+            { cancelRefetch: false },
+        );
     }
 }
 

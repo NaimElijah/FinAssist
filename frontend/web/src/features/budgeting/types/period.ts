@@ -5,10 +5,11 @@
  * The wire carries only year, month and day integers (ADR-028), never a moment in time, so every
  * function below works on those integers directly rather than routing a date string through a
  * `Date` and reading it back: `new Date(isoString)` reads a bare `YYYY-MM-DD` as UTC midnight,
- * and a caller's own zone can then name the wrong day (see `DateText`'s own comment for the same
- * bug). None of this touches money (ADR-029) - it is calendar arithmetic on year and month
- * integers, nothing more.
+ * and a caller's own zone can then name the wrong day (see `formatCalendarDate`'s own comment for
+ * the same bug). None of this touches money (ADR-029) - it is calendar arithmetic on year and
+ * month integers, nothing more.
  */
+import { formatCalendarDate } from '@/shared/lib/calendarDate';
 import { DISPLAY_LOCALE } from '@/shared/lib/locale';
 
 /** A budget's period: the first day it covers, and the first day it no longer does (exclusive). */
@@ -140,26 +141,16 @@ export function isSingleCalendarMonth(period: BudgetPeriod): boolean {
     return expected.year === end.year && expected.month === end.month;
 }
 
-/**
- * The UTC midnight that starts `parts`' day, to hand a formatter pinned to `timeZone: 'UTC'`.
- *
- * The year is set on its own, never through `Date.UTC`, which reads a year from 0 to 99 as 1900
- * to 1999: a month input and the ledger both accept year 26, and it must not be labelled 1926.
- */
-function utcInstant({ year, month, day }: DateParts): Date {
-    const instant = new Date(0);
-    instant.setUTCFullYear(year, month - 1, day);
-    return instant;
-}
+/** A month and its year, such as "September 2026", in UTC as `formatCalendarDate` requires. */
+const MONTH_LABEL_FORMAT = new Intl.DateTimeFormat(DISPLAY_LOCALE, {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+});
 
 /**
- * `period`'s month label, such as "September 2026", formatted with `Intl.DateTimeFormat` from its
- * calendar parts.
- *
- * The instant handed to the formatter is built from the parsed year and month by `utcInstant` -
- * never from `new Date(period.start)`, which would parse the string itself - and the formatter is
- * pinned to `timeZone: 'UTC'`, the same pairing `DateText` uses, so the label reads the same
- * month regardless of the browser's own zone.
+ * `period`'s month label, such as "September 2026", formatted by `formatCalendarDate`, the same
+ * helper `DateText` uses, so the label reads the same month regardless of the browser's own zone.
  *
  * @param period - the period to label.
  * @returns the label when `period` is a single calendar month; `undefined` otherwise, so the
@@ -169,35 +160,23 @@ export function periodMonthLabel(period: BudgetPeriod): string | undefined {
     if (!isSingleCalendarMonth(period)) {
         return undefined;
     }
-    return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
-        month: 'long',
-        year: 'numeric',
-        timeZone: 'UTC',
-    }).format(utcInstant(parseIsoDate(period.start)));
-}
-
-/**
- * `value`, such as "1 Sept 2026", formatted the same way `DateText` renders it: `dateStyle:
- * 'medium'`, pinned to `timeZone: 'UTC'` so the day cannot shift with the browser's own zone.
- */
-function formatDisplayDate(value: string): string {
-    return new Intl.DateTimeFormat(DISPLAY_LOCALE, { dateStyle: 'medium', timeZone: 'UTC' }).format(
-        utcInstant(parseIsoDate(value)),
-    );
+    return formatCalendarDate(period.start, MONTH_LABEL_FORMAT);
 }
 
 /**
  * `period`'s label for plain text, such as a document title: `periodMonthLabel` when it applies,
  * otherwise its start and display end, formatted exactly as `PeriodLabel.tsx` renders them for
- * the page's own heading, so a document title never disagrees with what is on screen.
+ * the page's own heading, by the `formatCalendarDate` its `DateText` calls, so a document title
+ * never disagrees with what is on screen.
  *
  * @param period - the period to label.
  * @returns a label that is always a string, unlike `periodMonthLabel`.
+ * @throws Error - as `formatCalendarDate` does, when either date names a day that does not exist.
  */
 export function periodLabel(period: BudgetPeriod): string {
     const monthLabel = periodMonthLabel(period);
     if (monthLabel !== undefined) {
         return monthLabel;
     }
-    return `${formatDisplayDate(period.start)} – ${formatDisplayDate(periodDisplayEnd(period))}`;
+    return `${formatCalendarDate(period.start)} – ${formatCalendarDate(periodDisplayEnd(period))}`;
 }

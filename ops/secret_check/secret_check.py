@@ -12,10 +12,10 @@ already in the store.
 It also refuses a secret shorter than `MIN_SECRET_LENGTH` characters.
 
 It reads each secret from its own environment and walks the clone it is given, mounted read-only.
-It searches every file that git would not ignore for each value, as a whole token. "Ignored" means
-what git decides from the `.gitignore` files and `.git/info/exclude`, so `.env`, the backups and
-every build output are never read. A file not yet committed is read, because the next `git add .`
-would publish it.
+It searches every file that git would not ignore for each value: its UTF-8 bytes as a whole token,
+and its UTF-16 bytes, in either byte order, anywhere. "Ignored" means what git decides from the
+`.gitignore` files and `.git/info/exclude`, so `.env`, the backups and every build output are never
+read. A file not yet committed is read, because the next `git add .` would publish it.
 
 The report names a variable, never its value or its length, and never the file that holds it: in
 a public repository, naming the file is as good as naming the value. Standard library only, so it
@@ -27,7 +27,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,6 +57,9 @@ EXIT_MISCONFIGURED: Final = 2
 # A value matches only where it stands whole: not where these characters continue it on either
 # side, so `ci-only` does not match inside `ci-only-12-chars`.
 TOKEN_CHARACTER: Final = rb"[A-Za-z0-9_-]"
+# Windows PowerShell 5.1, the owner's shell (ADR-038), writes UTF-16LE through `>`, so a copy of
+# `.env` made with it holds no value's UTF-8 bytes. Either byte order is searched, mark or none.
+UTF16_ENCODINGS: Final = ("utf-16-le", "utf-16-be")
 # A directory in a clone, a file in a worktree; git itself never reads either as content.
 GIT_METADATA: Final = ".git"
 GITIGNORE: Final = ".gitignore"
@@ -246,6 +249,17 @@ def _token(value: str) -> re.Pattern[bytes]:
     )
 
 
+def _finder(value: str) -> Callable[[bytes], bool]:
+    token = _token(value)
+    # Matched anywhere, not as a whole token: a refused longer token fails closed, and a value's
+    # boundary in UTF-16 is two bytes the token pattern does not describe. `surrogatepass` encodes
+    # the escapes of undecodable bytes rather than raising; such a value is no text to search for.
+    wide = tuple(value.encode(encoding, "surrogatepass") for encoding in UTF16_ENCODINGS)
+    return lambda content: (
+        token.search(content) is not None or any(form in content for form in wide)
+    )
+
+
 def check(root: Path, environment: Mapping[str, str]) -> Verdict:
     """Searches every file under `root` that git would not ignore for each secret in `environment`,
     and measures each one against `MIN_SECRET_LENGTH`.
@@ -261,16 +275,16 @@ def check(root: Path, environment: Mapping[str, str]) -> Verdict:
             f"{root} holds no {ANCHOR_FILE}, so it is not the repository; nothing was searched"
         )
     values = {name: value for name in SECRET_VARIABLES if (value := environment.get(name, ""))}
-    tokens = {name: _token(value) for name, value in values.items()}
+    finders = {name: _finder(value) for name, value in values.items()}
     files = list(scanned_files(root))
     found: set[str] = set()
     with ThreadPoolExecutor(max_workers=READ_WORKERS) as pool:
         for content in pool.map(lambda relative: _content(root, relative), files):
-            found.update(name for name, token in tokens.items() if token.search(content))
+            found.update(name for name, holds in finders.items() if holds(content))
     return Verdict(
         published=tuple(name for name in SECRET_VARIABLES if name in found),
         short=tuple(name for name, value in values.items() if len(value) < MIN_SECRET_LENGTH),
-        checked=len(tokens),
+        checked=len(finders),
         files=len(files),
     )
 

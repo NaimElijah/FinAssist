@@ -2,8 +2,8 @@
 // Renders an account's page through the feature's own routes, so it needs a DOM. fetch is faked,
 // so the feature's real api/ module and its mapping run under test.
 
-import type { QueryClient } from '@tanstack/react-query';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { onlineManager, type QueryClient } from '@tanstack/react-query';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 
@@ -12,6 +12,7 @@ import {
     type FetchAnswer,
     fakeFetch,
     jsonResponse,
+    networkFailure,
     pendingResponse,
     problemResponse,
     unexpectedRequest,
@@ -785,6 +786,119 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         });
     });
 
+    /**
+     * A ledger whose Pending purchase was cleared elsewhere the moment this page tries to clear
+     * it: the clear answers 409 `ILLEGAL_TRANSITION`, and every later read shows it cleared.
+     */
+    function clearedElsewhereLedger(): FetchAnswer {
+        let transactions: readonly unknown[] = [PENDING_TX];
+        return lifecycleLedger(
+            () => transactions,
+            (request) => {
+                if (
+                    request.url === `${RECORD_URL}/${PENDING_TX.id}/clear` &&
+                    request.method === 'POST'
+                ) {
+                    transactions = [
+                        { ...PENDING_TX, state: { status: 'CLEARED', on: '2026-09-14' } },
+                    ];
+                    return problemResponse({
+                        status: 409,
+                        code: 'ILLEGAL_TRANSITION',
+                        detail: 'The transaction is no longer pending.',
+                    });
+                }
+                return unexpectedRequest(request);
+            },
+        );
+    }
+
+    it('Given_a_transaction_changed_elsewhere_When_its_action_answers_409_Then_this_accounts_rows_and_balance_are_refetched_beside_the_refusal', async () => {
+        // Refetch on focus is off, so without this the row would keep offering an action the
+        // ledger has already refused until the page is reloaded.
+        fakeFetch(clearedElsewhereLedger());
+        const { queryClient } = renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Transactions' });
+
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Clear'),
+            }),
+        );
+        await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+        expect(await within(rowOf('Pending purchase')).findByText('Cleared')).toBeDefined();
+        expect(
+            within(screen.getByRole('alert')).getByText('The transaction is no longer pending.'),
+        ).toBeDefined();
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toHaveLength(2);
+        expect(invalidatedKeys).toEqual(
+            expect.arrayContaining([
+                accountKeys.balance(CHECKING.id),
+                accountKeys.transactions(CHECKING.id),
+            ]),
+        );
+    });
+
+    it('Given_a_409_that_refetched_the_row_without_its_action_When_the_panel_is_cancelled_Then_focus_moves_to_the_rows_state', async () => {
+        // The refetched row no longer offers Clear, so the button the panel would return focus to
+        // is gone; the row's state, which is what changed, takes it instead of the page losing it.
+        fakeFetch(clearedElsewhereLedger());
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Transactions' });
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Clear'),
+            }),
+        );
+        await user.click(screen.getByRole('button', { name: 'Clear' }));
+        await within(rowOf('Pending purchase')).findByText('Cleared');
+
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        await waitFor(() => {
+            expect(document.activeElement?.id).toBe(`transaction-state-${PENDING_TX.id}`);
+        });
+    });
+
+    it('Given_a_refusal_other_than_409_When_an_action_is_submitted_Then_nothing_is_refetched', async () => {
+        // Only a 409 says the row changed elsewhere; a 422 answers the request as sent, and a
+        // mutation invalidates only the keys that can have changed. Counted at the fetch boundary,
+        // so a refetch by any route - an invalidation or a direct refetch - is caught.
+        const requests = fakeFetch(
+            lifecycleLedger(
+                () => [PENDING_TX],
+                (request) =>
+                    request.url === `${RECORD_URL}/${PENDING_TX.id}/clear` &&
+                    request.method === 'POST'
+                        ? problemResponse({
+                              status: 422,
+                              code: 'RULE_VIOLATED',
+                              detail: 'A transaction cannot clear before it occurred.',
+                          })
+                        : unexpectedRequest(request),
+            ),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Transactions' });
+        const readsBefore = requests.filter((request) => request.method === 'GET').length;
+
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Clear'),
+            }),
+        );
+        await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+        await screen.findByRole('alert');
+        expect(requests.filter((request) => request.method === 'GET')).toHaveLength(readsBefore);
+    });
+
     // Every field of the panel, since each calls clearSettledOutcome on its own (frontend/web
     // CLAUDE.md: editing any field of a settled form clears its answer).
     for (const { field, edit } of [
@@ -872,6 +986,155 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         });
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
+
+    it('Given_a_clear_in_flight_When_another_rows_action_is_pressed_Then_it_is_disabled_and_the_clears_outcome_still_shows', async () => {
+        // Opening another row's panel would unmount the one holding the mutation, and TanStack
+        // Query runs a mutate call's callbacks only while its observer is mounted: a 504 "outcome
+        // unknown" (ADR-067) would never be shown, and the owner would send the clear again.
+        let answerClear: (response: Response) => void = () => undefined;
+        fakeFetch(
+            lifecycleLedger(
+                () => [PENDING_TX, CLEARED_TX],
+                (request) =>
+                    request.url === `${RECORD_URL}/${PENDING_TX.id}/clear` &&
+                    request.method === 'POST'
+                        ? new Promise<Response>((resolve) => {
+                              answerClear = resolve;
+                          })
+                        : unexpectedRequest(request),
+            ),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Transactions' });
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Clear'),
+            }),
+        );
+
+        await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+        const otherRow = rowOf('Cleared purchase');
+        const reconcile = within(otherRow).getByRole('button', {
+            name: nameStartingWith('Reconcile'),
+        });
+        await waitFor(() => {
+            expect(reconcile).toHaveProperty('disabled', true);
+        });
+        expect(
+            within(otherRow).getByRole('button', { name: nameStartingWith('Void') }),
+        ).toHaveProperty('disabled', true);
+        await user.click(reconcile);
+        answerClear(
+            problemResponse({
+                status: 504,
+                code: 'UPSTREAM_TIMEOUT',
+                detail: 'The upstream service did not answer in time, so the outcome is unknown.',
+            }),
+        );
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert).getByText(
+                'The upstream service did not answer in time, so the outcome is unknown.',
+            ),
+        ).toBeDefined();
+        expect(
+            screen.getByRole('region', { name: nameStartingWith('Clear transaction:') }),
+        ).toBeDefined();
+        expect(screen.queryByRole('region', { name: nameStartingWith('Reconcile') })).toBeNull();
+        // Settled, the other row's actions are offered again.
+        expect(reconcile).toHaveProperty('disabled', false);
+    });
+
+    it('Given_a_lifecycle_panel_just_submitted_When_another_rows_action_is_clicked_before_pending_renders_Then_the_panel_stays_open', async () => {
+        // The click can land in the same tick as the submit, before the disabled buttons render,
+        // so the page must refuse it from the mutation cache rather than from render-time state.
+        fakeFetch(
+            lifecycleLedger(
+                () => [PENDING_TX, CLEARED_TX],
+                (request) =>
+                    request.url === `${RECORD_URL}/${PENDING_TX.id}/clear` &&
+                    request.method === 'POST'
+                        ? pendingResponse()
+                        : unexpectedRequest(request),
+            ),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Transactions' });
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Clear'),
+            }),
+        );
+        const form = screen.getByLabelText('On').closest('form');
+        if (form === null) {
+            throw new Error('the On field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+        fireEvent.click(
+            within(rowOf('Cleared purchase')).getByRole('button', {
+                name: nameStartingWith('Reconcile'),
+            }),
+        );
+
+        expect(screen.queryByRole('region', { name: nameStartingWith('Reconcile') })).toBeNull();
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: 'Clear' })).toHaveProperty('disabled', true);
+        });
+    });
+
+    // Every lifecycle mutation, since each sets its own network mode.
+    for (const { action, transaction, reason } of [
+        { action: 'Clear', transaction: PENDING_TX, reason: undefined },
+        { action: 'Reconcile', transaction: CLEARED_TX, reason: undefined },
+        { action: 'Void', transaction: PENDING_TX, reason: 'Entered twice' },
+    ] as const) {
+        it(`Given_the_browser_offline_When_a_${action}_is_submitted_Then_the_panel_shows_the_failure_and_Cancel_is_enabled_again`, async () => {
+            // Offline, TanStack Query would hold the mutation paused and pending, and the panel
+            // disables Cancel while pending: the owner would be stuck with nothing saying why.
+            const actionUrl = `${RECORD_URL}/${transaction.id}/${action.toLowerCase()}`;
+            const requests = fakeFetch(
+                lifecycleLedger(
+                    () => [transaction],
+                    (request) =>
+                        request.url === actionUrl && request.method === 'POST'
+                            ? networkFailure()
+                            : unexpectedRequest(request),
+                ),
+            );
+            renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+            const user = userEvent.setup({ delay: null });
+            await screen.findByRole('table', { name: 'Transactions' });
+            await user.click(
+                within(rowOf(transaction.description)).getByRole('button', {
+                    name: nameStartingWith(action),
+                }),
+            );
+            if (reason !== undefined) {
+                await user.type(screen.getByLabelText('Reason'), reason);
+            }
+            try {
+                act(() => {
+                    onlineManager.setOnline(false);
+                });
+
+                await user.click(screen.getByRole('button', { name: action }));
+
+                await screen.findByRole('alert');
+                expect(screen.getByRole('button', { name: 'Cancel' })).toHaveProperty(
+                    'disabled',
+                    false,
+                );
+                expect(requests.filter((request) => request.url === actionUrl)).toHaveLength(1);
+            } finally {
+                onlineManager.setOnline(true);
+            }
+        });
+    }
 
     it('Given_a_panel_open_on_a_pending_row_When_cancelled_Then_focus_returns_to_the_button_that_opened_it', async () => {
         fakeFetch(lifecycleLedger(() => [PENDING_TX], unexpectedRequest));

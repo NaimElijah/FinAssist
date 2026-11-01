@@ -5,7 +5,17 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import { statusMessages } from '../testing/status';
 import { ActionPanel } from './ActionPanel';
+
+/** The panel's form, failing loudly when it is absent. */
+function panelForm(): HTMLFormElement {
+    const form = screen.getByLabelText('Reason').closest('form');
+    if (form === null) {
+        throw new Error('ActionPanel rendered no form around its fields');
+    }
+    return form;
+}
 
 /**
  * A void panel with two caller-rendered fields. Plain labelled inputs rather than the field
@@ -14,13 +24,13 @@ import { ActionPanel } from './ActionPanel';
 function renderVoidPanel(pending = false) {
     const onSubmit = vi.fn();
     const onCancel = vi.fn();
-    render(
+    const panel = (isPending: boolean) => (
         <ActionPanel
             title="Void transaction"
             submitLabel="Void"
             onSubmit={onSubmit}
             onCancel={onCancel}
-            pending={pending}
+            pending={isPending}
         >
             <label>
                 Void on
@@ -30,9 +40,14 @@ function renderVoidPanel(pending = false) {
                 Reason
                 <input type="text" name="reason" />
             </label>
-        </ActionPanel>,
+        </ActionPanel>
     );
-    return { onSubmit, onCancel };
+    const { rerender } = render(panel(pending));
+    /** Renders the panel again as its caller would once the request's state changes. */
+    const renderPending = (isPending: boolean) => {
+        rerender(panel(isPending));
+    };
+    return { onSubmit, onCancel, renderPending };
 }
 
 describe('ActionPanel', () => {
@@ -113,18 +128,107 @@ describe('ActionPanel', () => {
         expect(onSubmit).not.toHaveBeenCalled();
     });
 
+    it('Given_pending_When_Cancel_is_clicked_Then_it_is_disabled_and_onCancel_is_not_called', async () => {
+        // Cancelling unmounts the panel that holds the request, and the request's answer - a
+        // success, or a 504 whose outcome is unknown - would then never be shown.
+        const { onCancel } = renderVoidPanel(true);
+
+        const cancel = screen.getByRole('button', { name: 'Cancel' });
+        await userEvent.setup().click(cancel);
+
+        expect(cancel).toHaveProperty('disabled', true);
+        expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it('Given_a_request_that_settled_When_rendered_Then_Cancel_is_enabled_again', async () => {
+        const { onCancel, renderPending } = renderVoidPanel(true);
+
+        renderPending(false);
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('Given_an_idle_panel_When_rendered_Then_its_status_region_is_there_and_says_nothing', () => {
+        // A live region announces a change only once it is already on the page.
+        renderVoidPanel();
+
+        expect(statusMessages()).toEqual(['']);
+    });
+
+    it('Given_a_request_pending_When_rendered_Then_a_polite_status_says_it_is_sending', () => {
+        // Disabled buttons and aria-busy say nothing to a screen reader on their own.
+        const { renderPending } = renderVoidPanel();
+
+        renderPending(true);
+
+        expect(statusMessages()).toEqual(['Sending…']);
+    });
+
+    it('Given_a_request_that_settled_When_rendered_Then_the_status_is_emptied', () => {
+        // Emptied, so the next request's status is a change and is announced again.
+        const { renderPending } = renderVoidPanel(true);
+
+        renderPending(false);
+
+        expect(statusMessages()).toEqual(['']);
+    });
+
     it('Given_pending_When_the_form_is_submitted_anyway_Then_onSubmit_is_not_called', () => {
         // A disabled submit button stops a click, but a form can still receive a submit event -
         // from a script, or a browser whose implicit submission ignores the disabled button. The
         // event is fired directly so this fails whenever the panel itself does not guard.
         const { onSubmit } = renderVoidPanel(true);
 
-        const form = screen.getByLabelText('Reason').closest('form');
-        if (form === null) {
-            throw new Error('ActionPanel rendered no form around its fields');
-        }
-        fireEvent.submit(form);
+        fireEvent.submit(panelForm());
 
         expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it('Given_two_submit_events_before_pending_has_rendered_When_both_arrive_Then_onSubmit_is_called_once', () => {
+        // The caller's pending prop renders a tick after the first submit starts its request, so
+        // a guard reading that prop lets the second through: a repeated void is permanent in an
+        // append-only journal (ADR-028).
+        const { onSubmit } = renderVoidPanel();
+
+        fireEvent.submit(panelForm());
+        fireEvent.submit(panelForm());
+
+        expect(onSubmit).toHaveBeenCalledTimes(1);
+    });
+
+    it('Given_a_request_that_was_pending_When_it_settles_Then_the_panel_can_be_submitted_again', () => {
+        // A failed action leaves the panel open so the owner can correct it and send it again.
+        const { onSubmit, renderPending } = renderVoidPanel();
+
+        fireEvent.submit(panelForm());
+        renderPending(true);
+        renderPending(false);
+        fireEvent.submit(panelForm());
+
+        expect(onSubmit).toHaveBeenCalledTimes(2);
+    });
+
+    it('Given_a_request_that_settled_before_pending_ever_rendered_When_the_panel_renders_again_Then_it_can_be_submitted_again', () => {
+        // A request that fails at once can settle before its pending state renders, so the
+        // panel only ever sees pending false; waiting to see it turn true would lock the panel.
+        const { onSubmit, renderPending } = renderVoidPanel();
+
+        fireEvent.submit(panelForm());
+        renderPending(false);
+        fireEvent.submit(panelForm());
+
+        expect(onSubmit).toHaveBeenCalledTimes(2);
+    });
+
+    it('Given_a_request_still_pending_When_the_panel_renders_again_Then_a_submit_is_still_ignored', () => {
+        const { onSubmit, renderPending } = renderVoidPanel();
+
+        fireEvent.submit(panelForm());
+        renderPending(true);
+        renderPending(true);
+        fireEvent.submit(panelForm());
+
+        expect(onSubmit).toHaveBeenCalledTimes(1);
     });
 });

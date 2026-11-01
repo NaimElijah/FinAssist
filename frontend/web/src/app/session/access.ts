@@ -10,8 +10,7 @@
  */
 import type { WriteAccess } from '@/shared/lib/writeAccess';
 
-/** The one realm role ADR-032 grants both read and write permissions to. */
-const OWNER_ROLE = 'owner';
+import { OWNER_ROLE } from './roles';
 
 /**
  * The write access a session with `roles` should be shown.

@@ -40,6 +40,9 @@ AGREED_BODY_LIMIT_BYTES = 64 * 1024
 """The limit every service enforces. The ledger and the gateway hold the same constant, and ADR-058
 records the agreement; this suite cannot read theirs, so it pins this one to the agreed value."""
 
+BODY_REFUSED_EVENT = "refused a request whose body is larger than the limit"
+"""The ledger's ``RequestBodyLimitFilter`` warning, in this service's lower-case event style."""
+
 CHUNK_BYTES = 1024
 """How much of a body each re-delivered message carries."""
 
@@ -240,3 +243,29 @@ def Given_a_body_exactly_at_the_limit_When_a_disposal_is_priced_Then_it_is_read_
     assert response.status_code == 200
     assert response.json()["quantity"] == "12"
     assert recorder.reads.body_bytes == MAX_REQUEST_BODY_BYTES
+
+
+@pytest.mark.parametrize("chunked", [False, True], ids=["content-length", "chunked"])
+def Given_a_body_over_the_limit_When_refused_Then_one_warning_names_the_limit(
+    app: FastAPI,
+    owner_headers: dict[str, str],
+    capsys: pytest.CaptureFixture[str],
+    chunked: bool,
+) -> None:
+    """The ledger logs this refusal at WARN. The request line beside it is INFO whatever its
+    status, so without a warning of its own the refusal vanishes once only warnings are kept."""
+    body = _disposal_of_exactly(4 * MAX_REQUEST_BODY_BYTES)
+    with TestClient(_ReadRecorder(app, chunk=CHUNK_BYTES), headers=owner_headers) as client:
+        capsys.readouterr()
+        response = client.post(
+            DISPOSAL_URL,
+            content=_chunked(body) if chunked else body,
+            headers={"content-type": "application/json"},
+        )
+
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
+    warnings = [record for record in records if record["level"] == "warning"]
+    assert response.status_code == 413
+    assert [
+        (record["event"], record["limit_bytes"], record["correlation_id"]) for record in warnings
+    ] == [(BODY_REFUSED_EVENT, MAX_REQUEST_BODY_BYTES, response.headers[CORRELATION_ID_HEADER])]

@@ -15,13 +15,14 @@ import java.util.Locale;
  * target, and ADR-021 already refused to let coupling accumulate there. The conversion is two lines
  * each way, which costs less than either (ADR-024).
  *
- * <p>A stored value that cannot be read back is an {@link IllegalStateException} naming its table and
- * column, never the {@link IllegalArgumentException} the domain raises. The store holding a bad row is
+ * <p>A stored value that cannot be read back is an {@link IllegalStateException} naming where it sits,
+ * never the {@link IllegalArgumentException} the domain raises. The store holding a bad row is
  * a server fault; letting the domain's exception escape would have the problem handler answer it as a
  * rule the caller broke, with a 422 and no log line (ADR-028).
  *
  * <p>That log line is at ERROR, and ECS prints every cause's message into its stack trace. So a stored
- * value is quoted only when it is an enum discriminator; an amount is named by its row's key instead.
+ * value is quoted only when it is an enum discriminator; an amount is named by its row's key, and an
+ * aggregate the domain refuses by its id, instead.
  */
 final class AccountingRows {
 
@@ -84,5 +85,17 @@ final class AccountingRows {
     static IllegalStateException unmappable(String table, String column, String stored) {
         return new IllegalStateException(
                 "Stored " + table + "." + column + " value '" + stored + "' names no known variant");
+    }
+
+    /**
+     * Rows that each read back, and together make an aggregate the domain refuses. No single column is
+     * at fault, so the aggregate and the tables it spans are named instead.
+     *
+     * <p>The domain's refusal is deliberately not carried, as message or cause: it quotes what the owner
+     * wrote, such as an account's name, and the aggregate's id is enough to find the rows.
+     */
+    static IllegalStateException unreconstructable(String aggregate, Object id, String tables) {
+        return new IllegalStateException("Stored " + aggregate + " " + id + " in " + tables
+                + " cannot be reconstructed: the domain refuses its rows together");
     }
 }

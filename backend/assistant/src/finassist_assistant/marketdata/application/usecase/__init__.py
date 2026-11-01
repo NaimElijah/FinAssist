@@ -18,13 +18,15 @@ rather than a literal in a call, so changing it is one edit and reading it needs
 
 
 class StaleQuoteError(ValueError):
-    """The feed answered, but with a price too old to value anything at."""
+    """The feed answered, but with a price too old, or dated too far ahead, to value anything at."""
 
     def __init__(self, quote: Quote, now: datetime, max_age: timedelta) -> None:
-        super().__init__(
-            f"The quote for {quote.ticker} is {age(quote, now)} old, past the {max_age} "
-            f"this caller accepts"
-        )
+        elapsed = age(quote, now)
+        if elapsed < timedelta(0):
+            reason = f"is dated {-elapsed} ahead of the current time"
+        else:
+            reason = f"is {elapsed} old, past the {max_age} this caller accepts"
+        super().__init__(f"The quote for {quote.ticker} {reason}")
         self.quote = quote
 
 
@@ -44,10 +46,19 @@ class LatestQuote:
     feed: QuoteFeedPort
     max_age: timedelta = DEFAULT_MAX_AGE
 
+    def __post_init__(self) -> None:
+        """
+        :raises ValueError: if ``max_age`` is not positive — a misconfiguration of this service,
+            refused at assembly rather than answered as the caller's fault on every valuation
+        """
+        if self.max_age <= timedelta(0):
+            raise ValueError(f"max_age must be positive but was {self.max_age}")
+
     def of(self, ticker: Ticker, now: datetime) -> Quote:
         """
         :raises QuoteUnavailableError: if the feed has nothing for the ticker
-        :raises StaleQuoteError: if the quote is older than ``max_age``
+        :raises StaleQuoteError: if the quote is older than ``max_age``, or dated more than
+            ``FUTURE_TOLERANCE`` ahead of ``now``
         :raises ValueError: if ``now`` carries no timezone
         """
         quote = self.feed.latest(ticker)

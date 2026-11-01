@@ -13,6 +13,7 @@ from __future__ import annotations
 from http import HTTPStatus
 from typing import Final
 
+import structlog
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -37,6 +38,12 @@ bound leaves room without leaving it unbounded.
 
 _HTTP_SCOPE: Final = "http"
 _BODY_MESSAGE: Final = "http.request"
+
+# The ledger's RequestBodyLimitFilter warning, so the refusal is visible at WARNING on both
+# services; the request line beside it is INFO whatever its status.
+_REFUSED_EVENT: Final = "refused a request whose body is larger than the limit"
+
+_log = structlog.get_logger(__name__)
 
 
 def _declared_length(scope: Scope) -> int | None:
@@ -80,6 +87,7 @@ class RequestBodyLimit:
 
         declared = _declared_length(scope)
         if declared is not None and declared > self._max_bytes:
+            _log.warning(_REFUSED_EVENT, limit_bytes=self._max_bytes)
             refusal = problem_response(
                 HTTPStatus.CONTENT_TOO_LARGE,
                 CONTENT_TOO_LARGE,
@@ -97,6 +105,7 @@ class RequestBodyLimit:
             if message["type"] == _BODY_MESSAGE:
                 received += len(message.get("body", b""))
                 if received > self._max_bytes:
+                    _log.warning(_REFUSED_EVENT, limit_bytes=self._max_bytes)
                     raise HTTPException(
                         status_code=HTTPStatus.CONTENT_TOO_LARGE,
                         detail=CONTENT_TOO_LARGE_DETAIL,

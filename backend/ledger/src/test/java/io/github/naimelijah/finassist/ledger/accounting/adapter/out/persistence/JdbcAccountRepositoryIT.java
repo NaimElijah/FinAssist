@@ -35,6 +35,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 @SpringBootTest
 class JdbcAccountRepositoryIT extends PostgresFixture {
 
+    /** Blank to {@code String.isBlank}, and not to PostgreSQL's {@code btrim}, which strips spaces alone. */
+    private static final String TAB = "\t";
+
     @Autowired
     private AccountRepository accounts;
 
@@ -219,6 +222,31 @@ class JdbcAccountRepositoryIT extends PostgresFixture {
     @Test
     void Given_no_accounts_at_all_When_they_are_listed_Then_the_answer_is_empty_rather_than_null() {
         assertThat(accounts.all()).isEmpty();
+    }
+
+    /**
+     * {@code account_name_not_blank} uses {@code btrim}, which strips spaces alone, so a name of a tab
+     * passes it and not {@code String.isBlank}. A stored account {@code Account} refuses is a server
+     * fault naming the account, not a 422 rule the caller broke, and it carries no cause, so the
+     * domain's refusal is never chained into what the log records.
+     */
+    @Test
+    void Given_an_account_stored_with_a_name_only_java_counts_as_blank_When_read_Then_it_is_a_server_fault() {
+        AccountId id = AccountId.generate();
+        jdbc().sql("INSERT INTO accounting.account (id, name, normalised_name, type, currency)"
+                        + " VALUES (:id, :name, :name, 'ASSET', 'ILS')")
+                .param("id", id.value())
+                .param("name", TAB)
+                .update();
+
+        assertThatThrownBy(() -> accounts.findById(id))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("accounting.account")
+                .hasMessageContaining(id.value().toString())
+                .hasNoCause();
+        assertThatThrownBy(() -> accounts.all())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(id.value().toString());
     }
 
     /** The claim the whole exercise was for: it is in the database, not in this process. */

@@ -14,7 +14,10 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -52,6 +55,7 @@ import tools.jackson.databind.json.JsonMapper;
             "spring.http.clients.connect-timeout=" + GatewayRelayTimeoutIT.BUDGET,
             "spring.http.clients.read-timeout=" + GatewayRelayTimeoutIT.BUDGET
         })
+@ExtendWith(OutputCaptureExtension.class)
 class GatewayRelayTimeoutIT {
 
     /** The outbound budget this context runs with. */
@@ -135,8 +139,8 @@ class GatewayRelayTimeoutIT {
 
     @Test
     void
-            Given_the_ledger_accepts_a_relayed_request_and_never_answers_When_relayed_Then_the_relay_gives_up_with_504_outcome_unknown()
-                    throws Exception {
+            Given_the_ledger_accepts_a_relayed_request_and_never_answers_When_relayed_Then_the_relay_gives_up_with_504_outcome_unknown(
+                    CapturedOutput output) throws Exception {
         try (HttpClient client = HttpClient.newBuilder()
                 .cookieHandler(new CookieManager())
                 .followRedirects(HttpClient.Redirect.NEVER)
@@ -165,6 +169,11 @@ class GatewayRelayTimeoutIT {
             assertThat(problem.path("detail").asString())
                     .isEqualTo("The upstream service did not answer in time, so the outcome is unknown: a change you"
                             + " sent may already have been applied. Check before sending it again.");
+            // The route id is read from a request attribute Server MVC sets, which a unit test can
+            // only assume is still there when the advice runs; this is the relay that proves it.
+            assertThat(output.getOut())
+                    .as("the timeout's WARN line, naming the route that timed out")
+                    .contains("route ledger did not answer in time");
         }
     }
 }

@@ -34,6 +34,7 @@ import {
     useAccountTransactions,
     useClearTransaction,
     useReconcileTransaction,
+    useTransactionLifecycleInFlight,
     useVoidTransaction,
 } from '../hooks/accountQueries';
 import { ACCOUNT_TYPE_LABELS } from '../types/account';
@@ -138,16 +139,18 @@ function stateCellId(transactionId: string): string {
  * The buttons offering this status's legal actions, or nothing for a frozen transaction or a
  * read-only session (`useWriteAccess`) - Clear, Reconcile and Void all change data, so none is
  * offered to a viewer even though the server would answer a lifecycle-change attempt with a plain
- * 403 either way.
+ * 403 either way. They are disabled while another row's action is in flight.
  */
 function LifecycleButtons({
     status,
     rowName,
+    disabled,
     onOpen,
 }: {
     readonly status: TransactionStatus;
     /** The row the buttons act on, from `transactionName`, after each button's own word. */
     readonly rowName: string;
+    readonly disabled: boolean;
     readonly onOpen: (kind: LifecycleKind) => void;
 }) {
     const { canWrite } = useWriteAccess();
@@ -165,6 +168,7 @@ function LifecycleButtons({
                     // (WCAG 2.5.3).
                     aria-label={`${ACTION_LABELS[kind]} ${rowName}`}
                     variant={kind === 'VOID' ? 'danger' : 'secondary'}
+                    disabled={disabled}
                     onClick={() => {
                         onOpen(kind);
                     }}
@@ -183,8 +187,9 @@ function LifecycleButtons({
  * On success it invalidates the balance and transactions of every account the transaction
  * touches, and closes. On failure - including a 409 `ILLEGAL_TRANSITION` when the server no
  * longer agrees this row's action is legal - it shows the server's detail and stays open, so the
- * owner can see why and try something else. Editing the date or the reason clears that failure,
- * since it answered the action as it was sent.
+ * owner can see why and try something else; a 409 also refetches this account's rows, so the row
+ * beside the panel shows the state that refused it. Editing the date or the reason clears that
+ * failure, since it answered the action as it was sent.
  *
  * The Reason field's own `required` is the whole of its client-side validation: the browser
  * refuses to fire the form's submit event while it is empty, so `submit` below is never even
@@ -192,20 +197,23 @@ function LifecycleButtons({
  */
 function LifecycleActionPanel({
     kind,
+    accountId,
     transactionId,
     rowName,
     onClose,
 }: {
     readonly kind: LifecycleKind;
+    /** The account whose page holds the panel, refetched when the action meets a 409. */
+    readonly accountId: string;
     readonly transactionId: string;
     /** The row the panel acts on, from `transactionName`, so its title says which. */
     readonly rowName: string;
     /** Called with the transaction's new status on success, or with none on cancel. */
     readonly onClose: (newStatus?: TransactionStatus) => void;
 }) {
-    const clear = useClearTransaction();
-    const reconcile = useReconcileTransaction();
-    const voidTransaction = useVoidTransaction();
+    const clear = useClearTransaction(accountId);
+    const reconcile = useReconcileTransaction(accountId);
+    const voidTransaction = useVoidTransaction(accountId);
     const [on, setOn] = useState(() => todayIsoDate(new Date()));
     const [reason, setReason] = useState('');
     const submitting = useRef(false);
@@ -294,13 +302,18 @@ function LifecycleActionPanel({
 
 /** This row's actions cell: buttons for its legal transitions, or the one open panel. */
 function TransactionActionsCell({
+    accountId,
     transaction,
     active,
+    actionInFlight,
     onOpen,
     onClose,
 }: {
+    readonly accountId: string;
     readonly transaction: Transaction;
     readonly active: ActiveAction | undefined;
+    /** A lifecycle action is in flight, so no other may open. */
+    readonly actionInFlight: boolean;
     readonly onOpen: (transactionId: string, kind: LifecycleKind) => void;
     readonly onClose: (newStatus?: TransactionStatus) => void;
 }) {
@@ -309,6 +322,7 @@ function TransactionActionsCell({
             {active?.transactionId === transaction.id ? (
                 <LifecycleActionPanel
                     kind={active.kind}
+                    accountId={accountId}
                     transactionId={transaction.id}
                     rowName={transactionName(transaction)}
                     onClose={onClose}
@@ -317,6 +331,7 @@ function TransactionActionsCell({
                 <LifecycleButtons
                     status={transaction.state.status}
                     rowName={transactionName(transaction)}
+                    disabled={actionInFlight}
                     onOpen={(kind) => {
                         onOpen(transaction.id, kind);
                     }}
@@ -398,6 +413,7 @@ function StateCell({ state, id }: { readonly state: TransactionState; readonly i
 function transactionColumns(
     accountId: string,
     active: ActiveAction | undefined,
+    actionInFlight: boolean,
     onOpen: (transactionId: string, kind: LifecycleKind) => void,
     onClose: (newStatus?: TransactionStatus) => void,
 ): readonly Column<Transaction>[] {
@@ -438,8 +454,10 @@ function transactionColumns(
             header: 'Actions',
             render: (transaction) => (
                 <TransactionActionsCell
+                    accountId={accountId}
                     transaction={transaction}
                     active={active}
+                    actionInFlight={actionInFlight}
                     onOpen={onOpen}
                     onClose={onClose}
                 />
@@ -495,6 +513,7 @@ function Transactions({
     // Which row and action a just-closed panel was for, so focus can return there once the DOM
     // reflects the close; state, not a ref, so it is never read or written during render.
     const [closedAction, setClosedAction] = useState<ClosedAction | undefined>(undefined);
+    const lifecycle = useTransactionLifecycleInFlight();
     const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
         transactions.error,
         transactions.isFetching,
@@ -507,7 +526,8 @@ function Transactions({
     // below, and a failure never does (the panel stays open and keeps its own focus). Prefers
     // the button for the acted-on action, still present after a cancel because the status has
     // not changed; falls back to the row's state cell, which is what actually changed after a
-    // successful transition removed that action from the row.
+    // successful transition removed that action from the row - or after a 409 refetched the row
+    // in a state that no longer offers it, before the panel was cancelled.
     //
     // Never resets closedAction back to undefined: closeAction always sets a freshly built
     // object, so a later close - even of the same row and kind - is a new reference and reruns
@@ -517,21 +537,29 @@ function Transactions({
             return;
         }
         // A cancel changes nothing, so the acted-on action is still legal and its button is what
-        // to focus; a success is told apart by the new status it carried (closedAction.newStatus),
-        // never by re-reading the DOM - the transactions query's own refetch can still be in
-        // flight at this point, so a row's buttons may not yet reflect its new status here.
+        // to focus, unless a 409 refetched the row meanwhile (the fallback below); a success is
+        // told apart by the new status it carried (closedAction.newStatus), never by re-reading
+        // the DOM - the transactions query's own refetch can still be in flight at this point,
+        // so a row's buttons may not yet reflect its new status here.
         const stillOffered =
             closedAction.newStatus === undefined ||
             LEGAL_ACTIONS[closedAction.newStatus].includes(closedAction.kind);
-        const target = stillOffered
+        const actionButton = stillOffered
             ? document
                   .getElementById(actionsCellId(closedAction.transactionId))
                   ?.querySelector<HTMLElement>(`[data-action="${closedAction.kind}"]`)
-            : document.getElementById(stateCellId(closedAction.transactionId));
+            : undefined;
+        const target =
+            actionButton ?? document.getElementById(stateCellId(closedAction.transactionId));
         target?.focus();
     }, [closedAction]);
 
     function openAction(transactionId: string, kind: LifecycleKind) {
+        // Replacing the open panel mid-flight would unmount the mutation's callbacks and lose its
+        // outcome; the cache, not render-time state, since the click can beat the disabling render.
+        if (lifecycle.isPendingNow()) {
+            return;
+        }
         setActive({ transactionId, kind });
     }
 
@@ -563,7 +591,13 @@ function Transactions({
             ) : (
                 <DataTable
                     caption="Transactions"
-                    columns={transactionColumns(accountId, active, openAction, closeAction)}
+                    columns={transactionColumns(
+                        accountId,
+                        active,
+                        lifecycle.pending,
+                        openAction,
+                        closeAction,
+                    )}
                     rows={transactions.data}
                     rowKey={(transaction) => transaction.id}
                 />

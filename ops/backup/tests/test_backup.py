@@ -288,6 +288,27 @@ def Given_the_check_project_When_isolated_Then_every_command_names_it_on_the_che
     assert ports == dict(backup.CHECK_PORTS)
 
 
+def Given_a_compose_command_When_required_Then_progress_is_quiet_so_its_error_comes_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ran: list[list[str]] = []
+
+    def docker_not_run(command: list[str], **options: object) -> subprocess.CompletedProcess[bytes]:
+        ran.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
+
+    # `_withheld` keeps stderr's first line, and `up` otherwise writes "Network ... Creating"
+    # there and its error last. `--progress` is a global option, so it must precede the command.
+    monkeypatch.setattr(subprocess, "run", docker_not_run)
+
+    backup.Compose(project=PROJECT_NAME).require("starting db", "up", "-d", "db")
+
+    [command] = ran
+    progress = command.index("--progress")
+    assert command[progress + 1] == "quiet"
+    assert progress < command.index("up")
+
+
 # --- check reads the backup before it starts any container -------------------------------------
 
 
@@ -454,6 +475,50 @@ def _written_backup(
     }
     (folder / backup.MANIFEST_NAME).write_bytes(json.dumps(manifest).encode("utf-8"))
     return folder
+
+
+# --- check names the step that failed ----------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _ProjectThatWillNotStart(_Project):
+    """A check's project whose databases fail to start, as `up --wait` fails on a port in use."""
+
+    def require(
+        self,
+        what: str,
+        *args: str,
+        stdin: IO[bytes] | None = None,
+        stdout: IO[bytes] | None = None,
+        input_bytes: bytes | None = None,
+    ) -> bytes:
+        self.calls.append(args)
+        match args:
+            case ("down", "--remove-orphans"):
+                return b""
+            case ("up", *_):
+                raise backup.BackupError(f"{what} failed with exit status 1: port is allocated")
+        raise AssertionError(f"backup.py sent a command this project does not expect: {args}")
+
+
+def Given_databases_that_fail_to_start_When_checked_Then_the_set_up_is_blamed_not_check_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def no_volumes(command: list[str], **options: object) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
+
+    # `_clean_up` lists the check's volumes with `docker volume ls`, outside Compose.
+    monkeypatch.setattr(subprocess, "run", no_volumes)
+    project = _ProjectThatWillNotStart(project=backup.CHECK_PROJECT)
+
+    status = backup._run_checks(backup._CheckRun(), project, _written_backup(tmp_path))
+
+    assert status == 1
+    report = capsys.readouterr().out
+    assert "1. both dumps match their manifest: PASS" in report
+    [failed] = [line for line in report.splitlines() if line.startswith("FAILED")]
+    assert failed.startswith("FAILED set-up (")
+    assert "port is allocated" in failed
 
 
 # --- a restore writes only into an empty database, with its consumer stopped (ADR-038) ---------
@@ -637,6 +702,25 @@ def Given_a_malformed_manifest_When_restored_Then_it_is_refused_before_any_compo
     project = _Project()
 
     with pytest.raises(backup.BackupError, match=re.escape(refusal)):
+        backup.restore(project, tmp_path, (backup.LEDGER,))
+
+    assert project.calls == []
+
+
+# A manifest re-saved by Windows PowerShell 5.1's `>` is UTF-16, which UTF-8 cannot decode.
+@pytest.mark.parametrize(
+    "content",
+    [json.dumps(_manifest_for(LEDGER_DUMP)).encode("utf-16"), b"\xff\xfe{}"],
+    ids=["utf-16", "undecodable"],
+)
+def Given_a_manifest_that_is_not_utf8_When_restored_Then_it_is_refused_before_any_compose_command(
+    content: bytes, tmp_path: Path
+) -> None:
+    (tmp_path / backup.LEDGER.dump_name).write_bytes(LEDGER_DUMP)
+    (tmp_path / backup.MANIFEST_NAME).write_bytes(content)
+    project = _Project()
+
+    with pytest.raises(backup.BackupError, match=re.escape(NOT_A_MANIFEST)):
         backup.restore(project, tmp_path, (backup.LEDGER,))
 
     assert project.calls == []

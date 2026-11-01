@@ -4,11 +4,21 @@
  * Every query key comes from `accountKeys`, so a mutation invalidates exactly what a query reads
  * rather than a key spelled twice.
  */
-import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+    type NetworkMode,
+    type QueryClient,
+    useIsMutating,
+    useMutation,
+    useQuery,
+    useQueryClient,
+} from '@tanstack/react-query';
+
+import { hasProblemCode } from '@/shared/api/client';
 
 import {
     clearTransaction,
     getBalance,
+    ILLEGAL_TRANSITION,
     listAccounts,
     listAccountTransactions,
     openAccount,
@@ -150,6 +160,50 @@ export function useRecordTransaction() {
     });
 }
 
+/**
+ * The mutation key Clear, Reconcile and Void share, so a page can tell that one is in flight. It
+ * lives in the mutation cache, apart from every query key in `accountKeys`.
+ */
+const TRANSACTION_LIFECYCLE_KEY = [...ACCOUNTS_KEY, 'lifecycle'] as const;
+
+/**
+ * How Clear, Reconcile and Void meet the network. `'always'` sends one submitted offline at once,
+ * so it fails as a retryable network error the panel shows. TanStack Query's default,
+ * `'online'`, holds it paused and pending instead, while the panel disables Cancel and the page
+ * every other row's action: the owner would be stuck, with nothing on screen saying why.
+ */
+const LIFECYCLE_NETWORK_MODE: NetworkMode = 'always';
+
+/** Whether a transaction lifecycle mutation is in flight, read two ways. */
+export interface LifecycleInFlight {
+    /** As of the last render, for disabling the controls that would start another. */
+    readonly pending: boolean;
+    /**
+     * Read from the mutation cache at call time, for an event handler: a click can land after
+     * `mutate` has started a request but before the render that disables those controls.
+     */
+    readonly isPendingNow: () => boolean;
+}
+
+/**
+ * Whether a Clear, Reconcile or Void is in flight anywhere on screen.
+ *
+ * A page holding one lifecycle panel at a time reads it before replacing the open panel: the panel
+ * owns its mutation's `mutate` callbacks, which TanStack Query drops once their observer
+ * unmounts, so replacing it mid-flight would lose the outcome - a 504 "outcome unknown" included
+ * (ADR-067).
+ *
+ * @returns the in-flight state, as rendered and as of now.
+ */
+export function useTransactionLifecycleInFlight(): LifecycleInFlight {
+    const queryClient = useQueryClient();
+    const pending = useIsMutating({ mutationKey: TRANSACTION_LIFECYCLE_KEY }) > 0;
+    return {
+        pending,
+        isPendingNow: () => queryClient.isMutating({ mutationKey: TRANSACTION_LIFECYCLE_KEY }) > 0,
+    };
+}
+
 /** One lifecycle mutation's variables: which transaction, and the date the action took effect. */
 interface TransitionVariables {
     readonly transactionId: string;
@@ -157,30 +211,63 @@ interface TransitionVariables {
 }
 
 /**
+ * After a lifecycle action fails, refetch the balance and transactions of the account on screen
+ * when the ledger refused it as 409 `ILLEGAL_TRANSITION`: the transaction moved elsewhere since
+ * the page read it, and refetch on focus is off, so its row would otherwise keep showing the
+ * stale state and offering the action just refused.
+ *
+ * A refusal carries no transaction, so only the account on screen is refetched; another account
+ * the transaction touches refetches its own when its page mounts. Any other failure answered the
+ * request as sent and changed nothing, so nothing is refetched.
+ *
+ * @returns the settled refetches on a 409, so a caller can return it from `onError` and stay
+ *   pending until the row reflects the refusal; otherwise `undefined`.
+ */
+function refreshAfterIllegalTransition(
+    queryClient: QueryClient,
+    error: unknown,
+    accountId: string,
+): Promise<unknown> | undefined {
+    return hasProblemCode(error, ILLEGAL_TRANSITION)
+        ? invalidateAccounts(queryClient, [accountId])
+        : undefined;
+}
+
+/**
  * Clear a transaction, then refetch the balance and transactions of every account it touches.
  *
+ * @param accountId - the account whose page offers the action, refetched on a 409 (see
+ *   `refreshAfterIllegalTransition`).
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
-export function useClearTransaction() {
+export function useClearTransaction(accountId: string) {
     const queryClient = useQueryClient();
     return useMutation({
+        mutationKey: TRANSACTION_LIFECYCLE_KEY,
+        networkMode: LIFECYCLE_NETWORK_MODE,
         mutationFn: ({ transactionId, on }: TransitionVariables) =>
             clearTransaction(transactionId, on),
         onSuccess: (transaction) => invalidateAccounts(queryClient, accountIdsOf(transaction)),
+        onError: (error) => refreshAfterIllegalTransition(queryClient, error, accountId),
     });
 }
 
 /**
  * Reconcile a transaction, then refetch the balance and transactions of every account it touches.
  *
+ * @param accountId - the account whose page offers the action, refetched on a 409 (see
+ *   `refreshAfterIllegalTransition`).
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
-export function useReconcileTransaction() {
+export function useReconcileTransaction(accountId: string) {
     const queryClient = useQueryClient();
     return useMutation({
+        mutationKey: TRANSACTION_LIFECYCLE_KEY,
+        networkMode: LIFECYCLE_NETWORK_MODE,
         mutationFn: ({ transactionId, on }: TransitionVariables) =>
             reconcileTransaction(transactionId, on),
         onSuccess: (transaction) => invalidateAccounts(queryClient, accountIdsOf(transaction)),
+        onError: (error) => refreshAfterIllegalTransition(queryClient, error, accountId),
     });
 }
 
@@ -192,13 +279,18 @@ interface VoidVariables extends TransitionVariables {
 /**
  * Void a transaction, then refetch the balance and transactions of every account it touches.
  *
+ * @param accountId - the account whose page offers the action, refetched on a 409 (see
+ *   `refreshAfterIllegalTransition`).
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
-export function useVoidTransaction() {
+export function useVoidTransaction(accountId: string) {
     const queryClient = useQueryClient();
     return useMutation({
+        mutationKey: TRANSACTION_LIFECYCLE_KEY,
+        networkMode: LIFECYCLE_NETWORK_MODE,
         mutationFn: ({ transactionId, on, reason }: VoidVariables) =>
             voidTransaction(transactionId, on, reason),
         onSuccess: (transaction) => invalidateAccounts(queryClient, accountIdsOf(transaction)),
+        onError: (error) => refreshAfterIllegalTransition(queryClient, error, accountId),
     });
 }

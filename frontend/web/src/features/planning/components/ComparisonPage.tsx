@@ -1,5 +1,6 @@
 import { type SubmitEvent, useId, useRef, useState } from 'react';
 
+import { useWriteAccess } from '@/shared/lib/writeAccess';
 import {
     Button,
     type Column,
@@ -41,6 +42,9 @@ const TOO_FEW_SCENARIOS_MESSAGE = 'Choose at least two scenarios to compare.';
 const TOO_MANY_SCENARIOS_MESSAGE = 'Choose at most ten scenarios to compare.';
 
 const NO_SCENARIOS_MESSAGE = 'No scenarios to compare yet — define at least two under Scenarios.';
+
+/** No scenarios, for a viewer, whom Scenarios offers no form to define one with (ADR-032). */
+const READ_ONLY_NO_SCENARIOS_MESSAGE = 'No scenarios to compare yet.';
 
 const NO_SCENARIO_CHOSEN_MESSAGE = 'Choose scenarios to offer the accounts in their currency.';
 
@@ -227,6 +231,8 @@ function ComparisonForm({
                                         : `${scenariosHintId} ${scenariosErrorId}`
                                 }
                                 onChange={() => {
+                                    // The error answered the choice as submitted, not this one.
+                                    setScenariosError(undefined);
                                     setChosenIds((previous) => toggled(previous, scenario.id));
                                 }}
                             />
@@ -293,6 +299,7 @@ export function ComparisonPage() {
     const headingId = useId();
     const [submitted, setSubmitted] = useState<ComparisonParams | undefined>(undefined);
     const invalidateComparison = useInvalidateComparison();
+    const { canWrite } = useWriteAccess();
 
     function compare(params: ComparisonParams) {
         // Unchanged fields keep the same key, which the cache alone would answer.
@@ -306,7 +313,9 @@ export function ComparisonPage() {
                 <h2 id={headingId} className={styles.heading}>
                     Compare scenarios
                 </h2>
-                <ScenarioChoice emptyMessage={NO_SCENARIOS_MESSAGE}>
+                <ScenarioChoice
+                    emptyMessage={canWrite ? NO_SCENARIOS_MESSAGE : READ_ONLY_NO_SCENARIOS_MESSAGE}
+                >
                     {(scenarios) => <ComparisonForm scenarios={scenarios} onCompare={compare} />}
                 </ScenarioChoice>
             </section>

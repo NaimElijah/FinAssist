@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
+import { parseEnv } from 'node:util';
 
 import react from '@vitejs/plugin-react';
 import type { Plugin, ProxyOptions } from 'vite';
@@ -13,10 +16,65 @@ import { coverageConfigDefaults, defineConfig } from 'vitest/config';
 import {
     ASSISTANT_BACKEND,
     BFF_BACKEND,
+    GATEWAY_PORT_VARIABLE,
+    gatewayTarget,
     LEDGER_BACKEND,
     LOOPBACK_HOST,
     type ProxiedBackend,
 } from './src/shared/api/backends';
+
+/** Where Compose reads `.env`, two levels above this workspace. */
+const REPOSITORY_ROOT = fileURLToPath(new URL('../..', import.meta.url));
+
+/** The one env file Compose reads, at the repository root. */
+const ENV_FILE_NAME = '.env';
+
+/** Node's code for a file that does not exist, as `.env` does not in a fresh clone. */
+const FILE_NOT_FOUND = 'ENOENT';
+
+/** The text of `file`, or nothing when it does not exist; any other failure is thrown. */
+function readOptionalFile(file: string): string {
+    try {
+        return readFileSync(file, 'utf8');
+    } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === FILE_NOT_FOUND) {
+            return '';
+        }
+        throw error;
+    }
+}
+
+/**
+ * The variables the gateway's address is built from: `GATEWAY_PORT` alone, from the process
+ * environment when it is set there, else from `envDirectory`'s `.env`.
+ *
+ * Read with Node's own parser rather than Vite's `loadEnv`, which also reads `.env.local` and
+ * `.env.<mode>` files that Compose never does, and copies `BROWSER`, `BROWSER_ARGS` and, as
+ * `VITE_USER_NODE_ENV`, `NODE_ENV` from them into `process.env`. This writes nothing back, and
+ * returns no other variable, so none of the secrets `.env` holds reaches the config. Unlike
+ * `loadEnv`, it expands no `${...}` reference: `.env.example` gives the port as a plain number.
+ *
+ * @param envDirectory - the directory holding `.env`; a missing file reads as an empty one.
+ * @returns `GATEWAY_PORT` when either source sets it, and nothing else.
+ * @throws Error - when `.env` exists but cannot be read.
+ */
+export function gatewayEnvironment(
+    envDirectory: string,
+): Readonly<Partial<Record<typeof GATEWAY_PORT_VARIABLE, string>>> {
+    const port =
+        process.env[GATEWAY_PORT_VARIABLE] ??
+        parseEnv(readOptionalFile(path.join(envDirectory, ENV_FILE_NAME)))[GATEWAY_PORT_VARIABLE];
+    return port === undefined ? {} : { [GATEWAY_PORT_VARIABLE]: port };
+}
+
+/**
+ * The gateway every prefix is proxied to, at the port Compose publishes it on: `GATEWAY_PORT`
+ * from the process environment first, then from the repository's `.env` (`gatewayEnvironment`).
+ * Exported for the proxy's own tests.
+ *
+ * @throws Error - when the config loads with a `GATEWAY_PORT` that is not a port number.
+ */
+export const GATEWAY_TARGET = gatewayTarget(gatewayEnvironment(REPOSITORY_ROOT));
 
 /**
  * The proxy map key for one backend, anchored so only its own prefix matches.
@@ -42,9 +100,9 @@ function proxyKey(backend: ProxiedBackend): string {
  * path, and `/bff/**` is matched whole too, so stripping the prefix here as well would leave the
  * gateway nothing to match — its deny-by-default security chain would then refuse every call.
  */
-function proxyEntry(backend: ProxiedBackend): ProxyOptions {
+function proxyEntry(): ProxyOptions {
     return {
-        target: backend.target,
+        target: GATEWAY_TARGET,
         changeOrigin: true,
     };
 }
@@ -52,9 +110,9 @@ function proxyEntry(backend: ProxiedBackend): ProxyOptions {
 // Defined once and given to both `server.proxy` and `preview.proxy` below, so `vite preview`
 // can never drift from `vite dev` (ADR-026: one origin, both environments).
 const proxy: Record<string, ProxyOptions> = {
-    [proxyKey(LEDGER_BACKEND)]: proxyEntry(LEDGER_BACKEND),
-    [proxyKey(ASSISTANT_BACKEND)]: proxyEntry(ASSISTANT_BACKEND),
-    [proxyKey(BFF_BACKEND)]: proxyEntry(BFF_BACKEND),
+    [proxyKey(LEDGER_BACKEND)]: proxyEntry(),
+    [proxyKey(ASSISTANT_BACKEND)]: proxyEntry(),
+    [proxyKey(BFF_BACKEND)]: proxyEntry(),
 };
 
 /**

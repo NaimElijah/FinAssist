@@ -60,8 +60,9 @@ public sealed interface Recurrence {
                 throw new IllegalArgumentException("A recurrence cannot end on " + until + ", before it starts on "
                         + start + "; it would never occur");
             }
+            long lastStep = lastStepBefore(cadence, start, toExclusive);
             List<LocalDate> dates = new ArrayList<>();
-            for (long period = 0; ; period++) {
+            for (long period = 0; period * interval <= lastStep; period++) {
                 LocalDate date = cadence.advance(start, period * interval);
                 if (!date.isBefore(until) || !date.isBefore(toExclusive)) {
                     return dates;
@@ -70,6 +71,7 @@ public sealed interface Recurrence {
                     dates.add(date);
                 }
             }
+            return dates;
         }
     }
 
@@ -88,8 +90,9 @@ public sealed interface Recurrence {
         @Override
         public List<LocalDate> occurrences(LocalDate start, LocalDate fromInclusive, LocalDate toExclusive) {
             requireRange(start, fromInclusive, toExclusive);
+            long lastStep = lastStepBefore(cadence, start, toExclusive);
             List<LocalDate> dates = new ArrayList<>();
-            for (long period = 0; period < count; period++) {
+            for (long period = 0; period < count && period * interval <= lastStep; period++) {
                 LocalDate date = cadence.advance(start, period * interval);
                 if (!date.isBefore(toExclusive)) {
                     return dates;
@@ -107,6 +110,20 @@ public sealed interface Recurrence {
             throw new IllegalArgumentException(
                     "A recurrence interval must be at least one cadence but was " + interval);
         }
+    }
+
+    /**
+     * An upper bound on the cadences from {@code start} that can still land before
+     * {@code toExclusive}; the step at the bound itself may land on {@code toExclusive}.
+     *
+     * <p>A step past it is never computed. {@link Cadence#between} counts complete periods, and
+     * {@link Cadence#advance} only clamps a day down to the end of a month that is then the end's own
+     * month, so one more step always lands on or after {@code toExclusive}: stopping here drops no
+     * occurrence. Computing that step regardless would let an interval of a billion years ask
+     * {@link LocalDate} for a year it cannot hold, and throw instead of answer.
+     */
+    private static long lastStepBefore(Cadence cadence, LocalDate start, LocalDate toExclusive) {
+        return cadence.between(start, toExclusive);
     }
 
     private static void requireRange(LocalDate start, LocalDate fromInclusive, LocalDate toExclusive) {

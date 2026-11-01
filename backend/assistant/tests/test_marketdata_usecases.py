@@ -75,3 +75,29 @@ def Given_a_naive_clock_When_asked_for_Then_it_is_refused_as_ambiguous() -> None
 
 def Given_the_default_limit_When_read_Then_it_is_an_hour() -> None:
     assert timedelta(hours=1) == DEFAULT_MAX_AGE
+
+
+def Given_a_quote_dated_a_year_ahead_When_asked_for_Then_it_is_refused() -> None:
+    # A feed's clock gone wrong, or a corrupted delivery: a price that claims to be from the future
+    # is no evidence of what the instrument is worth now.
+    ahead = Quote(VOO, Money.of("250.00", Currency.USD), NOON + timedelta(days=365))
+
+    with pytest.raises(StaleQuoteError, match="ahead of"):
+        LatestQuote(FakeFeed(ahead)).of(VOO, NOON)
+
+
+def Given_a_quote_stamped_just_after_the_clock_was_read_When_asked_for_Then_it_is_returned() -> (
+    None
+):
+    # The development seed stamps as_of after MarketDataQuotes has read the clock, so a quote a
+    # few microseconds ahead is the normal case, not an error.
+    just_after = Quote(VOO, Money.of("250.00", Currency.USD), NOON + timedelta(microseconds=5))
+
+    assert LatestQuote(FakeFeed(just_after)).of(VOO, NOON) is just_after
+
+
+@pytest.mark.parametrize("max_age", [timedelta(0), timedelta(minutes=-5)], ids=["zero", "negative"])
+def Given_a_non_positive_limit_When_built_Then_it_is_refused(max_age: timedelta) -> None:
+    # Checked only at use, the misconfiguration surfaced on every valuation as the caller's 422.
+    with pytest.raises(ValueError, match="must be positive"):
+        LatestQuote(FakeFeed(quote(5)), max_age=max_age)

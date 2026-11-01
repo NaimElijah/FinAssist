@@ -5,6 +5,7 @@ import io.github.naimelijah.finassist.ledger.accounting.application.port.out.Acc
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.Account;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountType;
+import io.github.naimelijah.finassist.ledger.shared.Currency;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
@@ -110,11 +111,20 @@ public class JdbcAccountRepository implements AccountRepository {
         }
     }
 
+    /**
+     * {@link Account} still checks its name on the way back in, more strictly than {@code
+     * account_name_not_blank} can (#402); a stored account it refuses is a server fault naming the
+     * account rather than a rule a caller broke.
+     */
     private static Account toAccount(ResultSet row, int rowNumber) throws SQLException {
-        return new Account(
-                new AccountId(row.getObject("id", java.util.UUID.class)),
-                row.getString("name"),
-                AccountingRows.enumerated(AccountType.class, TABLE, "type", row.getString("type")),
-                AccountingRows.currency(row, TABLE, "currency"));
+        AccountId id = new AccountId(row.getObject("id", java.util.UUID.class));
+        String name = row.getString("name");
+        AccountType type = AccountingRows.enumerated(AccountType.class, TABLE, "type", row.getString("type"));
+        Currency currency = AccountingRows.currency(row, TABLE, "currency");
+        try {
+            return new Account(id, name, type, currency);
+        } catch (IllegalArgumentException refused) {
+            throw AccountingRows.unreconstructable("account", id.value(), TABLE);
+        }
     }
 }

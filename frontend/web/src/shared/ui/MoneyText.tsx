@@ -1,19 +1,6 @@
+import { isDecimalString } from '../api/decimal';
 import { DISPLAY_LOCALE } from '../lib/locale';
 import styles from './MoneyText.module.css';
-
-/**
- * The wire's decimal-string pattern, as `contracts/ledger-v1.openapi.json` declares it (ADR-028).
- */
-const DECIMAL_STRING = /^-?\d+(\.\d+)?$/;
-
-/**
- * Whether `value` is a decimal string, narrowing it to the type `Intl.NumberFormat` accepts.
- *
- * A pattern test and nothing more: the value is never parsed as a number.
- */
-function isDecimalString(value: string): value is `${number}` {
-    return DECIMAL_STRING.test(value);
-}
 
 /** An amount exactly as a service sent it, and its currency. */
 export interface MoneyTextProps {

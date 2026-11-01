@@ -42,6 +42,9 @@ import type {
 import { CADENCES, type Cadence, type Recurrence } from '../types/recurrence';
 import type { DefineScenarioInput, Scenario } from '../types/scenario';
 
+/** The ledger's code for a lifecycle action the flow's current state does not admit (409). */
+export const ILLEGAL_TRANSITION = 'ILLEGAL_TRANSITION';
+
 const PLANNED_FLOWS_URL = `${LEDGER_API}/planned-flows`;
 const SCENARIOS_URL = `${LEDGER_API}/scenarios`;
 const SCENARIO_COMPARISONS_URL = `${LEDGER_API}/scenario-comparisons`;

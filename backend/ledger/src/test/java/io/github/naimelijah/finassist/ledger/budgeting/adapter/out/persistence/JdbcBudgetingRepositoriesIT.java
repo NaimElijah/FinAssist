@@ -3,6 +3,7 @@ package io.github.naimelijah.finassist.ledger.budgeting.adapter.out.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.zaxxer.hikari.HikariDataSource;
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.BudgetRepository;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.CategorisationRuleRepository;
@@ -21,6 +22,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * What budgeting's two repositories promise, asserted against the store.
@@ -41,6 +43,9 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
     private static final UUID SMALLER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
     private static final UUID LARGER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
+
+    /** Blank to {@code String.isBlank}, and not to PostgreSQL's {@code btrim}, which strips spaces alone. */
+    private static final String TAB = "\t";
 
     @Autowired
     private BudgetRepository budgets;
@@ -235,6 +240,42 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
                 .hasMessageContaining("budgeting.budget")
                 .hasMessageContaining(id.value().toString())
                 .hasNoCause();
+    }
+
+    /**
+     * {@code categorisation_rule_fragment_normalised} uses {@code btrim}, which strips spaces alone, so
+     * a fragment of a tab passes it and not {@code String.isBlank}. A stored rule {@code
+     * CategorisationRule} refuses is a server fault naming the rule's table, not a 422 rule the caller
+     * broke, and it carries no cause, so the domain's refusal is never chained into what the log records.
+     */
+    @Test
+    void Given_a_rule_stored_with_a_fragment_only_java_counts_as_blank_When_read_Then_it_is_a_server_fault() {
+        jdbc().sql("INSERT INTO budgeting.categorisation_rule (fragment, category) VALUES (:fragment, 'groceries')")
+                .param("fragment", TAB)
+                .update();
+
+        assertThatThrownBy(() -> rules.all())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("budgeting.categorisation_rule")
+                .hasNoCause();
+    }
+
+    /**
+     * A budget's limits are a second query. Run while the budgets' own result set is still open, it
+     * borrows a second connection outside a transaction, so concurrent reads as many as the pool can
+     * hold each wait for one that never frees. Proven against a pool of one, where such a read fails.
+     */
+    @Test
+    void Given_a_pool_of_one_connection_When_budgets_are_read_Then_each_read_needs_only_that_one() {
+        Budget budget = Budget.of(MARCH, Currency.ILS, List.of(new CategoryLimit(GROCERIES, ils("1200.00"))));
+        budgets.save(budget);
+
+        try (HikariDataSource pool = poolOfOne()) {
+            BudgetRepository onOneConnection = new JdbcBudgetRepository(JdbcClient.create(pool));
+
+            assertThat(onOneConnection.findById(budget.id())).contains(budget);
+            assertThat(onOneConnection.all()).containsExactly(budget);
+        }
     }
 
     /** An ILS budget for March with no limits yet, written past the aggregate so a test can add a bad one. */

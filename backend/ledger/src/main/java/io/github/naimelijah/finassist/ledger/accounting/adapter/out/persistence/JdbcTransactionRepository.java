@@ -44,6 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 public class JdbcTransactionRepository implements TransactionRepository {
 
+    private static final String TRANSACTION_TABLE = "accounting.journal_transaction";
     private static final String ENTRY_TABLE = "accounting.journal_entry";
     private static final String STATE_TABLE = "accounting.journal_transaction_state";
 
@@ -273,17 +274,29 @@ public class JdbcTransactionRepository implements TransactionRepository {
                 .toList();
     }
 
+    /**
+     * {@link Transaction}, its entries and its state still check every rule on the way back in, some
+     * more strictly than the schema can, such as a description or a void's reason that only Java counts
+     * as blank (#402); a stored transaction they refuse is a server fault naming the transaction rather
+     * than a rule a caller broke.
+     */
     private static Transaction toTransaction(List<Row> rows) {
         Row first = rows.getFirst();
-        List<Entry> entries = rows.stream()
-                .map(row -> new Entry(new AccountId(row.accountId()), row.amount()))
-                .toList();
-        return new Transaction(
-                new TransactionId(first.transactionId()),
-                first.occurredOn(),
-                first.description(),
-                entries,
-                first.state().toDomain());
+        TransactionId id = new TransactionId(first.transactionId());
+        try {
+            List<Entry> entries = rows.stream()
+                    .map(row -> new Entry(new AccountId(row.accountId()), row.amount()))
+                    .toList();
+            return new Transaction(
+                    id,
+                    first.occurredOn(),
+                    first.description(),
+                    entries,
+                    first.state().toDomain());
+        } catch (IllegalArgumentException refused) {
+            throw AccountingRows.unreconstructable(
+                    "transaction", id.value(), TRANSACTION_TABLE + ", " + ENTRY_TABLE + " and " + STATE_TABLE);
+        }
     }
 
     /** One joined row: the transaction and its current state, repeated once per entry. */

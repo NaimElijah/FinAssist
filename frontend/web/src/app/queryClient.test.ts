@@ -1,7 +1,7 @@
 // @vitest-environment node
 // No DOM: a QueryClient and a MutationObserver are plain objects, and nothing here renders.
 
-import { MutationObserver } from '@tanstack/react-query';
+import { MutationObserver, QueryObserver } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ApiBodyError, ApiError } from '@/shared/api/client';
@@ -111,7 +111,10 @@ describe('createQueryClient', () => {
 
         // Asserted at once, never polled: this is what proves the query cache's onError has run by
         // the time query() rejects, which the negative test below relies on to mean anything.
-        expect(invalidateSpy).toHaveBeenCalledExactlyOnceWith({ queryKey: sessionKeys.me });
+        expect(invalidateSpy).toHaveBeenCalledExactlyOnceWith(
+            { queryKey: sessionKeys.me },
+            { cancelRefetch: false },
+        );
     });
 
     it('Given_the_session_checks_own_401_When_it_fails_Then_the_session_is_not_invalidated_again', async () => {
@@ -140,6 +143,53 @@ describe('createQueryClient', () => {
         await expect(observer.mutate()).rejects.toBe(failure);
 
         // The mutation cache's onError is awaited before mutate() rejects, so no poll is needed.
-        expect(invalidateSpy).toHaveBeenCalledExactlyOnceWith({ queryKey: sessionKeys.me });
+        expect(invalidateSpy).toHaveBeenCalledExactlyOnceWith(
+            { queryKey: sessionKeys.me },
+            { cancelRefetch: false },
+        );
+    });
+
+    it('Given_a_loaded_session_When_two_other_queries_answer_401_Then_the_session_is_rechecked_only_once', async () => {
+        // One expired session fails every query on the screen, and each 401 invalidates the
+        // session. TanStack Query cancels a refetch in flight for a query holding data unless told
+        // not to, so each 401 after the first would restart the recheck: one /bff/me per failing
+        // query instead of all of them sharing the one already running.
+        const queryClient = createQueryClient();
+        const rechecks: ((value: string) => void)[] = [];
+        const sessionFn = vi
+            .fn<() => Promise<string>>()
+            .mockResolvedValueOnce('signed in')
+            .mockImplementation(
+                () =>
+                    new Promise<string>((resolve) => {
+                        rechecks.push(resolve);
+                    }),
+            );
+        const session = new QueryObserver(queryClient, {
+            queryKey: sessionKeys.me,
+            queryFn: sessionFn,
+        });
+        const unsubscribe = session.subscribe(() => undefined);
+        try {
+            await queryClient.query({ queryKey: sessionKeys.me, queryFn: sessionFn });
+            expect(sessionFn).toHaveBeenCalledTimes(1);
+
+            for (const queryKey of [['first'], ['second']]) {
+                await expect(
+                    queryClient.query({
+                        queryKey,
+                        queryFn: () => Promise.reject(apiError(401)),
+                        retryDelay: 0,
+                    }),
+                ).rejects.toBeInstanceOf(ApiError);
+            }
+
+            expect(sessionFn).toHaveBeenCalledTimes(2);
+        } finally {
+            for (const answer of rechecks) {
+                answer('signed out');
+            }
+            unsubscribe();
+        }
     });
 });

@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import type { WriteAccess } from '@/shared/lib/writeAccess';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -585,6 +586,44 @@ describe('ProjectionPage', () => {
         expect(labelsIn('Cash accounts')).toEqual(['US checking']);
     });
 
+    it('Given_an_account_ticked_on_one_side_When_the_other_side_is_shown_Then_it_is_disabled_there_and_every_box_states_why', async () => {
+        // The ledger refuses an account named as both cash and invested with a 422 naming a raw
+        // id the page never shows, so the pickers never let the owner send one. A disabled box
+        // leaves the Tab order, so the rule also says how to free it.
+        const oneSideRule =
+            'An account counts as cash or as invested, not both; untick it in one list to use it ' +
+            'in the other.';
+        fakeFetch(ledger([SAVING]));
+        renderProjection();
+        const user = userEvent.setup({ delay: null });
+        await user.selectOptions(
+            await screen.findByLabelText('Scenario'),
+            'Aggressive saving (ILS)',
+        );
+        const box = (group: string, account: string) =>
+            within(screen.getByRole('group', { name: group })).getByLabelText(account);
+
+        await user.click(box('Cash accounts', 'Checking'));
+        await user.click(box('Invested accounts', 'Brokerage'));
+
+        expect(box('Invested accounts', 'Checking')).toHaveProperty('disabled', true);
+        expect(box('Cash accounts', 'Brokerage')).toHaveProperty('disabled', true);
+        expect(box('Cash accounts', 'Checking')).toHaveProperty('disabled', false);
+        expect(box('Invested accounts', 'Brokerage')).toHaveProperty('disabled', false);
+        expect(screen.getByText(oneSideRule)).toBeDefined();
+        for (const group of ['Cash accounts', 'Invested accounts']) {
+            for (const checkbox of within(screen.getByRole('group', { name: group })).getAllByRole(
+                'checkbox',
+            )) {
+                expect(accessibleDescriptionOf(checkbox)).toBe(oneSideRule);
+            }
+        }
+
+        await user.click(box('Cash accounts', 'Checking'));
+
+        expect(box('Invested accounts', 'Checking')).toHaveProperty('disabled', false);
+    });
+
     it('Given_ILS_accounts_checked_When_the_scenario_becomes_USD_and_is_projected_Then_only_USD_accounts_are_sent', async () => {
         const requests = fakeFetch(ledger([SAVING, ABROAD], () => pendingResponse()));
         renderProjection();
@@ -724,6 +763,16 @@ describe('ProjectionPage', () => {
             await screen.findByText('No scenarios to project yet — define one under Scenarios.'),
         ).toBeDefined();
         expect(screen.queryByRole('button', { name: 'Project' })).toBeNull();
+    });
+
+    it('Given_no_scenarios_and_a_read_only_session_When_the_page_renders_Then_the_empty_state_invites_nothing_it_cannot_do', async () => {
+        // A viewer is offered no form to define a scenario, so pointing at one would mislead.
+        fakeFetch(ledger([]));
+
+        renderProjection(LOADED, { canWrite: false });
+
+        expect(await screen.findByText('No scenarios to project yet.')).toBeDefined();
+        expect(screen.queryByText(/define one/)).toBeNull();
     });
 
     it('Given_no_scenarios_shown_When_the_list_is_read_again_and_fails_Then_the_failure_shows_above_the_empty_state', async () => {

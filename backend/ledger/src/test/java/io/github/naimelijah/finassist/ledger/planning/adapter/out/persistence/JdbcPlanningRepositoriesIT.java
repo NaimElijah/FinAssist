@@ -3,6 +3,7 @@ package io.github.naimelijah.finassist.ledger.planning.adapter.out.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.zaxxer.hikari.HikariDataSource;
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.PlannedFlowRepository;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.ScenarioRepository;
@@ -25,6 +26,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * What planning's two repositories promise, asserted against the store.
@@ -399,6 +401,57 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
                 .hasNoCause();
     }
 
+    /**
+     * {@code planned_flow_description_not_blank} uses {@code btrim} as well, so a description of a tab
+     * is stored and refused by {@code PlannedFlow} on read. That is a server fault naming the flow, not
+     * a 422 rule the caller broke, and it carries no cause, so the domain's refusal is never chained into
+     * what the log records.
+     */
+    @Test
+    void Given_a_flow_stored_with_a_description_only_java_counts_as_blank_When_read_Then_it_is_a_server_fault() {
+        PlannedFlow car = stored("New car", "40000.00");
+        blank(car);
+
+        assertThatThrownBy(() -> flows.findById(car.id()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("planning.planned_flow")
+                .hasMessageContaining(car.id().value().toString())
+                .hasNoCause();
+    }
+
+    /** A scenario loads its flows through the same mapper, so one bad flow makes it a server fault too. */
+    @Test
+    void Given_a_scenario_listing_a_flow_only_java_counts_as_blank_When_read_Then_it_is_a_server_fault() {
+        PlannedFlow car = stored("New car", "40000.00");
+        Scenario scenario = Scenario.of("Buy the car", Currency.ILS, List.of(car), GrowthAssumption.none());
+        scenarios.save(scenario);
+        blank(car);
+
+        assertThatThrownBy(() -> scenarios.findById(scenario.id()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(car.id().value().toString())
+                .hasNoCause();
+    }
+
+    /**
+     * A scenario's flows are a second query. Run while the scenarios' own result set is still open, it
+     * borrows a second connection outside a transaction, so concurrent reads as many as the pool can
+     * hold each wait for one that never frees. Proven against a pool of one, where such a read fails.
+     */
+    @Test
+    void Given_a_pool_of_one_connection_When_scenarios_are_read_Then_each_read_needs_only_that_one() {
+        PlannedFlow car = stored("New car", "40000.00");
+        Scenario scenario = Scenario.of("Buy the car", Currency.ILS, List.of(car), GrowthAssumption.none());
+        scenarios.save(scenario);
+
+        try (HikariDataSource pool = poolOfOne()) {
+            ScenarioRepository onOneConnection = new JdbcScenarioRepository(JdbcClient.create(pool));
+
+            assertThat(onOneConnection.findById(scenario.id())).contains(scenario);
+            assertThat(onOneConnection.all()).containsExactly(scenario);
+        }
+    }
+
     /** A strategy with no flows yet, written past the aggregate so a test can list a bad one. */
     private ScenarioId scenarioStoredDirectly(String currency) {
         return scenarioStoredDirectly("Stored directly", currency);
@@ -427,6 +480,14 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
         PlannedFlow flow = PlannedFlow.plan(description, ils(amount), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
         flows.save(flow);
         return flow;
+    }
+
+    /** Makes a stored flow's description a tab, past the adapter, as no writer through it could. */
+    private void blank(PlannedFlow flow) {
+        jdbc().sql("UPDATE planning.planned_flow SET description = :description WHERE id = :id")
+                .param("description", TAB)
+                .param("id", flow.id().value())
+                .update();
     }
 
     private static Money ils(String amount) {

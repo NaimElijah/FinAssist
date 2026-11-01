@@ -85,8 +85,9 @@ public class JdbcBudgetRepository implements BudgetRepository {
         Objects.requireNonNull(id, "id");
         return jdbc.sql(SELECT_BUDGET)
                 .param("id", id.value())
-                .query(this::toBudget)
-                .optional();
+                .query(JdbcBudgetRepository::toBudgetRow)
+                .optional()
+                .map(this::toBudget);
     }
 
     /**
@@ -99,7 +100,9 @@ public class JdbcBudgetRepository implements BudgetRepository {
      */
     @Override
     public List<Budget> all() {
-        return jdbc.sql(SELECT_ALL_BUDGETS).query(this::toBudget).list();
+        return jdbc.sql(SELECT_ALL_BUDGETS).query(JdbcBudgetRepository::toBudgetRow).list().stream()
+                .map(this::toBudget)
+                .toList();
     }
 
     /**
@@ -161,16 +164,39 @@ public class JdbcBudgetRepository implements BudgetRepository {
      * (#401). {@link Budget} refuses a budget with none, and a stored one it refuses is a server fault
      * naming the budget rather than a rule a caller broke.
      */
-    private Budget toBudget(ResultSet row, int rowNumber) throws SQLException {
-        BudgetId id = new BudgetId(row.getObject("id", UUID.class));
-        Currency currency = BudgetingRows.currency(row, BUDGET_TABLE, "currency");
-        Map<Category, Money> limits = limitsOf(id);
+    private Budget toBudget(BudgetRow row) {
+        Map<Category, Money> limits = limitsOf(row.id());
         try {
-            BudgetPeriod period = new BudgetPeriod(
-                    row.getObject("period_start", LocalDate.class), row.getObject("period_end", LocalDate.class));
-            return new Budget(id, period, currency, limits);
+            BudgetPeriod period = new BudgetPeriod(row.periodStart(), row.periodEnd());
+            return new Budget(row.id(), period, row.currency(), limits);
         } catch (IllegalArgumentException refused) {
-            throw BudgetingRows.unreconstructable("budget", id.value(), BUDGET_TABLE + " and " + LIMIT_TABLE);
+            throw BudgetingRows.unreconstructable("budget", row.id().value(), BUDGET_TABLE + " and " + LIMIT_TABLE);
         }
     }
+
+    private static BudgetRow toBudgetRow(ResultSet row, int rowNumber) throws SQLException {
+        return new BudgetRow(
+                new BudgetId(row.getObject("id", UUID.class)),
+                row.getObject("period_start", LocalDate.class),
+                row.getObject("period_end", LocalDate.class),
+                BudgetingRows.currency(row, BUDGET_TABLE, "currency"));
+    }
+
+    /**
+     * A budget's own columns, read whole before its limits are queried.
+     *
+     * <p>A row mapper runs while its result set is open, and outside a transaction {@code JdbcClient}
+     * holds that statement's connection until the set closes, so a query for the limits from inside it
+     * would borrow a second connection. As many concurrent reads as the pool has connections would
+     * each hold one and wait for another, and all of them would stall until the pool's connection
+     * timeout and then fail. Reading the budget rows first and their limits afterwards keeps each read
+     * to one connection at a time.
+     *
+     * <p>The row and its limits are then two statements with no shared snapshot, which is safe only
+     * while a budget is never rewritten: today only {@code define} saves one, under a new id, though
+     * {@code UPSERT_BUDGET}'s {@code ON CONFLICT ... DO UPDATE} would allow a rewrite. A rewrite path
+     * would need one join or a read-only {@code REPEATABLE READ} transaction, or a read racing it could
+     * pair the old row with the new limits.
+     */
+    private record BudgetRow(BudgetId id, LocalDate periodStart, LocalDate periodEnd, Currency currency) {}
 }

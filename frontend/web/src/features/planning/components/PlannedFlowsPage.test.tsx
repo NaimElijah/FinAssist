@@ -2,7 +2,8 @@
 // Renders the planning routes through the feature's own route table, so it needs a DOM. fetch is
 // faked, so the feature's real api/ module and its mapping run under test.
 
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { onlineManager } from '@tanstack/react-query';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { type UserEvent, userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -586,6 +587,100 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         });
     });
 
+    /**
+     * A ledger whose Rent was committed elsewhere the moment this page tries to commit it: the
+     * commit answers 409 `ILLEGAL_TRANSITION`, and every later read shows it committed.
+     */
+    function committedElsewhereLedger(): FetchAnswer {
+        let flows: readonly unknown[] = [RENT];
+        return lifecycleLedger(
+            () => flows,
+            (request) => {
+                if (request.url === `${FLOWS_URL}/${RENT_ID}/commit` && request.method === 'POST') {
+                    flows = [{ ...RENT, state: { status: 'COMMITTED', on: '2026-09-14' } }];
+                    return problemResponse({
+                        status: 409,
+                        code: 'ILLEGAL_TRANSITION',
+                        detail: 'The flow is no longer planned.',
+                    });
+                }
+                return unexpectedRequest(request);
+            },
+        );
+    }
+
+    it('Given_a_flow_changed_elsewhere_When_its_action_answers_409_Then_the_flows_list_alone_is_refetched_beside_the_refusal', async () => {
+        // Refetch on focus is off, so without this the row would keep offering an action the
+        // ledger has already refused until the page is reloaded.
+        fakeFetch(committedElsewhereLedger());
+        const { queryClient } = renderFlows();
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
+        await user.click(screen.getByRole('button', { name: 'Commit' }));
+
+        expect(await within(rowOf('Rent')).findByText('Committed')).toBeDefined();
+        expect(
+            within(screen.getByRole('alert')).getByText('The flow is no longer planned.'),
+        ).toBeDefined();
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toEqual([planKeys.flows]);
+    });
+
+    it('Given_a_409_that_refetched_the_row_without_its_action_When_the_panel_is_cancelled_Then_focus_moves_to_the_rows_state', async () => {
+        // The refetched row no longer offers Commit, so the button the panel would return focus
+        // to is gone; the row's state, which is what changed, takes it instead of the page losing
+        // it.
+        fakeFetch(committedElsewhereLedger());
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
+        await user.click(screen.getByRole('button', { name: 'Commit' }));
+        await within(rowOf('Rent')).findByText('Committed');
+
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        await waitFor(() => {
+            expect(document.activeElement?.id).toBe(`flow-state-${RENT_ID}`);
+        });
+    });
+
+    it('Given_a_refusal_other_than_409_When_an_action_is_submitted_Then_nothing_is_refetched', async () => {
+        // Only a 409 says the row changed elsewhere; a 422 answers the request as sent, and a
+        // mutation invalidates only the keys that can have changed. Counted at the fetch boundary,
+        // so a refetch by any route - an invalidation or a direct refetch - is caught.
+        const requests = fakeFetch(
+            ledger([RENT], (request) =>
+                request.url === `${FLOWS_URL}/${RENT_ID}/commit` && request.method === 'POST'
+                    ? problemResponse({
+                          status: 422,
+                          code: 'RULE_VIOLATED',
+                          detail: 'A flow cannot be committed before it was planned.',
+                      })
+                    : unexpectedRequest(request),
+            ),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+        const readsBefore = requests.filter((request) => request.method === 'GET').length;
+
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
+        await user.click(screen.getByRole('button', { name: 'Commit' }));
+
+        await screen.findByRole('alert');
+        expect(requests.filter((request) => request.method === 'GET')).toHaveLength(readsBefore);
+    });
+
     it('Given_a_400_naming_the_panels_date_When_an_action_is_submitted_Then_the_error_state_lists_it_under_the_On_label', async () => {
         fakeFetch(
             ledger([RENT], (request) => {
@@ -660,6 +755,65 @@ describe('PlannedFlowsPage lifecycle actions', () => {
             await edit(user);
 
             expect(screen.queryByRole('alert')).toBeNull();
+        });
+    }
+
+    // Every lifecycle mutation, since each sets its own network mode.
+    for (const { action, submitLabel, path, flow, reason } of [
+        { action: 'Commit', submitLabel: 'Commit', path: 'commit', flow: RENT, reason: undefined },
+        {
+            action: 'Realise',
+            submitLabel: 'Realise',
+            path: 'realise',
+            flow: SALARY,
+            reason: undefined,
+        },
+        {
+            action: 'Cancel',
+            submitLabel: 'Cancel flow',
+            path: 'cancel',
+            flow: RENT,
+            reason: 'No longer needed',
+        },
+    ] as const) {
+        it(`Given_the_browser_offline_When_a_${action}_is_submitted_Then_the_panel_shows_the_failure_and_Cancel_is_enabled_again`, async () => {
+            // Offline, TanStack Query would hold the mutation paused and pending, and the panel
+            // disables Cancel while pending: the owner would be stuck with nothing saying why.
+            const actionUrl = `${FLOWS_URL}/${flow.id}/${path}`;
+            const requests = fakeFetch(
+                ledger([flow], (request) =>
+                    request.url === actionUrl && request.method === 'POST'
+                        ? networkFailure()
+                        : unexpectedRequest(request),
+                ),
+            );
+            renderFlows();
+            const user = userEvent.setup({ delay: null });
+            await screen.findByRole('table', { name: 'Planned flows' });
+            await user.click(
+                within(rowOf(flow.description)).getByRole('button', {
+                    name: nameStartingWith(action),
+                }),
+            );
+            if (reason !== undefined) {
+                await user.type(screen.getByLabelText('Reason'), reason);
+            }
+            try {
+                act(() => {
+                    onlineManager.setOnline(false);
+                });
+
+                await user.click(screen.getByRole('button', { name: submitLabel }));
+
+                await screen.findByRole('alert');
+                expect(screen.getByRole('button', { name: 'Cancel' })).toHaveProperty(
+                    'disabled',
+                    false,
+                );
+                expect(requests.filter((request) => request.url === actionUrl)).toHaveLength(1);
+            } finally {
+                onlineManager.setOnline(true);
+            }
         });
     }
 
@@ -758,6 +912,96 @@ describe('PlannedFlowsPage lifecycle actions', () => {
             expect(screen.getByRole('button', { name: 'Commit' })).toHaveProperty('disabled', true);
         });
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
+    });
+
+    it('Given_a_commit_in_flight_When_another_rows_action_is_pressed_Then_it_is_disabled_and_the_commits_outcome_still_shows', async () => {
+        // Opening another row's panel would unmount the one holding the mutation, and TanStack
+        // Query runs a mutate call's callbacks only while its observer is mounted: a 504 "outcome
+        // unknown" (ADR-067) would never be shown, and the owner would send the commit again.
+        let answerCommit: (response: Response) => void = () => undefined;
+        fakeFetch(
+            lifecycleLedger(
+                () => [RENT, SALARY],
+                (request) =>
+                    request.url === `${FLOWS_URL}/${RENT_ID}/commit` && request.method === 'POST'
+                        ? new Promise<Response>((resolve) => {
+                              answerCommit = resolve;
+                          })
+                        : unexpectedRequest(request),
+            ),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
+
+        await user.click(screen.getByRole('button', { name: 'Commit' }));
+
+        const otherRow = rowOf('Salary');
+        const realise = within(otherRow).getByRole('button', { name: nameStartingWith('Realise') });
+        await waitFor(() => {
+            expect(realise).toHaveProperty('disabled', true);
+        });
+        expect(
+            within(otherRow).getByRole('button', { name: nameStartingWith('Cancel') }),
+        ).toHaveProperty('disabled', true);
+        await user.click(realise);
+        answerCommit(
+            problemResponse({
+                status: 504,
+                code: 'UPSTREAM_TIMEOUT',
+                detail: 'The upstream service did not answer in time, so the outcome is unknown.',
+            }),
+        );
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert).getByText(
+                'The upstream service did not answer in time, so the outcome is unknown.',
+            ),
+        ).toBeDefined();
+        expect(
+            screen.getByRole('region', { name: nameStartingWith('Commit planned flow:') }),
+        ).toBeDefined();
+        expect(screen.queryByRole('region', { name: nameStartingWith('Realise') })).toBeNull();
+        // Settled, the other row's actions are offered again.
+        expect(realise).toHaveProperty('disabled', false);
+    });
+
+    it('Given_a_lifecycle_panel_just_submitted_When_another_rows_action_is_clicked_before_pending_renders_Then_the_panel_stays_open', async () => {
+        // The click can land in the same tick as the submit, before the disabled buttons render,
+        // so the page must refuse it from the mutation cache rather than from render-time state.
+        fakeFetch(
+            lifecycleLedger(
+                () => [RENT, SALARY],
+                (request) =>
+                    request.url === `${FLOWS_URL}/${RENT_ID}/commit` && request.method === 'POST'
+                        ? pendingResponse()
+                        : unexpectedRequest(request),
+            ),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
+        const form = screen.getByLabelText('On').closest('form');
+        if (form === null) {
+            throw new Error('the On field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+        fireEvent.click(
+            within(rowOf('Salary')).getByRole('button', { name: nameStartingWith('Realise') }),
+        );
+
+        expect(screen.queryByRole('region', { name: nameStartingWith('Realise') })).toBeNull();
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: 'Commit' })).toHaveProperty('disabled', true);
+        });
     });
 });
 

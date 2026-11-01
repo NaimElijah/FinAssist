@@ -6,13 +6,11 @@ import { planningRoutes } from '@/features/planning';
 import { portfolioRoutes } from '@/features/portfolio';
 import type { RouteHandle } from '@/shared/lib/routeHandle';
 
+import { LANDING_PATH } from './landing';
 import { Layout } from './Layout';
 import { NotFound } from './NotFound';
 import { PlanningAccountsBridge } from './PlanningAccountsBridge';
 import { RootRouteError, RouteError } from './RouteError';
-
-/** Where the root path sends the owner: the books come first. */
-const LANDING_PATH = '/accounts';
 
 /**
  * Wrap one feature's routes in a pathless route carrying the area's error boundary, so a failure

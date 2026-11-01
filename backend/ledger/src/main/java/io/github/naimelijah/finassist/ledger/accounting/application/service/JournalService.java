@@ -54,8 +54,8 @@ public class JournalService implements ViewBalanceUseCase, ViewJournalUseCase, V
 
         // Resolved once per distinct account rather than once per entry. A month of 500 transactions
         // touches perhaps twenty accounts, and the first caller of this - the translation that gives
-        // budgeting its spend - discards every non-EXPENSE line it just paid to look up. In memory that
-        // is wasted work; behind the store ADR-006 proposes it is a thousand round trips per review.
+        // budgeting its spend - discards every non-EXPENSE line it just paid to look up. Against the
+        // PostgreSQL store (ADR-024), one lookup per entry would be a thousand round trips per review.
         Map<AccountId, Account> resolved = new HashMap<>();
         for (Transaction transaction : posted) {
             for (Entry entry : transaction.entries()) {
