@@ -352,6 +352,32 @@ process, decides whether generating this file from the
 
 ### Fixed
 
+- **A stop, a database outage and a rollback no longer catch the owner's stack unprepared.** Scan
+  12 of 12 in M0 ([#349](https://github.com/NaimElijah/FinAssist/issues/349)) ran
+  `production-readiness-reviewer` at `20922c1`, against an isolated copy of the stack it could
+  stop and break. Its verdict was go, on condition that the owner's backup in
+  [#405](https://github.com/NaimElijah/FinAssist/issues/405) comes first.
+  - **Shutdown** ([ADR-070](docs/ADRs/ADR-070-a-stopping-service-gets-30-seconds-and-the-ledger-waits-5-for-a-connection.md)).
+    Compose v5.6.1 killed every service 3 s after `SIGTERM`, cutting off a ledger request in
+    flight and `db`'s shutdown checkpoint. Every long-running service now gets 30 s from one
+    `x-stop-grace-period` block, which `make check-compose` pins. The ledger and the gateway end
+    each shutdown phase at 20 s.
+  - **The database wait.** The ledger waited 30 s for a connection, past the gateway's 10 s relay
+    budget, so a write could commit after its caller was told the outcome is unknown. It now
+    gives up at 5 s. A running statement is still unbounded until
+    [#430](https://github.com/NaimElijah/FinAssist/issues/430).
+  - **Configuration.** `secret-check` refuses a `LEDGER_DB_PASSWORD` that differs from
+    `POSTGRES_PASSWORD` while both name one role. Before, that mismatch started `db` and left the
+    ledger in a restart loop.
+  - **Logs.** The assistant writes a successful `/health` or `/ready` at DEBUG, so the five-second
+    probe no longer fills its 30 MB log cap.
+  - **Rollback.** `operations.md` gives the way back from an upgrade that succeeded: restore the
+    pre-upgrade backup into an emptied books volume, under the previous code. The recipe was run
+    in an isolated project, and the previous ledger came back on its own history with the row
+    seeded before the upgrade.
+  - **Filed:** [#429](https://github.com/NaimElijah/FinAssist/issues/429), Keycloak's readiness
+    ignoring its database, and #430.
+
 - **The documentation drift a full audit found at `c1a0128` is fixed.** Scan 11 of 12 in M0
   ([#348](https://github.com/NaimElijah/FinAssist/issues/348)) ran `docs-drift-auditor` in four
   slices that between them read every file in its scope. The scope was the README, this file,
