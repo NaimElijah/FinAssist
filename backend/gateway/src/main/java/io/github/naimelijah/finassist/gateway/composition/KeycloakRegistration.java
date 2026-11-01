@@ -214,8 +214,10 @@ public class KeycloakRegistration {
      * else it does is reproduced here from its own source: RS256 only, its default claim-type
      * converter, and its default validator — Spring's standard set plus {@link
      * OidcIdTokenValidator}, which is what checks the ID token's {@code iss}, {@code aud},
-     * {@code azp} and {@code nonce}. Losing any of those would be a security regression, not a
-     * behaviour change, which is why they are named rather than approximated.
+     * {@code azp}, {@code exp} and {@code iat}. It does not check the {@code nonce}: {@code
+     * OidcAuthorizationCodeAuthenticationProvider} compares that itself, after this decoder has
+     * run. Losing any of these would be a security regression, not a behaviour change, which is
+     * why they are named rather than approximated.
      *
      * <p>The decoder is built per registration, as the factory contract requires, but the bounded
      * {@link RestOperations} is shared: it is stateless, and building one per sign-in would

@@ -66,7 +66,11 @@ final class GatewayProblems {
     /** The request's URL is one the firewall refuses to route, before any filter of the chain runs. */
     static final String MALFORMED_REQUEST = "MALFORMED_REQUEST";
 
-    /** No session and no bearer token accepted here either — the gateway grants nothing on its own. */
+    /**
+     * The request needs a signed-in session and has none, or the one it has can no longer renew its
+     * access token. The gateway reads no bearer token, so a session cookie is the only credential
+     * that could change this answer.
+     */
     static final String UNAUTHENTICATED = "UNAUTHENTICATED";
 
     /**
