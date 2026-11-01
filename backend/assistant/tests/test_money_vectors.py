@@ -32,8 +32,13 @@ VECTORS_PATH = Path(__file__).resolve().parents[3] / "contracts" / "money-vector
 # report agreement between the two languages where there is none. Java's types are disjoint
 # (IllegalArgumentException vs CurrencyMismatchException) and discriminate on their own; this
 # is what gives the Python side the same strength.
+#
+# NOT_A_DECIMAL and PRECISION_EXCEEDED share ValueError, so here they do not tell a refused text
+# from a refused amount. Java's NumberFormatException does, so a parse vector whose text in fact
+# parsed fails on that side.
 ERRORS: dict[str, type[Exception]] = {
     "PRECISION_EXCEEDED": ValueError,
+    "NOT_A_DECIMAL": ValueError,
     "CURRENCY_MISMATCH": CurrencyMismatchError,
 }
 
@@ -72,7 +77,7 @@ def _ids(group: str) -> list[str]:
 
 # Every group this suite knows how to read. Pinned, so a group added to the file that neither
 # language reads fails here rather than sitting in the file specifying nothing.
-GROUPS = ("currencies", "construct", "binary", "scalar")
+GROUPS = ("currencies", "construct", "parse", "binary", "scalar")
 
 
 def Given_the_vector_file_When_loaded_Then_it_holds_vectors_in_every_group() -> None:
@@ -96,7 +101,9 @@ def Given_the_vector_file_When_read_Then_it_holds_no_group_this_suite_ignores() 
 
 
 def Given_the_vector_file_When_read_Then_every_id_is_unique() -> None:
-    ids = [case["id"] for group in ("construct", "binary", "scalar") for case in _cases(group)]
+    ids = [
+        case["id"] for group in ("construct", "parse", "binary", "scalar") for case in _cases(group)
+    ]
 
     assert len(ids) == len(set(ids)), "vector ids must be unique so a failure names one case"
 
@@ -115,6 +122,19 @@ def Given_a_construction_vector_When_applied_Then_it_matches(case: Any) -> None:
         return
 
     assert str(Money(Decimal(case["amount"]), currency)) == case["expect"]
+
+
+@pytest.mark.parametrize("case", _cases("parse"), ids=_ids("parse"))
+def Given_a_parse_vector_When_read_as_text_Then_it_matches(case: Any) -> None:
+    # Through Money.of, the text boundary, where `construct` hands the constructor a Decimal
+    # already parsed: what one language reads as an amount the other must not refuse.
+    currency = Currency[case["currency"]]
+
+    if "error" in case:
+        _assert_raises_exactly(case["error"], lambda: Money.of(case["amount"], currency))
+        return
+
+    assert str(Money.of(case["amount"], currency)) == case["expect"]
 
 
 @pytest.mark.parametrize("case", _cases("binary"), ids=_ids("binary"))
