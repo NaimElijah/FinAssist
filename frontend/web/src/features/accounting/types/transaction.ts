@@ -112,6 +112,10 @@ export interface EntryRowState {
  * anyway is a bug in the caller, not the owner's mistake, so it throws rather than rendering a
  * message no real submission could ever trigger.
  *
+ * @param rows - the form's entry rows, in the order they are shown.
+ * @param accounts - the accounts the form offers; each entry takes its account's own currency.
+ * @returns the wire entries, in row order, when every row maps; otherwise the amount-field message
+ *   of each invalid row by that row's `key`, and no entries.
  * @throws Error - when a row's `accountId` matches none of `accounts`.
  */
 export function buildEntries(

@@ -159,8 +159,7 @@ function submissionErrors(error: Error | null): SubmissionErrors {
 }
 
 /**
- * One flow checkbox's label: its description, amount, direction and state
- * (requirements § Planning).
+ * One flow checkbox's label: its description, amount, direction and state.
  */
 function FlowOptionLabel({ flow }: { readonly flow: PlannedFlow }) {
     return (

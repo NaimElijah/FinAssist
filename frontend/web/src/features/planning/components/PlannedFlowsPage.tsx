@@ -567,7 +567,7 @@ function PlannedFlowsList({
  * `/planning/flows`: every planned flow with its amount, direction, start date and recurrence
  * summary, whatever its state, and, for a session with write access, the form that plans another.
  *
- * Each flow's legal lifecycle actions are offered per its current status; opening one moves the
+ * Each flow's legal lifecycle actions are offered per its current status; submitting one moves the
  * flow through `PLANNED → COMMITTED → REALISED`, with `CANCELLED` reachable from the first two.
  * Planning a flow moves focus to its new row's description, once - the one success signal,
  * mirroring `AccountsPage`'s own pattern.

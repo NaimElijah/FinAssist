@@ -5,8 +5,7 @@ import { parseEnv } from 'node:util';
 
 import react from '@vitejs/plugin-react';
 import type { Plugin, ProxyOptions } from 'vite';
-// defineConfig comes from vitest/config, not vite: it carries the `test` key's types, which
-// the triple-slash reference used to supply before this file imported from vitest at all.
+// defineConfig comes from vitest/config, not vite: it carries the `test` key's types.
 import { coverageConfigDefaults, defineConfig } from 'vitest/config';
 
 // Vite's forward-compat warning for `configLoader: 'native'` flags this extensionless import.
@@ -80,7 +79,7 @@ export const GATEWAY_TARGET = gatewayTarget(gatewayEnvironment(REPOSITORY_ROOT))
  * The proxy map key for one backend, anchored so only its own prefix matches.
  *
  * A plain string key is matched with `url.startsWith(context)`
- * (`doesProxyContextMatchUrl`, `vite/dist/node/chunks/node.js`), so the literal prefix
+ * (`createProxyContextMatcher`, `vite/dist/node/chunks/node.js`), so the literal prefix
  * `/ledger` would also match `/ledgerx...` and `/ledgers/...` - any path merely starting with
  * the same characters, not just the prefix itself. A key starting with `^` is instead compiled
  * as a RegExp and matched with `.test()`, so anchoring the prefix to the end of the path or a
@@ -91,11 +90,11 @@ function proxyKey(backend: ProxiedBackend): string {
 }
 
 /**
- * Build one prefix's proxy entry: forward it to the gateway, with `changeOrigin` so the
+ * The proxy entry every prefix shares: forward it to the gateway, with `changeOrigin` so the
  * gateway's own Host allow-list sees its own address rather than the dev server's (ADR-030), and
  * deliberately no `rewrite`.
  *
- * All three prefixes now go to the gateway rather than straight to a service. Its own routes
+ * All three prefixes go to the gateway rather than straight to a service. Its own routes
  * carry `StripPrefix=1` and match on the full `/ledger/api/v1/**` or `/assistant/api/v1/**`
  * path, and `/bff/**` is matched whole too, so stripping the prefix here as well would leave the
  * gateway nothing to match — its deny-by-default security chain would then refuse every call.

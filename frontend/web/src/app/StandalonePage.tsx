@@ -12,9 +12,11 @@ export interface StandalonePageProps {
 
 /**
  * A whole screen shown where the app's layout is not: the session check, signing in, an outage
- * reaching the gateway, and a render failure that took the app down.
+ * reaching the gateway, a render failure that took the app down, and a failure of `Layout` itself
+ * (`RootRouteError`).
  *
- * Each renders above `RouterProvider` (see `App.tsx` and `main.tsx`), so `Layout` - with its
+ * The first four render above `RouterProvider` (see `App.tsx` and `main.tsx`); the last renders
+ * inside it, as the root route's boundary, but replaces `Layout`. Either way `Layout` - with its
  * `<main>`, its document title and its heading convention - is not there to provide them. This
  * gives such a screen the same three: a `<main>` landmark, an h1 naming the screen, and a document
  * title built the way `Layout` builds one (WCAG 1.3.1, 2.4.2, 2.4.6).

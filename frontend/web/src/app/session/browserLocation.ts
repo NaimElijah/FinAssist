@@ -1,10 +1,10 @@
 /**
- * The one place the app moves the whole browser window away from itself, rather than routing
- * within the SPA.
+ * The one place the app's script moves the whole browser window away from itself, rather than
+ * routing within the SPA. Only sign-out uses it, to reach Keycloak's end-session endpoint; sign-in
+ * is a plain link (`SignIn`), which needs no script.
  *
- * Both sign-in and sign-out leave the running page for a moment - sign-in to reach Keycloak's
- * login form, sign-out to reach its end-session endpoint - so neither can be a client-side route;
- * a `fetch` would follow the gateway's redirect invisibly and land nobody on Keycloak's page.
+ * Leaving for Keycloak cannot be a client-side route, and a `fetch` would follow the gateway's
+ * redirect invisibly and land nobody on Keycloak's page.
  *
  * A plain object with a mutable method, rather than a bare function, lets a test replace
  * `assign` with `vi.spyOn` - the same pattern this codebase already uses for
@@ -21,10 +21,10 @@ export interface BrowserLocation {
     /**
      * Navigate the whole window to `url`.
      *
-     * `url` arrives from the server - the gateway's `logoutUrl`, or a sign-in link built from a
-     * fixed constant - so a malformed or tampered value must never reach `window.location`: a
-     * `javascript:` URL would execute in the page rather than navigate away from it. A refused
-     * URL is logged and otherwise ignored, since there is nowhere safer to send the browser.
+     * `url` arrives from the server - the gateway's `logoutUrl` - so a malformed or tampered
+     * value must never reach `window.location`: a `javascript:` URL would execute in the page
+     * rather than navigate away from it. A refused URL is logged and otherwise ignored, since
+     * there is nowhere safer to send the browser.
      *
      * @param url - must parse as an absolute URL with an `http:` or `https:` scheme.
      */
@@ -53,9 +53,9 @@ function isAllowedUrl(url: string): boolean {
 export const browserLocation: BrowserLocation = {
     assign(url) {
         if (!isAllowedUrl(url)) {
-            // Logs the scheme alone, never `url` itself: the one caller that can pass a value
-            // here that is not a fixed constant is the gateway's `logoutUrl`, which carries
-            // `id_token_hint` as a query parameter. `url` is not among logger.ts's redacted key
+            // Logs the scheme alone, never `url` itself: the one caller is `useSignOut`, which
+            // passes the gateway's `logoutUrl`, and that carries `id_token_hint` as a query
+            // parameter. `url` is not among logger.ts's redacted key
             // fragments, and should not be - nearly every other call site in this client logs a
             // benign API path under that same name, so redacting the field at the boundary would
             // silence all of them to fix one call site.

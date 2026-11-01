@@ -1,6 +1,6 @@
 /**
  * The gateway's own session endpoints, and the web client's anti-corruption edge for them
- * (ADR-029, ADR-030). The only module allowed to import a generated gateway type.
+ * (ADR-029, ADR-030). The only module that imports a generated gateway type.
  *
  * Session lives in `src/app` rather than under `src/features`: no bounded context owns it, and
  * every feature needs it, so a feature-shaped anti-corruption layer would have no home to sit
@@ -35,6 +35,7 @@ function toSession(wire: SessionResponse): Session {
  * `writeAccessFor` offers it no control that changes data either.
  *
  * @param session - the signed-in session.
+ * @returns `true` only when `session.roles` includes `viewer` and not `owner`.
  */
 export function isReadOnly(session: Session): boolean {
     return session.roles.includes(VIEWER_ROLE) && !session.roles.includes(OWNER_ROLE);

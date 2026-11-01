@@ -121,9 +121,9 @@ function parseCount(value: string, field: CountField): number {
  *
  * @param form - the form's current recurrence fields.
  * @returns the mapped `Recurrence`, holding exactly the members its `kind` carries.
- * @throws InvalidCountError - when `interval` or `count` (whichever `kind` needs) is not a
- *   positive integer, naming which; a scripted or malformed value is refused rather than sent as
- *   `NaN` or zero.
+ * @throws InvalidCountError - when `interval` or `count` (whichever `kind` needs) does not parse,
+ *   by `Number.parseInt`, to a positive integer, naming which; a value that parses to `NaN` or
+ *   zero is refused rather than sent.
  */
 export function buildRecurrence(form: RecurrenceFormState): Recurrence {
     if (form.kind === 'ONCE') {
