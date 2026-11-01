@@ -329,7 +329,11 @@ history; write the commit message well and this file writes itself.
     - an unreadable ignore file is a secret-check failure;
     - a backup or restore that reads a non-JSON answer, or JSON of the wrong shape, fails as a
       `BackupError`, not a traceback;
-    - a trace id followed by a newline is refused.
+    - a trace id followed by a newline is refused, and the web client now refuses the all-zero
+      trace id as the assistant does;
+    - a restore of both databases compares the restored books with the recorded digest as soon
+      as the ledger lands, so a failing Keycloak restore can no longer leave them unchecked, and a
+      manifest nested too deep to parse is refused rather than ending in a traceback.
   - **Filed for the owner:**
     - [#421](https://github.com/NaimElijah/FinAssist/issues/421): how a liability's balance is
       shown;
