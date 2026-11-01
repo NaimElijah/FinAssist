@@ -162,6 +162,12 @@ public class JdbcScenarioRepository implements ScenarioRepository {
      * A scenario's own columns, read whole before its flows are queried, for the reason {@code
      * JdbcBudgetRepository}'s {@code BudgetRow} gives: a query for the flows from inside the row mapper
      * would hold one pooled connection while borrowing a second.
+     *
+     * <p>The row and its flows are then two statements with no shared snapshot, which is safe only
+     * while a scenario is never rewritten: today only {@code define} saves one, under a new id, though
+     * {@code UPSERT_SCENARIO}'s {@code ON CONFLICT ... DO UPDATE} would allow a rewrite. A rewrite path
+     * would need one join or a read-only {@code REPEATABLE READ} transaction, or a read racing it could
+     * pair the old row with the new flows.
      */
     private record ScenarioRow(ScenarioId id, String name, Currency currency, BigDecimal growthPerStep) {}
 }

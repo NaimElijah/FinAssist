@@ -191,6 +191,12 @@ public class JdbcBudgetRepository implements BudgetRepository {
      * each hold one and wait for another, and all of them would stall until the pool's connection
      * timeout and then fail. Reading the budget rows first and their limits afterwards keeps each read
      * to one connection at a time.
+     *
+     * <p>The row and its limits are then two statements with no shared snapshot, which is safe only
+     * while a budget is never rewritten: today only {@code define} saves one, under a new id, though
+     * {@code UPSERT_BUDGET}'s {@code ON CONFLICT ... DO UPDATE} would allow a rewrite. A rewrite path
+     * would need one join or a read-only {@code REPEATABLE READ} transaction, or a read racing it could
+     * pair the old row with the new limits.
      */
     private record BudgetRow(BudgetId id, LocalDate periodStart, LocalDate periodEnd, Currency currency) {}
 }
