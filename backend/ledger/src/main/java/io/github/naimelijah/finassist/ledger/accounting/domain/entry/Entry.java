@@ -17,6 +17,10 @@ import java.util.Objects;
  */
 public record Entry(AccountId account, Money amount) {
 
+    /**
+     * @throws NullPointerException if either component is null
+     * @throws IllegalArgumentException if {@code amount} is zero
+     */
     public Entry {
         Objects.requireNonNull(account, "account");
         Objects.requireNonNull(amount, "amount");
@@ -25,10 +29,12 @@ public record Entry(AccountId account, Money amount) {
         }
     }
 
+    /** Whether the amount is positive. */
     public boolean isDebit() {
         return amount.isPositive();
     }
 
+    /** Whether the amount is negative. */
     public boolean isCredit() {
         return amount.isNegative();
     }

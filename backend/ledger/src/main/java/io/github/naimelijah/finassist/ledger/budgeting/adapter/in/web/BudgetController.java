@@ -56,14 +56,20 @@ public class BudgetController {
         return lister.all().stream().map(BudgetResponse::from).toList();
     }
 
-    /** Defines a budget. A rule the domain refuses — two limits for one category, e.g. — is 422 {@code RULE_VIOLATED}. */
+    /**
+     * Defines a budget. A rule the domain refuses — two limits for one category, for example — is
+     * 422 {@code RULE_VIOLATED}.
+     */
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public BudgetResponse defineBudget(@Valid @RequestBody DefineBudgetRequest request) {
         return BudgetResponse.from(definer.define(request.toCommand()));
     }
 
-    /** How the budget is doing, derived fresh on every call. An unknown budget is 404 {@code BUDGET_NOT_FOUND}. */
+    /**
+     * How the budget is doing, derived fresh on every call. An unknown budget is 404 {@code
+     * BUDGET_NOT_FOUND}.
+     */
     @GetMapping("/{id}/review")
     public BudgetReviewResponse reviewBudget(@PathVariable UUID id) {
         return BudgetReviewResponse.from(reviewer.review(new BudgetId(id)));

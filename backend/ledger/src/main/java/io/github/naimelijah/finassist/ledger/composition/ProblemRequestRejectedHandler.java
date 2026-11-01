@@ -31,6 +31,8 @@ final class ProblemRequestRejectedHandler implements RequestRejectedHandler {
     private static final byte[] BODY = Problems.write(HttpStatus.BAD_REQUEST, DETAIL, Problems.MALFORMED_REQUEST);
 
     /**
+     * Writes the fixed {@code 400 MALFORMED_REQUEST} problem as the whole response.
+     *
      * @param request the refused request
      * @param response the response to write, which nothing later may write to
      * @param rejection why the firewall refused it; never written to the body or the log

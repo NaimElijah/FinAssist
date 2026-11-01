@@ -22,6 +22,7 @@ import java.util.Objects;
  */
 public record Balance(AccountId account, Money amount) {
 
+    /** @throws NullPointerException if either component is null */
     public Balance {
         Objects.requireNonNull(account, "account");
         Objects.requireNonNull(amount, "amount");
@@ -31,6 +32,12 @@ public record Balance(AccountId account, Money amount) {
      * Sums every entry for {@code account} across {@code transactions}, ignoring voided ones.
      *
      * @param currency the account's currency; also the answer when no transaction touches it
+     * @param transactions the transactions to fold over; those that do not touch the account may be
+     *     included
+     * @return the signed sum of the account's entries, in {@code currency}
+     * @throws NullPointerException if any argument is null
+     * @throws io.github.naimelijah.finassist.ledger.shared.CurrencyMismatchException
+     *     if an entry for this account is in a currency other than {@code currency}
      */
     public static Balance of(AccountId account, Currency currency, Collection<Transaction> transactions) {
         Objects.requireNonNull(account, "account");

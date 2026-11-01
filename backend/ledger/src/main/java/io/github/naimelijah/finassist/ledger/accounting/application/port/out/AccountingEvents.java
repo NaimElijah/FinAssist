@@ -15,5 +15,8 @@ import io.github.naimelijah.finassist.ledger.accounting.domain.event.AccountingE
  */
 public interface AccountingEvents {
 
+    /**
+     * Announces one event. The services call it after the change it describes has been stored.
+     */
     void publish(AccountingEvent event);
 }

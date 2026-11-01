@@ -15,6 +15,9 @@ import java.util.Objects;
  * with a UUID and must not start depending on it; the translation is the composition root's job
  * (ADR-022). The realising-transaction reference is the other half of ADR-015's sentence and is still
  * deferred — nothing needs it yet.
+ *
+ * <p>The value is held stripped of surrounding whitespace, so two references that differ only in it
+ * are equal.
  */
 public record AccountRef(String value) {
 

@@ -38,10 +38,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 /**
  * Assembles the ledger: every adapter, every service, and the two translations between contexts.
  *
- * <p>The one place in this service that knows Spring exists, apart from {@code LedgerApplication}
- * itself. The application layer carries no annotation and is wired here by constructor, which
- * {@code LedgerArchitectureTest.the_application_layer_depends_on_no_framework} now enforces rather
- * than leaving to intent.
+ * <p>Where the application layer is wired. It carries no annotation, so each service is built here by
+ * constructor, which {@code LedgerArchitectureTest.the_application_layer_depends_on_no_framework}
+ * enforces.
  *
  * <p>Every repository bean is backed by PostgreSQL. ADR-006 was ratified on 2026-09-06 and the
  * in-memory adapters it was waiting on were deleted rather than kept behind a profile: a second

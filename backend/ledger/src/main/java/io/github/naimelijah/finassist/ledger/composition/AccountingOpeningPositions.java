@@ -34,6 +34,12 @@ public class AccountingOpeningPositions implements OpeningPositionProvider {
 
     private final ViewBalanceUseCase balances;
 
+    /**
+     * Builds the translation over accounting's balance in-port.
+     *
+     * @param balances the in-port balances are read through, never accounting's repositories
+     * @throws NullPointerException if {@code balances} is null
+     */
     public AccountingOpeningPositions(ViewBalanceUseCase balances) {
         this.balances = Objects.requireNonNull(balances, "balances");
     }

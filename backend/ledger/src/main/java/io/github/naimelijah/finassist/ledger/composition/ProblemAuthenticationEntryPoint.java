@@ -46,9 +46,8 @@ import tools.jackson.databind.json.JsonMapper;
  * names — never the token, never a claim. The one exception is the {@code key_source} outage
  * above, which is logged at ERROR under its own message: a refused token is one caller's problem,
  * while an unreachable key source means nobody can authenticate at all. The category comes from
- * the decoder's own exception:
- * a {@link JwtValidationException} carries the {@link OAuth2Error} {@code
- * LedgerSecurityConfiguration}'s validators built, whose description already <em>is</em> the
+ * the decoder's own exception: a {@link JwtValidationException} carries the {@link OAuth2Error}
+ * {@code LedgerSecurityConfiguration}'s validators built, whose description already <em>is</em> the
  * category; anything else is read from Nimbus's own (English-language, not machine-typed) failure
  * message, which is the only signal it gives for a malformed token, an algorithm it refused, or a
  * key it could not find.

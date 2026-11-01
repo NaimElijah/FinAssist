@@ -62,10 +62,10 @@ public class JdbcBudgetRepository implements BudgetRepository {
             """;
 
     /**
-     * Ordered by category so the map this builds is stable. {@code Budget} holds a {@code
-     * Map.copyOf}, whose iteration order is unspecified, and both {@code BudgetReviewService} and
-     * {@code BudgetReview} sort by category name to compensate; there is no reason for the store to
-     * hand them a third order.
+     * Ordered by category so the map this builds is deterministic. {@code Budget} then copies it
+     * with {@code Map.copyOf}, whose iteration order is unspecified, so this order does not survive
+     * into the aggregate: whatever needs one, such as {@code BudgetReviewService} and {@code
+     * BudgetResponse}, sorts by category name itself.
      */
     private static final String SELECT_LIMITS = """
             SELECT category, amount, currency

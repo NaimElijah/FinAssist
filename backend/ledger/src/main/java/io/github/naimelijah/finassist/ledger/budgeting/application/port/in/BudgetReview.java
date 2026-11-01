@@ -19,9 +19,10 @@ import java.util.Objects;
  * Folding either into a total, or leaving it out, would make a budget look healthier than it is — and
  * the second number is the one that says the rules need work rather than the spending.
  *
- * <p>Both collections are ordered, and ordered by category name rather than by encounter.
- * {@code Budget} keeps its limits in a {@code Map.copyOf}, whose iteration order is unspecified, so a
- * review that followed it would be reproducible only by luck.
+ * <p>Both collections are ordered, and {@code BudgetReviewService} builds them ordered by category
+ * name rather than by encounter. {@code Budget} keeps its limits in a {@code Map.copyOf}, whose
+ * iteration order is unspecified, so a review that followed it would be reproducible only by luck.
+ * This record keeps whatever order it is given; it does not sort.
  */
 public record BudgetReview(
         BudgetId budget,

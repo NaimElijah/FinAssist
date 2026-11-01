@@ -16,5 +16,9 @@ public interface CategorisationRuleRepository {
     /** Every rule, in the order it was added. */
     List<CategorisationRule> all();
 
+    /**
+     * Appends a rule after every rule already stored. An overlap with an earlier rule is not
+     * refused.
+     */
     void add(CategorisationRule rule);
 }

@@ -10,6 +10,7 @@ public record BudgetId(UUID value) {
         Objects.requireNonNull(value, "value");
     }
 
+    /** Creates a new identity from a random UUID. */
     public static BudgetId generate() {
         return new BudgetId(UUID.randomUUID());
     }

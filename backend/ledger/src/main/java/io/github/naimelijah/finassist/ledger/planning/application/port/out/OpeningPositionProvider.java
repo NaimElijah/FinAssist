@@ -15,7 +15,7 @@ import java.util.List;
  * requirements do not state — there is no rule anywhere in FinAssist that says an {@code ASSET} named
  * one thing is cash and another is an investment, and guessing one would bury it in a port.
  *
- * <p>Nothing inside the ledger implements this. The translation over accounting lives in the
+ * <p>Nothing inside planning implements this. The translation over accounting lives in the
  * composition root (ADR-022).
  */
 public interface OpeningPositionProvider {

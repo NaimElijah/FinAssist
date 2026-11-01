@@ -19,9 +19,9 @@ import java.util.Objects;
  *
  * <p>The flow names no account. An {@code AccountId} belongs to the accounting context and importing
  * one here would fail
- * {@code LedgerArchitectureTest.contexts_do_not_depend_on_each_other}; when the application layer
- * needs to know which account a plan draws on, planning will get its own reference type and
- * translate at the boundary.
+ * {@code LedgerArchitectureTest.contexts_do_not_depend_on_each_other}. Planning's own
+ * {@code AccountRef}, in {@code application.port.out}, addresses accounts only to open a
+ * projection, and a plan carries none.
  */
 public record PlannedFlow(
         PlanId id,
@@ -32,6 +32,14 @@ public record PlannedFlow(
         Recurrence recurrence,
         PlanState state) {
 
+    /**
+     * Checks every rule of a planned flow; the description is held stripped of surrounding
+     * whitespace.
+     *
+     * @throws NullPointerException if any component is null
+     * @throws IllegalArgumentException if the description is blank, the amount is not positive, or
+     *     an {@link Recurrence.Until} does not end after {@code startsOn}
+     */
     public PlannedFlow {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(amount, "amount");
@@ -60,13 +68,20 @@ public record PlannedFlow(
         }
     }
 
-    /** Records an intention. It starts {@code Planned} — nothing has been decided yet. */
+    /**
+     * Records an intention. It starts {@code Planned} — nothing has been decided yet — under a
+     * newly generated identity.
+     *
+     * @throws NullPointerException if any argument is null
+     * @throws IllegalArgumentException for the reasons the constructor gives
+     */
     public static PlannedFlow plan(
             String description, Money amount, Direction direction, LocalDate startsOn, Recurrence recurrence) {
         return new PlannedFlow(
                 PlanId.generate(), description, amount, direction, startsOn, recurrence, new PlanState.Planned());
     }
 
+    /** The currency of {@link #amount()}, which is the currency of the whole flow. */
     public Currency currency() {
         return amount.currency();
     }
@@ -83,7 +98,15 @@ public record PlannedFlow(
         return state instanceof PlanState.Planned || state instanceof PlanState.Committed;
     }
 
-    /** Every date this flow lands on within {@code [fromInclusive, toExclusive)}. */
+    /**
+     * Every date this flow lands on within {@code [fromInclusive, toExclusive)}, ascending.
+     *
+     * <p>Answers from the recurrence alone and ignores the state, so a cancelled flow still reports
+     * its dates; a caller building a forecast filters with {@link #countsTowardsProjection}.
+     *
+     * @throws IllegalArgumentException if {@code fromInclusive} is not before {@code toExclusive}
+     * @throws NullPointerException if either bound is null
+     */
     public List<LocalDate> occurrences(LocalDate fromInclusive, LocalDate toExclusive) {
         return recurrence.occurrences(startsOn, fromInclusive, toExclusive);
     }
@@ -91,6 +114,9 @@ public record PlannedFlow(
     /**
      * Decides on the flow. Committing ahead of the date it is planned for is ordinary and allowed —
      * deciding in January to buy something in March is the normal case.
+     *
+     * @throws IllegalPlanTransitionException if the flow is not {@code Planned}
+     * @throws NullPointerException if {@code committedOn} is null
      */
     public PlannedFlow commit(LocalDate committedOn) {
         if (!(state instanceof PlanState.Planned planned)) {
@@ -103,7 +129,9 @@ public record PlannedFlow(
     /**
      * Marks the money as actually moved, on a date that cannot precede the commitment.
      *
+     * @throws IllegalPlanTransitionException if the flow is not {@code Committed}
      * @throws IllegalArgumentException if {@code realisedOn} is before the date it was committed
+     * @throws NullPointerException if {@code realisedOn} is null
      */
     public PlannedFlow realise(LocalDate realisedOn) {
         if (!(state instanceof PlanState.Committed committed)) {
@@ -116,6 +144,12 @@ public record PlannedFlow(
     /**
      * Abandons the flow. Legal from {@code Planned} and {@code Committed} only — a realised flow
      * describes money that has already moved and cannot be un-spent by editing a plan.
+     *
+     * @throws IllegalPlanTransitionException if the flow is already {@code Realised} or
+     *     {@code Cancelled}
+     * @throws IllegalArgumentException if {@code reason} is blank, or the flow is {@code Committed}
+     *     and {@code cancelledOn} is before the date it was committed
+     * @throws NullPointerException if {@code cancelledOn} or {@code reason} is null
      */
     public PlannedFlow cancel(LocalDate cancelledOn, String reason) {
         Objects.requireNonNull(cancelledOn, "cancelledOn");

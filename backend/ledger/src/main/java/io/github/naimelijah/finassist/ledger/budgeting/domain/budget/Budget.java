@@ -29,6 +29,16 @@ import java.util.Optional;
  * which belong to budgeting or to the shared kernel;
  * {@code LedgerArchitectureTest.contexts_do_not_depend_on_each_other} fails the build if an
  * accounting class appears here.
+ *
+ * <p>The canonical constructor checks every invariant above and takes the identity as given, which
+ * is how a stored budget is rebuilt; a new one is built with {@link #of}, which generates the
+ * identity. It throws {@link IllegalArgumentException} for an empty {@code limits}, or a limit that
+ * is not positive or not in {@code currency}.
+ *
+ * @param id the budget's identity
+ * @param period the span the limits cover
+ * @param currency the one currency of every limit
+ * @param limits the limit per category, copied on construction; its iteration order is unspecified
  */
 public record Budget(BudgetId id, BudgetPeriod period, Currency currency, Map<Category, Money> limits) {
 
@@ -48,7 +58,12 @@ public record Budget(BudgetId id, BudgetPeriod period, Currency currency, Map<Ca
         }
     }
 
-    /** Builds a budget from its limits, refusing two limits for one category. */
+    /**
+     * Builds a new budget with a generated identity, refusing two limits for one category.
+     *
+     * @throws IllegalArgumentException if a category is limited twice, a limit is in a currency
+     *     other than {@code currency}, or {@code limits} is empty
+     */
     public static Budget of(BudgetPeriod period, Currency currency, List<CategoryLimit> limits) {
         Objects.requireNonNull(limits, "limits");
         Map<Category, Money> byCategory = new LinkedHashMap<>();
@@ -83,6 +98,9 @@ public record Budget(BudgetId id, BudgetPeriod period, Currency currency, Map<Ca
      * <p>Negative when overspent — that is a fact worth reporting, not an error to reject. Empty when
      * the budget sets no limit for the category at all. A limit of zero is not a possible state,
      * because the constructor refuses one, as {@link CategoryLimit} does.
+     *
+     * <p>A {@code spent} in another currency than the budget's is refused with the shared kernel's
+     * {@code CurrencyMismatchException}, as no rates exist to convert it (ADR-012).
      */
     public Optional<Money> remaining(Category category, Money spent) {
         Objects.requireNonNull(spent, "spent");

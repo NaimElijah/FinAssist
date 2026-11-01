@@ -6,7 +6,8 @@ import java.util.Objects;
 
 /**
  * The span a budget covers. Half-open: {@code start} inclusive, {@code end} exclusive, so
- * consecutive periods tile without overlapping and a date belongs to exactly one of them.
+ * consecutive periods tile without overlapping and a date belongs to exactly one of them. The
+ * constructor throws {@link IllegalArgumentException} if {@code start} is not before {@code end}.
  */
 public record BudgetPeriod(LocalDate start, LocalDate end) {
 
@@ -25,6 +26,7 @@ public record BudgetPeriod(LocalDate start, LocalDate end) {
         return new BudgetPeriod(month.atDay(1), month.plusMonths(1).atDay(1));
     }
 
+    /** True when {@code date} falls on or after {@code start} and before {@code end}. */
     public boolean contains(LocalDate date) {
         Objects.requireNonNull(date, "date");
         return !date.isBefore(start) && date.isBefore(end);

@@ -27,6 +27,8 @@ public interface TransitionPlanUseCase {
      * @throws PlanNotFoundException if no such plan exists
      * @throws io.github.naimelijah.finassist.ledger.planning.domain.plan.IllegalPlanTransitionException
      *     if the plan is not {@code Committed}
+     * @throws IllegalArgumentException from the domain if {@code realisedOn} is before the date the
+     *     plan was committed
      */
     PlannedFlow realise(PlanId plan, LocalDate realisedOn);
 
@@ -34,6 +36,8 @@ public interface TransitionPlanUseCase {
      * @throws PlanNotFoundException if no such plan exists
      * @throws io.github.naimelijah.finassist.ledger.planning.domain.plan.IllegalPlanTransitionException
      *     if the plan is already {@code Realised} or {@code Cancelled}
+     * @throws IllegalArgumentException from the domain if {@code reason} is blank, or the plan is
+     *     {@code Committed} and {@code cancelledOn} is before the date it was committed
      */
     PlannedFlow cancel(PlanId plan, LocalDate cancelledOn, String reason);
 }
