@@ -965,6 +965,19 @@ def Given_compose_config_nested_too_deep_When_backed_up_Then_it_is_refused_and_l
     assert list(tmp_path.iterdir()) == []
 
 
+@pytest.mark.parametrize("answer", WRONG_SHAPES)
+def Given_compose_config_answering_json_that_is_not_an_object_When_backed_up_Then_it_is_refused(
+    tmp_path: Path, answer: bytes
+) -> None:
+    with pytest.raises(
+        backup.BackupError, match="docker compose config did not answer a Compose model"
+    ) as e:
+        backup.backup(_Project(config=answer), tmp_path, NOW)
+
+    assert "hunter2" not in str(e.value)
+    assert list(tmp_path.iterdir()) == []
+
+
 def Given_a_compose_ps_array_that_is_not_json_When_backed_up_Then_it_is_refused_quoting_nothing(
     tmp_path: Path,
 ) -> None:
