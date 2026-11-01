@@ -352,6 +352,9 @@ class _Project(backup.Compose):
         Empty means the ledger database holds no journal yet.
     :param dumps: what pg_dump writes, by database service.
     :param unreadable: the database services whose read-back of a dump fails.
+    :param config: what `docker compose config` answers; a model naming the project when None.
+    :param listing: what `docker compose ps --format json` answers for a running service; its
+        container when None.
 
     `dump_modes` records, for each dump, the file's mode and its folder's, in octal, as pg_dump
     writes it.
@@ -364,6 +367,8 @@ class _Project(backup.Compose):
         default_factory=lambda: {"db": LEDGER_DUMP, "keycloak-db": KEYCLOAK_DUMP}
     )
     unreadable: frozenset[str] = frozenset()
+    config: bytes | None = None
+    listing: bytes | None = None
     calls: list[tuple[str, ...]] = field(default_factory=list)
     read_back: list[tuple[str, bytes]] = field(default_factory=list)
     restored: list[tuple[str, bytes]] = field(default_factory=list)
@@ -380,10 +385,14 @@ class _Project(backup.Compose):
         self.calls.append(args)
         match args:
             case ("config", "--format", "json"):
+                if self.config is not None:
+                    return self.config
                 return json.dumps({"name": PROJECT_NAME}).encode()
             case ("ps", "--format", "json", service):
                 if self.states.get(service) != "running":
                     return b""
+                if self.listing is not None:
+                    return self.listing
                 return json.dumps({"Service": service, "Image": POSTGRES_IMAGE}).encode()
             case ("ps", *filters, "--services"):
                 assert set(filters[0::2]) == {"--status"}, f"unexpected ps filters: {filters}"
@@ -843,6 +852,68 @@ def Given_a_failing_read_back_When_backed_up_Then_it_fails_and_leaves_nothing(
         backup.backup(project, tmp_path, NOW)
 
     assert list(tmp_path.iterdir()) == []
+
+
+# Neither answer is JSON. Each could quote what Compose resolved, so the refusal must not.
+NOT_JSON = b"WARN: the secret value is hunter2"
+
+
+def Given_compose_config_answering_no_json_When_backed_up_Then_it_is_refused_quoting_nothing(
+    tmp_path: Path,
+) -> None:
+    # A ValueError escaped `backup`, which `main` does not catch, so it ended in a traceback.
+    with pytest.raises(backup.BackupError, match="docker compose config did not answer JSON") as e:
+        backup.backup(_Project(config=NOT_JSON), tmp_path, NOW)
+
+    assert "hunter2" not in str(e.value)
+    assert list(tmp_path.iterdir()) == []
+
+
+def Given_compose_ps_answering_no_json_When_backed_up_Then_it_is_refused_and_leaves_nothing(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(backup.BackupError, match="docker compose ps did not answer JSON") as e:
+        backup.backup(_Project(listing=NOT_JSON), tmp_path, NOW)
+
+    assert "hunter2" not in str(e.value)
+    assert list(tmp_path.iterdir()) == []
+
+
+def Given_compose_config_answering_no_json_When_restored_Then_it_is_refused_and_nothing_restored(
+    tmp_path: Path,
+) -> None:
+    project = _Project(config=NOT_JSON)
+
+    with pytest.raises(backup.BackupError, match="docker compose config did not answer JSON"):
+        backup.restore(project, _written_backup(tmp_path), backup.DATABASES)
+
+    assert project.restored == []
+
+
+def Given_compose_config_answering_no_json_When_main_runs_Then_it_exits_1_reporting_FAILED(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(backup, "Compose", lambda: _Project(config=NOT_JSON))
+    monkeypatch.setenv(backup.BACKUP_DIR_ENV, str(tmp_path))
+
+    status = backup.main(["backup"], NOW)
+
+    assert status == 1
+    last = capsys.readouterr().out.splitlines()[-1]
+    assert last.startswith("FAILED: docker compose config did not answer JSON")
+    assert "hunter2" not in last
+
+
+def Given_a_token_response_that_is_no_json_When_the_check_asks_for_a_token_Then_it_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = {backup.ASSISTANT_CLIENT_SECRET_ENV: "a-client-secret"}
+    model = {"name": PROJECT_NAME, "services": {"keycloak": {"environment": secret}}}
+    project = _Project(config=json.dumps(model).encode())
+    monkeypatch.setattr(backup, "_request", lambda *args, **kwargs: (backup.HTTP_OK, NOT_JSON))
+
+    with pytest.raises(backup.BackupError, match="Keycloak's token endpoint did not answer JSON"):
+        backup._assistant_token(project)
 
 
 def Given_keycloak_db_not_running_When_backed_up_Then_it_is_refused(tmp_path: Path) -> None:

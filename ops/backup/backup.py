@@ -42,7 +42,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO, Final
+from typing import IO, Any, Final
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 COMPOSE_FILE: Final = REPO_ROOT / "docker-compose.yml"
@@ -209,6 +209,21 @@ class BackupError(Exception):
     """
 
 
+def _json(source: str, text: str | bytes) -> Any:
+    """`text` parsed as JSON.
+
+    :param source: what answered `text`, named in the refusal. The text itself never is: it can
+        carry a resolved secret, a row or a response body.
+    :raises BackupError: if `text` is not JSON, so that `backup` and `restore` refuse it as they
+        refuse any other failed step, rather than ending in a traceback.
+    """
+    try:
+        return json.loads(text)
+    # ValueError covers both JSONDecodeError and the UnicodeDecodeError of bytes that are not text.
+    except ValueError as error:
+        raise BackupError(f"{source} did not answer JSON ({type(error).__name__})") from None
+
+
 def _report(line: str) -> None:
     """Writes one line of this CLI's report to stdout, flushed at once.
 
@@ -349,10 +364,12 @@ class Compose:
 
         It holds every secret `.env` sets, so nothing from it is ever reported.
 
-        :raises BackupError: if `docker compose config` fails or answers JSON that is not an object.
+        :raises BackupError: if `docker compose config` fails or answers anything but a JSON
+            object.
         """
-        model = json.loads(
-            self.require("resolving the Compose model", "config", "--format", "json")
+        model = _json(
+            "docker compose config",
+            self.require("resolving the Compose model", "config", "--format", "json"),
         )
         if not isinstance(model, dict):
             raise BackupError("docker compose config did not answer a Compose model")
@@ -426,14 +443,18 @@ class Compose:
 
 def _containers(text: str) -> list[dict[str, object]]:
     """The containers `docker compose ps --format json` listed: one JSON object per line, or one
-    array, depending on the Compose version."""
+    array, depending on the Compose version.
+
+    :raises BackupError: if the array, or a line, is not JSON.
+    """
+    source = "docker compose ps"
     text = text.strip()
     if not text:
         return []
     if text.startswith("["):
-        listed = json.loads(text)
+        listed = _json(source, text)
         return [container for container in listed if isinstance(container, dict)]
-    return [json.loads(line) for line in text.splitlines() if line.strip()]
+    return [_json(source, line) for line in text.splitlines() if line.strip()]
 
 
 def _books_digest(compose: Compose) -> str | None:
@@ -501,8 +522,9 @@ def backup(compose: Compose, root: Path, now: datetime) -> Path:
     the partial folder is removed.
 
     :return: the new backup folder.
-    :raises BackupError: if a Compose command fails, a database is not running, a dump is empty or
-        does not read back, or the books change while they are being backed up.
+    :raises BackupError: if a Compose command fails or answers no JSON where it must, a database
+        is not running, a dump is empty or does not read back, or the books change while they are
+        being backed up.
     :raises OSError: if `root`, the folder or a file in it cannot be created or written:
         `FileExistsError` when a backup was already taken under `root` in the same second.
     """
@@ -629,9 +651,10 @@ def restore(compose: Compose, folder: Path, databases: tuple[Database, ...]) -> 
     `databases` holds the ledger, its restored books are then compared with the digest the manifest
     recorded; a backup taken before the ledger had a journal records none, and is not compared.
 
-    :raises BackupError: naming the first precondition that does not hold, the restore that
-        failed, or the restored books that do not match the recorded digest. A restore that fails
-        after an earlier one landed leaves the earlier database restored.
+    :raises BackupError: naming the first precondition that does not hold, a Compose answer that
+        is not JSON, the restore that failed, or the restored books that do not match the recorded
+        digest. A restore that fails after an earlier one landed leaves the earlier database
+        restored.
     """
     entries = _manifest_entries(folder)
     dumps = {database: _verify(folder, database, entries) for database in databases}
@@ -869,7 +892,7 @@ def _assistant_token(compose: Compose) -> str:
             f"realm keeps the secret it was given, so {ASSISTANT_CLIENT_SECRET_ENV} in .env may "
             "have changed since the backup"
         )
-    token = json.loads(body).get("access_token")
+    token = _json("Keycloak's token endpoint", body).get("access_token")
     if not isinstance(token, str) or not token:
         raise BackupError("Keycloak's token response carried no access_token")
     return token
@@ -885,7 +908,7 @@ def _accounts_served(compose: Compose) -> None:
     status, body = _request(LEDGER_CHECK_PORT, "GET", ACCOUNTS_PATH, token=token)
     if status != HTTP_OK:
         raise BackupError(f"GET {ACCOUNTS_PATH} answered {status}")
-    listed = {str(account.get("id")) for account in json.loads(body)}
+    listed = {str(account.get("id")) for account in _json(f"GET {ACCOUNTS_PATH}", body)}
     if listed != set(held):
         raise BackupError(
             f"the ledger lists {len(listed)} accounts and the database holds {len(held)}, "
@@ -896,7 +919,7 @@ def _accounts_served(compose: Compose) -> None:
         status, body = _request(LEDGER_CHECK_PORT, "GET", path, token=token)
         if status != HTTP_OK:
             raise BackupError(f"an account's balance answered {status}")
-        balance = json.loads(body).get("balance") or {}
+        balance = _json("an account's balance", body).get("balance") or {}
         if balance.get("currency") != currency:
             raise BackupError("an account's balance came back in another currency than its own")
     _report(f"   {len(held)} accounts listed, each balance answered in its own currency")
