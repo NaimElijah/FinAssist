@@ -2,7 +2,7 @@
  * How a planned flow repeats: once, until a date, or a number of times, at a weekly, monthly or
  * yearly cadence.
  *
- * No arithmetic: `interval` and `count` are counts, parsed with `Number.parseInt`, never money
+ * No arithmetic: `interval` and `count` are counts, each wholly a positive integer, never money
  * (ADR-029). `recurrenceSummary` and `buildRecurrence` are pure and used both by the flows table
  * and the plan-flow form.
  */
@@ -99,31 +99,39 @@ export class InvalidCountError extends Error {
 }
 
 /**
+ * The whole text of a positive integer: digits only, no leading zero. The same rule as the
+ * plan-flow form's `pattern` on Every and Times, so a value the form refuses is refused here too.
+ */
+const POSITIVE_INTEGER = /^[1-9][0-9]*$/;
+
+/**
  * `value` parsed as a positive integer count, never money (ADR-029).
  *
- * @throws InvalidCountError - when `value` does not parse to a positive integer.
+ * Matched whole before it is parsed: `Number.parseInt` reads the leading digits and ignores the
+ * rest, so on its own it would read `"1.5"`, `"12abc"` and `"1e3"` as 1, 12 and 1.
+ *
+ * @throws InvalidCountError - when `value` is not wholly a positive integer.
  */
 function parseCount(value: string, field: CountField): number {
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isInteger(parsed) || parsed <= 0) {
+    if (!POSITIVE_INTEGER.test(value)) {
         throw new InvalidCountError(field, value);
     }
-    return parsed;
+    return Number.parseInt(value, 10);
 }
 
 /**
  * Map the plan-flow form's raw recurrence fields to the `Recurrence` the ledger expects, omitting
  * whichever members `kind` does not carry.
  *
- * `interval` and `count` are parsed with `Number.parseInt`, as counts rather than money
- * (ADR-029); native `required` and a digit `pattern` on both fields (see `PlanFlowForm`) keep an
- * unparsable string from reaching here through the UI.
+ * `interval` and `count` are parsed as counts rather than money (ADR-029); native `required` and
+ * a digit `pattern` on both fields (see `PlanFlowForm`) keep an unparsable string from reaching
+ * here through the UI, and this refuses one that arrives another way.
  *
  * @param form - the form's current recurrence fields.
  * @returns the mapped `Recurrence`, holding exactly the members its `kind` carries.
- * @throws InvalidCountError - when `interval` or `count` (whichever `kind` needs) does not parse,
- *   by `Number.parseInt`, to a positive integer, naming which; a value that parses to `NaN` or
- *   zero is refused rather than sent.
+ * @throws InvalidCountError - when `interval` or `count` (whichever `kind` needs) is not wholly a
+ *   positive integer, naming which; an empty, zero, signed, fractional or exponent value, or one
+ *   with a leading zero, whitespace or trailing text, is refused rather than sent.
  */
 export function buildRecurrence(form: RecurrenceFormState): Recurrence {
     if (form.kind === 'ONCE') {

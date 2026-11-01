@@ -188,4 +188,42 @@ describe('buildRecurrence', () => {
         expect(thrown).toBeInstanceOf(InvalidCountError);
         expect(thrown).toHaveProperty('field', 'count');
     });
+
+    // `Number.parseInt` reads the leading digits and ignores the rest, so a scripted submit of
+    // "1.5", "12abc" or "1e3" was sent as 1, 12 or 1 rather than refused as the form refuses it.
+    it.each(['1.5', '12abc', '1e3', ' 12', '012'])(
+        'Given_a_count_of_%j_that_is_not_wholly_a_positive_integer_When_built_Then_it_is_refused_rather_than_truncated',
+        (count) => {
+            const thrown = thrownBy(() =>
+                buildRecurrence({
+                    kind: 'TIMES',
+                    cadence: 'MONTHLY',
+                    interval: '1',
+                    until: '',
+                    count,
+                }),
+            );
+
+            expect(thrown).toBeInstanceOf(InvalidCountError);
+            expect(thrown).toHaveProperty('field', 'count');
+        },
+    );
+
+    it.each(['1.5', '12abc', '1e3', ' 12', '012'])(
+        'Given_an_interval_of_%j_that_is_not_wholly_a_positive_integer_When_built_Then_it_is_refused_rather_than_truncated',
+        (interval) => {
+            const thrown = thrownBy(() =>
+                buildRecurrence({
+                    kind: 'UNTIL',
+                    cadence: 'MONTHLY',
+                    interval,
+                    until: '2027-01-01',
+                    count: '',
+                }),
+            );
+
+            expect(thrown).toBeInstanceOf(InvalidCountError);
+            expect(thrown).toHaveProperty('field', 'interval');
+        },
+    );
 });
