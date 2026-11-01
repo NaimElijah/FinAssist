@@ -339,6 +339,55 @@ def Given_a_probed_service_missing_from_the_file_When_checked_Then_its_probe_is_
     assert lines == ["keycloak: its healthcheck must probe /health/ready"]
 
 
+# Without -f, curl exits 0 on a 503, so a probe of a service that is not ready would pass.
+@pytest.mark.parametrize(
+    "test",
+    [
+        ["CMD", "curl", "http://localhost:8080{path}"],
+        ["CMD", "curl", "-sS", "http://localhost:8080{path}"],
+        ["CMD", "/usr/bin/curl", "--silent", "http://localhost:8080{path}"],
+        ["CMD-SHELL", "curl http://localhost:8080{path} || exit 1"],
+    ],
+    ids=["bare", "other-flags", "full-path", "shell"],
+)
+@pytest.mark.parametrize(("service", "path"), READINESS_PROBES)
+def Given_a_curl_readiness_probe_without_fail_When_checked_Then_it_is_named(
+    service: str, path: str, test: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["healthcheck"] = {
+        "test": [part.format(path=path) for part in test]
+    }
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: its curl probe must pass -f, so a failing status fails it"]
+
+
+@pytest.mark.parametrize(
+    "test",
+    [
+        ["CMD", "curl", "--fail", "http://localhost:8080/ready"],
+        ["CMD", "curl", "--fail-with-body", "http://localhost:8080/ready"],
+        ["CMD", "curl", "-fsS", "http://localhost:8080/ready"],
+        ["CMD", "curl", "-sS", "http://localhost:8080/ready", "-f"],
+        ["CMD-SHELL", "curl -sf http://localhost:8080/ready || exit 1"],
+    ],
+    ids=["long", "with-body", "cluster", "after-the-url", "shell"],
+)
+def Given_a_curl_readiness_probe_that_fails_on_an_error_status_When_checked_Then_it_passes(
+    test: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["assistant"]["healthcheck"] = {"test": test}
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_PASSED
+    assert lines == [PASSED]
+
+
 @pytest.mark.parametrize("block", ["x-restart-policy", "x-logging"])
 def Given_an_x_block_missing_from_the_resolved_file_When_checked_Then_it_fails_saying_so(
     block: str, capsys: pytest.CaptureFixture[str]

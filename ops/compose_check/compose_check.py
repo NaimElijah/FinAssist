@@ -8,25 +8,26 @@
 script's standard input (ADR-049). Every long-running service must take the restart policy and the
 log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, those blocks must hold
 ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shot services must take
-neither, and four healthchecks must probe readiness (#142, ADR-039). Every published port must bind
-`127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit behind
-exactly the `smoke` profile and `secret-check` behind none, and `db`, `keycloak-db` and `grafana`
-must each depend on `secret-check` with `condition: service_completed_successfully` (ADR-034,
-ADR-044). Every service but the two databases must take the `x-hardened` block's `cap_drop` and
-`security_opt`, and every one but those and Keycloak must set `read_only`; no service, a database
-included, may set `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as
-root by `user`, or bind-mount a file named `docker.sock`; and each database must attach to one
-network alone, shared with its one client and nothing else, judged by the Docker network each key
-resolves to, so that no other key may resolve to it, neither database network may be `external`, and
-`identity` must be `internal` (ADR-063). No service may set `network_mode` but `secret-check`, whose
-must be exactly `none`, and Prometheus's `command` must carry exactly `--web.cors.origin=`, the
-empty regex, which grants no origin, with no `entrypoint` to run it otherwise (ADR-057). Neither the
-ledger nor the gateway may set, in its environment, a key that reopens the Actuator exposure their
-code pins, nor a `command` or `entrypoint`, whose arguments would reach Spring as properties, nor a
-volume, `volumes_from`, a config, a secret or a `working_dir`, which could put a configuration file
-in the working directory or its `config/`, where Spring reads one; nor may the gateway set a log
-level, a log group, a logging configuration or Spring Boot's `debug` or `trace` switch, since below
-INFO it logs credentials.
+neither, and four healthchecks must probe readiness, any that runs `curl` with `-f` so that a 503
+fails it (#142, ADR-039). Every published port must bind `127.0.0.1` and `keycloak-db` must publish
+none (ADR-030, ADR-031); `auth-smoke` must sit behind exactly the `smoke` profile and `secret-check`
+behind none, and `db`, `keycloak-db` and `grafana` must each depend on `secret-check` with
+`condition: service_completed_successfully` (ADR-034, ADR-044). Every service but the two databases
+must take the `x-hardened` block's `cap_drop` and `security_opt`, and every one but those and
+Keycloak must set `read_only`; no service, a database included, may set `cap_add`, `privileged`,
+`pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as root by `user`, or bind-mount a file named
+`docker.sock`; and each database must attach to one network alone, shared with its one client and
+nothing else, judged by the Docker network each key resolves to, so that no other key may resolve to
+it, neither database network may be `external`, and `identity` must be `internal` (ADR-063). No
+service may set `network_mode` but `secret-check`, whose must be exactly `none`, and Prometheus's
+`command` must carry exactly `--web.cors.origin=`, the empty regex, which grants no origin, with no
+`entrypoint` to run it otherwise (ADR-057). Neither the ledger nor the gateway may set, in its
+environment, a key that reopens the Actuator exposure their code pins, nor a `command` or
+`entrypoint`, whose arguments would reach Spring as properties, nor a volume, `volumes_from`, a
+config, a secret or a `working_dir`, which could put a configuration file in the working directory
+or its `config/`, where Spring reads one; nor may the gateway set a log level, a log group, a
+logging configuration or Spring Boot's `debug` or `trace` switch, since below INFO it logs
+credentials.
 
 It reads the resolved file, not its text, so an alias that stops resolving fails as surely as a
 service that never took one, and a block copied in with other values fails too.
@@ -70,6 +71,12 @@ READINESS_PROBES: Final = {
     "assistant": "/ready",
     "keycloak": "/health/ready",
 }
+# curl exits 0 on any HTTP status unless told to fail, so without one of these a readiness probe
+# passes on the 503 a service that is not ready answers. `-f` may sit in a cluster such as `-fsS`.
+CURL: Final = "curl"
+CURL_FAIL_OPTIONS: Final = frozenset({"--fail", "--fail-with-body"})
+CURL_FAIL_SHORT: Final = "f"
+_SHORT_OPTIONS: Final = re.compile(r"-[A-Za-z]+")
 # The Spring services pin their Actuator exposure in code, and their tests read the test JVM's
 # environment, never Compose's: so a Compose key that reopens it would pass every other test.
 SPRING_SERVICES: Final = frozenset({"ledger", "gateway"})
@@ -270,9 +277,23 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
     for name, path in READINESS_PROBES.items():
         service = _mapping(services.get(name) or {}, "a service")
         healthcheck = _mapping(service.get("healthcheck") or {}, "a healthcheck")
-        if path not in _command(healthcheck.get("test")):
+        command = _command(healthcheck.get("test"))
+        if path not in command:
             found.append(f"{name}: its healthcheck must probe {path}")
+        elif _curl_without_fail(command):
+            found.append(f"{name}: its curl probe must pass -f, so a failing status fails it")
     return found
+
+
+def _curl_without_fail(command: str) -> bool:
+    words = command.split()
+    if not any(word.rsplit("/", 1)[-1] == CURL for word in words):
+        return False
+    return not any(
+        word in CURL_FAIL_OPTIONS
+        or (_SHORT_OPTIONS.fullmatch(word) is not None and CURL_FAIL_SHORT in word)
+        for word in words
+    )
 
 
 def _hardening_problems(name: str, service: Mapping[str, object]) -> list[str]:
