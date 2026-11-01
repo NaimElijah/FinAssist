@@ -5,8 +5,10 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * An absolute {@code scheme://host[:port]} base that a path is appended to, normalised once so
- * that nothing downstream has to wonder about a trailing slash.
+ * An absolute {@code scheme://host[:port][/prefix]} base that a path is appended to, normalised
+ * once so that nothing downstream has to wonder about a trailing slash. A path prefix is kept, as
+ * for a Keycloak served under {@code /auth}; a query, a fragment or a user-info is refused, since
+ * an appended path would land after it and a user-info would be handed out in every redirect.
  *
  * <p>Three of these exist, and keeping them apart is the whole of ADR-030's URL story: the origin
  * the browser reaches FinAssist through ({@code GATEWAY_PUBLIC_URL}), Keycloak as the browser sees
@@ -17,7 +19,8 @@ import java.util.Set;
  * same reason {@code trusted-proxies} stays unset: a forwarded header says only what its sender
  * claims.
  *
- * @param base the base URL, guaranteed absolute, HTTP or HTTPS, and free of a trailing slash
+ * @param base the base URL, guaranteed absolute, HTTP or HTTPS, free of a query, a fragment and a
+ *     user-info, and free of a trailing slash
  */
 record Origin(String base) {
 
@@ -27,9 +30,10 @@ record Origin(String base) {
 
     /**
      * @throws IllegalArgumentException if the URL is not an absolute HTTP or HTTPS URL naming a
-     *     host. A relative one would produce a redirect that resolved against whatever host the
-     *     request happened to name — the one thing this type exists to prevent — so it is refused
-     *     at start-up rather than silently sending the owner somewhere else
+     *     host, or if it carries a query, a fragment or a user-info. A relative one would produce
+     *     a redirect that resolved against whatever host the request happened to name — the one
+     *     thing this type exists to prevent — so it is refused at start-up rather than silently
+     *     sending the owner somewhere else
      */
     Origin {
         base = base.strip();
@@ -55,6 +59,22 @@ record Origin(String base) {
         if (scheme == null || !SCHEMES.contains(scheme.toLowerCase(Locale.ROOT)) || parsed.getHost() == null) {
             throw refusal(base, null);
         }
+        if (parsed.getRawUserInfo() != null) {
+            throw componentRefusal("user-info");
+        }
+        if (parsed.getRawQuery() != null) {
+            throw componentRefusal("query");
+        }
+        if (parsed.getRawFragment() != null) {
+            throw componentRefusal("fragment");
+        }
+    }
+
+    /** Never quotes the URL: the component refused can be a user-info holding a password. */
+    private static IllegalArgumentException componentRefusal(String component) {
+        return new IllegalArgumentException("A gateway origin URL carries a " + component
+                + ", but every URL the gateway hands out appends a path to it, so it may name only a scheme, a host,"
+                + " a port and a path prefix");
     }
 
     private static IllegalArgumentException refusal(String base, Throwable cause) {

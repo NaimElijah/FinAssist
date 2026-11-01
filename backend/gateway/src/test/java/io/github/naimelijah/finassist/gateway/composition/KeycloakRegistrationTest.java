@@ -125,6 +125,46 @@ class KeycloakRegistrationTest {
     }
 
     /**
+     * A path is appended to every origin, so anything after the path in the configured URL would
+     * end up in the middle of the result: {@code http://localhost:5173/#/} would hand the browser
+     * {@code http://localhost:5173/#//?signin=failed}. A user-info would be handed out in every
+     * redirect built from it.
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "http://localhost:5173/#/",
+                "http://localhost:5173#",
+                "http://localhost:5173?x=1",
+                "http://localhost:5173/?",
+                "http://owner:pw@localhost:5173"
+            })
+    void Given_a_public_url_carrying_a_query_fragment_or_user_info_When_an_origin_is_built_Then_it_is_refused(
+            String url) {
+        assertThatThrownBy(() -> new Origin(url)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * A user-info can hold a password, and the refusal reaches the start-up log, so the message
+     * names what was wrong without quoting the URL that carried it.
+     */
+    @Test
+    void Given_a_public_url_carrying_a_password_When_it_is_refused_Then_the_message_does_not_quote_it() {
+        assertThatThrownBy(() -> new Origin("http://owner:s3cret-in-the-url@localhost:5173"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("user-info")
+                .hasMessageNotContaining("s3cret-in-the-url")
+                .hasMessageNotContaining("owner");
+    }
+
+    /** A path prefix is allowed, as for a Keycloak served under {@code /auth}, and keeps its place. */
+    @Test
+    void Given_a_base_url_with_a_path_prefix_When_a_path_is_appended_Then_it_follows_the_prefix() {
+        assertThat(new Origin("http://keycloak.example:8081/auth/").path("/realms/finassist"))
+                .isEqualTo("http://keycloak.example:8081/auth/realms/finassist");
+    }
+
+    /**
      * {@code GATEWAY_CLIENT_SECRET} has no default in {@code application.yml}, so an unset one is
      * an unresolvable placeholder and the context never finishes refreshing. The whole application
      * is started here, rather than the configuration class alone, because it is {@code
