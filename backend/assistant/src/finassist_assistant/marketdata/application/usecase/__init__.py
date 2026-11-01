@@ -46,6 +46,14 @@ class LatestQuote:
     feed: QuoteFeedPort
     max_age: timedelta = DEFAULT_MAX_AGE
 
+    def __post_init__(self) -> None:
+        """
+        :raises ValueError: if ``max_age`` is not positive — a misconfiguration of this service,
+            refused at assembly rather than answered as the caller's fault on every valuation
+        """
+        if self.max_age <= timedelta(0):
+            raise ValueError(f"max_age must be positive but was {self.max_age}")
+
     def of(self, ticker: Ticker, now: datetime) -> Quote:
         """
         :raises QuoteUnavailableError: if the feed has nothing for the ticker

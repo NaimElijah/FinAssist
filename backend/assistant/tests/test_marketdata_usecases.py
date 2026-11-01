@@ -94,3 +94,10 @@ def Given_a_quote_stamped_just_after_the_clock_was_read_When_asked_for_Then_it_i
     just_after = Quote(VOO, Money.of("250.00", Currency.USD), NOON + timedelta(microseconds=5))
 
     assert LatestQuote(FakeFeed(just_after)).of(VOO, NOON) is just_after
+
+
+@pytest.mark.parametrize("max_age", [timedelta(0), timedelta(minutes=-5)], ids=["zero", "negative"])
+def Given_a_non_positive_limit_When_built_Then_it_is_refused(max_age: timedelta) -> None:
+    # Checked only at use, the misconfiguration surfaced on every valuation as the caller's 422.
+    with pytest.raises(ValueError, match="must be positive"):
+        LatestQuote(FakeFeed(quote(5)), max_age=max_age)
