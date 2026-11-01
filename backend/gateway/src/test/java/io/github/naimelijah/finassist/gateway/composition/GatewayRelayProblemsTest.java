@@ -266,7 +266,16 @@ class GatewayRelayProblemsTest {
                 "ServletOutputStream failed to write: java.io.IOException: Broken pipe",
                 new IOException("Broken pipe"));
 
-        ModelAndView resolution = resolvedByTheDispatcher(clientGone);
+        // Lowered for this test alone, and restored, so the DEBUG line is captured whatever level an
+        // earlier test's Spring context left this logger at; otherwise an empty capture would pass.
+        Level configured = logger.getLevel();
+        logger.setLevel(Level.DEBUG);
+        ModelAndView resolution;
+        try {
+            resolution = resolvedByTheDispatcher(clientGone);
+        } finally {
+            logger.setLevel(configured);
+        }
 
         assertThat(resolution)
                 .as("claimed by the advice rather than left to the container")
@@ -274,7 +283,11 @@ class GatewayRelayProblemsTest {
         assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
         assertThat(response.getContentAsByteArray()).isEmpty();
         assertThat(response.getContentType()).isNull();
-        assertThat(captured.list).allSatisfy(line -> assertThat(line.getLevel()).isEqualTo(Level.DEBUG));
+        assertThat(captured.list).singleElement().satisfies(line -> {
+            assertThat(line.getLevel()).isEqualTo(Level.DEBUG);
+            assertThat(line.getFormattedMessage())
+                    .isEqualTo("A relay's client disconnected before its answer was written");
+        });
     }
 
     /** Keycloak refusing the refresh grant, as {@code RefreshTokenOAuth2AuthorizedClientProvider} wraps it. */
