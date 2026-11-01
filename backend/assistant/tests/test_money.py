@@ -188,6 +188,32 @@ def Given_a_product_scale_past_an_int_When_multiplied_Then_it_is_refused_with_a_
     assert len(str(refused.value)) < MESSAGE_BOUND
 
 
+# USD's two minor units plus 2147483645 places make 2**31 - 1, the largest scale a Java int holds.
+ZERO_AT_THE_LARGEST_SCALE = "0E-2147483645"
+
+
+@pytest.mark.parametrize("operation", ["times", "times_rounded"])
+def Given_a_zero_product_at_the_largest_scale_an_int_holds_When_multiplied_Then_it_is_zero(
+    operation: str,
+) -> None:
+    # BigDecimal.multiply accepts this scale, and a zero product rescales to 0.00 without the
+    # power of ten a nonzero one would need, so the ledger answers 0.00 as well.
+    product = getattr(Money.of("12.50", Currency.USD), operation)(
+        Decimal(ZERO_AT_THE_LARGEST_SCALE)
+    )
+
+    assert product == Money.zero(Currency.USD)
+
+
+@pytest.mark.parametrize("multiplier", ["0E-2147483646", "1E-2147483646"])
+@pytest.mark.parametrize("operation", ["times", "times_rounded"])
+def Given_a_product_scale_one_past_the_largest_an_int_holds_When_multiplied_Then_it_is_refused(
+    operation: str, multiplier: str
+) -> None:
+    with pytest.raises(ValueError, match="its scale overflows a Java int"):
+        getattr(Money.of("12.50", Currency.USD), operation)(Decimal(multiplier))
+
+
 def Given_a_non_finite_amount_When_constructed_Then_it_is_rejected() -> None:
     with pytest.raises(ValueError, match="finite"):
         Money(Decimal("NaN"), Currency.ILS)

@@ -199,6 +199,34 @@ class MoneyTest {
     }
 
     /**
+     * USD's two places plus these 2147483645 make {@link Integer#MAX_VALUE}, a scale {@code multiply}
+     * accepts; a zero product then rescales to {@code 0.00} with no power of ten. Mirrored in
+     * {@code tests/test_money.py}.
+     */
+    @Test
+    void Given_a_zero_product_at_the_largest_scale_an_int_holds_When_multiplied_Then_it_is_zero() {
+        Money amount = Money.of("12.50", Currency.USD);
+        BigDecimal zeroAtTheLargestScale = new BigDecimal("0E-2147483645");
+
+        assertThat(amount.times(zeroAtTheLargestScale)).isEqualTo(Money.zero(Currency.USD));
+        assertThat(amount.timesRounded(zeroAtTheLargestScale)).isEqualTo(Money.zero(Currency.USD));
+    }
+
+    /** One place past {@link Integer#MAX_VALUE}, zero or not. Mirrored in {@code tests/test_money.py}. */
+    @ParameterizedTest
+    @ValueSource(strings = {"0E-2147483646", "1E-2147483646"})
+    void Given_a_product_scale_one_past_the_largest_an_int_holds_When_multiplied_Then_it_is_refused(String multiplier) {
+        Money amount = Money.of("12.50", Currency.USD);
+
+        assertThatThrownBy(() -> amount.times(new BigDecimal(multiplier)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("more precision");
+        assertThatThrownBy(() -> amount.timesRounded(new BigDecimal(multiplier)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("more precision");
+    }
+
+    /**
      * Here the product's scale fits an int, but rounding it to cents needs a power of ten past
      * {@code BigInteger}'s range, which {@code setScale} refuses with the same bare
      * {@code ArithmeticException}. Not mirrored: Python's {@code Decimal} has no such bound and
