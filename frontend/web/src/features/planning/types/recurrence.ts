@@ -88,7 +88,7 @@ export type CountField = 'interval' | 'count';
  * member, so the plan-flow form can show the refusal on the field it came from.
  */
 export class InvalidCountError extends Error {
-    /** The member that did not parse to a positive integer. */
+    /** The member whose text is not wholly a positive safe integer. */
     readonly field: CountField;
 
     constructor(field: CountField, value: string) {
