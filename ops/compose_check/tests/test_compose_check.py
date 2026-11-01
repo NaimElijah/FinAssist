@@ -69,6 +69,11 @@ READ_ONLY_SERVICES = [
 ]
 # Each database and the one network it may attach to.
 DATABASE_NETWORKS = [("db", "books"), ("keycloak-db", "identity")]
+# The services that wait on the secret check (ADR-044).
+GATED_SERVICES = ["db", "grafana", "keycloak-db"]
+GATED_BY_SECRET_CHECK = {
+    "secret-check": {"condition": "service_completed_successfully", "required": True}
+}
 PROMETHEUS_COMMAND = [
     "--config.file=/etc/prometheus/prometheus.yml",
     "--storage.tsdb.retention.time=7d",
@@ -120,6 +125,7 @@ def _conforming() -> dict[str, Any]:
                 environment={"POSTGRES_PASSWORD": SECRET},
                 ports=[_port(5432)],
                 networks={"books": None},
+                depends_on=copy.deepcopy(GATED_BY_SECRET_CHECK),
             ),
             "ledger": _hardened(
                 _long_running(
@@ -150,7 +156,9 @@ def _conforming() -> dict[str, Any]:
                 )
             ),
             "keycloak-db": _long_running(
-                environment={"POSTGRES_PASSWORD": SECRET}, networks={"identity": None}
+                environment={"POSTGRES_PASSWORD": SECRET},
+                networks={"identity": None},
+                depends_on=copy.deepcopy(GATED_BY_SECRET_CHECK),
             ),
             "keycloak": _hardened(
                 _long_running(
@@ -180,6 +188,10 @@ def _conforming() -> dict[str, Any]:
                 _long_running(
                     environment={"GF_SECURITY_ADMIN_PASSWORD": SECRET},
                     profiles=["monitoring"],
+                    depends_on={
+                        "prometheus": {"condition": "service_started", "required": True},
+                        **copy.deepcopy(GATED_BY_SECRET_CHECK),
+                    },
                     ports=[_port(3000)],
                     read_only=True,
                     networks={"default": None},
@@ -798,6 +810,60 @@ def Given_secret_check_behind_a_profile_When_checked_Then_it_fails(
     assert lines == ["secret-check: must take no profiles"]
 
 
+@pytest.mark.parametrize(
+    "depends_on",
+    [
+        None,
+        {},
+        {"prometheus": {"condition": "service_started", "required": True}},
+        {"secret-check": {"condition": "service_started", "required": True}},
+        {"secret-check": {"condition": "service_healthy", "required": True}},
+        {"secret-check": {"condition": "service_completed_successfully", "required": False}},
+        {"secret-check": {"required": True}},
+    ],
+    ids=["none", "empty", "another-service", "started", "healthy", "not-required", "no-condition"],
+)
+@pytest.mark.parametrize("service", GATED_SERVICES)
+def Given_a_gated_service_not_waiting_for_the_secret_check_to_pass_When_checked_Then_it_is_named(
+    service: str, depends_on: dict[str, Any] | None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["depends_on"] = depends_on
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        f"{service}: must depend on secret-check with condition service_completed_successfully"
+    ]
+
+
+def Given_a_gate_with_no_required_member_When_checked_Then_it_passes_as_compose_defaults_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    del resolved["services"]["db"]["depends_on"]["secret-check"]["required"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_PASSED
+    assert lines == [PASSED]
+
+
+def Given_a_gated_service_missing_from_the_file_When_checked_Then_its_gate_is_reported_missing(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    del resolved["services"]["grafana"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        "grafana: must depend on secret-check with condition service_completed_successfully"
+    ]
+
+
 # --- Container hardening and the databases' networks (ADR-063) ------------------------------------
 
 
@@ -1414,6 +1480,17 @@ def Given_input_that_is_not_json_When_checked_Then_it_is_refused_without_quoting
             "x-logging": BOUNDED_LOGS,
             "services": {"grafana": _long_running(user=0)},
         },
+        # `config` resolves `depends_on` to a mapping of mappings, so a list would hide the gate.
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {"db": _long_running(depends_on=["secret-check", SECRET])},
+        },
+        {
+            "x-restart-policy": POLICY,
+            "x-logging": BOUNDED_LOGS,
+            "services": {"db": _long_running(depends_on={"secret-check": SECRET})},
+        },
     ],
     ids=[
         "not-a-mapping",
@@ -1432,6 +1509,8 @@ def Given_input_that_is_not_json_When_checked_Then_it_is_refused_without_quoting
         "volumes-a-mapping",
         "volume-a-string",
         "user-a-number",
+        "depends-on-a-list",
+        "dependency-a-string",
     ],
 )
 def Given_json_not_shaped_like_a_resolved_file_When_checked_Then_it_is_refused_without_a_value(

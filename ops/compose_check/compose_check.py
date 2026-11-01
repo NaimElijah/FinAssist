@@ -8,15 +8,16 @@
 script's standard input (ADR-049). Every long-running service must take the restart policy and the
 log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, those blocks must hold
 ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shot services must take
-neither, and four healthchecks must probe readiness (#142, ADR-039). Every published port
-must bind `127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit
-behind exactly the `smoke` profile and `secret-check` behind none (ADR-034, ADR-044). Every
-service but the two databases must take the `x-hardened` block's `cap_drop` and `security_opt`,
-and every one but those and Keycloak must set `read_only`; no service, a database included, may
-set `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as root by
-`user`, or bind-mount a file named `docker.sock`; and each database must attach to one network
-alone, shared with its one client and nothing else, judged by the Docker network each key resolves
-to, so that no other key may resolve to it, neither database network may be `external`, and
+neither, and four healthchecks must probe readiness (#142, ADR-039). Every published port must bind
+`127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit behind
+exactly the `smoke` profile and `secret-check` behind none, and `db`, `keycloak-db` and `grafana`
+must each depend on `secret-check` with `condition: service_completed_successfully` (ADR-034,
+ADR-044). Every service but the two databases must take the `x-hardened` block's `cap_drop` and
+`security_opt`, and every one but those and Keycloak must set `read_only`; no service, a database
+included, may set `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as
+root by `user`, or bind-mount a file named `docker.sock`; and each database must attach to one
+network alone, shared with its one client and nothing else, judged by the Docker network each key
+resolves to, so that no other key may resolve to it, neither database network may be `external`, and
 `identity` must be `internal` (ADR-063). No service may set `network_mode` but `secret-check`, whose
 must be exactly `none`, and Prometheus's `command` must carry exactly `--web.cors.origin=`, the
 empty regex, which grants no origin, with no `entrypoint` to run it otherwise (ADR-057). Neither the
@@ -95,6 +96,13 @@ UNPUBLISHED_SERVICES: Final = frozenset({"keycloak-db"})
 # `auth-smoke` runs only by hand (ADR-034); `secret-check` runs on every `up`, since the databases
 # and Grafana wait on it (ADR-044). A service missing from the file has no profiles.
 PINNED_PROFILES: Final = {"auth-smoke": ("smoke",), "secret-check": ()}
+# The secret check gates every database and Grafana, and every other service holding a secret
+# waits on one of those (ADR-044). Only a pass releases them: `service_started` would not wait for
+# its verdict, and `required: false` lets the service start without it. Compose defaults
+# `required` to true, so a resolved file that omits it is gated.
+SECRET_CHECK: Final = "secret-check"
+GATED_SERVICES: Final = frozenset({"db", "keycloak-db", "grafana"})
+GATE_CONDITION: Final = "service_completed_successfully"
 # Least privilege for every container (ADR-063): the rules name the exemptions, never the services
 # held to them, so a service added later is hardened unless it is exempted here on purpose.
 HARDENED_BLOCK: Final = "x-hardened"
@@ -156,13 +164,14 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
     convention: one line per problem, and none when it follows them all.
 
     The lines come in a fixed order: the file's own `x-` blocks and networks first, then each
-    service's problems with the services in name order, then the pinned profiles, Prometheus's
-    CORS flag and entrypoint, and the readiness probes last.
+    service's problems with the services in name order, then the pinned profiles, the secret
+    check's gate, Prometheus's CORS flag and entrypoint, and the readiness probes last.
 
     :raises ComposeCheckError: when `services`, a service, an environment, a healthcheck, a port,
-        a volume, a service's networks, the top-level `networks` or a network in it is not a
-        mapping, a service's `ports` or `volumes` is not a list, its `user` is not a string, a
-        network has no name, or a service names a network the file does not declare.
+        a volume, a service's networks or `depends_on`, a dependency in it, the top-level
+        `networks` or a network in it is not a mapping, a service's `ports` or `volumes` is not a
+        list, its `user` is not a string, a network has no name, or a service names a network the
+        file does not declare.
     """
     services = _mapping(resolved.get("services"), "services")
     policy = resolved.get(RESTART_BLOCK)
@@ -222,6 +231,12 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
                 if profiles
                 else f"{name}: must take no profiles"
             )
+    for name in sorted(GATED_SERVICES):
+        service = _mapping(services.get(name) or {}, "a service")
+        dependencies = _mapping(service.get("depends_on") or {}, "a service's depends_on")
+        gate = _mapping(dependencies.get(SECRET_CHECK) or {}, "a dependency")
+        if gate.get("condition") != GATE_CONDITION or gate.get("required", True) is not True:
+            found.append(f"{name}: must depend on {SECRET_CHECK} with condition {GATE_CONDITION}")
     prometheus = _mapping(services.get(CORS_PINNED_SERVICE) or {}, "a service")
     cors = [
         argument
