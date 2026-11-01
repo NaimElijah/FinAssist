@@ -33,6 +33,23 @@ def Given_an_amount_with_too_many_decimals_When_constructed_Then_it_is_rejected(
         Money.of("12.505", Currency.ILS)
 
 
+# Far longer than any refusal needs, and far shorter than an amount expanded digit by digit.
+MESSAGE_BOUND = 1_000
+
+
+@pytest.mark.parametrize("amount", ["1E-2147483647", "1E-1000000"])
+def Given_an_amount_at_a_vast_negative_exponent_When_parsed_Then_it_is_refused_with_a_short_message(
+    amount: str,
+) -> None:
+    # The mirror of the Java case, where writing the amount out in full threw OutOfMemoryError in
+    # place of the refusal. str() of a Decimal keeps the exponent, so this side always passed.
+    with pytest.raises(ValueError, match="more precision") as refused:
+        Money.of(amount, Currency.USD)
+
+    assert type(refused.value) is ValueError
+    assert len(str(refused.value)) < MESSAGE_BOUND
+
+
 def Given_a_zero_decimal_currency_When_given_decimals_Then_it_is_rejected() -> None:
     with pytest.raises(ValueError):
         Money.of("100.50", Currency.JPY)
