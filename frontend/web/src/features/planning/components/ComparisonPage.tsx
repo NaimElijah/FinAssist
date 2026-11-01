@@ -227,6 +227,8 @@ function ComparisonForm({
                                         : `${scenariosHintId} ${scenariosErrorId}`
                                 }
                                 onChange={() => {
+                                    // The error answered the choice as submitted, not this one.
+                                    setScenariosError(undefined);
                                     setChosenIds((previous) => toggled(previous, scenario.id));
                                 }}
                             />

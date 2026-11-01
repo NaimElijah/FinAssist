@@ -367,6 +367,24 @@ describe('ComparisonPage', () => {
         expect(requests.filter(isComparison)).toHaveLength(1);
     });
 
+    it('Given_a_field_error_shown_When_a_scenario_checkbox_changes_Then_the_error_and_its_invalid_marking_clear_before_any_submit', async () => {
+        // The error answered the choice as it was submitted; once the owner changes it, the
+        // message no longer describes what the boxes hold, as every other form in the app keeps.
+        fakeFetch(ledger(SCENARIOS, () => jsonResponse(COMPARISON)));
+        renderComparison();
+        const user = userEvent.setup({ delay: null });
+        await compare(user, ['Do nothing (ILS)']);
+        await screen.findByText('Choose at least two scenarios to compare.');
+
+        await user.click(scenarioCheckbox('Aggressive saving (ILS)'));
+
+        expect(screen.queryByText('Choose at least two scenarios to compare.')).toBeNull();
+        for (const checkbox of scenarioCheckboxes()) {
+            expect(accessibleDescriptionOf(checkbox)).toBe(SCENARIOS_HINT);
+            expect(checkbox.hasAttribute('aria-invalid')).toBe(false);
+        }
+    });
+
     it('Given_scenarios_checked_and_unchecked_When_the_baseline_is_offered_Then_its_options_follow_them_and_an_unchecked_baseline_is_never_requested', async () => {
         const requests = fakeFetch(ledger(SCENARIOS, () => pendingResponse()));
         renderComparison();

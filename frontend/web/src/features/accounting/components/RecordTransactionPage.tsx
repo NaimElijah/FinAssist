@@ -289,7 +289,8 @@ function EntryRowFields({
  * row, a 400's top-level field errors on their fields, and anything else - including a 422
  * `RULE_VIOLATED` - in an `ErrorState` above the form. Focus follows the failure there, the same
  * rule every form in the app keeps. Editing any field, or adding or removing a row, clears a
- * failure that has settled, since it answered the entries as they were sent.
+ * failure that has settled, since it answered the entries as they were sent; editing a row's
+ * amount clears that row's own error, and row 2's too while the mirror writes into it.
  *
  * Adding a row is reported on a status line beside Add entry, since focus stays on the button.
  * Removing one moves focus to the row now in its place, or to Add entry when the last row went
@@ -318,6 +319,9 @@ function RecordTransactionForm({
     const [rows, setRows] = useState<EntryRowState[]>(initialRows);
     const [mirrorActive, setMirrorActive] = useState(true);
     const [rowErrors, setRowErrors] = useState<ReadonlyMap<number, string>>(new Map());
+    // Counts the submits the rows refused, so focus moves to the first invalid control once per
+    // refusal - never when an edit clears one row's error while another row's still stands.
+    const [rowRefusals, setRowRefusals] = useState(0);
     const [rowsStatus, setRowsStatus] = useState('');
     const { rowsRef, addRowRef, onRowRemoved } = useRowRemovalFocus(rows.length);
 
@@ -335,10 +339,36 @@ function RecordTransactionForm({
         const invalidControl =
             formRef.current?.querySelector<HTMLElement>(INVALID_CONTROL_SELECTOR);
         (invalidControl ?? errorStateRef.current)?.focus();
-        // hasRowError is derived from rowErrors every render; listing rowErrors is what actually
-        // identifies a new validation attempt.
+        // hasRowError is derived from rowErrors every render; rowRefusals is what identifies a new
+        // validation attempt, and rowErrors also changes when an edit clears one row's error.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rowErrors, failure]);
+    }, [rowRefusals, failure]);
+
+    /**
+     * The keys of the rows an amount typed on row `index` changes: that row, and row 2 too while
+     * the mirror copies row 1 into it.
+     */
+    function editedRowKeys(index: number): number[] {
+        const mirrored = index === 0 && mirrorActive ? [1] : [];
+        return [index, ...mirrored].flatMap((position) => {
+            const row = rows[position];
+            return row === undefined ? [] : [row.key];
+        });
+    }
+
+    /** Drops the errors of the rows `keys` names: each described the row before this edit. */
+    function clearRowErrors(keys: readonly number[]) {
+        setRowErrors((previous) => {
+            if (!keys.some((key) => previous.has(key))) {
+                return previous;
+            }
+            const next = new Map(previous);
+            for (const key of keys) {
+                next.delete(key);
+            }
+            return next;
+        });
+    }
 
     function updateAccount(index: number, accountId: string) {
         clearSettledOutcome(record, submitting);
@@ -349,6 +379,7 @@ function RecordTransactionForm({
 
     function updateDebit(index: number, value: string) {
         clearSettledOutcome(record, submitting);
+        clearRowErrors(editedRowKeys(index));
         setRows((previous) => {
             const next = previous.map((row, i) => (i === index ? { ...row, debit: value } : row));
             if (index === 0 && mirrorActive) {
@@ -368,6 +399,7 @@ function RecordTransactionForm({
 
     function updateCredit(index: number, value: string) {
         clearSettledOutcome(record, submitting);
+        clearRowErrors(editedRowKeys(index));
         setRows((previous) => {
             const next = previous.map((row, i) => (i === index ? { ...row, credit: value } : row));
             if (index === 0 && mirrorActive) {
@@ -425,6 +457,7 @@ function RecordTransactionForm({
         const built = buildEntries(rows, accounts);
         if ('rowErrors' in built) {
             setRowErrors(built.rowErrors);
+            setRowRefusals((previous) => previous + 1);
             return;
         }
         setRowErrors(new Map());
