@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from http import HTTPStatus
 from typing import Final
 
+import structlog
 from starlette.datastructures import Headers
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -33,6 +34,12 @@ _ADMITTED: Final = "finassist.host_admitted"
 _REFUSAL_DETAIL: Final = "The request's Host header does not name a host this assistant serves."
 
 _HTTP_SCOPE: Final = "http"
+
+# The ledger's HostAllowListFilter warning, so a rebinding attempt is visible at WARNING on both
+# services. Fixed text: the header is the caller's choice and is never logged.
+_REFUSED_EVENT: Final = "refused a request whose Host header names no host on the allow-list"
+
+_log = structlog.get_logger(__name__)
 
 
 async def _record_admission(scope: Scope, receive: Receive, send: Send) -> None:
@@ -93,10 +100,12 @@ class HostAllowList:
             return
         refusal = problem_response(HTTPStatus.FORBIDDEN, HOST_NOT_ALLOWED, _REFUSAL_DETAIL)
         if scope["type"] != _HTTP_SCOPE:
+            _log.warning(_REFUSED_EVENT)
             await refusal(scope, receive, send)
             return
         set_correlation_id(trace_id_of(Headers(scope=scope).get(TRACEPARENT_HEADER)))
         try:
+            _log.warning(_REFUSED_EVENT)
             await refusal(scope, receive, send)
         finally:
             # Written even if sending the refusal fails, such as to a caller already gone.

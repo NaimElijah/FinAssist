@@ -57,6 +57,7 @@ SECRET = "sk-ant-000000000000000000000000"
 VALID_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
 TRACEPARENT = f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"
 REQUEST_LINE = "request answered"
+HOST_REFUSED_EVENT = "refused a request whose Host header names no host on the allow-list"
 # A recognisable amount, sent in a query string that must never reach a log line.
 AMOUNT = "98765.43"
 # The longest a test server may take to answer or to stop, so a hang fails rather than stalls.
@@ -337,6 +338,27 @@ def Given_the_middleware_itself_fails_When_a_request_is_served_Then_one_request_
     ]
 
 
+def Given_a_foreign_host_When_refused_Then_one_warning_names_no_host(
+    client: TestClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The ledger logs a Host refusal at WARN. The request line is INFO, so once only warnings are
+    kept a rebinding attempt would otherwise leave no trace at all. The header is never logged: it
+    is whatever the caller chose to send."""
+    capsys.readouterr()
+
+    response = client.get(
+        "/health", headers={"host": "attacker.example", "traceparent": TRACEPARENT}
+    )
+
+    captured = capsys.readouterr().out
+    warnings = [record for record in _records(captured) if record["level"] == "warning"]
+    assert response.status_code == 403
+    assert [(record["event"], record.get("correlation_id")) for record in warnings] == [
+        (HOST_REFUSED_EVENT, VALID_TRACE_ID)
+    ]
+    assert "attacker.example" not in captured
+
+
 def Given_a_foreign_host_When_a_websocket_upgrade_arrives_Then_it_is_refused_without_an_error(
     client: TestClient, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -360,6 +382,9 @@ def Given_a_foreign_host_When_a_websocket_upgrade_arrives_Then_it_is_refused_wit
     assert "Traceback" not in captured
     assert [record for record in _records(captured) if record["level"] == "error"] == []
     assert _request_lines(captured) == []
+    assert [record["event"] for record in _records(captured) if record["level"] == "warning"] == [
+        HOST_REFUSED_EVENT
+    ]
 
 
 class _Launch(NamedTuple):
