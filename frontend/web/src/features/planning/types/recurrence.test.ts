@@ -273,6 +273,25 @@ describe('buildRecurrence beyond a safe integer', () => {
         },
     );
 
+    it('Given_a_count_past_the_largest_safe_integer_When_built_Then_the_error_states_the_safe_integer_rule', () => {
+        // The count is a whole number of 1 or more, so a message stating only that rule would
+        // not say why it was refused.
+        const thrown = thrownBy(() =>
+            buildRecurrence({
+                kind: 'TIMES',
+                cadence: 'MONTHLY',
+                interval: '1',
+                until: '',
+                count: '9007199254740993',
+            }),
+        );
+
+        expect(thrown).toHaveProperty(
+            'message',
+            'Expected count to be a positive safe integer, got "9007199254740993"',
+        );
+    });
+
     it('Given_a_count_of_the_largest_safe_integer_When_built_Then_it_is_kept_exactly', () => {
         const recurrence = buildRecurrence({
             kind: 'TIMES',

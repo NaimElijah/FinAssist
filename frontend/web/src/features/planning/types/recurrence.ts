@@ -92,7 +92,7 @@ export class InvalidCountError extends Error {
     readonly field: CountField;
 
     constructor(field: CountField, value: string) {
-        super(`Expected ${field} to be a positive integer, got "${value}"`);
+        super(`Expected ${field} to be a positive safe integer, got "${value}"`);
         this.name = 'InvalidCountError';
         this.field = field;
     }
