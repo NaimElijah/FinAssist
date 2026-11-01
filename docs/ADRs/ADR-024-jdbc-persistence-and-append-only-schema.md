@@ -1,6 +1,8 @@
 # ADR-024: Hand-written SQL over `JdbcClient`, and an append-only journal schema
 
-- **Status:** Accepted, extended by ADR-033, ADR-035 and ADR-066
+- **Status:** Accepted, extended by [ADR-033](ADR-033-the-journal-records-who.md),
+  [ADR-035](ADR-035-flyway-runs-out-of-order.md) and
+  [ADR-066](ADR-066-the-store-holds-every-rule-the-domain-holds-across-rows.md)
 - **Date:** 2026-09-06
 
 ## Context
