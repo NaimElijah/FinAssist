@@ -26,8 +26,10 @@ export interface ActionPanelProps {
     /** The submit button's text, naming what happens, such as "Void". */
     readonly submitLabel: string;
     /**
-     * Called when the form is submitted, by the button or by Enter in a field. Never called while
-     * `pending`, so one action cannot be sent twice.
+     * Called when the form is submitted, by the button or by Enter in a field. Never called again
+     * until a render shows `pending` false, so one action cannot be sent twice. It must start the
+     * request that `pending` reports, synchronously, as a TanStack Query `mutate` does; a call that
+     * starts nothing leaves the panel ignoring submits until its caller renders it again.
      */
     readonly onSubmit: () => void;
     /** Called by the Cancel button. The caller closes the panel by unmounting it. */
@@ -58,11 +60,20 @@ export function ActionPanel({
 }: ActionPanelProps) {
     const titleId = useId();
     const regionRef = useRef<HTMLElement>(null);
+    const submitting = useRef(false);
     const Heading = HEADING_ELEMENTS[headingLevel];
 
     useEffect(() => {
         regionRef.current?.querySelector<HTMLElement>(FIELD_SELECTOR)?.focus();
     }, []);
+
+    // Released by any render that shows no request pending, not only by `pending` turning false: a
+    // request that fails at once can settle before its pending state ever renders.
+    useEffect(() => {
+        if (!pending) {
+            submitting.current = false;
+        }
+    });
 
     return (
         <section ref={regionRef} aria-labelledby={titleId} className={styles.panel}>
@@ -75,9 +86,12 @@ export function ActionPanel({
                     event.preventDefault();
                     // The disabled button stops a click, not a submit event from elsewhere, and a
                     // repeated void or clear is permanent in an append-only journal (ADR-028).
-                    if (pending) {
+                    // `pending` is the last render's, so two submits in one tick both read it
+                    // false; the ref is set at once.
+                    if (pending || submitting.current) {
                         return;
                     }
+                    submitting.current = true;
                     onSubmit();
                 }}
             >
