@@ -342,6 +342,48 @@ def Given_an_x_block_missing_from_the_resolved_file_When_checked_Then_it_fails_s
     assert "db: needs restart and logging as the x- blocks set them" in lines
 
 
+@pytest.mark.parametrize(
+    ("block", "value", "problem"),
+    [
+        (
+            "x-restart-policy",
+            "always",
+            "the resolved file's x-restart-policy block must be unless-stopped",
+        ),
+        (
+            "x-logging",
+            {"driver": "json-file", "options": {"max-file": "3", "max-size": "500m"}},
+            "the resolved file's x-logging block must be json-file, max-size 10m, max-file 3",
+        ),
+        (
+            "x-logging",
+            {"driver": "local", "options": {"max-file": "3", "max-size": "10m"}},
+            "the resolved file's x-logging block must be json-file, max-size 10m, max-file 3",
+        ),
+        (
+            "x-logging",
+            {"driver": "json-file"},
+            "the resolved file's x-logging block must be json-file, max-size 10m, max-file 3",
+        ),
+    ],
+    ids=["restart-always", "logs-larger", "logs-another-driver", "logs-unbounded"],
+)
+def Given_an_x_block_changed_and_every_service_following_it_When_checked_Then_the_block_is_named(
+    block: str, value: object, problem: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved[block] = value
+    member = {"x-restart-policy": "restart", "x-logging": "logging"}[block]
+    for name, service in resolved["services"].items():
+        if name not in ONE_SHOT_SERVICES:
+            service[member] = copy.deepcopy(value)
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [problem]
+
+
 def Given_several_problems_When_checked_Then_each_is_reported_with_services_in_name_order(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

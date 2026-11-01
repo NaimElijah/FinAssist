@@ -6,8 +6,9 @@
 
 `make check-compose` pipes `docker compose config --format json`, under every profile, into this
 script's standard input (ADR-049). Every long-running service must take the restart policy and the
-log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, the one-shot services
-must take neither, and four healthchecks must probe readiness (#142, ADR-039). Every published port
+log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, those blocks must hold
+ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shot services must take
+neither, and four healthchecks must probe readiness (#142, ADR-039). Every published port
 must bind `127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit
 behind exactly the `smoke` profile and `secret-check` behind none (ADR-034, ADR-044). Every
 service but the two databases must take the `x-hardened` block's `cap_drop` and `security_opt`,
@@ -47,6 +48,16 @@ EXIT_FAILED: Final = 1
 EXIT_MISCONFIGURED: Final = 2
 RESTART_BLOCK: Final = "x-restart-policy"
 LOGGING_BLOCK: Final = "x-logging"
+# ADR-039's decision, so a block changed in the file, every service following it, still fails.
+RESTART_POLICY: Final = "unless-stopped"
+LOG_DRIVER: Final = "json-file"
+LOG_MAX_SIZE: Final = "10m"
+LOG_MAX_FILES: Final = "3"
+# The block as `config` resolves it, so it compares equal to the resolved file's.
+_BOUNDED_LOGS: Final = {
+    "driver": LOG_DRIVER,
+    "options": {"max-size": LOG_MAX_SIZE, "max-file": LOG_MAX_FILES},
+}
 # Their failure must stay a failure rather than loop (docker-compose.yml).
 ONE_SHOT_SERVICES: Final = frozenset({"auth-smoke", "secret-check"})
 # Readiness, not liveness, so `service_healthy` means "can serve" (docker-compose.yml).
@@ -159,6 +170,13 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
     found: list[str] = []
     if policy is None or bounded_logs is None:
         found.append(f"the resolved file holds no {RESTART_BLOCK} or {LOGGING_BLOCK} block")
+    if policy is not None and policy != RESTART_POLICY:
+        found.append(f"the resolved file's {RESTART_BLOCK} block must be {RESTART_POLICY}")
+    if bounded_logs is not None and bounded_logs != _BOUNDED_LOGS:
+        found.append(
+            f"the resolved file's {LOGGING_BLOCK} block must be {LOG_DRIVER}, "
+            f"max-size {LOG_MAX_SIZE}, max-file {LOG_MAX_FILES}"
+        )
     if resolved.get(HARDENED_BLOCK) != _HARDENED_MEMBERS:
         found.append(
             f"the resolved file's {HARDENED_BLOCK} block must drop {', '.join(NO_CAPABILITIES)} "
