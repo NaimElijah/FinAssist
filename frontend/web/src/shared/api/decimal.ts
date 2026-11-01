@@ -23,6 +23,19 @@ const DECIMAL_STRING = /^-?\d+(\.\d+)?$/;
 export const DECIMAL_HINT = 'A number with no commas, for example 1250.50';
 
 /**
+ * Whether `value` is a string matching the wire's decimal pattern, `DECIMAL_STRING`.
+ *
+ * A pattern test and nothing more: the value is never parsed as a number. The narrowed type is the
+ * one `Intl.NumberFormat.format` accepts as an exact decimal.
+ *
+ * @param value - anything; a JSON number is refused, since the wire carries a string.
+ * @returns `true` only for a string such as `"-12.00"` or `"3"`.
+ */
+export function isDecimalString(value: unknown): value is `${number}` {
+    return typeof value === 'string' && DECIMAL_STRING.test(value);
+}
+
+/**
  * `value` as the decimal string the contract promises, unchanged.
  *
  * It is typed `unknown` because a JSON number would pass the pattern once coerced to text, and the
@@ -37,7 +50,7 @@ export const DECIMAL_HINT = 'A number with no commas, for example 1250.50';
  *   is not a decimal, such as `1,234.50`.
  */
 export function decimalString(value: unknown, url: string, member: string): string {
-    if (typeof value === 'string' && DECIMAL_STRING.test(value)) {
+    if (isDecimalString(value)) {
         return value;
     }
     log.error('response has a decimal the contract does not allow', { url, member });
