@@ -70,11 +70,12 @@ import org.springframework.web.client.ResourceAccessException;
  * 500} with Boot's error body instead, reaching neither this class nor any code {@link
  * GatewayProblems} declares.
  *
- * <p><b>Nothing here logs a token.</b> The refresh failure is logged with a fixed message only,
- * matching {@link SignInFailureHandler}'s rule for the same reason: Keycloak's error description
- * can quote the request that was refused. The catch-all for anything else logs the exception's
- * class name alone, never its message or its stack trace, because an arbitrary unexpected failure
- * is the one case this class cannot enumerate the safety of.
+ * <p><b>Nothing here logs a token.</b> The refresh failure is logged by its OAuth2 error code
+ * alone, held to the same {@link OAuth2ErrorVocabulary} {@link SignInFailureHandler} uses, for the
+ * same reason: Keycloak's error description can quote the request that was refused. The catch-all
+ * for anything else logs the exception's class name alone, never its message or its stack trace,
+ * because an arbitrary unexpected failure is the one case this class cannot enumerate the safety
+ * of.
  */
 @RestControllerAdvice
 final class GatewayRelayProblems {
@@ -130,6 +131,13 @@ final class GatewayRelayProblems {
      * A relay's authorization could not be renewed: the refresh token Keycloak was asked to redeem
      * was refused, or the manager could not authorize the relay for some other reason.
      *
+     * <p>Logged by its error code alone. A refusal, such as {@code invalid_grant} for an expired
+     * session, is WARN: it concerns one session. {@code invalid_token_response} is ERROR, in a
+     * message of its own: Spring raises it when the token endpoint could not be used at all, so
+     * every session's refresh is failing, the same outage the resource servers log for an unusable
+     * key source.
+     *
+     * @param failure the manager's refusal, whose error code is the only part of it logged
      * @param request carries the session to invalidate; absent when none exists, which is not an
      *     error — there is nothing left to discard
      * @param response the response to answer, since a filter later in the chain may not write to
@@ -137,8 +145,20 @@ final class GatewayRelayProblems {
      * @throws IOException if the problem body cannot be written
      */
     @ExceptionHandler(OAuth2AuthorizationException.class)
-    void authorizationFailed(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        LOG.warn("A relay's authorization could not be renewed; invalidating the session");
+    void authorizationFailed(
+            OAuth2AuthorizationException failure, HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
+        String code = OAuth2ErrorVocabulary.loggableCode(failure.getError());
+        if (OAuth2ErrorVocabulary.INVALID_TOKEN_RESPONSE.equals(code)) {
+            LOG.error(
+                    "A relay's authorization could not be renewed: the identity provider's token endpoint was"
+                            + " unusable, OAuth2 error code {}; invalidating the session",
+                    code);
+        } else {
+            LOG.warn(
+                    "A relay's authorization could not be renewed with OAuth2 error code {}; invalidating the session",
+                    code);
+        }
         HttpSession session = request.getSession(false);
         if (session != null) {
             session.invalidate();
