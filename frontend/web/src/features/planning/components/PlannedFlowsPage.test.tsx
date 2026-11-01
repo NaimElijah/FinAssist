@@ -586,6 +586,99 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         });
     });
 
+    /**
+     * A ledger whose Rent was committed elsewhere the moment this page tries to commit it: the
+     * commit answers 409 `ILLEGAL_TRANSITION`, and every later read shows it committed.
+     */
+    function committedElsewhereLedger(): FetchAnswer {
+        let flows: readonly unknown[] = [RENT];
+        return lifecycleLedger(
+            () => flows,
+            (request) => {
+                if (request.url === `${FLOWS_URL}/${RENT_ID}/commit` && request.method === 'POST') {
+                    flows = [{ ...RENT, state: { status: 'COMMITTED', on: '2026-09-14' } }];
+                    return problemResponse({
+                        status: 409,
+                        code: 'ILLEGAL_TRANSITION',
+                        detail: 'The flow is no longer planned.',
+                    });
+                }
+                return unexpectedRequest(request);
+            },
+        );
+    }
+
+    it('Given_a_flow_changed_elsewhere_When_its_action_answers_409_Then_the_flows_list_alone_is_refetched_beside_the_refusal', async () => {
+        // Refetch on focus is off, so without this the row would keep offering an action the
+        // ledger has already refused until the page is reloaded.
+        fakeFetch(committedElsewhereLedger());
+        const { queryClient } = renderFlows();
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
+        await user.click(screen.getByRole('button', { name: 'Commit' }));
+
+        expect(await within(rowOf('Rent')).findByText('Committed')).toBeDefined();
+        expect(
+            within(screen.getByRole('alert')).getByText('The flow is no longer planned.'),
+        ).toBeDefined();
+        const invalidatedKeys = invalidateSpy.mock.calls.map(([options]) => options?.queryKey);
+        expect(invalidatedKeys).toEqual([planKeys.flows]);
+    });
+
+    it('Given_a_409_that_refetched_the_row_without_its_action_When_the_panel_is_cancelled_Then_focus_moves_to_the_rows_state', async () => {
+        // The refetched row no longer offers Commit, so the button the panel would return focus
+        // to is gone; the row's state, which is what changed, takes it instead of the page losing
+        // it.
+        fakeFetch(committedElsewhereLedger());
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
+        await user.click(screen.getByRole('button', { name: 'Commit' }));
+        await within(rowOf('Rent')).findByText('Committed');
+
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        await waitFor(() => {
+            expect(document.activeElement?.id).toBe(`flow-state-${RENT_ID}`);
+        });
+    });
+
+    it('Given_a_refusal_other_than_409_When_an_action_is_submitted_Then_nothing_is_refetched', async () => {
+        // Only a 409 says the row changed elsewhere; a 422 answers the request as sent, and a
+        // mutation invalidates only the keys that can have changed.
+        fakeFetch(
+            ledger([RENT], (request) =>
+                request.url === `${FLOWS_URL}/${RENT_ID}/commit` && request.method === 'POST'
+                    ? problemResponse({
+                          status: 422,
+                          code: 'RULE_VIOLATED',
+                          detail: 'A flow cannot be committed before it was planned.',
+                      })
+                    : unexpectedRequest(request),
+            ),
+        );
+        const { queryClient } = renderFlows();
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
+        await user.click(screen.getByRole('button', { name: 'Commit' }));
+
+        await screen.findByRole('alert');
+        expect(invalidateSpy).not.toHaveBeenCalled();
+    });
+
     it('Given_a_400_naming_the_panels_date_When_an_action_is_submitted_Then_the_error_state_lists_it_under_the_On_label', async () => {
         fakeFetch(
             ledger([RENT], (request) => {

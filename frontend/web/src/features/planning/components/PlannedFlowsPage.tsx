@@ -190,7 +190,8 @@ function LifecycleButtons({
  * On success it refetches what the transition can change (see `planQueries.ts`) and closes. On
  * failure - including a 409 `ILLEGAL_TRANSITION` when the server no longer agrees this row's
  * action is legal - it shows the server's detail and stays open, so the owner can see why and try
- * something else. Editing the date or the reason clears that failure, since it answered the action
+ * something else; a 409 also refetches the flows, so the row beside the panel shows the state that
+ * refused it. Editing the date or the reason clears that failure, since it answered the action
  * as it was sent.
  *
  * The Reason field's own `required` is the whole of its client-side validation: the browser
@@ -494,7 +495,8 @@ function PlannedFlowsList({
     // below, and a failure never does (the panel stays open and keeps its own focus). Prefers the
     // button for the acted-on action, still present after a cancel because the status has not
     // changed; falls back to the row's state cell, which is what actually changed after a
-    // successful transition removed that action from the row.
+    // successful transition removed that action from the row - or after a 409 refetched the row
+    // in a state that no longer offers it, before the panel was cancelled.
     useEffect(() => {
         if (closedAction === undefined) {
             return;
@@ -502,11 +504,12 @@ function PlannedFlowsList({
         const stillOffered =
             closedAction.newStatus === undefined ||
             LEGAL_ACTIONS[closedAction.newStatus].includes(closedAction.kind);
-        const target = stillOffered
+        const actionButton = stillOffered
             ? document
                   .getElementById(actionsCellId(closedAction.flowId))
                   ?.querySelector<HTMLElement>(`[data-action="${closedAction.kind}"]`)
-            : document.getElementById(stateCellId(closedAction.flowId));
+            : undefined;
+        const target = actionButton ?? document.getElementById(stateCellId(closedAction.flowId));
         target?.focus();
     }, [closedAction]);
 

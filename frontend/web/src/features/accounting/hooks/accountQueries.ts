@@ -12,9 +12,12 @@ import {
     useQueryClient,
 } from '@tanstack/react-query';
 
+import { hasProblemCode } from '@/shared/api/client';
+
 import {
     clearTransaction,
     getBalance,
+    ILLEGAL_TRANSITION,
     listAccounts,
     listAccountTransactions,
     openAccount,
@@ -199,32 +202,61 @@ interface TransitionVariables {
 }
 
 /**
+ * After a lifecycle action fails, refetch the balance and transactions of the account on screen
+ * when the ledger refused it as 409 `ILLEGAL_TRANSITION`: the transaction moved elsewhere since
+ * the page read it, and refetch on focus is off, so its row would otherwise keep showing the
+ * stale state and offering the action just refused.
+ *
+ * A refusal carries no transaction, so only the account on screen is refetched; another account
+ * the transaction touches refetches its own when its page mounts. Any other failure answered the
+ * request as sent and changed nothing, so nothing is refetched.
+ *
+ * @returns the settled refetches on a 409, so a caller can return it from `onError` and stay
+ *   pending until the row reflects the refusal; otherwise `undefined`.
+ */
+function refreshAfterIllegalTransition(
+    queryClient: QueryClient,
+    error: unknown,
+    accountId: string,
+): Promise<unknown> | undefined {
+    return hasProblemCode(error, ILLEGAL_TRANSITION)
+        ? invalidateAccounts(queryClient, [accountId])
+        : undefined;
+}
+
+/**
  * Clear a transaction, then refetch the balance and transactions of every account it touches.
  *
+ * @param accountId - the account whose page offers the action, refetched on a 409 (see
+ *   `refreshAfterIllegalTransition`).
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
-export function useClearTransaction() {
+export function useClearTransaction(accountId: string) {
     const queryClient = useQueryClient();
     return useMutation({
         mutationKey: TRANSACTION_LIFECYCLE_KEY,
         mutationFn: ({ transactionId, on }: TransitionVariables) =>
             clearTransaction(transactionId, on),
         onSuccess: (transaction) => invalidateAccounts(queryClient, accountIdsOf(transaction)),
+        onError: (error) => refreshAfterIllegalTransition(queryClient, error, accountId),
     });
 }
 
 /**
  * Reconcile a transaction, then refetch the balance and transactions of every account it touches.
  *
+ * @param accountId - the account whose page offers the action, refetched on a 409 (see
+ *   `refreshAfterIllegalTransition`).
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
-export function useReconcileTransaction() {
+export function useReconcileTransaction(accountId: string) {
     const queryClient = useQueryClient();
     return useMutation({
         mutationKey: TRANSACTION_LIFECYCLE_KEY,
         mutationFn: ({ transactionId, on }: TransitionVariables) =>
             reconcileTransaction(transactionId, on),
         onSuccess: (transaction) => invalidateAccounts(queryClient, accountIdsOf(transaction)),
+        onError: (error) => refreshAfterIllegalTransition(queryClient, error, accountId),
     });
 }
 
@@ -236,14 +268,17 @@ interface VoidVariables extends TransitionVariables {
 /**
  * Void a transaction, then refetch the balance and transactions of every account it touches.
  *
+ * @param accountId - the account whose page offers the action, refetched on a 409 (see
+ *   `refreshAfterIllegalTransition`).
  * @returns the mutation. It is never retried (see `src/app/queryClient.ts`).
  */
-export function useVoidTransaction() {
+export function useVoidTransaction(accountId: string) {
     const queryClient = useQueryClient();
     return useMutation({
         mutationKey: TRANSACTION_LIFECYCLE_KEY,
         mutationFn: ({ transactionId, on, reason }: VoidVariables) =>
             voidTransaction(transactionId, on, reason),
         onSuccess: (transaction) => invalidateAccounts(queryClient, accountIdsOf(transaction)),
+        onError: (error) => refreshAfterIllegalTransition(queryClient, error, accountId),
     });
 }

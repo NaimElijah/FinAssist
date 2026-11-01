@@ -12,11 +12,14 @@ import {
     useQueryClient,
 } from '@tanstack/react-query';
 
+import { hasProblemCode } from '@/shared/api/client';
+
 import {
     cancelFlow,
     commitFlow,
     compareScenarios,
     defineScenario,
+    ILLEGAL_TRANSITION,
     listPlannedFlows,
     listScenarios,
     planFlow,
@@ -241,6 +244,25 @@ interface TransitionVariables {
 }
 
 /**
+ * After a lifecycle action fails, refetch the flows list when the ledger refused it as 409
+ * `ILLEGAL_TRANSITION`: the flow moved elsewhere since the page read it, and refetch on focus is
+ * off, so its row would otherwise keep showing the stale state and offering the action just
+ * refused. Any other failure answered the request as sent and changed nothing, so nothing is
+ * refetched.
+ *
+ * @returns the settled refetch on a 409, so a caller can return it from `onError` and stay
+ *   pending until the row reflects the refusal; otherwise `undefined`.
+ */
+function refreshAfterIllegalTransition(
+    queryClient: QueryClient,
+    error: unknown,
+): Promise<unknown> | undefined {
+    return hasProblemCode(error, ILLEGAL_TRANSITION)
+        ? queryClient.invalidateQueries({ queryKey: planKeys.flows })
+        : undefined;
+}
+
+/**
  * Commit to a planned flow, then refetch the flows list and nothing else.
  *
  * No `ScenarioResponse` field can change when a flow moves state - a scenario names flow ids and
@@ -255,6 +277,7 @@ export function useCommitFlow() {
         mutationKey: FLOW_LIFECYCLE_KEY,
         mutationFn: ({ flowId, on }: TransitionVariables) => commitFlow(flowId, on),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: planKeys.flows }),
+        onError: (error) => refreshAfterIllegalTransition(queryClient, error),
     });
 }
 
@@ -292,6 +315,7 @@ export function useRealiseFlow() {
         mutationKey: FLOW_LIFECYCLE_KEY,
         mutationFn: ({ flowId, on }: TransitionVariables) => realiseFlow(flowId, on),
         onSuccess: () => invalidateAfterLeavingProjection(queryClient),
+        onError: (error) => refreshAfterIllegalTransition(queryClient, error),
     });
 }
 
@@ -313,6 +337,7 @@ export function useCancelFlow() {
         mutationKey: FLOW_LIFECYCLE_KEY,
         mutationFn: ({ flowId, on, reason }: CancelVariables) => cancelFlow(flowId, on, reason),
         onSuccess: () => invalidateAfterLeavingProjection(queryClient),
+        onError: (error) => refreshAfterIllegalTransition(queryClient, error),
     });
 }
 

@@ -187,8 +187,9 @@ function LifecycleButtons({
  * On success it invalidates the balance and transactions of every account the transaction
  * touches, and closes. On failure - including a 409 `ILLEGAL_TRANSITION` when the server no
  * longer agrees this row's action is legal - it shows the server's detail and stays open, so the
- * owner can see why and try something else. Editing the date or the reason clears that failure,
- * since it answered the action as it was sent.
+ * owner can see why and try something else; a 409 also refetches this account's rows, so the row
+ * beside the panel shows the state that refused it. Editing the date or the reason clears that
+ * failure, since it answered the action as it was sent.
  *
  * The Reason field's own `required` is the whole of its client-side validation: the browser
  * refuses to fire the form's submit event while it is empty, so `submit` below is never even
@@ -196,20 +197,23 @@ function LifecycleButtons({
  */
 function LifecycleActionPanel({
     kind,
+    accountId,
     transactionId,
     rowName,
     onClose,
 }: {
     readonly kind: LifecycleKind;
+    /** The account whose page holds the panel, refetched when the action meets a 409. */
+    readonly accountId: string;
     readonly transactionId: string;
     /** The row the panel acts on, from `transactionName`, so its title says which. */
     readonly rowName: string;
     /** Called with the transaction's new status on success, or with none on cancel. */
     readonly onClose: (newStatus?: TransactionStatus) => void;
 }) {
-    const clear = useClearTransaction();
-    const reconcile = useReconcileTransaction();
-    const voidTransaction = useVoidTransaction();
+    const clear = useClearTransaction(accountId);
+    const reconcile = useReconcileTransaction(accountId);
+    const voidTransaction = useVoidTransaction(accountId);
     const [on, setOn] = useState(() => todayIsoDate(new Date()));
     const [reason, setReason] = useState('');
     const submitting = useRef(false);
@@ -298,12 +302,14 @@ function LifecycleActionPanel({
 
 /** This row's actions cell: buttons for its legal transitions, or the one open panel. */
 function TransactionActionsCell({
+    accountId,
     transaction,
     active,
     actionInFlight,
     onOpen,
     onClose,
 }: {
+    readonly accountId: string;
     readonly transaction: Transaction;
     readonly active: ActiveAction | undefined;
     /** A lifecycle action is in flight, so no other may open. */
@@ -316,6 +322,7 @@ function TransactionActionsCell({
             {active?.transactionId === transaction.id ? (
                 <LifecycleActionPanel
                     kind={active.kind}
+                    accountId={accountId}
                     transactionId={transaction.id}
                     rowName={transactionName(transaction)}
                     onClose={onClose}
@@ -447,6 +454,7 @@ function transactionColumns(
             header: 'Actions',
             render: (transaction) => (
                 <TransactionActionsCell
+                    accountId={accountId}
                     transaction={transaction}
                     active={active}
                     actionInFlight={actionInFlight}
@@ -518,7 +526,8 @@ function Transactions({
     // below, and a failure never does (the panel stays open and keeps its own focus). Prefers
     // the button for the acted-on action, still present after a cancel because the status has
     // not changed; falls back to the row's state cell, which is what actually changed after a
-    // successful transition removed that action from the row.
+    // successful transition removed that action from the row - or after a 409 refetched the row
+    // in a state that no longer offers it, before the panel was cancelled.
     //
     // Never resets closedAction back to undefined: closeAction always sets a freshly built
     // object, so a later close - even of the same row and kind - is a new reference and reruns
@@ -528,17 +537,20 @@ function Transactions({
             return;
         }
         // A cancel changes nothing, so the acted-on action is still legal and its button is what
-        // to focus; a success is told apart by the new status it carried (closedAction.newStatus),
-        // never by re-reading the DOM - the transactions query's own refetch can still be in
-        // flight at this point, so a row's buttons may not yet reflect its new status here.
+        // to focus, unless a 409 refetched the row meanwhile (the fallback below); a success is
+        // told apart by the new status it carried (closedAction.newStatus), never by re-reading
+        // the DOM - the transactions query's own refetch can still be in flight at this point,
+        // so a row's buttons may not yet reflect its new status here.
         const stillOffered =
             closedAction.newStatus === undefined ||
             LEGAL_ACTIONS[closedAction.newStatus].includes(closedAction.kind);
-        const target = stillOffered
+        const actionButton = stillOffered
             ? document
                   .getElementById(actionsCellId(closedAction.transactionId))
                   ?.querySelector<HTMLElement>(`[data-action="${closedAction.kind}"]`)
-            : document.getElementById(stateCellId(closedAction.transactionId));
+            : undefined;
+        const target =
+            actionButton ?? document.getElementById(stateCellId(closedAction.transactionId));
         target?.focus();
     }, [closedAction]);
 
