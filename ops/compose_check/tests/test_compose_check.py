@@ -349,9 +349,13 @@ def Given_a_probed_service_missing_from_the_file_When_checked_Then_its_probe_is_
         # The `f` is the file -o writes to, not curl's -f.
         ["CMD", "curl", "-sofile", "http://localhost:8080{path}"],
         ["CMD", "curl", "-o", "-f", "http://localhost:8080{path}"],
-        # The later option wins, so curl ends up not failing.
-        ["CMD", "curl", "-f", "--no-fail", "http://localhost:8080{path}"],
-        ["CMD", "curl", "--fail-with-body", "--no-fail-with-body", "http://localhost:8080{path}"],
+        # A long option takes the next word as its argument too: curl writes a file named `-f`.
+        ["CMD", "curl", "--output", "-f", "http://localhost:8080{path}"],
+        ["CMD", "curl", "--header", "-f", "http://localhost:8080{path}"],
+        # An option the check does not know is assumed to take one.
+        ["CMD", "curl", "--not-a-curl-option", "-f", "http://localhost:8080{path}"],
+        # Written with `=`, the value is part of the word, never an option of its own.
+        ["CMD", "curl", "--output=-f", "http://localhost:8080{path}"],
     ],
     ids=[
         "bare",
@@ -359,8 +363,10 @@ def Given_a_probed_service_missing_from_the_file_When_checked_Then_its_probe_is_
         "full-path",
         "attached-argument",
         "separate-argument",
-        "no-fail",
-        "no-fail-with-body",
+        "long-option-argument",
+        "long-header-argument",
+        "unknown-long-option",
+        "long-option-equals",
     ],
 )
 @pytest.mark.parametrize(("service", "path"), READINESS_PROBES)
@@ -376,6 +382,36 @@ def Given_a_curl_readiness_probe_without_fail_When_checked_Then_it_is_named(
 
     assert status == compose_check.EXIT_FAILED
     assert lines == [f"{service}: its curl probe must pass -f, so a failing status fails it"]
+
+
+# The later of an option and its negation wins, so curl given both may end up not failing: a
+# negation anywhere is refused, and named as the reason.
+@pytest.mark.parametrize(
+    "test",
+    [
+        ["CMD", "curl", "-f", "--no-fail", "http://localhost:8080{path}"],
+        ["CMD", "curl", "--fail-with-body", "--no-fail-with-body", "http://localhost:8080{path}"],
+        ["CMD", "curl", "-sSf", "--no-fail", "http://localhost:8080{path}"],
+        # A flag's own negation takes no argument, so the `--no-fail` after it is still read.
+        ["CMD", "curl", "-f", "--no-silent", "--no-fail", "http://localhost:8080{path}"],
+    ],
+    ids=["no-fail", "no-fail-with-body", "cluster", "after-a-negated-flag"],
+)
+@pytest.mark.parametrize(("service", "path"), READINESS_PROBES)
+def Given_a_curl_readiness_probe_cancelling_fail_When_checked_Then_the_negation_is_named(
+    service: str, path: str, test: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["healthcheck"] = {
+        "test": [part.format(path=path) for part in test]
+    }
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        f"{service}: its curl probe must not cancel -f with --no-fail or --no-fail-with-body"
+    ]
 
 
 # Only an exec-form curl can be judged by its arguments: a shell can run another command first, test
@@ -416,8 +452,24 @@ def Given_a_curl_readiness_probe_through_a_shell_When_checked_Then_it_is_named(
         ["CMD", "curl", "-sS", "http://localhost:8080/ready", "-f"],
         ["CMD", "curl", "-sSf", "http://localhost:8080/ready"],
         ["CMD", "/usr/bin/curl", "-f", "http://localhost:8080/ready"],
+        ["CMD", "curl", "--silent", "--show-error", "-f", "http://localhost:8080/ready"],
+        ["CMD", "curl", "--no-progress-meter", "--fail", "http://localhost:8080/ready"],
+        ["CMD", "curl", "--max-time", "5", "-f", "http://localhost:8080/ready"],
+        # The `-f` is curl's own, not the argument of an option written with `=`.
+        ["CMD", "curl", "--max-time=5", "-f", "http://localhost:8080/ready"],
     ],
-    ids=["long", "with-body", "cluster", "after-the-url", "cluster-end", "full-path"],
+    ids=[
+        "long",
+        "with-body",
+        "cluster",
+        "after-the-url",
+        "cluster-end",
+        "full-path",
+        "after-long-flags",
+        "after-a-negative-flag",
+        "after-a-long-argument",
+        "after-a-long-equals",
+    ],
 )
 def Given_a_curl_readiness_probe_that_fails_on_an_error_status_When_checked_Then_it_passes(
     test: list[str], capsys: pytest.CaptureFixture[str]

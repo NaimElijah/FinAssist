@@ -75,17 +75,155 @@ READINESS_PROBES: Final = {
 # passes on the 503 a service that is not ready answers. `-f` may sit in a cluster such as `-fsS`;
 # the later of an option and its `--no-` form wins, so a negation anywhere is refused.
 CURL: Final = "curl"
-CURL_FAIL_OPTIONS: Final = frozenset({"--fail", "--fail-with-body"})
+CURL_FAIL_OPTIONS: Final = frozenset({"-f", "--fail", "--fail-with-body"})
 CURL_NO_FAIL_OPTIONS: Final = frozenset({"--no-fail", "--no-fail-with-body"})
-CURL_FAIL_SHORT: Final = "f"
 # Only exec form runs curl with exactly the arguments read here: a shell could run another command
 # first, test curl's output instead of its status, or turn its failure into success.
 EXEC_FORM: Final = "CMD"
 # curl's short options that take no argument (`curl --help all`, 8.17). Any other letter in a
 # cluster takes the rest of it, or the next word, as its argument, so `-sofile` writes to `file`
 # and never fails; an unlisted letter is assumed to take one, so an unknown option fails the rule.
-CURL_FLAG_SHORTS: Final = frozenset("aBgGiIjJklLMnNOpqRsSvVZ")
+CURL_FLAG_SHORTS: Final = frozenset("aBfgGiIjJklLMnNOpqRsSvVZ")
 _SHORT_OPTIONS: Final = re.compile(r"-[A-Za-z]+")
+# curl's long options that take no argument (`curl --help all`, 8.17). Any other takes the next word
+# as its argument, so `--output -f` writes to a file named `-f` and never fails; an unlisted one is
+# assumed to take one, as an unknown letter is, and curl refuses an option it does not know anyway.
+# The `--no-<name>` form of each, where curl has one, takes none either. `--name=value` is a single
+# word, which curl 8.17 refuses as unknown, so it takes nothing further.
+CURL_FLAG_LONGS: Final = frozenset(
+    {
+        "--anyauth",
+        "--append",
+        "--basic",
+        "--ca-native",
+        "--cert-status",
+        "--compressed",
+        "--compressed-ssh",
+        "--create-dirs",
+        "--crlf",
+        "--digest",
+        "--disable",
+        "--disable-eprt",
+        "--disable-epsv",
+        "--disallow-username-in-url",
+        "--doh-cert-status",
+        "--doh-insecure",
+        "--dump-ca-embed",
+        "--fail",
+        "--fail-early",
+        "--fail-with-body",
+        "--false-start",
+        "--follow",
+        "--form-escape",
+        "--ftp-create-dirs",
+        "--ftp-pasv",
+        "--ftp-pret",
+        "--ftp-skip-pasv-ip",
+        "--ftp-ssl-ccc",
+        "--ftp-ssl-control",
+        "--get",
+        "--globoff",
+        "--haproxy-protocol",
+        "--head",
+        "--http0.9",
+        "--http1.0",
+        "--http1.1",
+        "--http2",
+        "--http2-prior-knowledge",
+        "--http3",
+        "--http3-only",
+        "--ignore-content-length",
+        "--insecure",
+        "--ipv4",
+        "--ipv6",
+        "--junk-session-cookies",
+        "--list-only",
+        "--location",
+        "--location-trusted",
+        "--mail-rcpt-allowfails",
+        "--manual",
+        "--metalink",
+        "--mptcp",
+        "--negotiate",
+        "--netrc",
+        "--netrc-optional",
+        "--next",
+        "--no-alpn",
+        "--no-buffer",
+        "--no-clobber",
+        "--no-keepalive",
+        "--no-npn",
+        "--no-progress-meter",
+        "--no-sessionid",
+        "--ntlm",
+        "--ntlm-wb",
+        "--out-null",
+        "--parallel",
+        "--parallel-immediate",
+        "--path-as-is",
+        "--post301",
+        "--post302",
+        "--post303",
+        "--progress-bar",
+        "--proxy-anyauth",
+        "--proxy-basic",
+        "--proxy-ca-native",
+        "--proxy-digest",
+        "--proxy-http2",
+        "--proxy-insecure",
+        "--proxy-negotiate",
+        "--proxy-ntlm",
+        "--proxy-ssl-allow-beast",
+        "--proxy-ssl-auto-client-cert",
+        "--proxy-tlsv1",
+        "--proxytunnel",
+        "--raw",
+        "--remote-header-name",
+        "--remote-name",
+        "--remote-name-all",
+        "--remote-time",
+        "--remove-on-error",
+        "--retry-all-errors",
+        "--retry-connrefused",
+        "--sasl-ir",
+        "--show-error",
+        "--show-headers",
+        "--silent",
+        "--skip-existing",
+        "--socks5-basic",
+        "--socks5-gssapi",
+        "--socks5-gssapi-nec",
+        "--ssl",
+        "--ssl-allow-beast",
+        "--ssl-auto-client-cert",
+        "--ssl-no-revoke",
+        "--ssl-reqd",
+        "--ssl-revoke-best-effort",
+        "--sslv2",
+        "--sslv3",
+        "--styled-output",
+        "--suppress-connect-headers",
+        "--tcp-fastopen",
+        "--tcp-nodelay",
+        "--tftp-no-options",
+        "--tls-earlydata",
+        "--tlsv1",
+        "--tlsv1.0",
+        "--tlsv1.1",
+        "--tlsv1.2",
+        "--tlsv1.3",
+        "--tr-encoding",
+        "--trace-ids",
+        "--trace-time",
+        "--use-ascii",
+        "--verbose",
+        "--version",
+        "--xattr",
+    }
+)
+CURL_LONG_PREFIX: Final = "--"
+CURL_NEGATION_PREFIX: Final = "--no-"
+CURL_INLINE_VALUE: Final = "="
 # The Spring services pin their Actuator exposure in code, and their tests read the test JVM's
 # environment, never Compose's: so a Compose key that reopens it would pass every other test.
 SPRING_SERVICES: Final = frozenset({"ledger", "gateway"})
@@ -301,30 +439,43 @@ def _curl_probe_problems(name: str, test: list[str]) -> list[str]:
         return []
     if not (len(test) > 1 and test[0] == EXEC_FORM and _file_name(test[1]) == CURL):
         return [f"{name}: a curl probe must run curl directly in exec form"]
-    if not _curl_fails(test[2:]):
+    options = frozenset(_curl_options(test[2:]))
+    if not options & CURL_FAIL_OPTIONS:
         return [f"{name}: its curl probe must pass -f, so a failing status fails it"]
+    if options & CURL_NO_FAIL_OPTIONS:
+        return [
+            f"{name}: its curl probe must not cancel -f with "
+            f"{' or '.join(sorted(CURL_NO_FAIL_OPTIONS))}"
+        ]
     return []
 
 
-def _curl_fails(arguments: list[str]) -> bool:
-    """Whether curl, given these arguments, exits non-zero on an HTTP error status."""
-    fails = False
+def _curl_options(arguments: list[str]) -> list[str]:
+    """The options curl reads from these arguments, a cluster's letters each as `-<letter>`.
+
+    A word curl takes as an option's argument is no option, wherever it starts with a dash.
+    """
+    options: list[str] = []
     words = iter(arguments)
     for word in words:
-        if word in CURL_NO_FAIL_OPTIONS:
-            return False
-        if word in CURL_FAIL_OPTIONS:
-            fails = True
-        elif _SHORT_OPTIONS.fullmatch(word):
+        if _SHORT_OPTIONS.fullmatch(word):
             letters = word[1:]
             for position, letter in enumerate(letters):
-                if letter == CURL_FAIL_SHORT:
-                    fails = True
-                elif letter not in CURL_FLAG_SHORTS:
+                options.append(f"-{letter}")
+                if letter not in CURL_FLAG_SHORTS:
                     if position == len(letters) - 1:
                         next(words, None)
                     break
-    return fails
+        elif word.startswith(CURL_LONG_PREFIX):
+            options.append(word)
+            if not _takes_no_argument(word):
+                next(words, None)
+    return options
+
+
+def _takes_no_argument(option: str) -> bool:
+    flag = CURL_LONG_PREFIX + option.removeprefix(CURL_NEGATION_PREFIX)
+    return CURL_INLINE_VALUE in option or option in CURL_FLAG_LONGS or flag in CURL_FLAG_LONGS
 
 
 def _hardening_problems(name: str, service: Mapping[str, object]) -> list[str]:
