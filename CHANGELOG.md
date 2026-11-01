@@ -301,10 +301,11 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
-- **Every public contract is documented, stale comments are corrected, and the code findings that
-  surfaced are fixed.** Scan 10 of 12 in M0
-  ([#347](https://github.com/NaimElijah/FinAssist/issues/347)) ran `code-documentor` over every
-  codebase at `2f3030e`, changing comments only.
+- **Every public contract that states a rule, a refusal or a side effect is documented, stale
+  comments are corrected, and the code findings that surfaced are fixed.** Trivial accessors,
+  injecting constructors and some exception constructors were left undocumented on purpose. Scan
+  10 of 12 in M0 ([#347](https://github.com/NaimElijah/FinAssist/issues/347)) ran
+  `code-documentor` over every codebase at `2f3030e`, changing comments only.
   - **How the comments-only commits were checked.** The ledger and gateway bytecode
     (`javap -c -p`) is identical before and after, every Python AST is unchanged once docstrings
     are stripped, and every TypeScript file transpiles to the same output once comments are
