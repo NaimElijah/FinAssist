@@ -546,7 +546,9 @@ and the backup fails rather than record a digest that might not match the dump.
 
 - a database is not running;
 - a dump comes out empty;
-- `pg_restore` cannot read a dump to its end.
+- `pg_restore` cannot read a dump to its end;
+- Docker Compose answers something that is not JSON, or JSON of the wrong shape. The failure
+  names what answered, never what it said.
 
 A database that holds no table yet, such as `keycloak-db` before Keycloak first ran, is reported
 rather than refused. The command is the same in PowerShell, where `make` is not installed: `uv
@@ -593,7 +595,9 @@ on them. The first run builds both images under that project's name, so expect s
    key, `journal_entry_in_account_currency`, is not checked here.
 5. The ledger, asked with the assistant's read-only token, lists exactly the accounts the
    database holds, and answers every account's balance in its own currency. A backup with no
-   account fails rather than passing on nothing.
+   account fails rather than passing on nothing, and so does an answer from Keycloak or the
+   ledger that is not JSON, or JSON of the wrong shape; the failure names what answered, never
+   what it said.
 6. The owner, under the pinned id, has an OTP credential.
 7. That credential is the same one after Keycloak has started. This is what tells a restored
    owner from one the realm import just re-created.
@@ -634,6 +638,10 @@ restore` fails and says not to start the ledger on them. A restore never needs a
 that key `NOT VALID`, so the restore never scans the entries against it, as restoring a dump of
 2,000,000 entries confirmed. `DATABASE=ledger` or `DATABASE=keycloak` restores that database
 alone; the raw form is `--database ledger`.
+
+**A restore that fails after an earlier database landed does not undo it.** With both asked for,
+a failure on the second leaves the first restored. That database now holds tables, so a second
+run for both refuses it: fix the cause, then restore the other with `DATABASE=`.
 
 **Emptying a volume is a separate, deliberate step, never part of the restore.** If a volume still
 exists but holds data you mean to replace, remove that database's container and volume yourself,
