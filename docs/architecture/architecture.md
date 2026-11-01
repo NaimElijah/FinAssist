@@ -798,7 +798,10 @@ container, and one `x-restart-policy`, `unless-stopped`. Both are applied by YAM
 two one-shots, `auth-smoke` and `secret-check`, carry neither. The same services, and again
 neither one-shot, take one `x-stop-grace-period` of `30s` by alias as `stop_grace_period`: the
 time between SIGTERM and SIGKILL, which unset was about 3 s here, too short for the ledger and the
-gateway to drain a request or for `db` to write its shutdown checkpoint (#349).
+gateway to drain a request or for `db` to write its shutdown checkpoint (#349). Inside it, the
+ledger and the gateway each shut their web server down gracefully, Boot's default, and bound every
+shutdown phase to 20 s (`spring.lifecycle.timeout-per-shutdown-phase`), so an in-flight request
+drains and the JVM exits before Compose would kill it.
 
 **Under Compose every container holds only the privilege it uses** (ADR-063). Every service but
 `db` and `keycloak-db` merges the `x-hardened` block, `cap_drop: [ALL]` and
@@ -970,6 +973,7 @@ the classes and tests that enforce them in
 | **A feature's `types/` and `src/shared/lib` import nothing from `src/shared/ui`**, so the model does not depend on presentation and a value both need lives in `src/shared/lib` | `frontend/web/tests/architecture.test.ts`: `Given_the_features_When_their_types_are_read_Then_none_imports_src_shared_ui`, `Given_src_shared_lib_When_its_sources_are_read_Then_none_imports_src_shared_ui` |
 | **No web import uses a computed specifier**, so every import is one the rules above can check; specifiers are read with the TypeScript parser, dynamic imports and `vi.mock` included | `frontend/web/tests/architecture.test.ts` |
 | **Every `@Value` placeholder in the ledger's production code resolves from `application.yml` alone**, with no environment and no container | `ApplicationYmlPlaceholdersTest` |
+| **The ledger and the gateway shut down gracefully, each shutdown phase bounded to 20 s**, inside the 30 s `stop_grace_period` Compose gives them, read from `application.yml` alone into Boot's own properties types | `LedgerShippedConfigurationTest`, `GatewayShippedConfigurationTest` |
 | **Every endpoint the running ledger maps is in a named inventory**, so one added without a URL rule fails the build rather than shipping open | `LedgerAuthorizationIT.Given_the_running_ledger_When_its_handler_mappings_are_read_Then_they_equal_the_named_inventory` |
 | **Every `APIRoute` the assembled assistant serves outside its public paths carries exactly one permission dependency**. The test walks routes behind any depth of `include_router`, so a second router is covered without a change to it, and skips `PUBLIC_PATHS` (`/health`, `/ready`, `/openapi.json`), which need no token at all | `test_authorization.py::Given_the_assembled_app_When_routes_are_inspected_Then_each_declares_one_permission` |
 | **The packaged gateway starts**: the repackaged jar the image ships, run with `java -jar`, reports ready. A suite on the test classpath cannot see a library the jar lacks (#233) | `GatewayPackagedJarIT.Given_the_packaged_jar_When_it_is_run_Then_it_starts_and_reports_ready` |

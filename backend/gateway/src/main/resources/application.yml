@@ -86,6 +86,12 @@ spring:
     # Becomes OpenTelemetry's service.name. Fixed per service on purpose: one shared name across
     # every service would merge their telemetry into one stream (ADR-019).
     name: finassist-gateway
+  lifecycle:
+    # How long each shutdown phase may take, the web server's graceful drain of in-flight requests
+    # among them; Boot shuts the server down gracefully by default (`server.shutdown`). Boot's
+    # default of 30 s would use up the whole of the 30 s stop_grace_period docker-compose.yml gives
+    # this service, leaving the JVM no time to exit before SIGKILL; 20 s finishes inside it (#349).
+    timeout-per-shutdown-phase: 20s
   cloud:
     gateway:
       server:
