@@ -45,6 +45,16 @@ def Given_a_lot_of_zero_or_fewer_units_When_built_Then_it_is_refused(quantity: s
         Lot(VWCE, Decimal(quantity), usd("100.00"), date(2026, 1, 1))
 
 
+@pytest.mark.parametrize(
+    "quantity", ["Infinity", "NaN", "sNaN"], ids=["infinite", "quiet-nan", "signalling-nan"]
+)
+def Given_a_lot_of_a_non_finite_quantity_When_built_Then_it_is_refused(quantity: str) -> None:
+    # Infinity passed the positivity check, and a NaN raised decimal.InvalidOperation from the
+    # comparison - an ArithmeticError the caller's ValueError handling never sees.
+    with pytest.raises(ValueError, match="finite quantity"):
+        Lot(VWCE, Decimal(quantity), usd("100.00"), date(2026, 1, 1))
+
+
 def Given_several_lots_When_a_position_is_taken_Then_quantity_and_cost_are_summed() -> None:
     held = position((lot("10", "100.00", 1), lot("5", "120.00", 2)))
     assert held.quantity == Decimal(15)
