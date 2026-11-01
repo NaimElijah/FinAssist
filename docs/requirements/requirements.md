@@ -20,7 +20,7 @@ What the system must do. *How* it is built is [architecture](../architecture/arc
 > from its portfolio screens, every call through the gateway. Authentication and authorisation
 > are decided and enforced: [ADR-030](../ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)
 > supersedes ADR-027, while [ADR-031](../ADRs/ADR-031-keycloak-as-the-identity-provider.md) and
-> [ADR-032](../ADRs/ADR-032-role-based-authorization-per-service.md) extend it. The gateway signs
+> [ADR-032](../ADRs/ADR-032-role-based-authorization-per-service.md) build on it. The gateway signs
 > the browser in and keeps its tokens server-side; the ledger validates every bearer token and
 > denies by default, through `LedgerSecurityConfiguration`; the assistant does the same, through
 > `BearerAuthentication` and `RequirePermission`; and every journal row written from `V1_2` onward
@@ -105,7 +105,8 @@ being answered first.
 Holdings are tracked as **lots with a FIFO cost basis**
 ([ADR-013](../ADRs/ADR-013-fifo-lot-based-cost-basis.md)).
 
-- Record a purchase as a lot: quantity, unit cost, acquisition date. `Lot`
+- Record a purchase as a lot: quantity, unit cost, acquisition date. `Lot`. Domain only: no
+  service records a lot yet ([#135](https://github.com/NaimElijah/FinAssist/issues/135))
 - Read a position — total quantity and total cost — across the lots of one instrument.
   `position`, `test_portfolio.py`. Reachable over HTTP as `GET
   /api/v1/portfolio/holdings/{symbol}/position`; `test_portfolio_api.py`
@@ -115,7 +116,8 @@ Holdings are tracked as **lots with a FIFO cost basis**
   `consume_fifo` sorts the lots by acquisition date whatever order it is given them in
   ([ADR-041](../ADRs/ADR-041-consume-fifo-orders-its-own-lots.md)). Reachable over HTTP as `POST
   /api/v1/portfolio/holdings/{symbol}/disposal`, a JSON body rather than query parameters
-  because the proceeds are an amount of money; `test_portfolio_api.py`
+  because the proceeds are an amount of money; `test_portfolio_api.py`. The route prices a sale
+  and records nothing: no lot is consumed
 - Read realised gain on a sale, and unrealised gain and market value at a given unit price.
   `realised_gain`, `unrealised_gain`, `market_value`. The valuation is reachable over HTTP as
   `GET /api/v1/portfolio/holdings/{symbol}/valuation`; `test_portfolio_api.py`
@@ -242,8 +244,8 @@ courtesy alone, never the enforcement: the ledger and the assistant decide acces
 regardless of what the browser renders (see Authorization, under
 [Non-functional requirements](#non-functional-requirements)). `useWriteAccess`,
 `writeAccessFor`; `writeAccess.test.tsx`, `access.test.ts`, and one read-only test per screen
-above. The one exception is pricing a disposal (`DisposalSection`), which stays offered to a
-viewer because it is a read, not a write.
+that offers a control that changes data. The one exception is pricing a disposal
+(`DisposalSection`), which stays offered to a viewer because it is a read, not a write.
 
 **One screen area per user-facing context**: accounts and transactions, budgets, planning, and
 portfolio. `marketdata` has no surface of its own and is visible only through portfolio figures.
@@ -268,7 +270,7 @@ where enforcement is partial, or rests on a convention rather than a test, its s
 |---|---|---|
 | A transaction's entries must sum to zero, in one currency, with at least two of them | `Transaction` constructor; `TransactionTest`. In the database, `V1_1__accounting_schema.sql`'s deferred `refuse_unbalanced_transaction()` refuses fewer than two entries, more than one currency or a non-zero sum, and, as `V1_7__journal_balance_check_in_header_currency.sql` replaced it, entries in a currency other than their header's; `V1_5__journal_transaction_is_complete.sql` refuses a header committed with no entry or no opening state; `JdbcTransactionRepositoryIT` | **Enforced** |
 | Money is exact decimal — never a floating-point type | `Money` (Java and Python); `LedgerArchitectureTest.money_is_never_floating_point`, `money_never_depends_on_a_boxed_floating_point_type`, `money_is_never_passed_or_returned_as_floating_point` and `money_never_calls_through_floating_point`, over every domain and `shared`; `test_architecture.py::…Then_it_names_no_float`; `MoneyTest`, `test_money.py` | **Enforced** |
-| Amounts in two currencies are never combined | `Money.plus/minus/compareTo`; `CurrencyMismatchException` | **Enforced** |
+| Amounts in two currencies are never combined | `Money.plus/minus/compareTo` and `CurrencyMismatchException` (Java); `Money.plus/minus/__lt__/__le__` and `CurrencyMismatchError` (Python); `MoneyTest.Given_two_currencies_When_added_Then_it_is_refused`, `…When_compared_Then_it_is_refused` and `…When_subtracted_Then_it_is_refused`; `test_money.py::Given_two_currencies_When_added_Then_it_is_refused`, `…When_compared_Then_it_is_refused`, `…When_subtracted_Then_it_is_refused` and `…When_ordered_with_le_Then_it_is_refused` | **Enforced** |
 | An amount more precise than its currency admits is rejected, not rounded | `Money` constructor; `MoneyTest`, `test_money.py` | **Enforced** |
 | Arithmetic on money is exact: a sum, a difference, a negation or a product never rounds, however many digits it carries. Only `timesRounded` rounds, and says so in its name | `Money.plus/minus/negate/times` (Java and Python); `contracts/money-vectors.v1.json`, read by `MoneyVectorsTest` and `test_money_vectors.py`; `MoneyTest`, `test_money.py` | **Enforced** |
 | Account balance is derived, never set directly | `Balance.of`; `Account` has no balance field; `BalanceTest`; `LedgerArchitectureTest.derived_quantities_are_never_stored`; `SchemaBoundariesIT.Given_the_migrated_schema_When_its_columns_are_read_Then_none_stores_a_derived_quantity` | **Enforced** |
