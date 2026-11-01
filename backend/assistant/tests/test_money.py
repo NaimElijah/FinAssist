@@ -4,9 +4,12 @@ ADR-010 accepts that Money is implemented once per language rather than shared, 
 equivalent tests on both sides as the thing that keeps the two honest. Changing behaviour in
 one file without changing the other is the drift this pair exists to catch.
 
-One case is not mirrored: a product whose rounding needs a power of ten past Java's
-``BigInteger`` range, which ``MoneyTest`` pins as refused and ``times_rounded`` here answers
-``0.00``. That is a known gap tracked by #416, not a contract, so nothing here pins it.
+Every ``MoneyTest`` case is mirrored here except one: a product whose rounding needs a power of
+ten past Java's ``BigInteger`` range, which ``MoneyTest`` pins as refused and ``times_rounded``
+here answers ``0.00``. That is a known gap tracked by #416, not a contract, so nothing here pins
+it. The converse does not hold: some cases here have no Java counterpart, such as non-finite
+multipliers, which ``BigDecimal`` cannot represent, and text parsing, where ``new BigDecimal``'s
+own grammar is the Java contract.
 """
 
 from decimal import Decimal
@@ -101,6 +104,11 @@ def Given_two_currencies_When_compared_Then_it_is_refused() -> None:
         _ = Money.of("10.00", Currency.ILS) < Money.of("10.00", Currency.EUR)
 
 
+def Given_two_currencies_When_subtracted_Then_it_is_refused() -> None:
+    with pytest.raises(CurrencyMismatchError, match="no conversion"):
+        Money.of("10.00", Currency.ILS).minus(Money.of("3.00", Currency.USD))
+
+
 def Given_an_amount_When_negated_Then_the_sign_flips_and_the_currency_holds() -> None:
     negated = Money.of("12.50", Currency.ILS).negate()
     assert negated == Money.of("-12.50", Currency.ILS)
@@ -128,6 +136,12 @@ def Given_zero_When_asked_Then_it_is_zero_and_neither_positive_nor_negative() ->
     assert zero.is_zero
     assert not zero.is_positive
     assert not zero.is_negative
+
+
+def Given_an_amount_that_is_not_zero_When_asked_Then_it_says_so() -> None:
+    assert not Money.of("0.01", Currency.ILS).is_zero
+    assert not Money.of("-0.01", Currency.ILS).is_zero
+    assert Money.of("12.50", Currency.ILS).is_positive
 
 
 def Given_an_amount_When_multiplied_by_a_quantity_Then_it_scales() -> None:
