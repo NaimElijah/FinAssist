@@ -654,8 +654,9 @@ describe('PlannedFlowsPage lifecycle actions', () => {
 
     it('Given_a_refusal_other_than_409_When_an_action_is_submitted_Then_nothing_is_refetched', async () => {
         // Only a 409 says the row changed elsewhere; a 422 answers the request as sent, and a
-        // mutation invalidates only the keys that can have changed.
-        fakeFetch(
+        // mutation invalidates only the keys that can have changed. Counted at the fetch boundary,
+        // so a refetch by any route - an invalidation or a direct refetch - is caught.
+        const requests = fakeFetch(
             ledger([RENT], (request) =>
                 request.url === `${FLOWS_URL}/${RENT_ID}/commit` && request.method === 'POST'
                     ? problemResponse({
@@ -666,10 +667,10 @@ describe('PlannedFlowsPage lifecycle actions', () => {
                     : unexpectedRequest(request),
             ),
         );
-        const { queryClient } = renderFlows();
-        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        renderFlows();
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Planned flows' });
+        const readsBefore = requests.filter((request) => request.method === 'GET').length;
 
         await user.click(
             within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
@@ -677,7 +678,7 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         await user.click(screen.getByRole('button', { name: 'Commit' }));
 
         await screen.findByRole('alert');
-        expect(invalidateSpy).not.toHaveBeenCalled();
+        expect(requests.filter((request) => request.method === 'GET')).toHaveLength(readsBefore);
     });
 
     it('Given_a_400_naming_the_panels_date_When_an_action_is_submitted_Then_the_error_state_lists_it_under_the_On_label', async () => {

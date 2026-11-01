@@ -867,8 +867,9 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
 
     it('Given_a_refusal_other_than_409_When_an_action_is_submitted_Then_nothing_is_refetched', async () => {
         // Only a 409 says the row changed elsewhere; a 422 answers the request as sent, and a
-        // mutation invalidates only the keys that can have changed.
-        fakeFetch(
+        // mutation invalidates only the keys that can have changed. Counted at the fetch boundary,
+        // so a refetch by any route - an invalidation or a direct refetch - is caught.
+        const requests = fakeFetch(
             lifecycleLedger(
                 () => [PENDING_TX],
                 (request) =>
@@ -882,10 +883,10 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
                         : unexpectedRequest(request),
             ),
         );
-        const { queryClient } = renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
-        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
         const user = userEvent.setup({ delay: null });
         await screen.findByRole('table', { name: 'Transactions' });
+        const readsBefore = requests.filter((request) => request.method === 'GET').length;
 
         await user.click(
             within(rowOf('Pending purchase')).getByRole('button', {
@@ -895,7 +896,7 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         await user.click(screen.getByRole('button', { name: 'Clear' }));
 
         await screen.findByRole('alert');
-        expect(invalidateSpy).not.toHaveBeenCalled();
+        expect(requests.filter((request) => request.method === 'GET')).toHaveLength(readsBefore);
     });
 
     // Every field of the panel, since each calls clearSettledOutcome on its own (frontend/web
