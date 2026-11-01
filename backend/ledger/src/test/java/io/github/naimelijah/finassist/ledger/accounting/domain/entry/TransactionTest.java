@@ -114,13 +114,25 @@ class TransactionTest {
 
     /**
      * The state is checked before the date, as {@code clear} and {@code reconcile} do: a void that
-     * is illegal from this state is a 409, whatever date it names, never a 422 about the date.
+     * is illegal from this state is an {@link IllegalTransitionException}, whatever date it names,
+     * never an {@link IllegalArgumentException} about the date. The web layer maps the first to 409
+     * and the second to 422.
      */
     @Test
     void Given_a_reconciled_transaction_When_voided_before_it_occurred_Then_the_transition_is_refused() {
         Transaction reconciled = coffee().clear(WHEN).reconcile(WHEN);
 
         assertThatThrownBy(() -> reconciled.markVoided(WHEN.minusDays(1), "mistake"))
+                .isInstanceOf(IllegalTransitionException.class)
+                .hasMessageContaining("Reconciled");
+    }
+
+    /** A missing date is checked after the state too: a frozen transaction refuses the void itself. */
+    @Test
+    void Given_a_reconciled_transaction_When_voided_with_no_date_Then_the_transition_is_refused() {
+        Transaction reconciled = coffee().clear(WHEN).reconcile(WHEN);
+
+        assertThatThrownBy(() -> reconciled.markVoided(null, "mistake"))
                 .isInstanceOf(IllegalTransitionException.class)
                 .hasMessageContaining("Reconciled");
     }
