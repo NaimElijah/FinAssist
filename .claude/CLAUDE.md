@@ -94,7 +94,7 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
   exceptions at the boundary. Enforced by the ledger's two translation rules, the assistant's one,
   and `AccountingOpeningPositionsTest` for the exceptions (each codebase's file names them); a
   translation that drops what the in-port returns is held in review, per `architecture.md`.
-- **Identity is generated inside the service, never accepted on a command.**
+- **Identity is generated inside the service, never accepted on a command.** Held in review.
 
 ### The domain
 
@@ -122,8 +122,8 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 - **A lifecycle date comes from the request body, never the clock** — "pass the clock in".
 - **A create answers `201` with the created representation and no `Location` header**: there is no
   single-item read for one to name (ADR-028).
-- **Every POST `consumes` `application/json`**, so a cross-site form post is refused 415 before a
-  handler runs (ADR-030).
+- **Every ledger and assistant POST `consumes` `application/json`**, so a cross-site form post is
+  refused 415 before a handler runs (ADR-030); the gateway's `POST /bff/logout` is held by CSRF.
 
 ### Security and operations
 
@@ -140,13 +140,13 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 - **Cite ADR-030, never the Superseded ADR-027**, whose loopback binding, Host allow-lists and
   JSON-only writes live on in ADR-030; only the ADR files, a statement of the supersession, and
   the history note atop `docker-compose.yml` name it.
-- **Nothing writes output except the logging boundary** — no `print` (ruff `T20`), no
-  `console.log` (ESLint `no-console`), no `System.out`. Structured JSON on stdout through
-  `adapters/observability.py`, `shared/lib/logger.ts` or Logback's ECS format (ADR-019); redaction
-  lives at that boundary, never at a call site. The operator CLIs in `ops/` are the one exception.
-- **Telemetry is a no-op when unconfigured**: a service starts with no collector named. An endpoint
-  alone never enables export; `OTEL_EXPORT_ENABLED` does, for every signal — traces, metrics, and
-  the ledger's OTLP log export, which nothing feeds until a log appender is added.
+- **Nothing writes output except the logging boundary** — no `print` (ruff `T20`), no `console.log`
+  (ESLint `no-console`), no `System.out` (the ledger's core refuses `java.io`; elsewhere in review
+  until #425). Structured JSON on stdout through `adapters/observability.py`, `shared/lib/logger.ts`
+  or Logback's ECS format (ADR-019), redacted there, never at a call site. `ops/` CLIs are exempt.
+- **Telemetry is a no-op when unconfigured**: a service starts with no collector named, and only
+  `OTEL_EXPORT_ENABLED` enables export, for every signal — traces, metrics, and the ledger's and the
+  gateway's OTLP log export, which nothing feeds yet. No test holds the gateway's switches (#99).
 - **Logs are diagnostics, never the audit trail.** They are dropped when no collector is attached;
   the append-only journal is the audit record (ADR-020).
 
@@ -180,8 +180,8 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
   by a merge commit whose PR says `Closes #N` — never squash, rebase or delete `dev`. The owner's
   `/workflow-gitwise` runs the whole cycle. Common scopes: `ledger`, `gateway`, `assistant`, `web`,
   `ops`, `compose`, `ci`, `deps`, `contracts`, `adr`, `claude`. Link files in a PR body by full
-  `https://github.com/NaimElijah/FinAssist/blob/` URL. `CHANGELOG.md` is written by hand, whatever
-  its header says: every PR that changes code adds a bold-lead bullet under `## [Unreleased]`.
+  `https://github.com/NaimElijah/FinAssist/blob/` URL. `CHANGELOG.md` is written by hand: every
+  PR that changes code adds a bold-lead bullet under `## [Unreleased]`.
 - **A new ADR** takes the next number, a row and a dated note in `docs/ADRs/README.md`, and an
   "extended by NNN" in each extended record's Status line and in its row in that README.
 - **A CI job already red on `dev`** is fixed as its own commit in the PR it blocks; ask the owner
