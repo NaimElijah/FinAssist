@@ -143,7 +143,7 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 - **Nothing writes output except the logging boundary** — no `print` (ruff `T20`), no `console.log`
   (ESLint `no-console`), no `System.out` (the ledger's core refuses `java.io`; elsewhere in review
   until #425). Structured JSON on stdout through `adapters/observability.py`, `shared/lib/logger.ts`
-  or Logback's ECS format (ADR-019), redacted there, never at a call site. `ops/` CLIs are exempt.
+  or Logback's ECS format (ADR-019); redact there, never at a call site. `ops/` CLIs are exempt.
 - **Telemetry is a no-op when unconfigured**: a service starts with no collector named, and only
   `OTEL_EXPORT_ENABLED` enables export, for every signal — traces, metrics, and the ledger's and the
   gateway's OTLP log export, which nothing feeds yet. No test holds the gateway's switches (#99).
