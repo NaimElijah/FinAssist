@@ -4,6 +4,7 @@ import io.github.naimelijah.finassist.ledger.planning.application.port.out.Plann
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.Direction;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanId;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlannedFlow;
+import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
@@ -126,15 +127,19 @@ public class JdbcPlannedFlowRepository implements PlannedFlowRepository {
         PlanningRows.StoredPlanState state = new PlanningRows.StoredPlanState(
                 row.getString("state"), row.getObject("state_on", LocalDate.class), row.getString("state_reason"));
         UUID id = row.getObject("id", UUID.class);
+        String description = row.getString("description");
+        Money amount = PlanningRows.money(row, PlanningRows.PLANNED_FLOW, "id=" + id, "amount", "currency");
+        Direction direction = PlanningRows.enumerated(
+                Direction.class, PlanningRows.PLANNED_FLOW, "direction", row.getString("direction"));
+        LocalDate startsOn = row.getObject("starts_on", LocalDate.class);
 
-        return new PlannedFlow(
-                new PlanId(id),
-                row.getString("description"),
-                PlanningRows.money(row, PlanningRows.PLANNED_FLOW, "id=" + id, "amount", "currency"),
-                PlanningRows.enumerated(
-                        Direction.class, PlanningRows.PLANNED_FLOW, "direction", row.getString("direction")),
-                row.getObject("starts_on", LocalDate.class),
-                recurrence.toDomain(),
-                state.toDomain());
+        // PlannedFlow and its recurrence and state still check every rule on the way back in, some
+        // more strictly than the schema can, such as a description only Java counts as blank (#402).
+        try {
+            return new PlannedFlow(
+                    new PlanId(id), description, amount, direction, startsOn, recurrence.toDomain(), state.toDomain());
+        } catch (IllegalArgumentException refused) {
+            throw PlanningRows.unreconstructable("planned flow", id, PlanningRows.PLANNED_FLOW);
+        }
     }
 }

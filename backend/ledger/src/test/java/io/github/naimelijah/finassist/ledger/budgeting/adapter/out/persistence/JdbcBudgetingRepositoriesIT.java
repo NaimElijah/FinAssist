@@ -42,6 +42,9 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
 
     private static final UUID LARGER_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
+    /** Blank to {@code String.isBlank}, and not to PostgreSQL's {@code btrim}, which strips spaces alone. */
+    private static final String TAB = "\t";
+
     @Autowired
     private BudgetRepository budgets;
 
@@ -234,6 +237,24 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("budgeting.budget")
                 .hasMessageContaining(id.value().toString())
+                .hasNoCause();
+    }
+
+    /**
+     * {@code categorisation_rule_fragment_normalised} uses {@code btrim}, which strips spaces alone, so
+     * a fragment of a tab passes it and not {@code String.isBlank}. A stored rule {@code
+     * CategorisationRule} refuses is a server fault naming the rule's table, not a 422 rule the caller
+     * broke, and it carries no cause, so the domain's refusal is never chained into what the log records.
+     */
+    @Test
+    void Given_a_rule_stored_with_a_fragment_only_java_counts_as_blank_When_read_Then_it_is_a_server_fault() {
+        jdbc().sql("INSERT INTO budgeting.categorisation_rule (fragment, category) VALUES (:fragment, 'groceries')")
+                .param("fragment", TAB)
+                .update();
+
+        assertThatThrownBy(() -> rules.all())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("budgeting.categorisation_rule")
                 .hasNoCause();
     }
 

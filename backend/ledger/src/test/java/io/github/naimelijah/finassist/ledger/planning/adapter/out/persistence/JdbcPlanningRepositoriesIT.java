@@ -399,6 +399,38 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
                 .hasNoCause();
     }
 
+    /**
+     * {@code planned_flow_description_not_blank} uses {@code btrim} as well, so a description of a tab
+     * is stored and refused by {@code PlannedFlow} on read. That is a server fault naming the flow, not
+     * a 422 rule the caller broke, and it carries no cause, so the domain's refusal is never chained into
+     * what the log records.
+     */
+    @Test
+    void Given_a_flow_stored_with_a_description_only_java_counts_as_blank_When_read_Then_it_is_a_server_fault() {
+        PlannedFlow car = stored("New car", "40000.00");
+        blank(car);
+
+        assertThatThrownBy(() -> flows.findById(car.id()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("planning.planned_flow")
+                .hasMessageContaining(car.id().value().toString())
+                .hasNoCause();
+    }
+
+    /** A scenario loads its flows through the same mapper, so one bad flow makes it a server fault too. */
+    @Test
+    void Given_a_scenario_listing_a_flow_only_java_counts_as_blank_When_read_Then_it_is_a_server_fault() {
+        PlannedFlow car = stored("New car", "40000.00");
+        Scenario scenario = Scenario.of("Buy the car", Currency.ILS, List.of(car), GrowthAssumption.none());
+        scenarios.save(scenario);
+        blank(car);
+
+        assertThatThrownBy(() -> scenarios.findById(scenario.id()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(car.id().value().toString())
+                .hasNoCause();
+    }
+
     /** A strategy with no flows yet, written past the aggregate so a test can list a bad one. */
     private ScenarioId scenarioStoredDirectly(String currency) {
         return scenarioStoredDirectly("Stored directly", currency);
@@ -427,6 +459,14 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
         PlannedFlow flow = PlannedFlow.plan(description, ils(amount), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
         flows.save(flow);
         return flow;
+    }
+
+    /** Makes a stored flow's description a tab, past the adapter, as no writer through it could. */
+    private void blank(PlannedFlow flow) {
+        jdbc().sql("UPDATE planning.planned_flow SET description = :description WHERE id = :id")
+                .param("description", TAB)
+                .param("id", flow.id().value())
+                .update();
     }
 
     private static Money ils(String amount) {
