@@ -119,9 +119,9 @@ Holdings are tracked as **lots with a FIFO cost basis**
 - Read realised gain on a sale, and unrealised gain and market value at a given unit price.
   `realised_gain`, `unrealised_gain`, `market_value`. The valuation is reachable over HTTP as
   `GET /api/v1/portfolio/holdings/{symbol}/valuation`; `test_portfolio_api.py`
-- Judge whether a market quote is too old to use, or dated too far ahead to trust, against a
-  supplied clock. `is_stale`, `FUTURE_TOLERANCE`; `LatestQuote`, `test_marketdata_usecases.py`,
-  which refuses a stale quote rather than returning one a caller has to remember to check.
+- Judge whether a market quote is too old to use, against a supplied clock. `is_stale`;
+  `LatestQuote`, `test_marketdata_usecases.py`, which refuses a stale quote rather than
+  returning one a caller has to remember to check.
 
 **Not yet decided:** where prices come from. The `marketdata` context has the shape a feed must
 be translated into and no client behind it. An opt-in development seed
@@ -283,7 +283,7 @@ where enforcement is partial, or rests on a convention rather than a test, its s
 | A disposal consumes the oldest lots first, whatever order they are supplied in; lots acquired the same day go in the order supplied | `consume_fifo`; `test_portfolio.py::Given_lots_newest_first_When_consumed_Then_the_oldest_is_consumed_first` and `Given_lots_acquired_the_same_day_When_consumed_Then_they_go_in_the_order_given`; `test_portfolio_properties.py::Given_lots_in_any_order_When_consumed_Then_the_disposal_is_the_oldest_first_one` | **Enforced** |
 | A position or a disposal covers one holding: lots of more than one symbol, or costed in more than one currency, are refused before anything is totalled or consumed, whatever quantity is sold | `position`, `consume_fifo`; `test_portfolio.py::Given_lots_of_different_symbols_When_a_position_is_taken_Then_it_is_refused`, `Given_lots_in_two_currencies_When_a_position_is_taken_Then_it_is_refused`, `Given_lots_of_different_symbols_When_consumed_Then_it_is_refused` and `Given_lots_in_two_currencies_When_any_quantity_is_consumed_Then_it_is_refused` | **Enforced** |
 | A claim stating a figure must cite the evidence it came from | `ground`; `test_grounding.py`; `AnswerQuestion`, `test_assistance_usecases.py` | **Enforced** — the domain checks a citation exists, and the use case checks it names evidence the answer was actually given, which is the only place holding both. Whether the cited record *supports* the figure is still unchecked |
-| A market quote carries an unambiguous instant, and staleness is judged against a supplied clock | `Quote`, `is_stale`; `test_marketdata.py` | **Enforced** |
+| A market quote carries an unambiguous instant, and staleness is judged against a supplied clock | `Quote`, `is_stale`; `test_marketdata.py`, `test_marketdata_usecases.py`. The tests of a quote dated ahead of the clock pin behaviour that is not yet a rule (see [Open questions](#open-questions)): `test_marketdata.py::Given_a_quote_dated_past_the_future_tolerance_When_checked_Then_it_is_stale`, `Given_a_quote_dated_within_the_future_tolerance_When_checked_Then_it_is_not_stale` and `Given_the_future_tolerance_When_read_Then_it_is_the_tokens_clock_skew_leeway`; `test_marketdata_usecases.py::Given_a_quote_dated_a_year_ahead_When_asked_for_Then_it_is_refused` | **Enforced** |
 | A planned flow is for a positive amount; the direction carries the sign | `PlannedFlow` constructor; `PlannedFlowTest` | **Enforced** |
 | Legal plan state transitions; a realised plan is frozen and cannot be edited or cancelled | Sealed `PlanState`; `IllegalPlanTransitionException`; `PlannedFlowTest` | **Enforced** |
 | A realised or cancelled plan is kept as history but excluded from every projection | `PlannedFlow.countsTowardsProjection`; `ProjectionTest` | **Enforced** |
@@ -358,6 +358,7 @@ Stated so they are not re-proposed:
 | Is the ledger single-currency or multi-currency? Multi-currency changes the domain model fundamentally and is far cheaper to decide now than later | @NaimElijah |
 | Should a projection open at the start of its horizon rather than at today's balance, and should a flow dated on a step boundary count in that step? | @NaimElijah |
 | Should a recurring planned flow be allowed to have no end? Today every recurrence ends on a date or after a number of occurrences (`Recurrence`) | @NaimElijah |
+| TODO: should a quote dated in the future be refused? Since [#346](https://github.com/NaimElijah/FinAssist/issues/346) the assistant treats a quote more than `FUTURE_TOLERANCE` (30 s, the token leeway) ahead of the clock as stale | @NaimElijah |
 | After a transaction is recorded, which account's page should open? Today the web client moves to the first entry's account (`RecordTransactionPage`) | @NaimElijah |
 | What is the recovery-point target: how much recorded work may a restore lose, a day or a week? Backups are taken on demand until it is set, and the answer decides whether they need a schedule ([ADR-038](../ADRs/ADR-038-back-up-each-database-as-a-logical-dump.md), [#137](https://github.com/NaimElijah/FinAssist/issues/137)) | @NaimElijah |
 | May a backup leave this machine? A dump holds the books, every password hash and the owner's TOTP seed. This is part of what [#195](https://github.com/NaimElijah/FinAssist/issues/195) asks counsel | @NaimElijah |
