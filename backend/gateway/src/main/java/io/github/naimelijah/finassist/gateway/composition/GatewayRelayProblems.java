@@ -19,6 +19,7 @@ import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 /**
  * Turns a failure raised while relaying a request to the ledger or the assistant into an RFC 9457
@@ -212,6 +213,26 @@ final class GatewayRelayProblems {
             }
         }
         return false;
+    }
+
+    /**
+     * The browser went away while its answer was being written: spring-webmvc's {@code
+     * HandlerFunctionAdapter} wraps every response, and the wrapper raises a failed write to the
+     * client as this exception, the relayed body's copy included. Nobody is left to read an answer,
+     * the response is usually committed already, and nothing in the gateway failed, so nothing is
+     * written and the line is DEBUG, as the ledger's {@code ResponseEntityExceptionHandler} answers
+     * the same exception.
+     *
+     * <p>Matched by type rather than by Spring's {@code DisconnectedClientHelper}, which also
+     * claims an {@code EOFException}: on a relay that can be a truncated upstream body, a failure
+     * the catch-all must still report.
+     *
+     * @param response declared, and deliberately left untouched, so Spring treats the failure as
+     *     handled and renders nothing in its place
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    void clientDisconnected(HttpServletResponse response) {
+        LOG.debug("A relay's client disconnected before its answer was written");
     }
 
     /**

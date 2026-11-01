@@ -22,6 +22,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -34,6 +35,9 @@ import org.springframework.web.ErrorResponseException;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -224,6 +228,46 @@ class GatewayRelayProblemsTest {
         assertThat(JSON.readTree(response.getContentAsByteArray()).path("code").asString())
                 .isEqualTo("INTERNAL_ERROR");
         assertThat(captured.list.getFirst().getLevel()).isEqualTo(Level.ERROR);
+    }
+
+    /**
+     * Resolves a failure the way {@code DispatcherServlet} does, through Spring's own resolver over
+     * this advice, because which handler Spring picks is the behaviour under test: a failure the
+     * catch-all would claim must instead reach the narrower handler written for it.
+     */
+    private ModelAndView resolvedByTheDispatcher(Exception failure) {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(GatewayRelayProblems.class);
+            context.refresh();
+            ExceptionHandlerExceptionResolver resolver = new ExceptionHandlerExceptionResolver();
+            resolver.setApplicationContext(context);
+            resolver.afterPropertiesSet();
+            return resolver.resolveException(new MockHttpServletRequest(), response, null, failure);
+        }
+    }
+
+    /**
+     * A browser that goes away while a relayed answer is being copied to it: spring-webmvc 7.0.10's
+     * {@code HandlerFunctionAdapter} wraps the response, and its stream raises the failed write as
+     * this exception. Nobody is left to read an answer and nothing in the gateway failed, so it is
+     * neither a 500 nor an ERROR, the ledger's {@code ResponseEntityExceptionHandler} answer to it.
+     */
+    @Test
+    void
+            Given_a_client_that_disconnected_mid_relay_When_the_failed_write_is_resolved_Then_nothing_is_written_and_nothing_above_debug_is_logged() {
+        AsyncRequestNotUsableException clientGone = new AsyncRequestNotUsableException(
+                "ServletOutputStream failed to write: java.io.IOException: Broken pipe",
+                new IOException("Broken pipe"));
+
+        ModelAndView resolution = resolvedByTheDispatcher(clientGone);
+
+        assertThat(resolution)
+                .as("claimed by the advice rather than left to the container")
+                .isNotNull();
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+        assertThat(response.getContentAsByteArray()).isEmpty();
+        assertThat(response.getContentType()).isNull();
+        assertThat(captured.list).allSatisfy(line -> assertThat(line.getLevel()).isEqualTo(Level.DEBUG));
     }
 
     /** Keycloak refusing the refresh grant, as {@code RefreshTokenOAuth2AuthorizedClientProvider} wraps it. */
