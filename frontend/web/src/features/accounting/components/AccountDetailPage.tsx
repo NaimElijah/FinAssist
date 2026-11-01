@@ -34,6 +34,7 @@ import {
     useAccountTransactions,
     useClearTransaction,
     useReconcileTransaction,
+    useTransactionLifecycleInFlight,
     useVoidTransaction,
 } from '../hooks/accountQueries';
 import { ACCOUNT_TYPE_LABELS } from '../types/account';
@@ -138,16 +139,18 @@ function stateCellId(transactionId: string): string {
  * The buttons offering this status's legal actions, or nothing for a frozen transaction or a
  * read-only session (`useWriteAccess`) - Clear, Reconcile and Void all change data, so none is
  * offered to a viewer even though the server would answer a lifecycle-change attempt with a plain
- * 403 either way.
+ * 403 either way. They are disabled while another row's action is in flight.
  */
 function LifecycleButtons({
     status,
     rowName,
+    disabled,
     onOpen,
 }: {
     readonly status: TransactionStatus;
     /** The row the buttons act on, from `transactionName`, after each button's own word. */
     readonly rowName: string;
+    readonly disabled: boolean;
     readonly onOpen: (kind: LifecycleKind) => void;
 }) {
     const { canWrite } = useWriteAccess();
@@ -165,6 +168,7 @@ function LifecycleButtons({
                     // (WCAG 2.5.3).
                     aria-label={`${ACTION_LABELS[kind]} ${rowName}`}
                     variant={kind === 'VOID' ? 'danger' : 'secondary'}
+                    disabled={disabled}
                     onClick={() => {
                         onOpen(kind);
                     }}
@@ -296,11 +300,14 @@ function LifecycleActionPanel({
 function TransactionActionsCell({
     transaction,
     active,
+    actionInFlight,
     onOpen,
     onClose,
 }: {
     readonly transaction: Transaction;
     readonly active: ActiveAction | undefined;
+    /** A lifecycle action is in flight, so no other may open. */
+    readonly actionInFlight: boolean;
     readonly onOpen: (transactionId: string, kind: LifecycleKind) => void;
     readonly onClose: (newStatus?: TransactionStatus) => void;
 }) {
@@ -317,6 +324,7 @@ function TransactionActionsCell({
                 <LifecycleButtons
                     status={transaction.state.status}
                     rowName={transactionName(transaction)}
+                    disabled={actionInFlight}
                     onOpen={(kind) => {
                         onOpen(transaction.id, kind);
                     }}
@@ -398,6 +406,7 @@ function StateCell({ state, id }: { readonly state: TransactionState; readonly i
 function transactionColumns(
     accountId: string,
     active: ActiveAction | undefined,
+    actionInFlight: boolean,
     onOpen: (transactionId: string, kind: LifecycleKind) => void,
     onClose: (newStatus?: TransactionStatus) => void,
 ): readonly Column<Transaction>[] {
@@ -440,6 +449,7 @@ function transactionColumns(
                 <TransactionActionsCell
                     transaction={transaction}
                     active={active}
+                    actionInFlight={actionInFlight}
                     onOpen={onOpen}
                     onClose={onClose}
                 />
@@ -495,6 +505,7 @@ function Transactions({
     // Which row and action a just-closed panel was for, so focus can return there once the DOM
     // reflects the close; state, not a ref, so it is never read or written during render.
     const [closedAction, setClosedAction] = useState<ClosedAction | undefined>(undefined);
+    const lifecycle = useTransactionLifecycleInFlight();
     const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
         transactions.error,
         transactions.isFetching,
@@ -532,6 +543,11 @@ function Transactions({
     }, [closedAction]);
 
     function openAction(transactionId: string, kind: LifecycleKind) {
+        // Replacing the open panel mid-flight would unmount the mutation's callbacks and lose its
+        // outcome; the cache, not render-time state, since the click can beat the disabling render.
+        if (lifecycle.isPendingNow()) {
+            return;
+        }
         setActive({ transactionId, kind });
     }
 
@@ -563,7 +579,13 @@ function Transactions({
             ) : (
                 <DataTable
                     caption="Transactions"
-                    columns={transactionColumns(accountId, active, openAction, closeAction)}
+                    columns={transactionColumns(
+                        accountId,
+                        active,
+                        lifecycle.pending,
+                        openAction,
+                        closeAction,
+                    )}
                     rows={transactions.data}
                     rowKey={(transaction) => transaction.id}
                 />

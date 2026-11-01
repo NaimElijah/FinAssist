@@ -759,6 +759,96 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         });
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
+
+    it('Given_a_commit_in_flight_When_another_rows_action_is_pressed_Then_it_is_disabled_and_the_commits_outcome_still_shows', async () => {
+        // Opening another row's panel would unmount the one holding the mutation, and TanStack
+        // Query runs a mutate call's callbacks only while its observer is mounted: a 504 "outcome
+        // unknown" (ADR-067) would never be shown, and the owner would send the commit again.
+        let answerCommit: (response: Response) => void = () => undefined;
+        fakeFetch(
+            lifecycleLedger(
+                () => [RENT, SALARY],
+                (request) =>
+                    request.url === `${FLOWS_URL}/${RENT_ID}/commit` && request.method === 'POST'
+                        ? new Promise<Response>((resolve) => {
+                              answerCommit = resolve;
+                          })
+                        : unexpectedRequest(request),
+            ),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
+
+        await user.click(screen.getByRole('button', { name: 'Commit' }));
+
+        const otherRow = rowOf('Salary');
+        const realise = within(otherRow).getByRole('button', { name: nameStartingWith('Realise') });
+        await waitFor(() => {
+            expect(realise).toHaveProperty('disabled', true);
+        });
+        expect(
+            within(otherRow).getByRole('button', { name: nameStartingWith('Cancel') }),
+        ).toHaveProperty('disabled', true);
+        await user.click(realise);
+        answerCommit(
+            problemResponse({
+                status: 504,
+                code: 'UPSTREAM_TIMEOUT',
+                detail: 'The upstream service did not answer in time, so the outcome is unknown.',
+            }),
+        );
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert).getByText(
+                'The upstream service did not answer in time, so the outcome is unknown.',
+            ),
+        ).toBeDefined();
+        expect(
+            screen.getByRole('region', { name: nameStartingWith('Commit planned flow:') }),
+        ).toBeDefined();
+        expect(screen.queryByRole('region', { name: nameStartingWith('Realise') })).toBeNull();
+        // Settled, the other row's actions are offered again.
+        expect(realise).toHaveProperty('disabled', false);
+    });
+
+    it('Given_a_lifecycle_panel_just_submitted_When_another_rows_action_is_clicked_before_pending_renders_Then_the_panel_stays_open', async () => {
+        // The click can land in the same tick as the submit, before the disabled buttons render,
+        // so the page must refuse it from the mutation cache rather than from render-time state.
+        fakeFetch(
+            lifecycleLedger(
+                () => [RENT, SALARY],
+                (request) =>
+                    request.url === `${FLOWS_URL}/${RENT_ID}/commit` && request.method === 'POST'
+                        ? pendingResponse()
+                        : unexpectedRequest(request),
+            ),
+        );
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Commit') }),
+        );
+        const form = screen.getByLabelText('On').closest('form');
+        if (form === null) {
+            throw new Error('the On field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+        fireEvent.click(
+            within(rowOf('Salary')).getByRole('button', { name: nameStartingWith('Realise') }),
+        );
+
+        expect(screen.queryByRole('region', { name: nameStartingWith('Realise') })).toBeNull();
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: 'Commit' })).toHaveProperty('disabled', true);
+        });
+    });
 });
 
 describe('PlannedFlowsPage plan-flow form', () => {

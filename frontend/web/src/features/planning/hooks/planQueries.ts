@@ -4,7 +4,13 @@
  * Every query key comes from `planKeys`, so a mutation invalidates exactly what a query reads
  * rather than a key spelled twice.
  */
-import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+    type QueryClient,
+    useIsMutating,
+    useMutation,
+    useQuery,
+    useQueryClient,
+} from '@tanstack/react-query';
 
 import {
     cancelFlow,
@@ -192,6 +198,42 @@ export function usePlanFlow() {
     });
 }
 
+/**
+ * The mutation key Commit, Realise and Cancel share, so a page can tell that one is in flight. It
+ * lives in the mutation cache, apart from every query key in `planKeys`.
+ */
+const FLOW_LIFECYCLE_KEY = [...PLANS_KEY, 'lifecycle'] as const;
+
+/** Whether a flow lifecycle mutation is in flight, read two ways. */
+export interface LifecycleInFlight {
+    /** As of the last render, for disabling the controls that would start another. */
+    readonly pending: boolean;
+    /**
+     * Read from the mutation cache at call time, for an event handler: a click can land after
+     * `mutate` has started a request but before the render that disables those controls.
+     */
+    readonly isPendingNow: () => boolean;
+}
+
+/**
+ * Whether a Commit, Realise or Cancel is in flight anywhere on screen.
+ *
+ * A page holding one lifecycle panel at a time reads it before replacing the open panel: the panel
+ * owns its mutation's `mutate` callbacks, which TanStack Query drops once their observer
+ * unmounts, so replacing it mid-flight would lose the outcome - a 504 "outcome unknown" included
+ * (ADR-067).
+ *
+ * @returns the in-flight state, as rendered and as of now.
+ */
+export function useFlowLifecycleInFlight(): LifecycleInFlight {
+    const queryClient = useQueryClient();
+    const pending = useIsMutating({ mutationKey: FLOW_LIFECYCLE_KEY }) > 0;
+    return {
+        pending,
+        isPendingNow: () => queryClient.isMutating({ mutationKey: FLOW_LIFECYCLE_KEY }) > 0,
+    };
+}
+
 /** One lifecycle mutation's variables: which flow, and the date the action took effect. */
 interface TransitionVariables {
     readonly flowId: string;
@@ -210,6 +252,7 @@ interface TransitionVariables {
 export function useCommitFlow() {
     const queryClient = useQueryClient();
     return useMutation({
+        mutationKey: FLOW_LIFECYCLE_KEY,
         mutationFn: ({ flowId, on }: TransitionVariables) => commitFlow(flowId, on),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: planKeys.flows }),
     });
@@ -246,6 +289,7 @@ function invalidateAfterLeavingProjection(queryClient: QueryClient): Promise<unk
 export function useRealiseFlow() {
     const queryClient = useQueryClient();
     return useMutation({
+        mutationKey: FLOW_LIFECYCLE_KEY,
         mutationFn: ({ flowId, on }: TransitionVariables) => realiseFlow(flowId, on),
         onSuccess: () => invalidateAfterLeavingProjection(queryClient),
     });
@@ -266,6 +310,7 @@ interface CancelVariables extends TransitionVariables {
 export function useCancelFlow() {
     const queryClient = useQueryClient();
     return useMutation({
+        mutationKey: FLOW_LIFECYCLE_KEY,
         mutationFn: ({ flowId, on, reason }: CancelVariables) => cancelFlow(flowId, on, reason),
         onSuccess: () => invalidateAfterLeavingProjection(queryClient),
     });

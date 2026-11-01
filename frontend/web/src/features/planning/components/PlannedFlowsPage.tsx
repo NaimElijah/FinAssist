@@ -26,6 +26,7 @@ import {
 import {
     useCancelFlow,
     useCommitFlow,
+    useFlowLifecycleInFlight,
     usePlannedFlows,
     useRealiseFlow,
 } from '../hooks/planQueries';
@@ -140,16 +141,18 @@ function stateCellId(flowId: string): string {
 /**
  * The buttons offering this status's legal actions, or nothing for a frozen flow or a read-only
  * session (`useWriteAccess`) - Commit, Realise and Cancel all change data, so none is offered to
- * a viewer (ADR-032).
+ * a viewer (ADR-032). They are disabled while another row's action is in flight.
  */
 function LifecycleButtons({
     status,
     rowName,
+    disabled,
     onOpen,
 }: {
     readonly status: PlanStatus;
     /** The row the buttons act on, from `flowName`, after each button's own word. */
     readonly rowName: string;
+    readonly disabled: boolean;
     readonly onOpen: (kind: LifecycleKind) => void;
 }) {
     const { canWrite } = useWriteAccess();
@@ -167,6 +170,7 @@ function LifecycleButtons({
                     // (WCAG 2.5.3).
                     aria-label={`${ACTION_LABELS[kind]} ${rowName}`}
                     variant={kind === 'CANCEL' ? 'danger' : 'secondary'}
+                    disabled={disabled}
                     onClick={() => {
                         onOpen(kind);
                     }}
@@ -299,11 +303,14 @@ function LifecycleActionPanel({
 function FlowActionsCell({
     flow,
     active,
+    actionInFlight,
     onOpen,
     onClose,
 }: {
     readonly flow: PlannedFlow;
     readonly active: ActiveAction | undefined;
+    /** A lifecycle action is in flight, so no other may open. */
+    readonly actionInFlight: boolean;
     readonly onOpen: (flowId: string, kind: LifecycleKind) => void;
     readonly onClose: (newStatus?: PlanStatus) => void;
 }) {
@@ -320,6 +327,7 @@ function FlowActionsCell({
                 <LifecycleButtons
                     status={flow.state.status}
                     rowName={flowName(flow)}
+                    disabled={actionInFlight}
                     onOpen={(kind) => {
                         onOpen(flow.id, kind);
                     }}
@@ -386,6 +394,7 @@ function flowColumns(
     focusedFlowId: string | undefined,
     onFocused: () => void,
     active: ActiveAction | undefined,
+    actionInFlight: boolean,
     onOpen: (flowId: string, kind: LifecycleKind) => void,
     onClose: (newStatus?: PlanStatus) => void,
 ): readonly Column<PlannedFlow>[] {
@@ -441,7 +450,13 @@ function flowColumns(
             key: 'actions',
             header: 'Actions',
             render: (flow) => (
-                <FlowActionsCell flow={flow} active={active} onOpen={onOpen} onClose={onClose} />
+                <FlowActionsCell
+                    flow={flow}
+                    active={active}
+                    actionInFlight={actionInFlight}
+                    onOpen={onOpen}
+                    onClose={onClose}
+                />
             ),
         },
     ];
@@ -466,6 +481,7 @@ function PlannedFlowsList({
     // reflects the close; state, not a ref, so it is never read or written during render.
     const [closedAction, setClosedAction] = useState<ClosedAction | undefined>(undefined);
     const flows = usePlannedFlows();
+    const lifecycle = useFlowLifecycleInFlight();
     const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
         flows.error,
         flows.isFetching,
@@ -495,6 +511,11 @@ function PlannedFlowsList({
     }, [closedAction]);
 
     function openAction(flowId: string, kind: LifecycleKind) {
+        // Replacing the open panel mid-flight would unmount the mutation's callbacks and lose its
+        // outcome; the cache, not render-time state, since the click can beat the disabling render.
+        if (lifecycle.isPendingNow()) {
+            return;
+        }
         setActive({ flowId, kind });
     }
 
@@ -523,7 +544,14 @@ function PlannedFlowsList({
                 <DataTable
                     caption="Planned flows"
                     captionHidden
-                    columns={flowColumns(focusedFlowId, onFocused, active, openAction, closeAction)}
+                    columns={flowColumns(
+                        focusedFlowId,
+                        onFocused,
+                        active,
+                        lifecycle.pending,
+                        openAction,
+                        closeAction,
+                    )}
                     rows={flows.data}
                     rowKey={(flow) => flow.id}
                 />

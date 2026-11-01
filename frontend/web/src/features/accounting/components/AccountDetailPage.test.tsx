@@ -873,6 +873,106 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1);
     });
 
+    it('Given_a_clear_in_flight_When_another_rows_action_is_pressed_Then_it_is_disabled_and_the_clears_outcome_still_shows', async () => {
+        // Opening another row's panel would unmount the one holding the mutation, and TanStack
+        // Query runs a mutate call's callbacks only while its observer is mounted: a 504 "outcome
+        // unknown" (ADR-067) would never be shown, and the owner would send the clear again.
+        let answerClear: (response: Response) => void = () => undefined;
+        fakeFetch(
+            lifecycleLedger(
+                () => [PENDING_TX, CLEARED_TX],
+                (request) =>
+                    request.url === `${RECORD_URL}/${PENDING_TX.id}/clear` &&
+                    request.method === 'POST'
+                        ? new Promise<Response>((resolve) => {
+                              answerClear = resolve;
+                          })
+                        : unexpectedRequest(request),
+            ),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Transactions' });
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Clear'),
+            }),
+        );
+
+        await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+        const otherRow = rowOf('Cleared purchase');
+        const reconcile = within(otherRow).getByRole('button', {
+            name: nameStartingWith('Reconcile'),
+        });
+        await waitFor(() => {
+            expect(reconcile).toHaveProperty('disabled', true);
+        });
+        expect(
+            within(otherRow).getByRole('button', { name: nameStartingWith('Void') }),
+        ).toHaveProperty('disabled', true);
+        await user.click(reconcile);
+        answerClear(
+            problemResponse({
+                status: 504,
+                code: 'UPSTREAM_TIMEOUT',
+                detail: 'The upstream service did not answer in time, so the outcome is unknown.',
+            }),
+        );
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert).getByText(
+                'The upstream service did not answer in time, so the outcome is unknown.',
+            ),
+        ).toBeDefined();
+        expect(
+            screen.getByRole('region', { name: nameStartingWith('Clear transaction:') }),
+        ).toBeDefined();
+        expect(screen.queryByRole('region', { name: nameStartingWith('Reconcile') })).toBeNull();
+        // Settled, the other row's actions are offered again.
+        expect(reconcile).toHaveProperty('disabled', false);
+    });
+
+    it('Given_a_lifecycle_panel_just_submitted_When_another_rows_action_is_clicked_before_pending_renders_Then_the_panel_stays_open', async () => {
+        // The click can land in the same tick as the submit, before the disabled buttons render,
+        // so the page must refuse it from the mutation cache rather than from render-time state.
+        fakeFetch(
+            lifecycleLedger(
+                () => [PENDING_TX, CLEARED_TX],
+                (request) =>
+                    request.url === `${RECORD_URL}/${PENDING_TX.id}/clear` &&
+                    request.method === 'POST'
+                        ? pendingResponse()
+                        : unexpectedRequest(request),
+            ),
+        );
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Transactions' });
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Clear'),
+            }),
+        );
+        const form = screen.getByLabelText('On').closest('form');
+        if (form === null) {
+            throw new Error('the On field is not inside a form');
+        }
+
+        fireEvent.submit(form);
+        fireEvent.click(
+            within(rowOf('Cleared purchase')).getByRole('button', {
+                name: nameStartingWith('Reconcile'),
+            }),
+        );
+
+        expect(screen.queryByRole('region', { name: nameStartingWith('Reconcile') })).toBeNull();
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: 'Clear' })).toHaveProperty('disabled', true);
+        });
+    });
+
     it('Given_a_panel_open_on_a_pending_row_When_cancelled_Then_focus_returns_to_the_button_that_opened_it', async () => {
         fakeFetch(lifecycleLedger(() => [PENDING_TX], unexpectedRequest));
         renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
