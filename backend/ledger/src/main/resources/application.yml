@@ -71,6 +71,13 @@ spring:
     username: ${LEDGER_DB_USERNAME:finassist}
     password: ${LEDGER_DB_PASSWORD:}
     hikari:
+      # How long a request waits for a connection before failing, in milliseconds: Hikari binds a
+      # long, so a duration such as 5s fails to bind. Hikari's own 30 s outlasts the gateway's 10 s
+      # relay read timeout, past which the gateway has already answered 504 "outcome unknown"
+      # (ADR-067): a write still waiting on the database could then commit after its caller was
+      # told the outcome is unknown. 5 s fails it first. A statement already running is not bounded
+      # here (#400).
+      connection-timeout: 5000
       data-source-properties:
         # pgjdbc appends the server's Detail line to an exception's message by default, and for a
         # CHECK or NOT NULL violation that line quotes the failing row: a description, an amount,
