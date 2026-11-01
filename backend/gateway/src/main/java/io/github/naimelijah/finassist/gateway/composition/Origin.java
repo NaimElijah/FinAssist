@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.gateway.composition;
 
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Locale;
 import java.util.Set;
 
@@ -51,13 +52,13 @@ record Origin(String base) {
     private static void requireAbsolute(String base) {
         URI parsed;
         try {
-            parsed = URI.create(base);
-        } catch (IllegalArgumentException malformed) {
-            throw refusal(base, malformed);
+            parsed = new URI(base);
+        } catch (URISyntaxException malformed) {
+            throw refusal(" (" + malformed.getReason() + " at index " + malformed.getIndex() + ")");
         }
         String scheme = parsed.getScheme();
         if (scheme == null || !SCHEMES.contains(scheme.toLowerCase(Locale.ROOT)) || parsed.getHost() == null) {
-            throw refusal(base, null);
+            throw refusal("");
         }
         if (parsed.getRawUserInfo() != null) {
             throw componentRefusal("user-info");
@@ -77,11 +78,14 @@ record Origin(String base) {
                 + " a port and a path prefix");
     }
 
-    private static IllegalArgumentException refusal(String base, Throwable cause) {
-        return new IllegalArgumentException(
-                "'" + base + "' is not an absolute http or https URL naming a host, and every URL the gateway"
-                        + " hands out is absolute and independent of the request",
-                cause);
+    /**
+     * Never quotes the URL, nor attaches the JDK's exception, whose message does: a malformed URL
+     * can still carry a user-info holding a password. The syntax error's reason and index are the
+     * JDK's own words and a number, so they are kept to say where the URL went wrong.
+     */
+    private static IllegalArgumentException refusal(String syntaxError) {
+        return new IllegalArgumentException("A gateway origin URL is not an absolute http or https URL naming a host"
+                + syntaxError + ", and every URL the gateway hands out is absolute and independent of the request");
     }
 
     /** The origin's own root, with the trailing slash a browser lands on. */

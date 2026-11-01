@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.naimelijah.finassist.gateway.GatewayApplication;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -155,6 +157,25 @@ class KeycloakRegistrationTest {
                 .hasMessageContaining("user-info")
                 .hasMessageNotContaining("s3cret-in-the-url")
                 .hasMessageNotContaining("owner");
+    }
+
+    /**
+     * A URL refused for not being absolute can still carry a password: an underscore in the host
+     * makes the JDK read the authority as registry-based, so no host is found, and a space makes it
+     * no URI at all. Whatever reaches the start-up log, message and causes alike, quotes neither.
+     */
+    @ParameterizedTest
+    @ValueSource(
+            strings = {"http://owner:s3cret-in-the-url@local_host:5173", "http://owner:s3cret-in-the-url@local host"})
+    void Given_a_malformed_public_url_carrying_a_password_When_it_is_refused_Then_nothing_logged_quotes_it(String url) {
+        assertThatThrownBy(() -> new Origin(url))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("absolute")
+                .satisfies(refusal -> {
+                    StringWriter logged = new StringWriter();
+                    refusal.printStackTrace(new PrintWriter(logged));
+                    assertThat(logged.toString()).doesNotContain("s3cret-in-the-url");
+                });
     }
 
     /** A path prefix is allowed, as for a Keycloak served under {@code /auth}, and keeps its place. */
