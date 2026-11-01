@@ -272,8 +272,53 @@ describe('buildRecurrence beyond a safe integer', () => {
             expect(thrown).toHaveProperty('field', 'interval');
         },
     );
+});
 
-    it('Given_a_count_past_the_largest_safe_integer_When_built_Then_the_error_states_the_safe_integer_rule', () => {
+describe("buildRecurrence beyond the contract's int32 range", () => {
+    // The ledger's contract declares count and interval int32, and holds each in a Java int, so
+    // a count it would refuse is refused here rather than sent, though a number holds it exactly.
+    const PAST_INT32_COUNTS = [
+        ['is_one_past_the_int32_maximum', '2147483648'],
+        ['is_the_largest_safe_integer', String(Number.MAX_SAFE_INTEGER)],
+    ] as const;
+
+    it.each(PAST_INT32_COUNTS)(
+        'Given_a_count_that_%s_When_built_Then_it_is_refused_rather_than_sent',
+        (_reason, count) => {
+            const thrown = thrownBy(() =>
+                buildRecurrence({
+                    kind: 'TIMES',
+                    cadence: 'MONTHLY',
+                    interval: '1',
+                    until: '',
+                    count,
+                }),
+            );
+
+            expect(thrown).toBeInstanceOf(InvalidCountError);
+            expect(thrown).toHaveProperty('field', 'count');
+        },
+    );
+
+    it.each(PAST_INT32_COUNTS)(
+        'Given_an_interval_that_%s_When_built_Then_it_is_refused_rather_than_sent',
+        (_reason, interval) => {
+            const thrown = thrownBy(() =>
+                buildRecurrence({
+                    kind: 'UNTIL',
+                    cadence: 'MONTHLY',
+                    interval,
+                    until: '2027-01-01',
+                    count: '',
+                }),
+            );
+
+            expect(thrown).toBeInstanceOf(InvalidCountError);
+            expect(thrown).toHaveProperty('field', 'interval');
+        },
+    );
+
+    it('Given_a_count_past_the_int32_maximum_When_built_Then_the_error_states_the_bound', () => {
         // The count is a whole number of 1 or more, so a message stating only that rule would
         // not say why it was refused.
         const thrown = thrownBy(() =>
@@ -282,30 +327,30 @@ describe('buildRecurrence beyond a safe integer', () => {
                 cadence: 'MONTHLY',
                 interval: '1',
                 until: '',
-                count: '9007199254740993',
+                count: '2147483648',
             }),
         );
 
         expect(thrown).toHaveProperty(
             'message',
-            'Expected count to be a positive safe integer, got "9007199254740993"',
+            'Expected count to be a whole number from 1 to 2147483647, got "2147483648"',
         );
     });
 
-    it('Given_a_count_of_the_largest_safe_integer_When_built_Then_it_is_kept_exactly', () => {
+    it('Given_a_count_and_an_interval_of_the_int32_maximum_When_built_Then_both_are_kept_exactly', () => {
         const recurrence = buildRecurrence({
             kind: 'TIMES',
             cadence: 'MONTHLY',
-            interval: '1',
+            interval: '2147483647',
             until: '',
-            count: String(Number.MAX_SAFE_INTEGER),
+            count: '2147483647',
         });
 
         expect(recurrence).toEqual({
             kind: 'TIMES',
             cadence: 'MONTHLY',
-            interval: 1,
-            count: Number.MAX_SAFE_INTEGER,
+            interval: 2147483647,
+            count: 2147483647,
         });
     });
 });

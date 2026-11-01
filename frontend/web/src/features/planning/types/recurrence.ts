@@ -2,9 +2,9 @@
  * How a planned flow repeats: once, until a date, or a number of times, at a weekly, monthly or
  * yearly cadence.
  *
- * No arithmetic: `interval` and `count` are counts, each wholly a positive safe integer, never
- * money (ADR-029). `recurrenceSummary` and `buildRecurrence` are pure and used both by the flows
- * table and the plan-flow form.
+ * No arithmetic: `interval` and `count` are counts, each a whole number from 1 to the ledger's
+ * `int32` maximum, never money (ADR-029). `recurrenceSummary` and `buildRecurrence` are pure and
+ * used both by the flows table and the plan-flow form.
  */
 import { formatCalendarDate } from '@/shared/lib/calendarDate';
 import { DISPLAY_LOCALE } from '@/shared/lib/locale';
@@ -84,15 +84,25 @@ export interface RecurrenceFormState {
 export type CountField = 'interval' | 'count';
 
 /**
- * Thrown by `buildRecurrence` when a count it needs is not a positive safe integer. It names the
- * member, so the plan-flow form can show the refusal on the field it came from.
+ * The largest count the ledger accepts, 2^31 - 1: `contracts/ledger-v1.openapi.json` declares
+ * `RecurrenceRequest.count` and `interval` as `int32`, and the ledger holds each in a Java `int`,
+ * so it would refuse a larger one that a number still holds exactly.
+ */
+const LARGEST_COUNT = 2_147_483_647;
+
+/**
+ * Thrown by `buildRecurrence` when a count it needs is not a whole number from 1 to the ledger's
+ * `int32` maximum, 2147483647. It names the member, so the plan-flow form can show the refusal on
+ * the field it came from.
  */
 export class InvalidCountError extends Error {
-    /** The member whose text is not wholly a positive safe integer. */
+    /** The member whose text is not, in full, a whole number from 1 to 2147483647. */
     readonly field: CountField;
 
     constructor(field: CountField, value: string) {
-        super(`Expected ${field} to be a positive safe integer, got "${value}"`);
+        super(
+            `Expected ${field} to be a whole number from 1 to ${String(LARGEST_COUNT)}, got "${value}"`,
+        );
         this.name = 'InvalidCountError';
         this.field = field;
     }
@@ -110,18 +120,20 @@ export const POSITIVE_INTEGER_PATTERN = '[1-9][0-9]*';
 const POSITIVE_INTEGER = new RegExp(`^(?:${POSITIVE_INTEGER_PATTERN})$`);
 
 /**
- * `value` parsed as a positive safe integer count, never money (ADR-029).
+ * `value` parsed as a count from 1 to `LARGEST_COUNT`, never money (ADR-029).
  *
  * Matched whole before it is parsed: `Number.parseInt` reads the leading digits and ignores the
- * rest, so on its own it would read `"1.5"`, `"12abc"` and `"1e3"` as 1, 12 and 1. Then held to a
- * safe integer, since digits alone can exceed what a number holds exactly: past 2^53 - 1 a count
- * would be sent rounded, and past about 1.8e308 as `Infinity`, which JSON writes as `null`.
+ * rest, so on its own it would read `"1.5"`, `"12abc"` and `"1e3"` as 1, 12 and 1. Then held to
+ * `LARGEST_COUNT`, since digits alone are unbounded: past it the ledger refuses the count, past
+ * 2^53 - 1 it would be sent rounded, and past about 1.8e308 as `Infinity`, which JSON writes as
+ * `null`.
  *
- * @throws InvalidCountError - when `value` is not wholly a positive safe integer.
+ * @throws InvalidCountError - when `value` is not, in full, a whole number from 1 to
+ *   `LARGEST_COUNT`.
  */
 function parseCount(value: string, field: CountField): number {
     const parsed = POSITIVE_INTEGER.test(value) ? Number.parseInt(value, 10) : Number.NaN;
-    if (!Number.isSafeInteger(parsed)) {
+    if (Number.isNaN(parsed) || parsed > LARGEST_COUNT) {
         throw new InvalidCountError(field, value);
     }
     return parsed;
@@ -131,17 +143,17 @@ function parseCount(value: string, field: CountField): number {
  * Map the plan-flow form's raw recurrence fields to the `Recurrence` the ledger expects, omitting
  * whichever members `kind` does not carry.
  *
- * `interval` and `count` are parsed as counts rather than money (ADR-029), each a positive safe
- * integer. Native `required` and a digit `pattern` on both fields (see `PlanFlowForm`) keep an
- * unparsable string from reaching here through the UI, but a count past
- * `Number.MAX_SAFE_INTEGER` matches the pattern, so this alone refuses it, as it refuses a bad
+ * `interval` and `count` are parsed as counts rather than money (ADR-029), each a whole number
+ * from 1 to the ledger's `int32` maximum, 2147483647. Native `required` and a digit `pattern` on
+ * both fields (see `PlanFlowForm`) keep an unparsable string from reaching here through the UI,
+ * but a count past that maximum matches the pattern, so this alone refuses it, as it refuses a bad
  * count that arrives another way.
  *
  * @param form - the form's current recurrence fields.
  * @returns the mapped `Recurrence`, holding exactly the members its `kind` carries.
- * @throws InvalidCountError - when `interval` or `count` (whichever `kind` needs) is not wholly a
- *   positive safe integer, naming which; an empty, zero, signed, fractional or exponent value, one
- *   with a leading zero, whitespace or trailing text, or one above `Number.MAX_SAFE_INTEGER`, is
+ * @throws InvalidCountError - when `interval` or `count` (whichever `kind` needs) is not, in full,
+ *   a whole number from 1 to 2147483647, naming which; an empty, zero, signed, fractional or exponent
+ *   value, one with a leading zero, whitespace or trailing text, or one above 2147483647, is
  *   refused rather than sent.
  */
 export function buildRecurrence(form: RecurrenceFormState): Recurrence {

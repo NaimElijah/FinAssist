@@ -66,7 +66,7 @@ const DEFAULT_INTERVAL = '1';
 /** `POSITIVE_INTEGER_PATTERN` in words, shown on Every and Times before anything is typed. */
 const COUNT_HINT = 'A whole number, 1 or more';
 
-/** Shown on Every or Times when a submitted count is not a positive safe integer; see `submit`. */
+/** Shown on Every or Times when a submitted count is refused by `buildRecurrence`; see `submit`. */
 const COUNT_REFUSED_MESSAGE = 'Enter a whole number, 1 or more';
 
 /** ADR-028 lists field `errors` only on a 400. */
@@ -314,9 +314,9 @@ export function PlanFlowForm({ onPlanned }: PlanFlowFormProps) {
                 throw error;
             }
             // Native `required` and the pattern on Every and Times refuse a bad count before a
-            // click submits, but not a scripted submit, and not a count past
-            // `Number.MAX_SAFE_INTEGER`, which matches the pattern: `buildRecurrence` alone
-            // refuses that one, even from a click. The refusal shows on the field it came from,
+            // click submits, but not a scripted submit, and not a count past the ledger's int32
+            // maximum, 2147483647, which matches the pattern: `buildRecurrence` alone refuses
+            // that one, even from a click. The refusal shows on the field it came from,
             // before `submitting` is set, so submit is never left disabled.
             setCountRefusal(error);
             return;

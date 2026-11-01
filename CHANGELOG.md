@@ -325,7 +325,8 @@ history; write the commit message well and this file writes itself.
       refused with a `NullPointerException` naming the field, as every neighbouring
       `requireNonNull` does;
     - a recurrence count or interval must be wholly a positive integer, and one past the
-      safe-integer range is refused;
+      contract's `int32` maximum, 2147483647, is refused before it is sent rather than by the
+      ledger;
     - an unreadable ignore file is a secret-check failure;
     - a backup or restore that reads a non-JSON answer, or JSON of the wrong shape, fails as a
       `BackupError`, not a traceback;
