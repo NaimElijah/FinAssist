@@ -349,6 +349,11 @@ def Given_a_probed_service_missing_from_the_file_When_checked_Then_its_probe_is_
         # The `f` is the file -o writes to, not curl's -f.
         ["CMD", "curl", "-sofile", "http://localhost:8080{path}"],
         ["CMD", "curl", "-o", "-f", "http://localhost:8080{path}"],
+        # A cluster may start with a digit or `#`, each a flag, before the -o that takes `-f`.
+        ["CMD", "curl", "-4o", "-f", "http://localhost:8080{path}"],
+        ["CMD", "curl", "-#o", "-f", "http://localhost:8080{path}"],
+        # -: (--next) starts another URL's options, so it is assumed to take one, failing closed.
+        ["CMD", "curl", "-:", "-f", "http://localhost:8080{path}"],
         # A long option takes the next word as its argument too: curl writes a file named `-f`.
         ["CMD", "curl", "--output", "-f", "http://localhost:8080{path}"],
         ["CMD", "curl", "--header", "-f", "http://localhost:8080{path}"],
@@ -363,6 +368,9 @@ def Given_a_probed_service_missing_from_the_file_When_checked_Then_its_probe_is_
         "full-path",
         "attached-argument",
         "separate-argument",
+        "digit-cluster-output",
+        "hash-cluster-output",
+        "next-cluster",
         "long-option-argument",
         "long-header-argument",
         "unknown-long-option",
@@ -451,6 +459,8 @@ def Given_a_curl_readiness_probe_through_a_shell_When_checked_Then_it_is_named(
         ["CMD", "curl", "-fsS", "http://localhost:8080/ready"],
         ["CMD", "curl", "-sS", "http://localhost:8080/ready", "-f"],
         ["CMD", "curl", "-sSf", "http://localhost:8080/ready"],
+        ["CMD", "curl", "-4f", "http://localhost:8080/ready"],
+        ["CMD", "curl", "-#sf", "http://localhost:8080/ready"],
         ["CMD", "/usr/bin/curl", "-f", "http://localhost:8080/ready"],
         ["CMD", "curl", "--silent", "--show-error", "-f", "http://localhost:8080/ready"],
         ["CMD", "curl", "--no-progress-meter", "--fail", "http://localhost:8080/ready"],
@@ -464,6 +474,8 @@ def Given_a_curl_readiness_probe_through_a_shell_When_checked_Then_it_is_named(
         "cluster",
         "after-the-url",
         "cluster-end",
+        "after-a-digit",
+        "after-a-hash",
         "full-path",
         "after-long-flags",
         "after-a-negative-flag",

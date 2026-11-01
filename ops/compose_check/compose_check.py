@@ -80,14 +80,19 @@ CURL_NO_FAIL_OPTIONS: Final = frozenset({"--no-fail", "--no-fail-with-body"})
 # Only exec form runs curl with exactly the arguments read here: a shell could run another command
 # first, test curl's output instead of its status, or turn its failure into success.
 EXEC_FORM: Final = "CMD"
-# curl's short options that take no argument (`curl --help all`, 8.17). Any other letter in a
-# cluster takes the rest of it, or the next word, as its argument, so `-sofile` writes to `file`
-# and never fails; an unlisted letter is assumed to take one, so an unknown option fails the rule.
-CURL_FLAG_SHORTS: Final = frozenset("aBfgGiIjJklLMnNOpqRsSvVZ")
-_SHORT_OPTIONS: Final = re.compile(r"-[A-Za-z]+")
+# curl's short options that take no argument (`curl --help all`, 8.17), digits and `#` among them.
+# Any other character in a cluster takes the rest of it, or the next word, as its argument, so
+# `-sofile` writes to `file` and `-4o -f` to a file named `-f`, and neither fails; an unlisted
+# character is assumed to take one, so an unknown option fails the rule. `-:` (`--next`) takes none
+# but starts another URL's options, so it stays unlisted and fails closed.
+CURL_FLAG_SHORTS: Final = frozenset("aBfgGiIjJklLMnNOpqRsSvVZ012346#")
+# A single dash and anything but a second one opens a cluster, whatever character follows it; a
+# bare `-` is no option.
+_SHORT_OPTIONS: Final = re.compile(r"-[^-].*", re.DOTALL)
 # curl's long options that take no argument (`curl --help all`, 8.17). Any other takes the next word
 # as its argument, so `--output -f` writes to a file named `-f` and never fails; an unlisted one is
-# assumed to take one, as an unknown letter is, and curl refuses an option it does not know anyway.
+# assumed to take one, as an unlisted short option is, and curl refuses an option it does not know
+# anyway.
 # The `--no-<name>` form of each, where curl has one, takes none either. `--name=value` is a single
 # word, which curl 8.17 refuses as unknown, so it takes nothing further.
 CURL_FLAG_LONGS: Final = frozenset(
@@ -451,7 +456,7 @@ def _curl_probe_problems(name: str, test: list[str]) -> list[str]:
 
 
 def _curl_options(arguments: list[str]) -> list[str]:
-    """The options curl reads from these arguments, a cluster's letters each as `-<letter>`.
+    """The options curl reads from these arguments, a cluster's characters each as `-<character>`.
 
     A word curl takes as an option's argument is no option, wherever it starts with a dash.
     """
