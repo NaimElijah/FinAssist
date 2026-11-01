@@ -99,8 +99,9 @@ public record Budget(BudgetId id, BudgetPeriod period, Currency currency, Map<Ca
      * the budget sets no limit for the category at all. A limit of zero is not a possible state,
      * because the constructor refuses one, as {@link CategoryLimit} does.
      *
-     * <p>A {@code spent} in another currency than the budget's is refused with the shared kernel's
-     * {@code CurrencyMismatchException}, as no rates exist to convert it (ADR-012).
+     * <p>Where the category has a limit, a {@code spent} in another currency than the budget's is
+     * refused with the shared kernel's {@code CurrencyMismatchException}, as no rates exist to convert
+     * it (ADR-012). Where it has none, the answer is empty whatever the currency of {@code spent}.
      */
     public Optional<Money> remaining(Category category, Money spent) {
         Objects.requireNonNull(spent, "spent");

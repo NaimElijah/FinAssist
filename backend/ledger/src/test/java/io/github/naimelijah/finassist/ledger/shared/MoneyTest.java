@@ -14,10 +14,13 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * The Money contract.
  *
- * <p>These cases are mirrored by {@code backend/assistant/tests/test_money.py}. ADR-010 accepts that
- * Money is implemented once per language rather than shared, and names equivalent tests on both
- * sides as the thing that keeps the two honest. Changing behaviour here without changing it there is
- * the drift this pair exists to catch.
+ * <p>These cases are mirrored by {@code backend/assistant/tests/test_money.py}, all but one: a product
+ * whose rounding needs a power of ten past {@code BigInteger}'s range, which this class pins as refused
+ * and the assistant's {@code times_rounded} answers {@code 0.00}, a known gap tracked by #416.
+ *
+ * <p>ADR-010 accepts that Money is implemented once per language rather than shared, and names
+ * equivalent tests on both sides as the thing that keeps the two honest. Changing behaviour here
+ * without changing it there is the drift this pair exists to catch.
  */
 class MoneyTest {
 

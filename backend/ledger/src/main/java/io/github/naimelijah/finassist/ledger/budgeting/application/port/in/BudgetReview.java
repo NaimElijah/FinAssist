@@ -23,6 +23,10 @@ import java.util.Objects;
  * name rather than by encounter. {@code Budget} keeps its limits in a {@code Map.copyOf}, whose
  * iteration order is unspecified, so a review that followed it would be reproducible only by luck.
  * This record keeps whatever order it is given; it does not sort.
+ *
+ * <p>No component may be null. The categories are copied, so a later change to the caller's list does
+ * not reach the review, and a null category is refused as a null list is; {@code unbudgeted} is
+ * copied too, in the order it is given.
  */
 public record BudgetReview(
         BudgetId budget,

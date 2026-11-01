@@ -18,6 +18,9 @@ import java.util.Objects;
  *
  * <p>{@code recordedBy} names who is asking, not what is being recorded — an {@link Actor}, never an
  * identity the command manufactures (ADR-021, ADR-033).
+ *
+ * <p>No component may be null. The entries are copied, so a later change to the caller's list does
+ * not reach the command, and a null entry is refused as a null list is.
  */
 public record RecordTransactionCommand(
         LocalDate occurredOn, String description, List<Entry> entries, Actor recordedBy) {

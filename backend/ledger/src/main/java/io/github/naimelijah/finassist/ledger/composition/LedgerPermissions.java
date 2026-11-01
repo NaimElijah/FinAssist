@@ -47,9 +47,9 @@ public final class LedgerPermissions implements Converter<Jwt, Collection<Grante
     /**
      * Reads {@code roles} defensively rather than with {@code Jwt#getClaimAsStringList}: the claim
      * comes from a caller-controlled token, and a claim that exists but is not a JSON array must grant
-     * nothing. The accessor converts the claim through Spring Security's {@code ClaimConversionService}
-     * and raises {@link IllegalArgumentException} where that yields nothing, so a malformed claim would
-     * not reliably end in "grants nothing".
+     * nothing. The accessor converts the claim through Spring Security's {@code ClaimConversionService},
+     * whose {@code ObjectToListStringConverter} (7.1.2) turns a value that is not a collection into a
+     * one-element list of its {@code toString}, so {@code "roles":"owner"} would grant {@code owner}.
      *
      * @param jwt a token that has already passed signature and claim validation
      * @return the permissions the token's roles grant, empty when none does; never null

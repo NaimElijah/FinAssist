@@ -194,8 +194,9 @@ public record Money(BigDecimal amount, Currency currency) {
     /**
      * The refusal of a product {@code BigDecimal} cannot hold or round, which it reports as a bare
      * {@code ArithmeticException} outside this class's contract. Worded as the constructor words its
-     * own refusal, and for its reason written with {@code toString}, never {@code toPlainString}: a
-     * multiplier such as {@code 1E-2147483647} written out would not fit in a String.
+     * own refusal, and for the same reason writes the amount and the multiplier with {@code toString},
+     * never {@code toPlainString}: a multiplier such as {@code 1E-2147483647} written out would not
+     * fit in a String.
      */
     private IllegalArgumentException unrepresentableProduct(BigDecimal multiplier, ArithmeticException cause) {
         return new IllegalArgumentException(
