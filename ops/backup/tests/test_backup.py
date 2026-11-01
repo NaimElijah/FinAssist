@@ -229,21 +229,6 @@ def Given_a_manifest_that_is_not_json_When_read_Then_it_is_refused(tmp_path: Pat
         backup._manifest_entries(tmp_path)
 
 
-# A manifest re-saved by Windows PowerShell 5.1's `>` is UTF-16, which UTF-8 cannot decode.
-@pytest.mark.parametrize(
-    "content",
-    [json.dumps(_manifest_for(b"PGDMP")).encode("utf-16"), b"\xff\xfe{}"],
-    ids=["utf-16", "undecodable"],
-)
-def Given_a_manifest_that_is_not_utf8_When_read_Then_it_is_refused(
-    content: bytes, tmp_path: Path
-) -> None:
-    (tmp_path / backup.MANIFEST_NAME).write_bytes(content)
-
-    with pytest.raises(backup.BackupError, match="not a manifest this made"):
-        backup._manifest_entries(tmp_path)
-
-
 # --- docker compose ps --format json, in both of its shapes -----------------------------------
 
 
@@ -717,6 +702,25 @@ def Given_a_malformed_manifest_When_restored_Then_it_is_refused_before_any_compo
     project = _Project()
 
     with pytest.raises(backup.BackupError, match=re.escape(refusal)):
+        backup.restore(project, tmp_path, (backup.LEDGER,))
+
+    assert project.calls == []
+
+
+# A manifest re-saved by Windows PowerShell 5.1's `>` is UTF-16, which UTF-8 cannot decode.
+@pytest.mark.parametrize(
+    "content",
+    [json.dumps(_manifest_for(LEDGER_DUMP)).encode("utf-16"), b"\xff\xfe{}"],
+    ids=["utf-16", "undecodable"],
+)
+def Given_a_manifest_that_is_not_utf8_When_restored_Then_it_is_refused_before_any_compose_command(
+    content: bytes, tmp_path: Path
+) -> None:
+    (tmp_path / backup.LEDGER.dump_name).write_bytes(LEDGER_DUMP)
+    (tmp_path / backup.MANIFEST_NAME).write_bytes(content)
+    project = _Project()
+
+    with pytest.raises(backup.BackupError, match=re.escape(NOT_A_MANIFEST)):
         backup.restore(project, tmp_path, (backup.LEDGER,))
 
     assert project.calls == []
