@@ -318,19 +318,21 @@ history; write the commit message well and this file writes itself.
       - a stored row the domain refuses is a logged server fault, not an unlogged 422;
       - budget and scenario reads hold one pooled connection, not two;
       - `Budget` enforces positive limits;
-      - a refused amount at an extreme scale is an `IllegalArgumentException`, not an
-        `OutOfMemoryError`.
+      - a refused amount or growth rate (`GrowthAssumption` too) at an extreme scale is an
+        `IllegalArgumentException`, not an `OutOfMemoryError`.
     - **Assistant:**
       - `Money.of` reads exactly what the ledger's `BigDecimal` reads, pinned by a new `parse`
         group in `contracts/money-vectors.v1.json`;
-      - a `Lot` refuses a quantity that is not finite;
+      - a `Lot` or a disposal (`consume_fifo`) refuses a quantity that is not finite;
       - Host and body-limit refusals log at WARNING, as the ledger's do.
     - **Gateway:**
       - a failed refresh is logged by its OAuth2 error code, with an unusable token endpoint at
         ERROR;
       - a browser gone mid-relay is no longer an ERROR;
       - an origin URL with a query, fragment or user-info is refused at start-up, without being
-        quoted.
+        quoted;
+      - the CSRF cookie's `SameSite` follows the session cookie's property;
+      - a relay's upstream failure lines name the route.
     - **Web:**
       - `ActionPanel` guards its submit with an in-flight ref, and announces an action in
         flight;
@@ -341,9 +343,10 @@ history; write the commit message well and this file writes itself.
     - **Ops:**
       - the Compose check pins the `x-` blocks to ADR-039, holds the `secret-check` gate on both
         databases and Grafana, refuses a mount, config, secret or moved `working_dir` on the Spring
-        services, and requires `-f` on a curl probe;
+        services, and requires a curl probe to run curl directly in exec form with `-f` (a long
+        option's argument does not count);
       - the secret check finds a secret in a UTF-16 file.
-  - **Also fixed:** false comments in every codebase, and a dozen nits.
+  - **Also fixed:** false comments in every codebase, and other nits.
   - **Filed:**
     - [#416](https://github.com/NaimElijah/FinAssist/issues/416): the owner's decision on bounding
       what one projection can compute;
