@@ -352,6 +352,7 @@ class _Project(backup.Compose):
         Empty means the ledger database holds no journal yet.
     :param dumps: what pg_dump writes, by database service.
     :param unreadable: the database services whose read-back of a dump fails.
+    :param unrestorable: the database services whose pg_restore fails.
     :param config: what `docker compose config` answers; a model naming the project when None.
     :param listing: what `docker compose ps --format json` answers for a running service; its
         container when None.
@@ -368,6 +369,7 @@ class _Project(backup.Compose):
         default_factory=lambda: {"db": LEDGER_DUMP, "keycloak-db": KEYCLOAK_DUMP}
     )
     unreadable: frozenset[str] = frozenset()
+    unrestorable: frozenset[str] = frozenset()
     config: bytes | None = None
     listing: bytes | None = None
     accounts: Mapping[str, str] = field(default_factory=dict)
@@ -437,6 +439,10 @@ class _Project(backup.Compose):
             return b""
         if command == backup.RESTORE_COMMAND:
             assert stdin is not None, "pg_restore must read the dump file"
+            if service in self.unrestorable:
+                raise backup.BackupError(
+                    f"{what} failed with exit status 1: pg_restore: error: could not execute query"
+                )
             self.restored.append((service, stdin.read()))
             return b""
         raise AssertionError(f"backup.py ran a command this project does not expect: {command}")
@@ -761,6 +767,29 @@ def Given_restored_books_differing_from_the_digest_When_restored_Then_it_is_refu
 
     with pytest.raises(backup.BackupError, match="do not match the digest the backup recorded"):
         backup.restore(project, _written_backup(tmp_path), (backup.LEDGER,))
+
+
+def Given_differing_books_and_a_failing_keycloak_restore_When_restored_Then_the_books_are_refused(
+    tmp_path: Path,
+) -> None:
+    project = _Project(digests=["b" * 64], unrestorable=frozenset({"keycloak-db"}))
+
+    with pytest.raises(backup.BackupError, match="do not match the digest the backup recorded"):
+        backup.restore(project, _written_backup(tmp_path), backup.DATABASES)
+
+    assert project.restored == [("db", LEDGER_DUMP)]
+
+
+def Given_matching_books_and_a_failing_keycloak_restore_When_restored_Then_the_books_are_compared(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = _Project(unrestorable=frozenset({"keycloak-db"}))
+
+    with pytest.raises(backup.BackupError, match=re.escape("pg_restore of keycloak.dump failed")):
+        backup.restore(project, _written_backup(tmp_path), backup.DATABASES)
+
+    assert project.restored == [("db", LEDGER_DUMP)]
+    assert "the restored books match the digest the backup recorded" in capsys.readouterr().out
 
 
 def Given_a_backup_from_before_the_journal_When_restored_Then_no_digest_is_compared(

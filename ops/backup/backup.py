@@ -670,13 +670,15 @@ def restore(compose: Compose, folder: Path, databases: tuple[Database, ...]) -> 
     - each database is running, and holds no table.
 
     Each restore is one transaction, so a database is left either restored whole or empty. When
-    `databases` holds the ledger, its restored books are then compared with the digest the manifest
-    recorded; a backup taken before the ledger had a journal records none, and is not compared.
+    `databases` holds the ledger, its restored books are compared with the digest the manifest
+    recorded as soon as its restore lands, before the next database is restored, so a later
+    failure cannot leave the books restored but unchecked; a backup taken before the ledger had a
+    journal records none, and is not compared.
 
     :raises BackupError: naming the first precondition that does not hold, a Compose answer that
         is not the JSON it must be, the restore that failed, or the restored books that do not
-        match the recorded digest. A restore that fails after an earlier one landed leaves the
-        earlier database restored.
+        match the recorded digest. A restore that fails, or books that do not match, after an
+        earlier restore landed leave the earlier database restored and the later ones untouched.
     """
     entries = _manifest_entries(folder)
     dumps = {database: _verify(folder, database, entries) for database in databases}
@@ -716,8 +718,8 @@ def restore(compose: Compose, folder: Path, databases: tuple[Database, ...]) -> 
                 stdin=dump,
             )
         _report(f"{path.name}: restored into {database.service}")
-    if LEDGER in databases:
-        _require_books_unchanged(compose, folder)
+        if database == LEDGER:
+            _require_books_unchanged(compose, folder)
 
 
 def _require_books_unchanged(compose: Compose, folder: Path) -> None:

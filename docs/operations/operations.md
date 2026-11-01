@@ -640,8 +640,11 @@ that key `NOT VALID`, so the restore never scans the entries against it, as rest
 alone; the raw form is `--database ledger`.
 
 **A restore that fails after an earlier database landed does not undo it.** With both asked for,
-a failure on the second leaves the first restored. That database now holds tables, so a second
-run for both refuses it: fix the cause, then restore the other with `DATABASE=`.
+the books are restored first and their digest is compared at once, before Keycloak's restore
+starts, so a later failure never leaves them restored but unchecked; books that do not match stop
+the run there, with the identity store untouched. A failure on Keycloak's restore leaves the
+books restored and already checked. That database now holds tables, so a second run for both
+refuses it: fix the cause, then restore the other with `DATABASE=`.
 
 **Emptying a volume is a separate, deliberate step, never part of the restore.** If a volume still
 exists but holds data you mean to replace, remove that database's container and volume yourself,
