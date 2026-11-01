@@ -163,8 +163,10 @@ class Money:
         Text rather than a float literal on purpose: ``Decimal(12.50)`` captures the binary
         approximation of 12.5, which is not 12.50.
 
-        Reads exactly the text the ledger's ``Money.of`` reads, so one amount cannot parse on one
-        side and be refused on the other.
+        Reads exactly the text the ledger's ``Money.of`` reads, and refuses the same scales, so
+        one amount cannot parse on one side and be refused on the other. An amount too large for
+        Java's ``BigInteger``, around 1E+646456993, is still refused by the ledger alone: whether
+        to bound an amount's size is #416's decision.
 
         :raises ValueError: if ``amount`` is not plain decimal text, or names an amount the
             currency cannot represent
@@ -176,8 +178,17 @@ class Money:
         except InvalidOperation as cause:
             # Only an exponent past Decimal's own range gets here, far past a Java int's.
             raise ValueError(f"Amount {amount!r} is not a decimal number") from cause
-        if not _MIN_SCALE <= -int(parsed.as_tuple().exponent) <= _MAX_SCALE:
+        scale = -int(parsed.as_tuple().exponent)
+        if not _MIN_SCALE <= scale <= _MAX_SCALE:
             raise ValueError(f"Amount {amount!r} is not a decimal number: its exponent overflows")
+        if currency.minor_units - scale > _MAX_SCALE:
+            # The ledger's setScale computes this difference as a long and refuses one past an
+            # int, which its Money reports as excess precision. Refused here before the
+            # constructor, which would otherwise write out over two billion digits to accept it.
+            raise ValueError(
+                f"Amount {amount!r} carries more precision than {currency.name} admits "
+                f"({currency.minor_units} decimal places); its exponent overflows a Java int"
+            )
         return cls(parsed, currency)
 
     @classmethod

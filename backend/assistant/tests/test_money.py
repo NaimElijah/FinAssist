@@ -50,6 +50,32 @@ def Given_an_amount_at_a_vast_negative_exponent_When_parsed_Then_it_is_refused_w
     assert len(str(refused.value)) < MESSAGE_BOUND
 
 
+@pytest.mark.parametrize(
+    ("amount", "currency"),
+    [
+        ("1E+2147483647", Currency.USD),
+        ("1E+2147483646", Currency.USD),
+        ("1E+2147483648", Currency.JPY),
+    ],
+    ids=[
+        "exponent-past-a-java-int",
+        "minor-units-past-a-java-int",
+        "zero-decimal-at-the-int-minimum",
+    ],
+)
+def Given_minor_units_overflowing_a_java_int_When_parsed_Then_it_is_refused_for_its_precision(
+    amount: str, currency: Currency
+) -> None:
+    # Each scale fits a Java int, but the ledger's setScale computes the minor units minus the
+    # scale past one and refuses the amount; the shared vectors pin the first case on both sides.
+    # This side accepted all three, by building a coefficient of over two billion digits.
+    with pytest.raises(ValueError, match="more precision") as refused:
+        Money.of(amount, currency)
+
+    assert type(refused.value) is ValueError
+    assert len(str(refused.value)) < MESSAGE_BOUND
+
+
 def Given_a_zero_decimal_currency_When_given_decimals_Then_it_is_rejected() -> None:
     with pytest.raises(ValueError):
         Money.of("100.50", Currency.JPY)
