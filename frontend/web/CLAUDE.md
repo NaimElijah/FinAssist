@@ -167,7 +167,9 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
   considered answer, shown with nothing to press. Every feature renders a failed read through the
   shared `QueryErrorState` from `src/shared/ui`, which renders its `RetryButton`, never a copy of
   its own; moves focus to what a successful retry restores with `useRetryFocus`; and checks a
-  problem's code with `hasProblemCode`, beside `ApiError`.
+  problem's code with `hasProblemCode`, beside `ApiError`. An `ApiBodyError` is thrown only after
+  a 2xx, so `ErrorState` shows it with its own sentence, which never says "Try again": a write it
+  answers was applied, and a resend is a duplicate (ADR-028).
 - **A write control reads `useWriteAccess` before it renders, and the server enforces access
   regardless.** `WriteAccessContext` (`src/shared/lib/writeAccess.ts`) is a UX courtesy alone,
   never a security boundary. `SessionGate` provides it from `writeAccessFor(session.roles)`

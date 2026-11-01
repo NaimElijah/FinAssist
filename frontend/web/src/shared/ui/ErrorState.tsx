@@ -1,6 +1,6 @@
 import type { ReactNode, Ref } from 'react';
 
-import { ApiError, hasProblemCode } from '../api/client';
+import { ApiBodyError, ApiError, hasProblemCode } from '../api/client';
 import styles from './ErrorState.module.css';
 import type { FieldLabelLookup } from './fieldLabels';
 
@@ -10,6 +10,16 @@ import type { FieldLabelLookup } from './fieldLabels';
  */
 const GENERIC_SENTENCE =
     'Something went wrong. Try again, and reload the page if it keeps happening.';
+
+/**
+ * Shown for an `ApiBodyError`, which is thrown only after a 2xx whose body could not be read or
+ * mapped. For a write, the server has applied it, so "Try again" would invite a duplicate that is
+ * permanent in an append-only journal (ADR-028, ADR-067). The same component shows a read's
+ * failure, so the sentence holds for both rather than assume a change was being saved.
+ */
+const BODY_UNREADABLE_SENTENCE =
+    'The server answered, but its answer could not be read. If you were saving a change, it may ' +
+    'have been saved: reload the page to check before sending it again.';
 
 /** ADR-030's problem code for "signed in, but not permitted" - all three services answer it. */
 const FORBIDDEN = 'FORBIDDEN';
@@ -48,7 +58,9 @@ export interface ErrorStateProps {
  * form's own label for the field when `fieldLabel` knows it (WCAG 3.3.1). For anything else -
  * an `ApiError` with no problem, a plain `Error`, a thrown string - shows one generic sentence. A
  * `FORBIDDEN` problem (ADR-030) is a third case, shown with `FORBIDDEN_SENTENCE` rather than
- * either the server's own prose or the generic one, so a viewer is never told what it lacked.
+ * either the server's own prose or the generic one, so a viewer is never told what it lacked. An
+ * `ApiBodyError` is a fourth, shown with `BODY_UNREADABLE_SENTENCE`, which never says "Try again":
+ * the request it answers succeeded.
  * An `action`, when given, follows the message, so a screen can offer a retry without inventing
  * its own error layout.
  *
@@ -61,7 +73,9 @@ export function ErrorState({ error, action, fieldLabel, ref }: ErrorStateProps) 
     const problem = error instanceof ApiError ? error.problem : undefined;
     const message = hasProblemCode(error, FORBIDDEN)
         ? FORBIDDEN_SENTENCE
-        : (problem?.detail ?? problem?.title ?? GENERIC_SENTENCE);
+        : error instanceof ApiBodyError
+          ? BODY_UNREADABLE_SENTENCE
+          : (problem?.detail ?? problem?.title ?? GENERIC_SENTENCE);
     const fieldErrors = problem?.errors ?? [];
 
     return (

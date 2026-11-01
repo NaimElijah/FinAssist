@@ -5,12 +5,16 @@ import { render, screen, within } from '@testing-library/react';
 import { createRef } from 'react';
 import { describe, expect, it } from 'vitest';
 
-import { ApiError, type Problem } from '../api/client';
+import { ApiBodyError, ApiError, type Problem } from '../api/client';
 import { ErrorState } from './ErrorState';
 import { labelsByField } from './fieldLabels';
 
 const GENERIC_SENTENCE =
     'Something went wrong. Try again, and reload the page if it keeps happening.';
+
+const BODY_UNREADABLE_SENTENCE =
+    'The server answered, but its answer could not be read. If you were saving a change, it may ' +
+    'have been saved: reload the page to check before sending it again.';
 
 const URL = '/ledger/api/v1/transactions';
 
@@ -152,6 +156,16 @@ describe('ErrorState', () => {
         expect(screen.getByRole('alert').textContent).toBe(
             "You don't have permission to see this.",
         );
+    });
+
+    it('Given_an_ApiBodyError_When_rendered_Then_it_warns_the_change_may_have_been_saved_and_never_says_try_again', () => {
+        // Thrown only after a 2xx: a write the server applied but whose answer did not map. "Try
+        // again" would invite a duplicate, permanent in an append-only journal (ADR-028).
+        render(<ErrorState error={new ApiBodyError(URL, 'Response body was not valid JSON')} />);
+
+        const alert = screen.getByRole('alert');
+        expect(alert.textContent).toBe(BODY_UNREADABLE_SENTENCE);
+        expect(alert.textContent).not.toMatch(/Try again/);
     });
 
     it('Given_a_plain_Error_When_rendered_Then_the_generic_sentence_is_shown_and_never_its_message_or_stack', () => {
