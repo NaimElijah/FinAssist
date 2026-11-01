@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from finassist_assistant.adapters.auth import DEFAULT_LEEWAY
 from finassist_assistant.marketdata.domain.model import Instrument, Quote, Ticker
 from finassist_assistant.marketdata.domain.normalisation import (
     FUTURE_TOLERANCE,
@@ -132,8 +133,10 @@ def Given_a_quote_dated_within_the_future_tolerance_When_checked_Then_it_is_not_
     assert not is_stale(quote_at(NOON + FUTURE_TOLERANCE), NOON, timedelta(hours=1))
 
 
-def Given_the_future_tolerance_When_read_Then_it_is_the_tokens_clock_skew_leeway() -> None:
-    assert timedelta(seconds=30) == FUTURE_TOLERANCE
+def Given_the_future_tolerance_When_read_Then_it_equals_the_token_verifiers_leeway() -> None:
+    # Compared with the leeway itself, not a copy of its value: the service tolerates one amount of
+    # clock skew, so changing either alone must fail here.
+    assert FUTURE_TOLERANCE == DEFAULT_LEEWAY
 
 
 def Given_a_negative_maximum_age_When_staleness_is_judged_Then_it_is_refused() -> None:
