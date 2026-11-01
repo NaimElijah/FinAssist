@@ -122,8 +122,11 @@ public class KeycloakRegistration {
             @Value("${finassist.oidc.internal-url}") String internalUrl,
             Origin webOrigin,
             @Value("${finassist.oidc.client-secret}") String clientSecret) {
-        return new InMemoryClientRegistrationRepository(
-                keycloak(new Origin(publicUrl), new Origin(internalUrl), webOrigin, clientSecret));
+        return new InMemoryClientRegistrationRepository(keycloak(
+                new Origin(Origin.Setting.GATEWAY_OIDC_PUBLIC_URL, publicUrl),
+                new Origin(Origin.Setting.GATEWAY_OIDC_INTERNAL_URL, internalUrl),
+                webOrigin,
+                clientSecret));
     }
 
     /**

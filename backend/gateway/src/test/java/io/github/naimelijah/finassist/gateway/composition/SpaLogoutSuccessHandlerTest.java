@@ -16,7 +16,7 @@ import org.springframework.security.oauth2.core.AuthorizationGrantType;
  */
 class SpaLogoutSuccessHandlerTest {
 
-    private static final Origin WEB_ORIGIN = new Origin("http://web.example:5173");
+    private static final Origin WEB_ORIGIN = new Origin(Origin.Setting.GATEWAY_PUBLIC_URL, "http://web.example:5173");
 
     @Test
     void Given_no_registration_named_keycloak_When_constructed_Then_it_throws() {

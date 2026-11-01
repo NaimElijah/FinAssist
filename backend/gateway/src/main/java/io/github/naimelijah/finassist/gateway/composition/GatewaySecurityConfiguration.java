@@ -99,7 +99,7 @@ public class GatewaySecurityConfiguration {
      */
     @Bean
     Origin webOrigin(@Value("${finassist.web.public-url}") String publicUrl) {
-        return new Origin(publicUrl);
+        return new Origin(Origin.Setting.GATEWAY_PUBLIC_URL, publicUrl);
     }
 
     /**
