@@ -393,7 +393,8 @@ class Compose:
     def project_name(self) -> str:
         """The project every other call acts on, as Compose itself resolves it.
 
-        :raises BackupError: if Compose resolves no name.
+        :raises BackupError: if `docker compose config` fails or answers anything but a JSON
+            object, as `resolved` refuses it, or resolves no name.
         """
         name = self.resolved().get("name")
         if not isinstance(name, str) or not name:
@@ -447,7 +448,8 @@ class Compose:
     def image_of(self, service: str) -> str:
         """The image `service`'s running container was started from.
 
-        :raises BackupError: if `docker compose ps` lists no container for `service`.
+        :raises BackupError: if `docker compose ps` fails, answers text that is not JSON, lists
+            something that is not a container, or lists no container for `service`.
         """
         listed = self.require(f"inspecting {service}", "ps", "--format", "json", service)
         for container in _containers(listed.decode("utf-8")):
@@ -542,9 +544,9 @@ def backup(compose: Compose, root: Path, now: datetime) -> Path:
     the partial folder is removed.
 
     :return: the new backup folder.
-    :raises BackupError: if a Compose command fails or answers no JSON where it must, a database
-        is not running, a dump is empty or does not read back, or the books change while they are
-        being backed up.
+    :raises BackupError: if a Compose command fails, or answers text that is not JSON or JSON of
+        another shape where it must answer JSON, a database is not running, a dump is empty or
+        does not read back, or the books change while they are being backed up.
     :raises OSError: if `root`, the folder or a file in it cannot be created or written:
         `FileExistsError` when a backup was already taken under `root` in the same second.
     """
@@ -672,9 +674,9 @@ def restore(compose: Compose, folder: Path, databases: tuple[Database, ...]) -> 
     recorded; a backup taken before the ledger had a journal records none, and is not compared.
 
     :raises BackupError: naming the first precondition that does not hold, a Compose answer that
-        is not JSON, the restore that failed, or the restored books that do not match the recorded
-        digest. A restore that fails after an earlier one landed leaves the earlier database
-        restored.
+        is not the JSON it must be, the restore that failed, or the restored books that do not
+        match the recorded digest. A restore that fails after an earlier one landed leaves the
+        earlier database restored.
     """
     entries = _manifest_entries(folder)
     dumps = {database: _verify(folder, database, entries) for database in databases}

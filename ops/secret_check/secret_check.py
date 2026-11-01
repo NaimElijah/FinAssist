@@ -295,6 +295,10 @@ def check(root: Path, environment: Mapping[str, str]) -> Verdict:
 
 
 def _content(root: Path, relative: str) -> bytes:
+    # Wrapped so that an unreadable file stops the check as a SecretCheckError naming it, as
+    # `_walk` names a directory it cannot list. Only the error's type is kept, never its message:
+    # that is text this check did not write, an OSError's repeating the path it failed on and the
+    # platform's wording, and the report quotes nothing it did not compose itself.
     try:
         return _read(root / relative)
     except OSError as error:
