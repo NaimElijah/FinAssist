@@ -81,9 +81,15 @@ From `backend/gateway`:
 - **The catch-all answers a framework refusal at its own status.**
   `GatewayRelayProblems.relayFailed` peels an `ErrorResponse` off first — 405
   `METHOD_NOT_ALLOWED`, with its `Allow` header, and 406 `NOT_ACCEPTABLE`, the only two `GET
-  /bff/me` can provoke — and logs it at WARN, so ERROR still means a true 5xx. A status with no
-  code in that map stays a 500 rather than being passed through under an invented one.
+  /bff/me` can provoke — and logs it at WARN, so ERROR still means a true 5xx, or a token endpoint
+  the gateway cannot use: `invalid_token_response` on a refresh is answered 401 but logged at ERROR
+  in a message of its own, the outage the resource servers log for an unusable key source. A status
+  with no code in that map stays a 500 rather than being passed through under an invented one.
   `GatewaySecurityTest` and `GatewayRelayProblemsTest` fail the build if either half is lost.
+- **`OAuth2ErrorVocabulary` is the one list of OAuth2 error codes a log line may carry**, shared by
+  `SignInFailureHandler` and `GatewayRelayProblems`: both log a failure by its code alone, and any
+  code outside the list is logged as `unrecognised`, never as the sender chose it, since a
+  provider's error response reaches the callback and a refresh unchanged.
 - **A relay's read timeout is 504 `UPSTREAM_TIMEOUT`; a connection never opened is 502
   `UPSTREAM_UNAVAILABLE`** (ADR-067). The request was sent, so its outcome is unknown, and a 502's
   "could not be reached" would invite a resend the append-only journal keeps.
