@@ -131,9 +131,11 @@ function parseCount(value: string, field: CountField): number {
  * Map the plan-flow form's raw recurrence fields to the `Recurrence` the ledger expects, omitting
  * whichever members `kind` does not carry.
  *
- * `interval` and `count` are parsed as counts rather than money (ADR-029); native `required` and
- * a digit `pattern` on both fields (see `PlanFlowForm`) keep an unparsable string from reaching
- * here through the UI, and this refuses one that arrives another way.
+ * `interval` and `count` are parsed as counts rather than money (ADR-029), each a positive safe
+ * integer. Native `required` and a digit `pattern` on both fields (see `PlanFlowForm`) keep an
+ * unparsable string from reaching here through the UI, but a count past
+ * `Number.MAX_SAFE_INTEGER` matches the pattern, so this alone refuses it, as it refuses a bad
+ * count that arrives another way.
  *
  * @param form - the form's current recurrence fields.
  * @returns the mapped `Recurrence`, holding exactly the members its `kind` carries.
