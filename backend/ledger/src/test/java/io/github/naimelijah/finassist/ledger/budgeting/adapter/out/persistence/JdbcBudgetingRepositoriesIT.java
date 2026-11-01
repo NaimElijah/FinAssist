@@ -3,6 +3,7 @@ package io.github.naimelijah.finassist.ledger.budgeting.adapter.out.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.zaxxer.hikari.HikariDataSource;
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.BudgetRepository;
 import io.github.naimelijah.finassist.ledger.budgeting.application.port.out.CategorisationRuleRepository;
@@ -21,6 +22,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * What budgeting's two repositories promise, asserted against the store.
@@ -256,6 +258,24 @@ class JdbcBudgetingRepositoriesIT extends PostgresFixture {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("budgeting.categorisation_rule")
                 .hasNoCause();
+    }
+
+    /**
+     * A budget's limits are a second query. Run while the budgets' own result set is still open, it
+     * borrows a second connection outside a transaction, so concurrent reads as many as the pool can
+     * hold each wait for one that never frees. Proven against a pool of one, where such a read fails.
+     */
+    @Test
+    void Given_a_pool_of_one_connection_When_budgets_are_read_Then_each_read_needs_only_that_one() {
+        Budget budget = Budget.of(MARCH, Currency.ILS, List.of(new CategoryLimit(GROCERIES, ils("1200.00"))));
+        budgets.save(budget);
+
+        try (HikariDataSource pool = poolOfOne()) {
+            BudgetRepository onOneConnection = new JdbcBudgetRepository(JdbcClient.create(pool));
+
+            assertThat(onOneConnection.findById(budget.id())).contains(budget);
+            assertThat(onOneConnection.all()).containsExactly(budget);
+        }
     }
 
     /** An ILS budget for March with no limits yet, written past the aggregate so a test can add a bad one. */

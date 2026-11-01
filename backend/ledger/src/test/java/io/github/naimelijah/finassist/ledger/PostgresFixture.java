@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger;
 
+import com.zaxxer.hikari.HikariDataSource;
 import java.time.Clock;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -32,6 +33,12 @@ public abstract class PostgresFixture {
      * static initialiser rather than through {@code @Container}, which would start one per class.
      */
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18.6-trixie");
+
+    /**
+     * The shortest wait HikariCP accepts for a connection, so a read that needs a second connection
+     * from {@link #poolOfOne} fails in a quarter of a second rather than Hikari's default thirty.
+     */
+    private static final long POOL_OF_ONE_TIMEOUT_MILLIS = 250;
 
     static {
         POSTGRES.start();
@@ -166,6 +173,23 @@ public abstract class PostgresFixture {
                 new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         source.setDriverClassName(POSTGRES.getDriverClassName());
         return JdbcClient.create(source);
+    }
+
+    /**
+     * A pool that holds one connection to the same database, for proving that a read never holds one
+     * connection while it borrows another. Such a read waits {@link #POOL_OF_ONE_TIMEOUT_MILLIS} for a
+     * second connection that cannot come, then fails; under the production pool, once every connection
+     * is held by a read waiting for another, all of them stall until the pool's connection timeout. The
+     * caller closes the pool.
+     */
+    protected static HikariDataSource poolOfOne() {
+        HikariDataSource pool = new HikariDataSource();
+        pool.setJdbcUrl(POSTGRES.getJdbcUrl());
+        pool.setUsername(POSTGRES.getUsername());
+        pool.setPassword(POSTGRES.getPassword());
+        pool.setMaximumPoolSize(1);
+        pool.setConnectionTimeout(POOL_OF_ONE_TIMEOUT_MILLIS);
+        return pool;
     }
 
     /**

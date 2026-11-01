@@ -6,6 +6,7 @@ import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Scenario;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.ScenarioId;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlannedFlow;
 import io.github.naimelijah.finassist.ledger.shared.Currency;
+import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
@@ -69,8 +70,9 @@ public class JdbcScenarioRepository implements ScenarioRepository {
         Objects.requireNonNull(id, "id");
         return jdbc.sql(SELECT_SCENARIO)
                 .param("id", id.value())
-                .query(this::toScenario)
-                .optional();
+                .query(JdbcScenarioRepository::toScenarioRow)
+                .optional()
+                .map(this::toScenario);
     }
 
     /**
@@ -82,7 +84,9 @@ public class JdbcScenarioRepository implements ScenarioRepository {
      */
     @Override
     public List<Scenario> all() {
-        return jdbc.sql(SELECT_ALL_SCENARIOS).query(this::toScenario).list();
+        return jdbc.sql(SELECT_ALL_SCENARIOS).query(JdbcScenarioRepository::toScenarioRow).list().stream()
+                .map(this::toScenario)
+                .toList();
     }
 
     /**
@@ -133,19 +137,31 @@ public class JdbcScenarioRepository implements ScenarioRepository {
      * that only Java counts as blank; a stored scenario it refuses is a server fault naming the scenario
      * rather than a rule a caller broke.
      */
-    private Scenario toScenario(ResultSet row, int rowNumber) throws SQLException {
-        ScenarioId id = new ScenarioId(row.getObject("id", UUID.class));
-        String name = row.getString("name");
-        Currency currency = PlanningRows.currency(row, SCENARIO_TABLE, "currency");
-        List<PlannedFlow> flows = flowsOf(id);
+    private Scenario toScenario(ScenarioRow row) {
+        List<PlannedFlow> flows = flowsOf(row.id());
         try {
             // The constructor re-applies stripTrailingZeros, so a rate stored as 100 and read back at
             // scale 0 normalises to the same value the caller wrote.
-            GrowthAssumption growth = new GrowthAssumption(row.getBigDecimal("growth_per_step"));
-            return new Scenario(id, name, currency, flows, growth);
+            GrowthAssumption growth = new GrowthAssumption(row.growthPerStep());
+            return new Scenario(row.id(), row.name(), row.currency(), flows, growth);
         } catch (IllegalArgumentException refused) {
             throw PlanningRows.unreconstructable(
-                    "scenario", id.value(), SCENARIO_TABLE + " and " + SCENARIO_FLOW_TABLE);
+                    "scenario", row.id().value(), SCENARIO_TABLE + " and " + SCENARIO_FLOW_TABLE);
         }
     }
+
+    private static ScenarioRow toScenarioRow(ResultSet row, int rowNumber) throws SQLException {
+        return new ScenarioRow(
+                new ScenarioId(row.getObject("id", UUID.class)),
+                row.getString("name"),
+                PlanningRows.currency(row, SCENARIO_TABLE, "currency"),
+                row.getBigDecimal("growth_per_step"));
+    }
+
+    /**
+     * A scenario's own columns, read whole before its flows are queried, for the reason {@code
+     * JdbcBudgetRepository}'s {@code BudgetRow} gives: a query for the flows from inside the row mapper
+     * would hold one pooled connection while borrowing a second.
+     */
+    private record ScenarioRow(ScenarioId id, String name, Currency currency, BigDecimal growthPerStep) {}
 }
