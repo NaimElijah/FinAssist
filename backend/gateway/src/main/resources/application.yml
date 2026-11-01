@@ -114,14 +114,16 @@ spring:
                 - RemoveRequestHeader=X-FINASSIST-XSRF-TOKEN
                 # Authorization is removed rather than left to be overwritten. TokenRelay's
                 # setBearerAuth replaces, so a browser-supplied header is overwritten whenever a
-                # token is relayed. A session holding no authorized client never gets that far: the
+                # token is relayed. The filter passes the request on unmodified in two cases (read
+                # from the 5.0.4 bytecode): when it resolves no registration id, because the
+                # principal is not an OAuth2AuthenticationToken, and when the authorized-client
+                # manager returns no client. Neither happens on these routes: this chain signs in
+                # by oauth2Login alone, and for a session holding no authorized client the
                 # authorization_code provider KeycloakRegistration configures throws
-                # ClientAuthorizationRequiredException, answered 401 by GatewayRelayProblems. The
-                # filter passes the request on unmodified only for a principal that is not an
-                # OAuth2AuthenticationToken (read from the 5.0.4 bytecode), which this chain, signing
-                # in by oauth2Login alone, never lets reach the route. Removing the header is
-                # defence in depth: the guarantee stays this gateway's, not a consequence of that
-                # chain or of a library's choice of `set` over `add`.
+                # ClientAuthorizationRequiredException, answered 401 by GatewayRelayProblems,
+                # rather than returning none. Removing the header is defence in depth: the
+                # guarantee stays this gateway's, not a consequence of that chain or of a
+                # library's choice of `set` over `add`.
                 - RemoveRequestHeader=Authorization
                 # The hop-by-hop filter Spring Cloud Gateway runs on every relay strips Upgrade and
                 # Connection but not HTTP2-Settings (its removal set omits it, read from the 5.0.4
