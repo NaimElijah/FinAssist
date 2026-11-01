@@ -72,6 +72,13 @@ describe('DateText', () => {
         });
     }
 
+    it('Given_a_date_in_year_26_When_rendered_Then_it_shows_year_26', () => {
+        const time = renderedTime(DateText, '0026-09-01');
+
+        expect(time.textContent).toBe('1 Sept 26');
+        expect(time.dateTime).toBe('0026-09-01');
+    });
+
     it('Given_a_date_that_does_not_exist_When_rendered_Then_it_throws', () => {
         // Date.UTC would silently roll 30 February over into 2 March.
         vi.spyOn(console, 'error').mockImplementation(() => undefined);

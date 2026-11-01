@@ -14,6 +14,19 @@ describe('formatCalendarDate', () => {
         );
     });
 
+    // Date.UTC reads a year from 0 to 99 as 1900 to 1999, so a two-digit year must reach the
+    // formatter as itself; the ledger accepts every year from 1, and a date input yields 0026 from
+    // a typed "26".
+    for (const [value, shown] of [
+        ['0026-09-01', '1 Sept 26'],
+        ['0099-12-31', '31 Dec 99'],
+        ['0001-01-01', '1 Jan 1'],
+    ] as const) {
+        it(`Given_year_${value.slice(0, 4)}_When_${value}_is_formatted_Then_it_shows_that_year_not_a_1900s_one`, () => {
+            expect(formatCalendarDate(value)).toBe(shown);
+        });
+    }
+
     it('Given_a_day_that_does_not_exist_When_formatted_Then_the_error_names_this_function_and_never_the_value', () => {
         // Matched whole, so the value - which a render error's message can carry into the logs -
         // is shown to be left out.

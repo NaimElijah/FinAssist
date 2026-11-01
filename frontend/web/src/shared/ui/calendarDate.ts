@@ -35,9 +35,13 @@ export function formatCalendarDate(value: string): string {
     const monthIndex = Number(match[2]) - 1;
     const day = Number(match[3]);
 
-    const instant = new Date(Date.UTC(year, monthIndex, day));
-    // Date.UTC rolls an impossible day into the next month instead of failing; a round trip that
-    // changes any part means the input named no real day.
+    // The year is set on its own, never through `Date.UTC`, which reads a year from 0 to 99 as
+    // 1900 to 1999: the ledger accepts every year from 1, and a date input yields 0026 from a
+    // typed "26".
+    const instant = new Date(0);
+    instant.setUTCFullYear(year, monthIndex, day);
+    // setUTCFullYear rolls an impossible day into the next month instead of failing; a round trip
+    // that changes any part means the input named no real day.
     if (
         instant.getUTCFullYear() !== year ||
         instant.getUTCMonth() !== monthIndex ||
