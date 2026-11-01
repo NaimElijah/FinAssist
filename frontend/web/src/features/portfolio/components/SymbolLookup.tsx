@@ -16,11 +16,14 @@ import styles from './SymbolLookup.module.css';
 const SYMBOL_PATTERN = '(?!\\s*\\.{1,2}\\s*$).*\\S.*';
 
 /**
- * What the Symbol field takes. The pattern asks only for something not blank and not a dot
- * segment; the assistant upper-cases a symbol, so `vwce` and `VWCE` name one holding and the case
- * typed does not matter.
+ * What the Symbol field takes and refuses. The pattern asks only for something not blank and not
+ * a dot segment; the assistant upper-cases a symbol, so `vwce` and `VWCE` name one holding and the
+ * case typed does not matter. The browser's own message for a pattern mismatch does not say which
+ * rule failed, so the dot segment is named here - in words, since a screen reader skips
+ * punctuation at its default verbosity and would read "a lone . or .." as "a lone or".
  */
-const SYMBOL_HINT = 'A ticker, in any letter case, for example VWCE';
+const SYMBOL_HINT =
+    'A ticker, in any letter case, for example VWCE; a lone dot or two dots is not a ticker';
 
 /** What the lookup's section is called. */
 export interface SymbolLookupProps {
