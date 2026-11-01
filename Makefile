@@ -81,7 +81,7 @@ stop: ## Stop the stack, keeping volumes
 stop-monitoring: ## Stop the monitoring profile too, keeping volumes
 	docker compose --profile monitoring down
 
-test: test-ledger test-gateway test-assistant test-backup test-secret-check test-compose-check test-web ## Every test, with coverage. CI also gates lint, build and audit
+test: test-ledger test-gateway test-assistant test-backup test-secret-check test-compose-check test-web ## Every test; the ledger, gateway, assistant and web suites also measure coverage. CI also gates lint, build and audit
 
 test-ledger:
 	cd $(LEDGER) && $(MVNW) verify

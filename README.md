@@ -38,7 +38,8 @@ under Docker Compose, with each published port bound to `127.0.0.1`.
 [Tech stack](#tech-stack) · [Quick start](#quick-start) · [Configuration](#configuration) ·
 [Usage](#usage) · [Development](#development) · [Testing](#testing) ·
 [Operations](#deployment-and-operations) · [Project structure](#project-structure) ·
-[Design decisions](#design-decisions) · [Status](#status-and-limitations)
+[Design decisions](#design-decisions) · [Status](#status-and-limitations) ·
+[Contributing and licence](#contributing-and-licence)
 
 ## What and why
 
@@ -303,7 +304,7 @@ local development only.
 | `ASSISTANT_OIDC_JWKS_URI` | Where the assistant fetches signing keys, service-to-service. Compose overrides this with the internal address, `http://keycloak:8080/realms/finassist/protocol/openid-connect/certs`; this default targets a native run against Keycloak's own published port. Also refused at start-up unless it is an http(s) URL | `http://localhost:8081/realms/finassist/protocol/openid-connect/certs` | No |
 | `ASSISTANT_LOG_LEVEL` | Threshold for the assistant's structured logger; one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` | No |
 | `ASSISTANT_SERVICE_NAME` | The `service.name` on the assistant's exported traces, also named in its start-up log line. Keep it apart from the ledger's and the gateway's, or the collector merges two services into one stream. Read by a natively run assistant; Compose does not pass it | `finassist-assistant` | No |
-| `LEDGER_BASE_URL` | Where the assistant reaches the ledger | `http://ledger:8080` | No |
+| `LEDGER_BASE_URL` | Where the assistant will reach the ledger once it has an HTTP client ([#62](https://github.com/NaimElijah/FinAssist/issues/62)). Nothing reads it yet, and Compose does not pass it; it is kept ahead of that client | `http://ledger:8080` | No |
 | `ANTHROPIC_API_KEY` | The LLM behind the assistant | none | No — the assistant only registers it for redaction, and nothing uses it until an LLM adapter is wired, which waits on the privacy question |
 | `ASSISTANT_DEV_SEED` | Loads a small set of fictional holdings and quotes at start-up, so the portfolio screens have something to show by hand. Invented data, never meant for real use | `false` | No |
 | `POSTGRES_DB` | Database name | `finassist` | No |
@@ -423,8 +424,9 @@ cd backend/gateway && ./mvnw spring-boot:run
 
 The everyday commands. CI calls the per-codebase targets behind them (`make test-ledger`,
 `make lint-web` and the rest), so a local run and a CI job cannot drift apart. The CI steps
-with no target are the `.env` seeding and the published-secret refusal that follows it, which
-starts containers under the default Compose project name ([ADR-049](docs/ADRs/ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md)):
+with no target are the dependency installs (`uv sync --locked --extra dev` and `npm ci`), the
+`.env` seeding and the published-secret refusal that follows it, which starts containers under
+the default Compose project name ([ADR-049](docs/ADRs/ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md)):
 
 ```bash
 make setup     # .env from the example, Maven and npm dependencies, the assistant's locked venv
@@ -524,7 +526,7 @@ take each bump in one PR, and Temurin and Python stay on 21 and 3.13 until an AD
 | Assistant | Source-parsing architecture rules; FIFO cost basis, grounding, staleness and Money, with Hypothesis; token verification and authorization, including a removed key, an outage past the key set's lifespan and the fetch backoff, and every route of every type declaring a permission; the 64 KiB body limit; the bounded `h11` header block, no WebSocket upgrade, no proxy or `server` header, and a registered secret scrubbed from a log line; Money past a million digits; the problem shape; the OpenAPI contract | `make test-assistant` |
 | Backup CLI | Redaction, the manifest checks, every restore precondition, a backup's refusals, the command line and the owner-project guard, without Docker | `make test-backup` |
 | Secret check | It reads exactly the files git does not ignore, matches a value literally, in UTF-8 only as a whole token and in UTF-16 anywhere, refuses a value shorter than 32 characters, and refuses by variable name, never by value | `make test-secret-check` |
-| Compose check | Each restart, log-bound and readiness rule fails on a crafted resolved file, a missing `x-` block fails, an `x-restart-policy` or `x-logging` block changed from ADR-039's values fails by block even when every service follows it, a published port not bound to exactly `127.0.0.1`, a port on `keycloak-db`, `auth-smoke` outside exactly the `smoke` profile, `secret-check` behind any profile, a `db`, `keycloak-db` or `grafana` that does not wait on `secret-check` to complete successfully, a service missing the `x-hardened` block or a read-only root, a new service included, any service taking `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts`, `devices`, a root `user` or a bind of a file named `docker.sock`, an `entrypoint` on Prometheus, a database network shared beyond its one client, under any key that resolves to it, or declared `external`, an `identity` network that is not `internal`, a `network_mode` on any service but `secret-check` or anything but `none` on it, and Prometheus's `command` without exactly `--web.cors.origin=` each fail, an Actuator-exposure key in the ledger's or the gateway's environment fails, as does a volume or bind mount, `volumes_from`, config, secret or `working_dir` on either, a readiness probe that runs `curl` other than directly in exec form with `-f`, `--fail` or `--fail-with-body` fails, a `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key on the gateway fails in any spelling, input that is not a resolved file exits 2, the script run as a process exits 0, 1 and 2 as `make check-compose` reads them, and no report quotes a resolved value | `make test-compose-check` |
+| Compose check | Each restart, log-bound and readiness rule fails on a crafted resolved file, a missing `x-` block fails, an `x-restart-policy` or `x-logging` block changed from ADR-039's values fails by block even when every service follows it, a published port not bound to exactly `127.0.0.1`, a port on `keycloak-db`, `auth-smoke` outside exactly the `smoke` profile, `secret-check` behind any profile, a `db`, `keycloak-db` or `grafana` that does not wait on `secret-check` to complete successfully, a service missing the `x-hardened` block or a read-only root, a new service included, any service taking `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts`, `devices`, a root `user` or a bind of a file named `docker.sock`, an `entrypoint` on Prometheus, a database network shared beyond its one client, under any key that resolves to it, or declared `external`, an `identity` network that is not `internal`, a `network_mode` on any service but `secret-check` or anything but `none` on it, and Prometheus's `command` without exactly `--web.cors.origin=` each fail, an Actuator-exposure key or a JVM-options key (`JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS`) in the ledger's or the gateway's environment fails, as does a `command` or `entrypoint`, a volume or bind mount, `volumes_from`, config, secret or `working_dir` on either, a readiness probe that runs `curl` other than directly in exec form with `-f`, `--fail` or `--fail-with-body` fails, a `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key on the gateway fails in any spelling, input that is not a resolved file exits 2, the script run as a process exits 0, 1 and 2 as `make check-compose` reads them, and no report quotes a resolved value | `make test-compose-check` |
 | Web | The file-tree architecture rules; the shared primitives; the sign-in gate; the read-only viewer; every screen end to end against a faked `fetch` | `make test-web` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
 
@@ -550,11 +552,12 @@ a device, root, a bind of a file named `docker.sock`), a database network shared
 client under any key or declared `external`, an `identity` network that is not `internal`, a
 `network_mode` that shares the host's or another container's network, a Prometheus that grants
 another origin a cross-origin read or takes an `entrypoint`, an environment key that reopens the
-ledger's or the gateway's Actuator exposure or lowers the gateway's log level, or a mount, config,
-secret, `volumes_from` or `working_dir` on the ledger or the gateway. The compose job also runs
-`secret-check` against a published value, and requires it to refuse all eight secrets by name and
-keep `db` from starting; that step, with the `.env` seeding it needs, stays inline in `ci.yml`
-because it starts containers under the default Compose project name
+ledger's or the gateway's Actuator exposure or lowers the gateway's log level, a JVM-options key
+(`JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS`) in either's environment, or a `command`,
+`entrypoint`, mount, config, secret, `volumes_from` or `working_dir` on the ledger or the gateway.
+The compose job also runs `secret-check` against a published value, and requires it to refuse all
+eight secrets by name and keep `db` from starting; that step, with the `.env` seeding it needs,
+stays inline in `ci.yml` because it starts containers under the default Compose project name
 ([ADR-049](docs/ADRs/ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md)). No CI job starts
 the rest of the Compose stack. The branch rules on `main` and `dev` require a pull request but no
 status check, so a green run before merging is practice, not enforcement

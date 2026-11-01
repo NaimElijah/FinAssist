@@ -216,11 +216,13 @@ bounded context (ADR-006, ADR-024).
 
 ## Security
 
-- **Every request needs a valid bearer token, and access is denied by default** (ADR-030).
-  `LedgerSecurityConfiguration` builds the chain. `LedgerAuthorizationIT` checks it against an
-  explicit, named inventory of every endpoint the running server answers to — plus springdoc's own
-  and the container's error forward — so an endpoint added without a matching URL rule fails the
-  build rather than shipping open.
+- **Every `/api/v1` request needs a valid bearer token, and access is denied by default**
+  (ADR-030). Only `/actuator/health/**`, `/actuator/info`, `/actuator/prometheus`,
+  `/actuator/metrics/**`, `/v3/api-docs` and `/v3/api-docs.yaml` are public; any route the chain
+  does not name is refused. `LedgerSecurityConfiguration` builds the chain. `LedgerAuthorizationIT`
+  checks it against an explicit, named inventory of every endpoint the running server answers to —
+  plus springdoc's own and the container's error forward — so an endpoint added without a matching
+  URL rule fails the build rather than shipping open.
 - **A key-source outage is told apart where it is raised, never by an exception's message** (the
   root's WARN-versus-ERROR rule, ADR-037). `ProblemAuthenticationEntryPoint.reportOutage` logs the
   outage, and `EmptyKeySetIsAnOutage` checks for an empty set only once no key matched. Pinned by
