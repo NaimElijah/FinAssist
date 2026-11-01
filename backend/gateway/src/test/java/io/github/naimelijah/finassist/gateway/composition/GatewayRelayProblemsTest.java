@@ -261,7 +261,7 @@ class GatewayRelayProblemsTest {
      */
     @Test
     void
-            Given_a_client_that_disconnected_mid_relay_When_the_failed_write_is_resolved_Then_nothing_is_written_and_nothing_above_debug_is_logged() {
+            Given_a_client_that_disconnected_mid_relay_When_the_failed_write_is_resolved_Then_nothing_is_written_and_one_debug_line_is_logged() {
         AsyncRequestNotUsableException clientGone = new AsyncRequestNotUsableException(
                 "ServletOutputStream failed to write: java.io.IOException: Broken pipe",
                 new IOException("Broken pipe"));
