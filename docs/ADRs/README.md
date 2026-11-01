@@ -44,7 +44,7 @@ append-only history: to change course, add a new record and mark the old one
 | [036](ADR-036-least-privilege-keycloak-client-scoping.md) | Deny each Keycloak client the realm's full scope | Accepted |
 | [037](ADR-037-an-unusable-key-set-is-an-outage.md) | A key set that cannot be read, or holds no key, is an outage, on both services | Accepted, extended by 059 |
 | [038](ADR-038-back-up-each-database-as-a-logical-dump.md) | Back up each database as its own logical dump, on demand, proven by an isolated restore check | Accepted |
-| [039](ADR-039-compose-restarts-services-and-bounds-their-logs.md) | Compose restarts a crashed service, and keeps at most 30 MB of each container's logs | Accepted, extended by 044 |
+| [039](ADR-039-compose-restarts-services-and-bounds-their-logs.md) | Compose restarts a crashed service, and keeps at most 30 MB of each container's logs | Accepted, extended by 044 and 070 |
 | [040](ADR-040-the-smoke-check-trigger-fired.md) | ADR-034's first trigger fired: the smoke check stays manual, and CI starts the packaged gateway | Accepted |
 | [041](ADR-041-consume-fifo-orders-its-own-lots.md) | `consume_fifo` orders its own lots, oldest first | Accepted |
 | [042](ADR-042-agent-instructions-per-codebase.md) | Agent instructions split per codebase, one `CLAUDE.md` beside each | Accepted |
@@ -72,9 +72,10 @@ append-only history: to change course, add a new record and mark the old one
 | [064](ADR-064-what-the-build-fetches-is-pinned-by-content.md) | What the build fetches is pinned by content where the tool allows it, and Dependabot moves every pin | Accepted |
 | [065](ADR-065-javac-lint-is-the-java-lint-gate.md) | javac's own lint, every category, is the Java services' lint gate | Accepted |
 | [066](ADR-066-the-store-holds-every-rule-the-domain-holds-across-rows.md) | The ledger's store holds every rule the domain holds across rows | Accepted |
-| [067](ADR-067-a-relay-that-times-out-answers-504-outcome-unknown.md) | A relay that times out answers 504, outcome unknown | Accepted |
+| [067](ADR-067-a-relay-that-times-out-answers-504-outcome-unknown.md) | A relay that times out answers 504, outcome unknown | Accepted, extended by 070 |
 | [068](ADR-068-every-problem-carries-what-its-contract-requires.md) | Every problem carries what its contract requires | Accepted |
 | [069](ADR-069-the-web-client-targets-wcag-2-2-aa-and-holds-it-with-tests.md) | The web client targets WCAG 2.2 AA and holds it with tests | Accepted |
+| [070](ADR-070-a-stopping-service-gets-30-seconds-and-the-ledger-waits-5-for-a-connection.md) | A stopping service gets 30 seconds, and the ledger waits 5 seconds for a connection | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -384,3 +385,13 @@ name, description and focus, and by `tests/contrast.test.ts`, which reads the st
 append-only books awaits the owner ([#411](https://github.com/NaimElijah/FinAssist/issues/411)),
 and #412, #413 and a manual screen-reader pass are known gaps
 ([#345](https://github.com/NaimElijah/FinAssist/issues/345)).
+
+070 extends 039 and 067 on 2026-11-02. Scan 12 measured Compose killing every service about 3
+seconds after `SIGTERM`, the ledger needing 27.7 seconds to drain one request in flight, and the
+ledger waiting up to 30 seconds for a database connection after the gateway had already answered
+504 "outcome unknown". Every long-running service now has a 30 second `stop_grace_period` from one
+`x-` block, which `make check-compose` pins; the ledger and the gateway end their own shutdown at
+20 seconds; and the ledger waits 5 seconds for a connection, below the gateway's 10 second read
+timeout. A running statement stays unbounded until
+[#430](https://github.com/NaimElijah/FinAssist/issues/430) sizes `statement_timeout`
+([#349](https://github.com/NaimElijah/FinAssist/issues/349)).

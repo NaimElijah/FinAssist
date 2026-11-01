@@ -1,6 +1,7 @@
 # ADR-067: A relay that times out answers 504, outcome unknown
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-070](ADR-070-a-stopping-service-gets-30-seconds-and-the-ledger-waits-5-for-a-connection.md)
 - **Date:** 2026-10-31
 
 Extends [ADR-053](ADR-053-the-gateways-outbound-calls-speak-http-1-1-under-one-time-budget.md),
