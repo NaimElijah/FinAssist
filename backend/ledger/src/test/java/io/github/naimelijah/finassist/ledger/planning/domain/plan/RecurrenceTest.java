@@ -66,7 +66,19 @@ class RecurrenceTest {
         Recurrence monthly = new Recurrence.Times(Cadence.MONTHLY, 1, 12);
         LocalDate midFebruary = LocalDate.of(2026, 2, 15);
 
-        assertThat(monthly.occurrences(midFebruary, midFebruary, NEXT_JANUARY)).contains(LocalDate.of(2026, 12, 15));
+        assertThat(monthly.occurrences(midFebruary, midFebruary, NEXT_JANUARY))
+                .containsExactly(
+                        midFebruary,
+                        LocalDate.of(2026, 3, 15),
+                        LocalDate.of(2026, 4, 15),
+                        LocalDate.of(2026, 5, 15),
+                        LocalDate.of(2026, 6, 15),
+                        LocalDate.of(2026, 7, 15),
+                        LocalDate.of(2026, 8, 15),
+                        LocalDate.of(2026, 9, 15),
+                        LocalDate.of(2026, 10, 15),
+                        LocalDate.of(2026, 11, 15),
+                        LocalDate.of(2026, 12, 15));
     }
 
     /**
