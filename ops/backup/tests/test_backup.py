@@ -288,6 +288,27 @@ def Given_the_check_project_When_isolated_Then_every_command_names_it_on_the_che
     assert ports == dict(backup.CHECK_PORTS)
 
 
+def Given_a_compose_command_When_required_Then_progress_is_quiet_so_its_error_comes_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ran: list[list[str]] = []
+
+    def docker_not_run(command: list[str], **options: object) -> subprocess.CompletedProcess[bytes]:
+        ran.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
+
+    # `_withheld` keeps stderr's first line, and `up` otherwise writes "Network ... Creating"
+    # there and its error last. `--progress` is a global option, so it must precede the command.
+    monkeypatch.setattr(subprocess, "run", docker_not_run)
+
+    backup.Compose(project=PROJECT_NAME).require("starting db", "up", "-d", "db")
+
+    [command] = ran
+    progress = command.index("--progress")
+    assert command[progress + 1] == "quiet"
+    assert progress < command.index("up")
+
+
 # --- check reads the backup before it starts any container -------------------------------------
 
 

@@ -46,6 +46,9 @@ from typing import IO, Final
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 COMPOSE_FILE: Final = REPO_ROOT / "docker-compose.yml"
+# Compose's global option, so it precedes every subcommand. Without it, `up` writes its progress
+# ("Network ... Creating") to stderr before its error, and `_withheld` reports only the first line.
+QUIET_PROGRESS: Final = ("--progress", "quiet")
 
 # Where a backup goes unless BACKUP_DIR says otherwise. `/backups/` is git-ignored, and the owner
 # chose this place on 2026-10-13 (ADR-038). It sits on the same disk as the Docker volumes.
@@ -309,7 +312,7 @@ class Compose:
     environment: tuple[tuple[str, str], ...] = ()
 
     def _command(self, *args: str) -> list[str]:
-        command = ["docker", "compose", "-f", str(COMPOSE_FILE)]
+        command = ["docker", "compose", *QUIET_PROGRESS, "-f", str(COMPOSE_FILE)]
         if self.project is not None:
             command += ["-p", self.project]
         return [*command, *args]
