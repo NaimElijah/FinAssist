@@ -459,9 +459,10 @@ mounted afresh for each failure so a repeated one is announced again, and moves 
 its own request without checking the session first, so `queryClient.ts`'s `QueryCache` and
 `MutationCache` both invalidate `sessionKeys.me` when any of them answers 401 - except the session
 check's own 401, which is excluded deliberately: invalidating there would refetch it, which would
-401 again, an infinite loop for what is already the ordinary signed-out state. The next render of
-`SessionGate` then reads that invalidated session as failed and shows `SignIn` again, without a
-poll of its own.
+401 again, an infinite loop for what is already the ordinary signed-out state. A recheck already
+in flight is joined rather than restarted (`cancelRefetch: false`), so a screen of queries failing
+together sends one `GET /bff/me`. The next render of `SessionGate` then reads that invalidated
+session as failed and shows `SignIn` again, without a poll of its own.
 
 **Signing in, at the gateway and Keycloak (ADR-030, ADR-031).** The browser navigates to
 `/bff/oauth2/authorization/keycloak` on the Vite origin, and the dev proxy forwards it to the
