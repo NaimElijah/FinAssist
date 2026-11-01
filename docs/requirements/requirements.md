@@ -119,9 +119,9 @@ Holdings are tracked as **lots with a FIFO cost basis**
 - Read realised gain on a sale, and unrealised gain and market value at a given unit price.
   `realised_gain`, `unrealised_gain`, `market_value`. The valuation is reachable over HTTP as
   `GET /api/v1/portfolio/holdings/{symbol}/valuation`; `test_portfolio_api.py`
-- Judge whether a market quote is too old to use, against a supplied clock. `is_stale`;
-  `LatestQuote`, `test_marketdata_usecases.py`, which refuses a stale quote rather than
-  returning one a caller has to remember to check.
+- Judge whether a market quote is too old to use, or dated too far ahead to trust, against a
+  supplied clock. `is_stale`, `FUTURE_TOLERANCE`; `LatestQuote`, `test_marketdata_usecases.py`,
+  which refuses a stale quote rather than returning one a caller has to remember to check.
 
 **Not yet decided:** where prices come from. The `marketdata` context has the shape a feed must
 be translated into and no client behind it. An opt-in development seed
