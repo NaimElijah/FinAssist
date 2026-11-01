@@ -126,8 +126,11 @@ class Money:
 
     The Java counterpart is ``ledger.shared.Money``, and ``tests/test_money.py`` mirrors
     ``MoneyTest.java``. The two answer alike except where Java needs a power of ten past its
-    ``BigInteger`` range: an amount that large (:meth:`of`), or a product whose rounding needs
-    one (:meth:`times_rounded`), is refused by the ledger alone, a known gap tracked by #416.
+    ``BigInteger`` range, which the ledger refuses and this does not, a known gap tracked by #416.
+    That is an amount so large that rescaling it to the minor units needs one, however it is
+    built: by :meth:`of`, by the constructor, or as a product of :meth:`times`, such as ``12.50``
+    times ``1E+2147483645``, whose scale fits a Java int. It is also any product whose rounding
+    in :meth:`times_rounded` needs one, whether the product is that large or that small.
     """
 
     amount: Decimal
