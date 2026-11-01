@@ -62,7 +62,8 @@
     { "id": "parse-bare-point", "amount": ".", "currency": "USD", "error": "NOT_A_DECIMAL" },
     { "id": "parse-two-points", "amount": "1.2.3", "currency": "USD", "error": "NOT_A_DECIMAL" },
     { "id": "parse-exponent-without-digits", "amount": "1E", "currency": "USD", "error": "NOT_A_DECIMAL" },
-    { "id": "parse-scale-past-a-java-int", "amount": "1E-2147483648", "currency": "USD", "error": "NOT_A_DECIMAL" }
+    { "id": "parse-scale-past-a-java-int", "amount": "1E-2147483648", "currency": "USD", "error": "NOT_A_DECIMAL" },
+    { "id": "parse-scale-at-a-java-int", "amount": "1E-2147483647", "currency": "USD", "error": "PRECISION_EXCEEDED" }
   ],
   "binary": [
     { "id": "plus", "op": "plus", "left": "10.00", "right": "2.50", "currency": "ILS", "expect": "12.50 ILS" },

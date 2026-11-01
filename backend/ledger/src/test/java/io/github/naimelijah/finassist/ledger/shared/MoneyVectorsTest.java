@@ -113,7 +113,12 @@ class MoneyVectorsTest {
         return new Money(new BigDecimal(amount), Currency.valueOf(currency));
     }
 
-    /** Categories to this language's exception types; the file names neither. */
+    /**
+     * Categories to this language's exception types; the file names neither. Each is matched on
+     * its exact type, because {@code NumberFormatException} extends {@code IllegalArgumentException}:
+     * matched by {@code isInstanceOf}, a text refused as not a decimal would pass as
+     * {@code PRECISION_EXCEEDED}, and the vectors would report agreement where there is none.
+     */
     private static Class<? extends Throwable> exceptionFor(String category) {
         return switch (category) {
             case "PRECISION_EXCEEDED" -> IllegalArgumentException.class;
@@ -205,7 +210,7 @@ class MoneyVectorsTest {
 
         if (vector.has("error")) {
             assertThatThrownBy(() -> money(amount, currency))
-                    .isInstanceOf(exceptionFor(vector.get("error").asString()));
+                    .isExactlyInstanceOf(exceptionFor(vector.get("error").asString()));
             return;
         }
         assertThat(money(amount, currency).toString())
@@ -224,7 +229,7 @@ class MoneyVectorsTest {
 
         if (vector.has("error")) {
             assertThatThrownBy(() -> Money.of(amount, currency))
-                    .isInstanceOf(exceptionFor(vector.get("error").asString()));
+                    .isExactlyInstanceOf(exceptionFor(vector.get("error").asString()));
             return;
         }
         assertThat(Money.of(amount, currency).toString())
@@ -243,7 +248,7 @@ class MoneyVectorsTest {
 
         if (vector.has("error")) {
             assertThatThrownBy(() -> apply(operation, left, right))
-                    .isInstanceOf(exceptionFor(vector.get("error").asString()));
+                    .isExactlyInstanceOf(exceptionFor(vector.get("error").asString()));
             return;
         }
         assertThat(apply(operation, left, right).toString())
@@ -260,7 +265,7 @@ class MoneyVectorsTest {
 
         if (vector.has("error")) {
             assertThatThrownBy(() -> applyScalar(operation, amount, multiplier))
-                    .isInstanceOf(exceptionFor(vector.get("error").asString()));
+                    .isExactlyInstanceOf(exceptionFor(vector.get("error").asString()));
             return;
         }
         assertThat(applyScalar(operation, amount, multiplier).toString())
