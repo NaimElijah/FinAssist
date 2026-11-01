@@ -22,9 +22,11 @@ resolves to, so that no other key may resolve to it, neither database network ma
 must be exactly `none`, and Prometheus's `command` must carry exactly `--web.cors.origin=`, the
 empty regex, which grants no origin, with no `entrypoint` to run it otherwise (ADR-057). Neither the
 ledger nor the gateway may set, in its environment, a key that reopens the Actuator exposure their
-code pins, nor a `command` or `entrypoint`, whose arguments would reach Spring as properties; nor
-may the gateway set a log level, a log group, a logging configuration or Spring Boot's `debug` or
-`trace` switch, since below INFO it logs credentials.
+code pins, nor a `command` or `entrypoint`, whose arguments would reach Spring as properties, nor a
+volume, `volumes_from`, a config, a secret or a `working_dir`, which could put a configuration file
+in the working directory or its `config/`, where Spring reads one; nor may the gateway set a log
+level, a log group, a logging configuration or Spring Boot's `debug` or `trace` switch, since below
+INFO it logs credentials.
 
 It reads the resolved file, not its text, so an alias that stops resolving fails as surely as a
 service that never took one, and a block copied in with other values fails too.
@@ -80,6 +82,10 @@ SPRING_CONFIG_PREFIX: Final = "SPRING_CONFIG_"
 # reads from one of these, or an argument a Compose command appends, outranks application.yml too.
 JVM_OPTION_VARIABLES: Final = frozenset({"JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS"})
 COMMAND_LINE_MEMBERS: Final = ("command", "entrypoint")
+# Spring Boot also reads `application.*` from its working directory, `/app` in both images, and from
+# `config/` beneath it, so a file put there, or a working directory moved onto one, sets properties
+# as surely as SPRING_CONFIG_*. Today both services mount only a tmpfs on /tmp.
+CONFIGURATION_FILE_MEMBERS: Final = ("volumes", "volumes_from", "configs", "secrets", "working_dir")
 # DEBUG on the gateway's Spring Web or Security loggers writes the authorization code, its PKCE
 # verifier and a refresh grant's form body: so its levels stay as application.yml sets them.
 LEVEL_PINNED_SERVICES: Final = frozenset({"gateway"})
@@ -212,6 +218,12 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
             found.extend(
                 f"{name}: must not set {member}, which reaches Spring as an argument"
                 for member in COMMAND_LINE_MEMBERS
+                if service.get(member)
+            )
+            found.extend(
+                f"{name}: must not set {member}, which can put a configuration where Spring "
+                "reads one"
+                for member in CONFIGURATION_FILE_MEMBERS
                 if service.get(member)
             )
         ports = _ports(service.get("ports"))

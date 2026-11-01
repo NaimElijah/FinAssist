@@ -516,6 +516,32 @@ def Given_a_spring_service_overriding_its_command_line_When_checked_Then_the_mem
     assert lines == [f"{service}: must not set {member}, which reaches Spring as an argument"]
 
 
+@pytest.mark.parametrize(
+    ("member", "value"),
+    [
+        ("volumes", [_bind("/repo/debug-config", "/app/config")]),
+        ("volumes_from", ["grafana"]),
+        ("configs", [{"source": "debug", "target": "/app/config/application.yml"}]),
+        ("secrets", [{"source": "debug", "target": "/app/application.yml"}]),
+        ("working_dir", "/tmp"),
+    ],
+    ids=["volumes", "volumes_from", "configs", "secrets", "working_dir"],
+)
+@pytest.mark.parametrize("service", ["ledger", "gateway"])
+def Given_a_spring_service_given_a_file_where_spring_reads_config_When_checked_Then_it_is_named(
+    service: str, member: str, value: object, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service][member] = value
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [
+        f"{service}: must not set {member}, which can put a configuration where Spring reads one"
+    ]
+
+
 def Given_a_command_on_a_service_without_spring_When_checked_Then_it_passes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

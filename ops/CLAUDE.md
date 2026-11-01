@@ -41,8 +41,10 @@ One directory per tool, none of them a deployable service of this repository's (
   `command`, the empty regex, and no `entrypoint` on it (ADR-057); and no
   `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON` key, in any spelling,
   nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS`, in the ledger's or the gateway's
-  environment, and no `command` or `entrypoint` on either, each of which would reopen the Actuator
-  exposure their code pins and their tests cannot see; nor a `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`,
+  environment, and no `command` or `entrypoint` on either, nor `volumes`, `volumes_from`, `configs`,
+  `secrets` or `working_dir`, which could put an `application.*` in its working directory or that
+  directory's `config/`, where Spring reads one, each of which would reopen the Actuator exposure
+  their code pins and their tests cannot see; nor a `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`,
   `LOGGING_CONFIG`, `DEBUG` or `TRACE` key, in any spelling, on the gateway, whose Spring Web and
   Security loggers write credentials below INFO. It names a service, a key or a member, never a
   value. `placeholders.env` beside it holds a throwaway value for each `:?` variable, which `make
