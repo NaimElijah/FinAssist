@@ -57,6 +57,31 @@ class RecurrenceTest {
                 .containsExactly(JANUARY, LocalDate.of(2026, 3, 1), LocalDate.of(2026, 5, 1));
     }
 
+    /**
+     * The expansion stops at the whole months between the start and the range's end, ten here; the
+     * tenth step, 15 December, is the last that lands inside and must not be cut off.
+     */
+    @Test
+    void Given_a_monthly_recurrence_whose_last_occurrence_is_the_final_whole_month_When_expanded_Then_it_is_kept() {
+        Recurrence monthly = new Recurrence.Times(Cadence.MONTHLY, 1, 12);
+        LocalDate midFebruary = LocalDate.of(2026, 2, 15);
+
+        assertThat(monthly.occurrences(midFebruary, midFebruary, NEXT_JANUARY)).contains(LocalDate.of(2026, 12, 15));
+    }
+
+    /**
+     * Two whole months separate 31 January from 1 April, and the second step lands on the bound
+     * exactly: 31 March is inside the range and must be yielded.
+     */
+    @Test
+    void Given_an_every_other_month_recurrence_from_the_31st_When_its_step_lands_on_the_bound_Then_it_is_kept() {
+        Recurrence everyOther = new Recurrence.Times(Cadence.MONTHLY, 2, 3);
+        LocalDate endOfJanuary = LocalDate.of(2026, 1, 31);
+
+        assertThat(everyOther.occurrences(endOfJanuary, endOfJanuary, LocalDate.of(2026, 4, 1)))
+                .containsExactly(endOfJanuary, LocalDate.of(2026, 3, 31));
+    }
+
     @Test
     void Given_a_recurrence_bounded_by_a_date_When_expanded_Then_that_date_is_excluded() {
         Recurrence until = new Recurrence.Until(Cadence.MONTHLY, 1, LocalDate.of(2026, 3, 1));
