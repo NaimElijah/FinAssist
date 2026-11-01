@@ -38,9 +38,12 @@ function oneOf<Value extends string>(allowed: readonly Value[], value: string): 
 /**
  * The rule the two pickers share, stated once and describing every box: the ledger refuses an
  * account named on both sides (`AccountSelection.requireEachNamedOnce`) with a 422 naming its raw
- * id, so a box ticked on one side is disabled on the other.
+ * id, so a box ticked on one side is disabled on the other. A disabled box leaves the Tab order,
+ * so the rule also says how to free it.
  */
-const ONE_SIDE_RULE = 'An account counts as cash or as invested, not both.';
+const ONE_SIDE_RULE =
+    'An account counts as cash or as invested, not both; untick it in one list to use it in the ' +
+    'other.';
 
 /** The accounts could not be read: the failure, and any retry, in place of the pickers alone. */
 function AccountsFailure({
