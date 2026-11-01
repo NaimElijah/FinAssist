@@ -686,6 +686,8 @@ def Given_a_manifest_entry_whose_dump_is_missing_When_restored_Then_it_is_refuse
 
 LEDGER_SHA256 = hashlib.sha256(LEDGER_DUMP).hexdigest()
 NOT_A_MANIFEST = "is not a manifest this made"
+# Nested deeper than the parser recurses, so it raises RecursionError, which is no ValueError.
+TOO_DEEP = b"[" * 100_000
 
 
 @pytest.mark.parametrize(
@@ -738,6 +740,19 @@ def Given_a_manifest_that_is_not_utf8_When_restored_Then_it_is_refused_before_an
 ) -> None:
     (tmp_path / backup.LEDGER.dump_name).write_bytes(LEDGER_DUMP)
     (tmp_path / backup.MANIFEST_NAME).write_bytes(content)
+    project = _Project()
+
+    with pytest.raises(backup.BackupError, match=re.escape(NOT_A_MANIFEST)):
+        backup.restore(project, tmp_path, (backup.LEDGER,))
+
+    assert project.calls == []
+
+
+def Given_a_manifest_nested_too_deep_When_restored_Then_it_is_refused_before_any_compose_command(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / backup.LEDGER.dump_name).write_bytes(LEDGER_DUMP)
+    (tmp_path / backup.MANIFEST_NAME).write_bytes(TOO_DEEP)
     project = _Project()
 
     with pytest.raises(backup.BackupError, match=re.escape(NOT_A_MANIFEST)):
@@ -952,8 +967,6 @@ def Given_a_token_response_that_is_no_json_When_the_check_asks_for_a_token_Then_
 
 # JSON, but not the shape its reader needs. Each quotes the secret, so the refusal must not.
 WRONG_SHAPES = [b'"hunter2"', b'["hunter2"]', b"42", b"null"]
-# Nested deeper than the parser recurses, so it raises RecursionError, which is no ValueError.
-TOO_DEEP = b"[" * 100_000
 
 
 def Given_compose_config_nested_too_deep_When_backed_up_Then_it_is_refused_and_leaves_nothing(

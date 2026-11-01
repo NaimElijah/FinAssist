@@ -608,8 +608,9 @@ def _read_manifest(folder: Path) -> dict[str, object]:
             raise BackupError(f"{path} is format {manifest['format']}, not {MANIFEST_FORMAT}")
         return manifest
     # ValueError covers both JSONDecodeError and the UnicodeDecodeError of a manifest re-saved in
-    # another encoding, such as PowerShell 5.1's UTF-16.
-    except (ValueError, KeyError, TypeError) as error:
+    # another encoding, such as PowerShell 5.1's UTF-16; RecursionError, which is no ValueError,
+    # is what deeply nested arrays or objects raise.
+    except (ValueError, RecursionError, KeyError, TypeError) as error:
         raise BackupError(f"{path} is not a manifest this made ({type(error).__name__})") from None
 
 
