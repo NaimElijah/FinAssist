@@ -117,7 +117,10 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
   never a wider prefix that would refetch data nothing touched.
 - **A mutation's submit control disables itself while the mutation is pending**, and a submit
   event arriving anyway is ignored by an in-flight `useRef` guard, not the render-time `isPending`
-  — two submit events can arrive before pending has rendered (ADR-028: no double submit).
+  — two submit events can arrive before pending has rendered (ADR-028: no double submit). A
+  mutation whose panel disables Cancel while pending sets `networkMode: 'always'`, so an offline
+  submit fails visibly instead of pausing with the owner stuck; the other writes still pause
+  offline (#418).
 - **A lifecycle date defaults to the browser's local today**, built through a helper that takes the
   date as an argument, such as `todayIsoDate(new Date())` — never `toISOString()`, which reads
   UTC, and never `now()` called inside the helper itself.
