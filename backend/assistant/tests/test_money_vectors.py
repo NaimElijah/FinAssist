@@ -33,13 +33,19 @@ VECTORS_PATH = Path(__file__).resolve().parents[3] / "contracts" / "money-vector
 # (IllegalArgumentException vs CurrencyMismatchException) and discriminate on their own; this
 # is what gives the Python side the same strength.
 #
-# NOT_A_DECIMAL and PRECISION_EXCEEDED share ValueError, so here they do not tell a refused text
-# from a refused amount. Java's NumberFormatException does, so a parse vector whose text in fact
-# parsed fails on that side.
+# NOT_A_DECIMAL and PRECISION_EXCEEDED share ValueError, so the type alone does not tell a refused
+# text from a refused amount: a text this side wrongly parsed and then refused for its precision
+# would pass as NOT_A_DECIMAL. Each of the two is also matched on its own message, the one
+# Money.of or Money's constructor raises, which is what discriminates them here.
 ERRORS: dict[str, type[Exception]] = {
     "PRECISION_EXCEEDED": ValueError,
     "NOT_A_DECIMAL": ValueError,
     "CURRENCY_MISMATCH": CurrencyMismatchError,
+}
+
+MESSAGES: dict[str, str] = {
+    "PRECISION_EXCEEDED": "carries more precision than",
+    "NOT_A_DECIMAL": "is not a decimal number",
 }
 
 
@@ -53,6 +59,12 @@ def _assert_raises_exactly(category: str, call: Callable[[], object]) -> None:
         f"{type(raised.value).__name__}. The categories must discriminate, or the vectors "
         "report agreement between the two languages where there is none."
     )
+    if category in MESSAGES:
+        assert MESSAGES[category] in str(raised.value), (
+            f"vector expects {category}, but the {expected.__name__} raised says "
+            f"{str(raised.value)!r}. Two categories share that type, so its message is what "
+            "tells them apart."
+        )
 
 
 def _load() -> dict[str, Any]:
