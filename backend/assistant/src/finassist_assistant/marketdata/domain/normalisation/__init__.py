@@ -8,7 +8,6 @@ is the shape a feed must be translated into, not a client for one.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from decimal import Decimal, InvalidOperation
 
 from finassist_assistant.marketdata.domain.model import Quote, Ticker
 from finassist_assistant.shared import Currency, Money
@@ -57,12 +56,7 @@ def normalise(ticker: str, price: str, currency: Currency, as_of: datetime) -> Q
 
     :raises ValueError: if the price is not a number the currency can represent
     """
-    try:
-        amount = Decimal(price)
-    except InvalidOperation as cause:
-        raise ValueError(f"Price {price!r} is not a decimal number") from cause
-
-    return Quote(Ticker(ticker), Money(amount, currency), as_of)
+    return Quote(Ticker(ticker), Money.of(price, currency), as_of)
 
 
 __all__ = ["FUTURE_TOLERANCE", "age", "is_stale", "normalise"]

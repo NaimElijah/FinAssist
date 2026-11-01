@@ -82,6 +82,11 @@ def Given_a_price_that_is_not_a_number_When_normalised_Then_it_is_refused() -> N
         normalise("VWCE", "n/a", Currency.USD, NOON)
 
 
+def Given_a_price_padded_with_spaces_When_normalised_Then_it_is_refused() -> None:
+    with pytest.raises(ValueError, match="not a decimal number"):
+        normalise("VWCE", " 120.50 ", Currency.USD, NOON)
+
+
 def Given_a_price_too_precise_for_the_currency_When_normalised_Then_it_is_refused() -> None:
     with pytest.raises(ValueError, match="more precision"):
         normalise("VWCE", "120.5051", Currency.USD, NOON)
@@ -103,9 +108,9 @@ def Given_a_naive_timestamp_When_normalised_Then_it_is_refused() -> None:
 
 
 def Given_a_price_that_is_not_finite_When_normalised_Then_it_is_refused() -> None:
-    # Decimal accepts "NaN" and "Infinity", so these slip past the InvalidOperation handler and
-    # are caught by Money's own finiteness check instead - a different message, same refusal.
-    with pytest.raises(ValueError, match="finite"):
+    # Decimal reads "NaN", but the ledger's BigDecimal does not, so Money.of refuses it as text
+    # before Money's own finiteness check is reached.
+    with pytest.raises(ValueError, match="not a decimal number"):
         normalise("VWCE", "NaN", Currency.USD, NOON)
 
 
