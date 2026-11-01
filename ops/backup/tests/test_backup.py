@@ -352,6 +352,11 @@ class _Project(backup.Compose):
         Empty means the ledger database holds no journal yet.
     :param dumps: what pg_dump writes, by database service.
     :param unreadable: the database services whose read-back of a dump fails.
+    :param unrestorable: the database services whose pg_restore fails.
+    :param config: what `docker compose config` answers; a model naming the project when None.
+    :param listing: what `docker compose ps --format json` answers for a running service; its
+        container when None.
+    :param accounts: the currency of each account the ledger database holds, by id.
 
     `dump_modes` records, for each dump, the file's mode and its folder's, in octal, as pg_dump
     writes it.
@@ -364,6 +369,10 @@ class _Project(backup.Compose):
         default_factory=lambda: {"db": LEDGER_DUMP, "keycloak-db": KEYCLOAK_DUMP}
     )
     unreadable: frozenset[str] = frozenset()
+    unrestorable: frozenset[str] = frozenset()
+    config: bytes | None = None
+    listing: bytes | None = None
+    accounts: Mapping[str, str] = field(default_factory=dict)
     calls: list[tuple[str, ...]] = field(default_factory=list)
     read_back: list[tuple[str, bytes]] = field(default_factory=list)
     restored: list[tuple[str, bytes]] = field(default_factory=list)
@@ -380,10 +389,14 @@ class _Project(backup.Compose):
         self.calls.append(args)
         match args:
             case ("config", "--format", "json"):
+                if self.config is not None:
+                    return self.config
                 return json.dumps({"name": PROJECT_NAME}).encode()
             case ("ps", "--format", "json", service):
                 if self.states.get(service) != "running":
                     return b""
+                if self.listing is not None:
+                    return self.listing
                 return json.dumps({"Service": service, "Image": POSTGRES_IMAGE}).encode()
             case ("ps", *filters, "--services"):
                 assert set(filters[0::2]) == {"--status"}, f"unexpected ps filters: {filters}"
@@ -426,6 +439,10 @@ class _Project(backup.Compose):
             return b""
         if command == backup.RESTORE_COMMAND:
             assert stdin is not None, "pg_restore must read the dump file"
+            if service in self.unrestorable:
+                raise backup.BackupError(
+                    f"{what} failed with exit status 1: pg_restore: error: could not execute query"
+                )
             self.restored.append((service, stdin.read()))
             return b""
         raise AssertionError(f"backup.py ran a command this project does not expect: {command}")
@@ -438,6 +455,9 @@ class _Project(backup.Compose):
         if service == backup.LEDGER.service and sql == backup.BOOKS_DIGEST_SQL:
             digest = self.digests.pop(0) if len(self.digests) > 1 else self.digests[0]
             return f"{digest}\n".encode()
+        if service == backup.LEDGER.service and sql == backup.ACCOUNTS_SQL:
+            rows = (f"{account}|{currency}\n" for account, currency in self.accounts.items())
+            return "".join(rows).encode()
         raise AssertionError(f"backup.py ran a query this project does not expect in {service}")
 
 
@@ -666,6 +686,8 @@ def Given_a_manifest_entry_whose_dump_is_missing_When_restored_Then_it_is_refuse
 
 LEDGER_SHA256 = hashlib.sha256(LEDGER_DUMP).hexdigest()
 NOT_A_MANIFEST = "is not a manifest this made"
+# Nested deeper than the parser recurses, so it raises RecursionError, which is no ValueError.
+TOO_DEEP = b"[" * 100_000
 
 
 @pytest.mark.parametrize(
@@ -726,6 +748,19 @@ def Given_a_manifest_that_is_not_utf8_When_restored_Then_it_is_refused_before_an
     assert project.calls == []
 
 
+def Given_a_manifest_nested_too_deep_When_restored_Then_it_is_refused_before_any_compose_command(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / backup.LEDGER.dump_name).write_bytes(LEDGER_DUMP)
+    (tmp_path / backup.MANIFEST_NAME).write_bytes(TOO_DEEP)
+    project = _Project()
+
+    with pytest.raises(backup.BackupError, match=re.escape(NOT_A_MANIFEST)):
+        backup.restore(project, tmp_path, (backup.LEDGER,))
+
+    assert project.calls == []
+
+
 # --- a restore proves the books it restored are the ones backed up -----------------------------
 
 
@@ -747,6 +782,29 @@ def Given_restored_books_differing_from_the_digest_When_restored_Then_it_is_refu
 
     with pytest.raises(backup.BackupError, match="do not match the digest the backup recorded"):
         backup.restore(project, _written_backup(tmp_path), (backup.LEDGER,))
+
+
+def Given_differing_books_and_a_failing_keycloak_restore_When_restored_Then_the_books_are_refused(
+    tmp_path: Path,
+) -> None:
+    project = _Project(digests=["b" * 64], unrestorable=frozenset({"keycloak-db"}))
+
+    with pytest.raises(backup.BackupError, match="do not match the digest the backup recorded"):
+        backup.restore(project, _written_backup(tmp_path), backup.DATABASES)
+
+    assert project.restored == [("db", LEDGER_DUMP)]
+
+
+def Given_matching_books_and_a_failing_keycloak_restore_When_restored_Then_the_books_are_compared(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = _Project(unrestorable=frozenset({"keycloak-db"}))
+
+    with pytest.raises(backup.BackupError, match=re.escape("pg_restore of keycloak.dump failed")):
+        backup.restore(project, _written_backup(tmp_path), backup.DATABASES)
+
+    assert project.restored == [("db", LEDGER_DUMP)]
+    assert "the restored books match the digest the backup recorded" in capsys.readouterr().out
 
 
 def Given_a_backup_from_before_the_journal_When_restored_Then_no_digest_is_compared(
@@ -843,6 +901,245 @@ def Given_a_failing_read_back_When_backed_up_Then_it_fails_and_leaves_nothing(
         backup.backup(project, tmp_path, NOW)
 
     assert list(tmp_path.iterdir()) == []
+
+
+# Neither answer is JSON. Each could quote what Compose resolved, so the refusal must not.
+NOT_JSON = b"WARN: the secret value is hunter2"
+
+
+def Given_compose_config_answering_no_json_When_backed_up_Then_it_is_refused_quoting_nothing(
+    tmp_path: Path,
+) -> None:
+    # A ValueError escaped `backup`, which `main` does not catch, so it ended in a traceback.
+    with pytest.raises(backup.BackupError, match="docker compose config did not answer JSON") as e:
+        backup.backup(_Project(config=NOT_JSON), tmp_path, NOW)
+
+    assert "hunter2" not in str(e.value)
+    assert list(tmp_path.iterdir()) == []
+
+
+def Given_compose_ps_answering_no_json_When_backed_up_Then_it_is_refused_and_leaves_nothing(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(backup.BackupError, match="docker compose ps did not answer JSON") as e:
+        backup.backup(_Project(listing=NOT_JSON), tmp_path, NOW)
+
+    assert "hunter2" not in str(e.value)
+    assert list(tmp_path.iterdir()) == []
+
+
+def Given_compose_config_answering_no_json_When_restored_Then_it_is_refused_and_nothing_restored(
+    tmp_path: Path,
+) -> None:
+    project = _Project(config=NOT_JSON)
+
+    with pytest.raises(backup.BackupError, match="docker compose config did not answer JSON"):
+        backup.restore(project, _written_backup(tmp_path), backup.DATABASES)
+
+    assert project.restored == []
+
+
+def Given_compose_config_answering_no_json_When_main_runs_Then_it_exits_1_reporting_FAILED(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(backup, "Compose", lambda: _Project(config=NOT_JSON))
+    monkeypatch.setenv(backup.BACKUP_DIR_ENV, str(tmp_path))
+
+    status = backup.main(["backup"], NOW)
+
+    assert status == 1
+    last = capsys.readouterr().out.splitlines()[-1]
+    assert last.startswith("FAILED: docker compose config did not answer JSON")
+    assert "hunter2" not in last
+
+
+def Given_a_token_response_that_is_no_json_When_the_check_asks_for_a_token_Then_it_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = {backup.ASSISTANT_CLIENT_SECRET_ENV: "a-client-secret"}
+    model = {"name": PROJECT_NAME, "services": {"keycloak": {"environment": secret}}}
+    project = _Project(config=json.dumps(model).encode())
+    monkeypatch.setattr(backup, "_request", lambda *args, **kwargs: (backup.HTTP_OK, NOT_JSON))
+
+    with pytest.raises(backup.BackupError, match="Keycloak's token endpoint did not answer JSON"):
+        backup._assistant_token(project)
+
+
+# JSON, but not the shape its reader needs. Each quotes the secret, so the refusal must not.
+WRONG_SHAPES = [b'"hunter2"', b'["hunter2"]', b"42", b"null"]
+
+
+def Given_compose_config_nested_too_deep_When_backed_up_Then_it_is_refused_and_leaves_nothing(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(backup.BackupError, match="docker compose config did not answer JSON"):
+        backup.backup(_Project(config=TOO_DEEP), tmp_path, NOW)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("answer", WRONG_SHAPES)
+def Given_compose_config_answering_json_that_is_not_an_object_When_backed_up_Then_it_is_refused(
+    tmp_path: Path, answer: bytes
+) -> None:
+    with pytest.raises(
+        backup.BackupError, match="docker compose config did not answer a Compose model"
+    ) as e:
+        backup.backup(_Project(config=answer), tmp_path, NOW)
+
+    assert "hunter2" not in str(e.value)
+    assert list(tmp_path.iterdir()) == []
+
+
+def Given_a_compose_ps_array_that_is_not_json_When_backed_up_Then_it_is_refused_quoting_nothing(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(backup.BackupError, match="docker compose ps did not answer JSON") as e:
+        backup.backup(_Project(listing=b"[" + NOT_JSON), tmp_path, NOW)
+
+    assert "hunter2" not in str(e.value)
+    assert list(tmp_path.iterdir()) == []
+
+
+# One line per container, or one array of them, as `_containers` reads either.
+@pytest.mark.parametrize("listing", [*WRONG_SHAPES, b'[{"Service": "db"}, "hunter2"]'])
+def Given_compose_ps_listing_something_not_a_container_When_backed_up_Then_it_is_refused(
+    tmp_path: Path, listing: bytes
+) -> None:
+    with pytest.raises(
+        backup.BackupError, match="docker compose ps listed something that is not a container"
+    ) as e:
+        backup.backup(_Project(listing=listing), tmp_path, NOW)
+
+    assert "hunter2" not in str(e.value)
+    assert list(tmp_path.iterdir()) == []
+
+
+def _check_project() -> _Project:
+    """A check's project whose Keycloak holds the assistant's secret and whose books hold one
+    ILS account."""
+    secret = {backup.ASSISTANT_CLIENT_SECRET_ENV: "a-client-secret"}
+    model = {"name": PROJECT_NAME, "services": {"keycloak": {"environment": secret}}}
+    return _Project(config=json.dumps(model).encode(), accounts={ACCOUNT_ID: "ILS"})
+
+
+TOKEN_ANSWER = json.dumps({"access_token": "a-token"}).encode()
+ACCOUNTS_ANSWER = json.dumps([{"id": ACCOUNT_ID}]).encode()
+BALANCE_ANSWER = json.dumps({"balance": {"amount": AMOUNT, "currency": "ILS"}}).encode()
+
+
+def _serve(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    token_answer: bytes = TOKEN_ANSWER,
+    accounts_answer: bytes = ACCOUNTS_ANSWER,
+    balance_answer: bytes = BALANCE_ANSWER,
+) -> None:
+    """Stands in for the restored Keycloak and ledger behind `_request`, each answering 200."""
+
+    def request(
+        port: int,
+        method: str,
+        path: str,
+        *,
+        token: str | None = None,
+        form: dict[str, str] | None = None,
+    ) -> tuple[int, bytes]:
+        if path == backup.TOKEN_PATH:
+            return backup.HTTP_OK, token_answer
+        if path == backup.ACCOUNTS_PATH:
+            return backup.HTTP_OK, accounts_answer
+        return backup.HTTP_OK, balance_answer
+
+    monkeypatch.setattr(backup, "_request", request)
+
+
+def Given_a_ledger_serving_each_account_in_its_currency_When_checked_Then_it_passes(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _serve(monkeypatch)
+
+    backup._accounts_served(_check_project())
+
+    assert "1 accounts listed" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("answer", WRONG_SHAPES)
+def Given_a_token_response_that_is_not_an_object_When_a_token_is_asked_for_Then_it_is_refused(
+    monkeypatch: pytest.MonkeyPatch, answer: bytes
+) -> None:
+    _serve(monkeypatch, token_answer=answer)
+
+    with pytest.raises(
+        backup.BackupError, match="Keycloak's token endpoint did not answer a JSON object"
+    ) as e:
+        backup._assistant_token(_check_project())
+
+    assert "hunter2" not in str(e.value)
+
+
+def Given_an_accounts_listing_that_is_not_json_When_checked_Then_it_is_refused_quoting_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _serve(monkeypatch, accounts_answer=NOT_JSON)
+
+    with pytest.raises(
+        backup.BackupError, match=f"GET {backup.ACCOUNTS_PATH} did not answer JSON"
+    ) as e:
+        backup._accounts_served(_check_project())
+
+    assert "hunter2" not in str(e.value)
+
+
+@pytest.mark.parametrize("answer", [*WRONG_SHAPES, b'{"hunter2": 1}'])
+def Given_an_accounts_listing_that_is_not_a_list_of_accounts_When_checked_Then_it_is_refused(
+    monkeypatch: pytest.MonkeyPatch, answer: bytes
+) -> None:
+    _serve(monkeypatch, accounts_answer=answer)
+
+    with pytest.raises(
+        backup.BackupError, match=f"GET {backup.ACCOUNTS_PATH} did not answer a list of accounts"
+    ) as e:
+        backup._accounts_served(_check_project())
+
+    assert "hunter2" not in str(e.value)
+
+
+def Given_a_balance_that_is_not_json_When_checked_Then_it_is_refused_quoting_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _serve(monkeypatch, balance_answer=NOT_JSON)
+
+    with pytest.raises(backup.BackupError, match="an account's balance did not answer JSON") as e:
+        backup._accounts_served(_check_project())
+
+    assert "hunter2" not in str(e.value)
+
+
+@pytest.mark.parametrize("answer", WRONG_SHAPES)
+def Given_a_balance_answer_that_is_not_an_object_When_checked_Then_it_is_refused(
+    monkeypatch: pytest.MonkeyPatch, answer: bytes
+) -> None:
+    _serve(monkeypatch, balance_answer=answer)
+
+    with pytest.raises(
+        backup.BackupError, match="an account's balance did not answer a JSON object"
+    ) as e:
+        backup._accounts_served(_check_project())
+
+    assert "hunter2" not in str(e.value)
+
+
+@pytest.mark.parametrize("answer", [b'{"balance": "hunter2"}', b'{"balance": ["hunter2"]}'])
+def Given_a_balance_member_that_is_not_an_object_When_checked_Then_it_is_refused(
+    monkeypatch: pytest.MonkeyPatch, answer: bytes
+) -> None:
+    _serve(monkeypatch, balance_answer=answer)
+
+    with pytest.raises(backup.BackupError, match="an account's balance answered no balance") as e:
+        backup._accounts_served(_check_project())
+
+    assert "hunter2" not in str(e.value)
 
 
 def Given_keycloak_db_not_running_When_backed_up_Then_it_is_refused(tmp_path: Path) -> None:

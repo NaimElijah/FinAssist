@@ -1,8 +1,15 @@
-"""The Money contract, mirroring backend/ledger/.../shared/MoneyTest.java case for case.
+"""The Money contract, mirroring backend/ledger/.../shared/MoneyTest.java.
 
 ADR-010 accepts that Money is implemented once per language rather than shared, and names
 equivalent tests on both sides as the thing that keeps the two honest. Changing behaviour in
 one file without changing the other is the drift this pair exists to catch.
+
+Every ``MoneyTest`` case is mirrored here except one: a product whose rounding needs a power of
+ten past Java's ``BigInteger`` range, which ``MoneyTest`` pins as refused and ``times_rounded``
+here answers ``0.00``. That is a known gap tracked by #416, not a contract, so nothing here pins
+it. The converse does not hold: some cases here have no Java counterpart, such as non-finite
+multipliers, which ``BigDecimal`` cannot represent, and text parsing, where ``new BigDecimal``'s
+own grammar is the Java contract.
 """
 
 from decimal import Decimal
@@ -97,6 +104,11 @@ def Given_two_currencies_When_compared_Then_it_is_refused() -> None:
         _ = Money.of("10.00", Currency.ILS) < Money.of("10.00", Currency.EUR)
 
 
+def Given_two_currencies_When_subtracted_Then_it_is_refused() -> None:
+    with pytest.raises(CurrencyMismatchError, match="no conversion"):
+        Money.of("10.00", Currency.ILS).minus(Money.of("3.00", Currency.USD))
+
+
 def Given_an_amount_When_negated_Then_the_sign_flips_and_the_currency_holds() -> None:
     negated = Money.of("12.50", Currency.ILS).negate()
     assert negated == Money.of("-12.50", Currency.ILS)
@@ -124,6 +136,12 @@ def Given_zero_When_asked_Then_it_is_zero_and_neither_positive_nor_negative() ->
     assert zero.is_zero
     assert not zero.is_positive
     assert not zero.is_negative
+
+
+def Given_an_amount_that_is_not_zero_When_asked_Then_it_says_so() -> None:
+    assert not Money.of("0.01", Currency.ILS).is_zero
+    assert not Money.of("-0.01", Currency.ILS).is_zero
+    assert Money.of("12.50", Currency.ILS).is_positive
 
 
 def Given_an_amount_When_multiplied_by_a_quantity_Then_it_scales() -> None:
@@ -169,6 +187,49 @@ def Given_a_fractional_multiplier_When_times_rounded_Then_it_rounds_half_up() ->
 def Given_a_multiplication_needing_rounding_When_applied_Then_it_is_rejected() -> None:
     with pytest.raises(ValueError):
         Money.of("0.01", Currency.USD).times(Decimal("0.5"))
+
+
+@pytest.mark.parametrize("multiplier", ["1E-2147483647", "0E-2147483647"])
+@pytest.mark.parametrize("operation", ["times", "times_rounded"])
+def Given_a_product_scale_past_an_int_When_multiplied_Then_it_is_refused_with_a_short_message(
+    operation: str, multiplier: str
+) -> None:
+    # The mirror of the Java pair. BigDecimal refuses a product whose scale overflows an int
+    # whenever the amount is not zero, even by a zero multiplier; this side returned 0.00 for
+    # times_rounded and for a zero multiplier, so the two languages answered one input apart.
+    amount = Money.of("12.50", Currency.USD)
+
+    with pytest.raises(ValueError, match="more precision") as refused:
+        getattr(amount, operation)(Decimal(multiplier))
+
+    assert type(refused.value) is ValueError
+    assert len(str(refused.value)) < MESSAGE_BOUND
+
+
+# USD's two minor units plus 2147483645 places make 2**31 - 1, the largest scale a Java int holds.
+ZERO_AT_THE_LARGEST_SCALE = "0E-2147483645"
+
+
+@pytest.mark.parametrize("operation", ["times", "times_rounded"])
+def Given_a_zero_product_at_the_largest_scale_an_int_holds_When_multiplied_Then_it_is_zero(
+    operation: str,
+) -> None:
+    # BigDecimal.multiply accepts this scale, and a zero product rescales to 0.00 without the
+    # power of ten a nonzero one would need, so the ledger answers 0.00 as well.
+    product = getattr(Money.of("12.50", Currency.USD), operation)(
+        Decimal(ZERO_AT_THE_LARGEST_SCALE)
+    )
+
+    assert product == Money.zero(Currency.USD)
+
+
+@pytest.mark.parametrize("multiplier", ["0E-2147483646", "1E-2147483646"])
+@pytest.mark.parametrize("operation", ["times", "times_rounded"])
+def Given_a_product_scale_one_past_the_largest_an_int_holds_When_multiplied_Then_it_is_refused(
+    operation: str, multiplier: str
+) -> None:
+    with pytest.raises(ValueError, match="its scale overflows a Java int"):
+        getattr(Money.of("12.50", Currency.USD), operation)(Decimal(multiplier))
 
 
 def Given_a_non_finite_amount_When_constructed_Then_it_is_rejected() -> None:

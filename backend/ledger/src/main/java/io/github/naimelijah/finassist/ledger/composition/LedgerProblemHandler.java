@@ -50,8 +50,9 @@ import tools.jackson.databind.DatabindException;
  * <ul>
  *   <li>a failure Spring MVC raised is coded from its status: 400 {@code MALFORMED_REQUEST}, 404
  *       {@code NOT_FOUND}, 405 {@code METHOD_NOT_ALLOWED}, 406 {@code NOT_ACCEPTABLE}, 409 {@code
- *       CONFLICT}, 413 {@code CONTENT_TOO_LARGE} and 415 {@code UNSUPPORTED_MEDIA_TYPE}. A malformed
- *       request also lists what was rejected under {@code errors}, each entry a {@code field} and a
+ *       CONFLICT}, 413 {@code CONTENT_TOO_LARGE} and 415 {@code UNSUPPORTED_MEDIA_TYPE}; a 401 or 403
+ *       that arrives with no code is coded {@code UNAUTHENTICATED} or {@code FORBIDDEN} the same
+ *       way. A malformed request also lists what was rejected under {@code errors}, each entry a {@code field} and a
  *       {@code message}: every bean-validation failure; a body member Jackson refused, by its path
  *       ({@code entries[1].amount.currency}); a path or query parameter of the wrong type, or a
  *       required one left out, by its name; and unparseable JSON or a missing body as {@code body}.

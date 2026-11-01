@@ -53,7 +53,10 @@ class AnswerQuestion:
     llm: LlmPort
 
     def about(self, question: str) -> GroundedAnswer | Ungrounded:
-        """
+        """Answers the question from the evidence gathered for it, or says why it cannot.
+
+        :returns: a ``GroundedAnswer`` when every claim that states a figure cites evidence this
+            answer was given, otherwise an ``Ungrounded`` naming the claims that do not.
         :raises ValueError: if the question says nothing, or the model returns no claims at all
         """
         asked = question.strip()

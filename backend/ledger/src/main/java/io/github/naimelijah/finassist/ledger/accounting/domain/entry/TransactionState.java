@@ -27,10 +27,23 @@ public sealed interface TransactionState {
     /** Recorded, but not yet confirmed by the institution. */
     record Pending() implements TransactionState {
 
+        /**
+         * Moves to {@code Cleared}. The date is not compared with the transaction's own dates here;
+         * {@link Transaction#clear} does that.
+         *
+         * @throws NullPointerException if {@code clearedOn} is null
+         */
         public Cleared clear(LocalDate clearedOn) {
             return new Cleared(clearedOn);
         }
 
+        /**
+         * Moves to {@code Voided}. The date is not compared with the transaction's own dates here;
+         * {@link Transaction#markVoided} does that.
+         *
+         * @throws NullPointerException if {@code voidedOn} or {@code reason} is null
+         * @throws IllegalArgumentException if {@code reason} is blank
+         */
         public Voided markVoided(LocalDate voidedOn, String reason) {
             return new Voided(voidedOn, reason);
         }
@@ -48,10 +61,23 @@ public sealed interface TransactionState {
             Objects.requireNonNull(clearedOn, "clearedOn");
         }
 
+        /**
+         * Moves to {@code Reconciled}. The date is not compared with the clearing date here;
+         * {@link Transaction#reconcile} does that.
+         *
+         * @throws NullPointerException if {@code reconciledOn} is null
+         */
         public Reconciled reconcile(LocalDate reconciledOn) {
             return new Reconciled(reconciledOn);
         }
 
+        /**
+         * Moves to {@code Voided}. The date is not compared with the clearing date here;
+         * {@link Transaction#markVoided} does that.
+         *
+         * @throws NullPointerException if {@code voidedOn} or {@code reason} is null
+         * @throws IllegalArgumentException if {@code reason} is blank
+         */
         public Voided markVoided(LocalDate voidedOn, String reason) {
             return new Voided(voidedOn, reason);
         }
@@ -75,7 +101,12 @@ public sealed interface TransactionState {
         }
     }
 
-    /** Reversed. Its entries are kept as history but excluded from every balance. */
+    /**
+     * Reversed. Its entries are kept as history but excluded from every balance.
+     *
+     * <p>The {@code reason} is stripped, and a null or blank one is refused: a void without a
+     * reason is not recorded.
+     */
     record Voided(LocalDate voidedOn, String reason) implements TransactionState {
 
         public Voided {

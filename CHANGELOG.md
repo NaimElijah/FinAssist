@@ -301,6 +301,47 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **Every public contract that states a rule, a refusal or a side effect is documented, stale
+  comments are corrected, and the code findings that surfaced are fixed.** Trivial accessors,
+  injecting constructors and some exception constructors were left undocumented on purpose. Scan
+  10 of 12 in M0 ([#347](https://github.com/NaimElijah/FinAssist/issues/347)) ran
+  `code-documentor` over every codebase at `2f3030e`, changing comments only.
+  - **How the comments-only commits were checked.** The ledger and gateway bytecode
+    (`javap -c -p`) is identical before and after, every Python AST is unchanged once docstrings
+    are stripped, and every TypeScript file transpiles to the same output once comments are
+    removed.
+  - **What the documentors found.** Ports said to be unimplemented that composition implements, a
+    liability's sign stated backwards, a nonce check credited to the wrong Spring class, citations
+    of ADRs that say no such thing, and `@throws` and `:raises:` lists that omitted refusals.
+  - **The code findings, fixed in their own commits:**
+    - voiding a reconciled or voided transaction with an early date is 409, not 422;
+    - cancelling a realised or cancelled planned flow with no date is refused as an illegal
+      transition, its state checked first as a void's is, not with a `NullPointerException`;
+    - `Money.times` and `timesRounded` refuse a product `BigDecimal` cannot hold as an
+      `IllegalArgumentException`, where they let its bare `ArithmeticException` escape. The
+      assistant's `Money` returned `0.00` for those products, which is wrong money and not only a
+      wrong exception; it now refuses them too, at parity with the ledger for a product scale past
+      a Java `int`, pinned by six new `scalar` vectors. A narrower divergence remains at Java's
+      `BigInteger` range
+      ([#416](https://github.com/NaimElijah/FinAssist/issues/416));
+    - a null collection in `RecordTransactionCommand`, `TransactionRecorded` or `BudgetReview` is
+      refused with a `NullPointerException` naming the field, as every neighbouring
+      `requireNonNull` does;
+    - a recurrence count or interval must be wholly a positive integer, and one past the
+      contract's `int32` maximum, 2147483647, is refused before it is sent rather than by the
+      ledger;
+    - an unreadable ignore file is a secret-check failure;
+    - a backup or restore that reads a non-JSON answer, or JSON of the wrong shape, fails as a
+      `BackupError`, not a traceback;
+    - a trace id followed by a newline is refused, and the web client now refuses the all-zero
+      trace id as the assistant does;
+    - a restore of both databases compares the restored books with the recorded digest as soon
+      as the ledger lands, so a failing Keycloak restore can no longer leave them unchecked, and a
+      manifest nested too deep to parse is refused rather than ending in a traceback.
+  - **Filed for the owner:**
+    - [#421](https://github.com/NaimElijah/FinAssist/issues/421): how a liability's balance is
+      shown;
+    - [#422](https://github.com/NaimElijah/FinAssist/issues/422): whether a lot may cost zero.
 - **A generalist review of every codebase, and the fixes it called for.** Scan 9 of 12 in M0
   ([#346](https://github.com/NaimElijah/FinAssist/issues/346)) ran `code-reviewer` over all
   production code at `d258c13`:

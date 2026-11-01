@@ -29,7 +29,7 @@ export interface RenderRoutesOptions {
 }
 
 /**
- * Mount `routes` under a pathless-layout root at `/`, in an in-memory router starting at `path`,
+ * Mount `routes` under a component-less root route at `/`, in an in-memory router at `path`,
  * inside a fresh query client.
  *
  * The client retries nothing. The app's own client retries a network failure or a 5xx other than a

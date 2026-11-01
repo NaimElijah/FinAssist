@@ -65,10 +65,13 @@ from finassist_assistant.adapters.wiring import Assembly, assemble, utc_now
 from finassist_assistant.portfolio.adapters.inbound.api.router import portfolio_router
 
 CORRELATION_ID_HEADER: Final = "X-Correlation-Id"
+"""The response header that carries the request's correlation id, the one in its log lines."""
 
 PORTFOLIO_PREFIX: Final = "/api/v1/portfolio"
+"""Where the portfolio router is mounted, which the web client's portfolio screens call."""
 
 CONTRACT_TITLE: Final = "FinAssist assistant"
+"""The ``info.title`` of the OpenAPI document, which the committed contract pins."""
 
 CONTRACT_VERSION: Final = "v1"
 """The contract's version, which is the one in the path, not the package's own version."""
@@ -114,6 +117,10 @@ def create_app(
         stand-in key source and a fixed clock instead.
     :returns: a configured FastAPI application with logging and tracing already installed, and
         the assembly hung on ``app.state.assembly``.
+    :raises RuntimeError: if tracing is enabled and a tracer provider is already installed in
+        this process, as :func:`~finassist_assistant.adapters.observability.configure_tracing`
+        refuses to install a second one. Building two applications with tracing on in one process
+        therefore fails.
     """
     resolved = settings if settings is not None else Settings()
     resolved_verifier = (

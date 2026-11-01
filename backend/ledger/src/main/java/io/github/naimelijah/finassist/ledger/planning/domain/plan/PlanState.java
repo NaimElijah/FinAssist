@@ -30,10 +30,21 @@ public sealed interface PlanState {
     /** Intended, but not yet decided on. */
     record Planned() implements PlanState {
 
+        /**
+         * Decides on the plan.
+         *
+         * @throws NullPointerException if {@code committedOn} is null
+         */
         public Committed commit(LocalDate committedOn) {
             return new Committed(committedOn);
         }
 
+        /**
+         * Abandons the plan.
+         *
+         * @throws NullPointerException if {@code cancelledOn} or {@code reason} is null
+         * @throws IllegalArgumentException if {@code reason} is blank
+         */
         public Cancelled cancel(LocalDate cancelledOn, String reason) {
             return new Cancelled(cancelledOn, reason);
         }
@@ -51,10 +62,23 @@ public sealed interface PlanState {
             Objects.requireNonNull(committedOn, "committedOn");
         }
 
+        /**
+         * Records that the money moved. Does not compare {@code realisedOn} with
+         * {@link #committedOn()}; {@link PlannedFlow#realise} does.
+         *
+         * @throws NullPointerException if {@code realisedOn} is null
+         */
         public Realised realise(LocalDate realisedOn) {
             return new Realised(realisedOn);
         }
 
+        /**
+         * Abandons the plan. Does not compare {@code cancelledOn} with {@link #committedOn()};
+         * {@link PlannedFlow#cancel} does.
+         *
+         * @throws NullPointerException if {@code cancelledOn} or {@code reason} is null
+         * @throws IllegalArgumentException if {@code reason} is blank
+         */
         public Cancelled cancel(LocalDate cancelledOn, String reason) {
             return new Cancelled(cancelledOn, reason);
         }
@@ -78,7 +102,13 @@ public sealed interface PlanState {
         }
     }
 
-    /** Abandoned, with a reason. Kept as history but excluded from every projection. */
+    /**
+     * Abandoned, with a reason. Kept as history but excluded from every projection, and terminal
+     * like {@link Realised}: it declares no transition method.
+     *
+     * <p>The reason is held stripped of surrounding whitespace, so two cancellations that differ
+     * only in it compare equal.
+     */
     record Cancelled(LocalDate cancelledOn, String reason) implements PlanState {
 
         public Cancelled {

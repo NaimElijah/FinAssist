@@ -18,6 +18,8 @@ class Evidence:
     ``EvidenceRef`` is the citation — a kind and an identifier, which is all a reader needs to
     check a figure. This adds the content, because a model cannot answer from a pointer. Keeping
     them separate is what stops the whole record travelling into a citation.
+
+    :raises ValueError: if the summary is blank once stripped
     """
 
     ref: EvidenceRef

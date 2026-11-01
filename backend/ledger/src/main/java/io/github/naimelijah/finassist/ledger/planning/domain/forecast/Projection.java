@@ -36,6 +36,14 @@ import java.util.Optional;
  */
 public record Projection(Horizon horizon, Cadence step, List<BalancePoint> points) {
 
+    /**
+     * Holds a series of points that already sits on the horizon's step boundaries.
+     *
+     * @throws NullPointerException if any argument is null
+     * @throws IllegalArgumentException if there are no points, the first is not dated
+     *     {@code horizon.from()} or the last {@code horizon.to()}, a point is not dated on its
+     *     step boundary, or the points are not all in one currency
+     */
     public Projection {
         Objects.requireNonNull(horizon, "horizon");
         Objects.requireNonNull(step, "step");

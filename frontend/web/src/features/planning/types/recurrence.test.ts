@@ -188,4 +188,169 @@ describe('buildRecurrence', () => {
         expect(thrown).toBeInstanceOf(InvalidCountError);
         expect(thrown).toHaveProperty('field', 'count');
     });
+
+    // `Number.parseInt` reads the leading digits and ignores the rest, so a scripted submit of
+    // "1.5", "12abc" or "1e3" was sent as 1, 12 or 1 rather than refused as the form refuses it.
+    it.each(['1.5', '12abc', '1e3', ' 12', '012'])(
+        'Given_a_count_of_%j_that_is_not_wholly_a_positive_integer_When_built_Then_it_is_refused_rather_than_truncated',
+        (count) => {
+            const thrown = thrownBy(() =>
+                buildRecurrence({
+                    kind: 'TIMES',
+                    cadence: 'MONTHLY',
+                    interval: '1',
+                    until: '',
+                    count,
+                }),
+            );
+
+            expect(thrown).toBeInstanceOf(InvalidCountError);
+            expect(thrown).toHaveProperty('field', 'count');
+        },
+    );
+
+    it.each(['1.5', '12abc', '1e3', ' 12', '012'])(
+        'Given_an_interval_of_%j_that_is_not_wholly_a_positive_integer_When_built_Then_it_is_refused_rather_than_truncated',
+        (interval) => {
+            const thrown = thrownBy(() =>
+                buildRecurrence({
+                    kind: 'UNTIL',
+                    cadence: 'MONTHLY',
+                    interval,
+                    until: '2027-01-01',
+                    count: '',
+                }),
+            );
+
+            expect(thrown).toBeInstanceOf(InvalidCountError);
+            expect(thrown).toHaveProperty('field', 'interval');
+        },
+    );
+});
+
+describe('buildRecurrence beyond a safe integer', () => {
+    // Digits alone pass the whole-text match, but a number past 2^53 - 1 no longer holds them:
+    // 401 digits parse to Infinity, which JSON sends as null, and 2^53 + 1 reads as 2^53.
+    const UNSAFE_COUNTS = [
+        ['parses_to_Infinity', `1${'0'.repeat(400)}`],
+        ['is_one_past_the_largest_safe_integer', String(Number.MAX_SAFE_INTEGER + 1)],
+        ['loses_precision_when_parsed', '9007199254740993'],
+    ] as const;
+
+    it.each(UNSAFE_COUNTS)(
+        'Given_a_count_that_%s_When_built_Then_it_is_refused_rather_than_sent_imprecisely',
+        (_reason, count) => {
+            const thrown = thrownBy(() =>
+                buildRecurrence({
+                    kind: 'TIMES',
+                    cadence: 'MONTHLY',
+                    interval: '1',
+                    until: '',
+                    count,
+                }),
+            );
+
+            expect(thrown).toBeInstanceOf(InvalidCountError);
+            expect(thrown).toHaveProperty('field', 'count');
+        },
+    );
+
+    it.each(UNSAFE_COUNTS)(
+        'Given_an_interval_that_%s_When_built_Then_it_is_refused_rather_than_sent_imprecisely',
+        (_reason, interval) => {
+            const thrown = thrownBy(() =>
+                buildRecurrence({
+                    kind: 'UNTIL',
+                    cadence: 'MONTHLY',
+                    interval,
+                    until: '2027-01-01',
+                    count: '',
+                }),
+            );
+
+            expect(thrown).toBeInstanceOf(InvalidCountError);
+            expect(thrown).toHaveProperty('field', 'interval');
+        },
+    );
+});
+
+describe("buildRecurrence beyond the contract's int32 range", () => {
+    // The ledger's contract declares count and interval int32, and holds each in a Java int, so
+    // a count it would refuse is refused here rather than sent, though a number holds it exactly.
+    const PAST_INT32_COUNTS = [
+        ['is_one_past_the_int32_maximum', '2147483648'],
+        ['is_the_largest_safe_integer', String(Number.MAX_SAFE_INTEGER)],
+    ] as const;
+
+    it.each(PAST_INT32_COUNTS)(
+        'Given_a_count_that_%s_When_built_Then_it_is_refused_rather_than_sent',
+        (_reason, count) => {
+            const thrown = thrownBy(() =>
+                buildRecurrence({
+                    kind: 'TIMES',
+                    cadence: 'MONTHLY',
+                    interval: '1',
+                    until: '',
+                    count,
+                }),
+            );
+
+            expect(thrown).toBeInstanceOf(InvalidCountError);
+            expect(thrown).toHaveProperty('field', 'count');
+        },
+    );
+
+    it.each(PAST_INT32_COUNTS)(
+        'Given_an_interval_that_%s_When_built_Then_it_is_refused_rather_than_sent',
+        (_reason, interval) => {
+            const thrown = thrownBy(() =>
+                buildRecurrence({
+                    kind: 'UNTIL',
+                    cadence: 'MONTHLY',
+                    interval,
+                    until: '2027-01-01',
+                    count: '',
+                }),
+            );
+
+            expect(thrown).toBeInstanceOf(InvalidCountError);
+            expect(thrown).toHaveProperty('field', 'interval');
+        },
+    );
+
+    it('Given_a_count_past_the_int32_maximum_When_built_Then_the_error_states_the_bound', () => {
+        // The count is a whole number of 1 or more, so a message stating only that rule would
+        // not say why it was refused.
+        const thrown = thrownBy(() =>
+            buildRecurrence({
+                kind: 'TIMES',
+                cadence: 'MONTHLY',
+                interval: '1',
+                until: '',
+                count: '2147483648',
+            }),
+        );
+
+        expect(thrown).toHaveProperty(
+            'message',
+            'Expected count to be a whole number from 1 to 2147483647, got "2147483648"',
+        );
+    });
+
+    it('Given_a_count_and_an_interval_of_the_int32_maximum_When_built_Then_both_are_kept_exactly', () => {
+        const recurrence = buildRecurrence({
+            kind: 'TIMES',
+            cadence: 'MONTHLY',
+            interval: '2147483647',
+            until: '',
+            count: '2147483647',
+        });
+
+        expect(recurrence).toEqual({
+            kind: 'TIMES',
+            cadence: 'MONTHLY',
+            interval: 2147483647,
+            count: 2147483647,
+        });
+    });
 });

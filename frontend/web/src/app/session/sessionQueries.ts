@@ -28,8 +28,8 @@ export function useSession() {
 }
 
 /**
- * Ends the session: a function safe to call twice in a row, whether that is in flight, and why
- * the last attempt failed.
+ * What `useSignOut` hands a component: the sign-out call, which is safe to make twice in a row,
+ * whether a request is in flight, and why the last attempt failed.
  */
 export interface SignOut {
     /** Sends the sign-out request, unless one from an earlier call has not yet settled. */

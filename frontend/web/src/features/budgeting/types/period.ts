@@ -1,6 +1,6 @@
 /**
- * Calendar-part arithmetic for a budget's period, used by the define-budget form and the budgets
- * list.
+ * Calendar-part arithmetic for a budget's period, used by the define-budget form and by every
+ * screen that shows a period.
  *
  * The wire carries only year, month and day integers (ADR-028), never a moment in time, so every
  * function below works on those integers directly rather than routing a date string through a
@@ -122,6 +122,7 @@ function dayBefore(date: string): string {
  *
  * @param period - the period to display.
  * @returns `period.end` minus one calendar day.
+ * @throws Error - when `period.end` is not `YYYY-MM-DD`.
  */
 export function periodDisplayEnd(period: BudgetPeriod): string {
     return dayBefore(period.end);
@@ -130,6 +131,8 @@ export function periodDisplayEnd(period: BudgetPeriod): string {
 /**
  * Whether `period` covers exactly one calendar month: `start` is the first of a month and `end`
  * is the first of the next.
+ *
+ * @throws Error - when `period.start` or `period.end` is not `YYYY-MM-DD`.
  */
 export function isSingleCalendarMonth(period: BudgetPeriod): boolean {
     const start = parseIsoDate(period.start);
@@ -155,6 +158,7 @@ const MONTH_LABEL_FORMAT = new Intl.DateTimeFormat(DISPLAY_LOCALE, {
  * @param period - the period to label.
  * @returns the label when `period` is a single calendar month; `undefined` otherwise, so the
  *   caller falls back to showing the start and (display) end dates.
+ * @throws Error - when `period.start` or `period.end` is not `YYYY-MM-DD`.
  */
 export function periodMonthLabel(period: BudgetPeriod): string | undefined {
     if (!isSingleCalendarMonth(period)) {

@@ -3,7 +3,7 @@
  *
  * Every feature's `api/` module builds its calls on `requestJson` and `sendJson`, typing each
  * response with the types generated from `contracts/` into `src/shared/api/contracts/`. No client
- * is generated (ADR-029), so this wrapper knows no endpoint beyond the two base paths below.
+ * is generated (ADR-029), so this wrapper knows no endpoint beyond the three base paths below.
  *
  * Being the single chokepoint is also why correlation lives here: every request carries a
  * `traceparent`, so the backends continue the browser's trace rather than starting their own,
@@ -117,7 +117,13 @@ function validatedErrors(value: unknown): readonly ProblemFieldError[] | undefin
     return Array.isArray(value) && value.every(isProblemFieldError) ? value : undefined;
 }
 
-/** Thrown for any non-2xx response, so a failed call can never be mistaken for an empty one. */
+/**
+ * Thrown for any non-2xx response, so a failed call can never be mistaken for an empty one.
+ *
+ * `status` is the HTTP status and `url` the request URL. `message` is the problem's `detail`, else
+ * its `title`, else "Request failed with <status>". A `detail` can carry the owner's own words, so
+ * log `problem.code` and `status` instead (`failureFields`).
+ */
 export class ApiError extends Error {
     constructor(
         readonly status: number,
@@ -143,7 +149,13 @@ export function hasProblemCode(error: unknown, code: string): boolean {
     return error instanceof ApiError && error.problem?.code === code;
 }
 
-/** Thrown when a 2xx response does not carry the JSON body the caller was promised. */
+/**
+ * Thrown when a 2xx response does not carry the JSON body the caller was promised, or when a
+ * member of one breaks the contract, as `decimalString` finds. `url` is the request URL.
+ *
+ * Because it follows a 2xx, a write it answers was applied: the caller must not offer to send it
+ * again (ADR-028, ADR-067).
+ */
 export class ApiBodyError extends Error {
     constructor(
         readonly url: string,

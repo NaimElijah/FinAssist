@@ -28,6 +28,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication
 public class GatewayApplication {
 
+    /**
+     * Starts the gateway.
+     *
+     * @param args Spring Boot's command-line arguments, such as {@code --server.port=9090}
+     */
     public static void main(String[] args) {
         SpringApplication.run(GatewayApplication.class, args);
     }

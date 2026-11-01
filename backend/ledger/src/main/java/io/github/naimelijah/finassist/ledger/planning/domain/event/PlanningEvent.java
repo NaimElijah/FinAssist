@@ -15,7 +15,8 @@ import java.util.Objects;
  * <p>The mirror of {@code AccountingEvent}, and deliberately so: two lifecycles that behave
  * differently for no reason are two things to remember. Raised by the service rather than the
  * aggregate, for the reason ADR-023 gives — {@code PlannedFlow} is a record whose value semantics
- * {@code Scenario} relies on when it refuses to list the same flow twice.
+ * are load-bearing, among them the {@code PlanId} comparison by which {@code Scenario} refuses to
+ * list the same flow twice.
  *
  * <p>These describe intentions, never facts. A {@code PlanRealised} says the owner marked a plan as
  * having happened; the transaction that actually moved the money is accounting's, and nothing here

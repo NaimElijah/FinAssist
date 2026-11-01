@@ -26,7 +26,8 @@ export interface FieldEdit {
 
 /**
  * Sets the value of the field labelled `label` as a date or month picker would; user-event
- * cannot type into one.
+ * cannot type into one. Returns a resolved promise, so it can stand as a `FieldEdit`'s `edit` or
+ * `arrange`.
  */
 export function changeValue(label: string, value: string): Promise<void> {
     fireEvent.change(screen.getByLabelText(label), { target: { value } });

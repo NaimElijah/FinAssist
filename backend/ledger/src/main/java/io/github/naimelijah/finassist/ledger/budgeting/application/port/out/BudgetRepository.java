@@ -8,6 +8,7 @@ import java.util.Optional;
 /** Where budgets are kept. No delete, for the reason ADR-021 gives about every repository port here. */
 public interface BudgetRepository {
 
+    /** The budget stored under {@code id}, or empty when none is. */
     Optional<Budget> findById(BudgetId id);
 
     /**
@@ -17,5 +18,9 @@ public interface BudgetRepository {
      */
     List<Budget> all();
 
+    /**
+     * Stores the budget under its identity, replacing a budget already stored under it, limits
+     * included: a limit the new state no longer holds is gone afterwards.
+     */
     void save(Budget budget);
 }

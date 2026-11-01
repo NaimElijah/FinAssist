@@ -28,6 +28,12 @@ interface State {
     readonly failed: boolean;
 }
 
+/**
+ * Renders `children`, or `fallback` once a descendant throws while rendering.
+ *
+ * The failure is logged with the fields `failureFields` allows. A boundary that has failed stays
+ * failed: nothing resets it, so the owner's way out is the reload the default fallback asks for.
+ */
 export class ErrorBoundary extends Component<Props, State> {
     override state: State = { failed: false };
 

@@ -22,6 +22,7 @@ import java.util.Optional;
  */
 public interface TransactionRepository {
 
+    /** The transaction of that identity, in its current state, or empty when none is stored. */
     Optional<Transaction> findById(TransactionId id);
 
     /**

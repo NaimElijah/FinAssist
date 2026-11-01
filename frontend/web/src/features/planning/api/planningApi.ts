@@ -57,8 +57,9 @@ function flowActionUrl(flowId: string, action: string): string {
 /**
  * A currency the contract does not name.
  *
- * The generated type promises one of five codes, but the body is unvalidated JSON, so this keeps
- * a runtime default rather than trusting it blindly, the same as an unnamed status or kind.
+ * The generated type promises one of five codes, but the body is unvalidated JSON, so a runtime
+ * check refuses any other rather than trusting it blindly, the same as for an unnamed status or
+ * kind.
  *
  * @throws ApiBodyError - always.
  */
@@ -92,8 +93,8 @@ function requiredMember<Value>(value: Value | undefined, member: string, url: st
 /**
  * A plan state whose status the contract does not name.
  *
- * The generated type lists four statuses, but the body is unvalidated JSON, so this keeps a
- * runtime default rather than leaving a state `undefined` for a screen to crash on. The status
+ * The generated type lists four statuses, but the body is unvalidated JSON, so a runtime check
+ * refuses any other rather than leaving a state `undefined` for a screen to crash on. The status
  * itself is left out of the log line, since it arrived unvalidated.
  *
  * @throws ApiBodyError - always.

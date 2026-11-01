@@ -36,7 +36,10 @@ import tools.jackson.databind.json.JsonMapper;
  */
 final class SpaLogoutSuccessHandler implements LogoutSuccessHandler {
 
-    /** OpenID Connect RP-Initiated Logout 1.0 §2, the three parameters the end-session URL carries. */
+    /**
+     * The names OpenID Connect RP-Initiated Logout 1.0 §2 gives the end-session URL's parameters,
+     * beside {@code client_id}, which comes from {@link OAuth2ParameterNames}.
+     */
     private static final String ID_TOKEN_HINT = "id_token_hint";
 
     private static final String POST_LOGOUT_REDIRECT_URI = "post_logout_redirect_uri";

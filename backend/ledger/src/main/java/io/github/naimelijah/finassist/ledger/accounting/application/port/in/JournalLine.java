@@ -17,6 +17,10 @@ import java.util.Objects;
  *
  * <p>The type travels with the line because the sign of an amount means nothing without it, and the
  * caller cannot look it up: an {@code AccountId} is all an entry carries.
+ *
+ * @param on the date the transaction occurred
+ * @param amount the entry's signed amount, a debit positive and a credit negative, in the currency
+ *     of the account it was posted to
  */
 public record JournalLine(
         TransactionId transaction,

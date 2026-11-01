@@ -3,7 +3,8 @@
  *
  * The browser does no arithmetic on money (ADR-029), so there is no behaviour here beyond reading
  * a sign. Duplicated from the other features' `types/money.ts` on purpose: a feature imports no
- * other feature, and the assistant's `MoneyModel` has the ledger's `MoneyDto` shape (ADR-026).
+ * other feature, and the assistant's generated `MoneyModel` has the same members as the ledger's
+ * `MoneyDto`.
  */
 
 /** The currencies an amount can be in, in the order forms offer them. */

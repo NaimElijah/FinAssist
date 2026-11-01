@@ -12,8 +12,8 @@ import jakarta.validation.constraints.NotNull;
  * (ADR-028).
  *
  * <p>{@code category} travels as the raw string a client typed; {@link Category#of} normalises it
- * (lower-cased) when this is turned into a domain limit, exactly as {@code Category}'s own
- * constructor would.
+ * (stripped and lower-cased) when this is turned into a domain limit, exactly as {@code Category}'s
+ * own constructor would.
  */
 public record CategoryLimitDto(
         @NotBlank String category, @NotNull @Valid MoneyDto limit) {

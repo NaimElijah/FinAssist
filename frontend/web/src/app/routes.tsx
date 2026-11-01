@@ -29,8 +29,9 @@ function area(children: RouteObject[]): RouteObject {
  *
  * Exported so tests mount the real table in a memory router. The layout route carries a boundary
  * too, so a failure in the layout or the not-found page is logged and shown rather than falling
- * through to React Router's built-in error screen; `RootRouteError`, since the layout that would
- * give the failure its `<main>` and document title is the thing that failed.
+ * through to React Router's built-in error screen. It is `RootRouteError`, not `RouteError`,
+ * since the layout that would give the failure its `<main>` and document title is the thing that
+ * failed.
  */
 export const routes: RouteObject[] = [
     {

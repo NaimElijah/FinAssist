@@ -14,10 +14,13 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * The Money contract.
  *
- * <p>These cases are mirrored by {@code backend/assistant/tests/test_money.py}. ADR-010 accepts that
- * Money is implemented once per language rather than shared, and names equivalent tests on both
- * sides as the thing that keeps the two honest. Changing behaviour here without changing it there is
- * the drift this pair exists to catch.
+ * <p>These cases are mirrored by {@code backend/assistant/tests/test_money.py}, all but one: a product
+ * whose rounding needs a power of ten past {@code BigInteger}'s range, which this class pins as refused
+ * and the assistant's {@code times_rounded} answers {@code 0.00}, a known gap tracked by #416.
+ *
+ * <p>ADR-010 accepts that Money is implemented once per language rather than shared, and names
+ * equivalent tests on both sides as the thing that keeps the two honest. Changing behaviour here
+ * without changing it there is the drift this pair exists to catch.
  */
 class MoneyTest {
 
@@ -166,6 +169,81 @@ class MoneyTest {
     void Given_a_multiplication_needing_rounding_When_applied_Then_it_is_rejected() {
         assertThatThrownBy(() -> Money.of("0.01", Currency.USD).times(new BigDecimal("0.5")))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * {@code BigDecimal.multiply} refuses a product whose scale overflows an int with a bare
+     * {@code ArithmeticException}, which both multiplications' contracts leave out. A zero
+     * multiplier is refused too: {@code BigDecimal} checks the scale whenever the amount is not
+     * zero, whatever it is multiplied by. Mirrored in {@code tests/test_money.py}.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"1E-2147483647", "0E-2147483647"})
+    void Given_a_product_scale_past_an_int_When_multiplied_Then_it_is_refused_with_a_short_message(String multiplier) {
+        Money amount = Money.of("12.50", Currency.USD);
+
+        assertThatThrownBy(() -> amount.times(new BigDecimal(multiplier)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("more precision")
+                .satisfies(refusal -> assertThat(refusal.getMessage()).hasSizeLessThan(MESSAGE_BOUND));
+    }
+
+    /** The same refusal from {@code timesRounded}. Mirrored in {@code tests/test_money.py}. */
+    @ParameterizedTest
+    @ValueSource(strings = {"1E-2147483647", "0E-2147483647"})
+    void Given_a_product_scale_past_an_int_When_times_rounded_Then_it_is_refused_with_a_short_message(
+            String multiplier) {
+        Money amount = Money.of("12.50", Currency.USD);
+
+        assertThatThrownBy(() -> amount.timesRounded(new BigDecimal(multiplier)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("more precision")
+                .satisfies(refusal -> assertThat(refusal.getMessage()).hasSizeLessThan(MESSAGE_BOUND));
+    }
+
+    /**
+     * USD's two places plus these 2147483645 make {@link Integer#MAX_VALUE}, a scale {@code multiply}
+     * accepts; a zero product then rescales to {@code 0.00} with no power of ten. Mirrored in
+     * {@code tests/test_money.py}.
+     */
+    @Test
+    void Given_a_zero_product_at_the_largest_scale_an_int_holds_When_multiplied_Then_it_is_zero() {
+        Money amount = Money.of("12.50", Currency.USD);
+        BigDecimal zeroAtTheLargestScale = new BigDecimal("0E-2147483645");
+
+        assertThat(amount.times(zeroAtTheLargestScale)).isEqualTo(Money.zero(Currency.USD));
+        assertThat(amount.timesRounded(zeroAtTheLargestScale)).isEqualTo(Money.zero(Currency.USD));
+    }
+
+    /** One place past {@link Integer#MAX_VALUE}, zero or not. Mirrored in {@code tests/test_money.py}. */
+    @ParameterizedTest
+    @ValueSource(strings = {"0E-2147483646", "1E-2147483646"})
+    void Given_a_product_scale_one_past_the_largest_an_int_holds_When_multiplied_Then_it_is_refused(String multiplier) {
+        Money amount = Money.of("12.50", Currency.USD);
+
+        assertThatThrownBy(() -> amount.times(new BigDecimal(multiplier)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("more precision");
+        assertThatThrownBy(() -> amount.timesRounded(new BigDecimal(multiplier)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("more precision");
+    }
+
+    /**
+     * Here the product's scale fits an int, but rounding it to cents needs a power of ten past
+     * {@code BigInteger}'s range, which {@code setScale} refuses with the same bare
+     * {@code ArithmeticException}. Not mirrored: Python's {@code Decimal} has no such bound and
+     * rounds the product to {@code 0.00}, a divergence of the same kind as an amount past
+     * {@code BigInteger}'s range, which the assistant's {@code Money.of} documents.
+     */
+    @Test
+    void Given_a_product_too_precise_to_round_When_times_rounded_Then_it_is_refused_with_a_short_message() {
+        Money amount = Money.of("12.50", Currency.USD);
+
+        assertThatThrownBy(() -> amount.timesRounded(new BigDecimal("1E-2147483645")))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("more precision")
+                .satisfies(refusal -> assertThat(refusal.getMessage()).hasSizeLessThan(MESSAGE_BOUND));
     }
 
     /**

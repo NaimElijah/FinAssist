@@ -15,6 +15,7 @@ import java.util.Optional;
  */
 public interface AccountRepository {
 
+    /** The account of that identity, or empty when none is stored. */
     Optional<Account> findById(AccountId id);
 
     /**

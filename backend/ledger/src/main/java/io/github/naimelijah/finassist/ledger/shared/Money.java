@@ -11,7 +11,7 @@ import java.util.Objects;
  * will be: a binary floating-point type cannot represent 0.10, and a ledger that loses a cent per
  * thousand transactions is wrong in a way no test written after the fact will find.
  * {@code LedgerArchitectureTest.money_is_never_floating_point} fails the build if a floating-point
- * field appears anywhere in a domain package.
+ * field appears anywhere in a domain package or in this one.
  *
  * <p>The amount is normalised to the currency's minor units on construction, so {@code 12.5 ILS} and
  * {@code 12.50 ILS} are the same value and compare equal. An amount carrying more precision than the
@@ -30,6 +30,18 @@ import java.util.Objects;
  */
 public record Money(BigDecimal amount, Currency currency) {
 
+    /**
+     * Normalises {@code amount} to {@code currency}'s minor units.
+     *
+     * @param amount the exact amount; a scale below the currency's is padded with zeros, and a
+     *     negative amount is allowed
+     * @param currency the currency the amount is held in
+     * @throws NullPointerException if either argument is null
+     * @throws IllegalArgumentException if {@code amount} carries more decimal places than
+     *     {@code currency} admits, so that it would have to be rounded; or is so large that
+     *     rescaling it to the currency's minor units overflows an int, as {@code 1E+2147483647}
+     *     does, or needs a power of ten past {@code BigInteger}'s range
+     */
     public Money {
         Objects.requireNonNull(amount, "amount");
         Objects.requireNonNull(currency, "currency");
@@ -58,25 +70,47 @@ public record Money(BigDecimal amount, Currency currency) {
      *
      * <p>Text rather than a numeric literal on purpose: {@code new BigDecimal(12.50)} captures the
      * floating-point approximation of 12.5, which is not 12.50.
+     *
+     * @param amount a decimal literal as {@link BigDecimal#BigDecimal(String)} reads it
+     * @param currency the currency the amount is held in
+     * @throws NumberFormatException if {@code amount} is not a decimal literal
+     * @throws NullPointerException if either argument is null
+     * @throws IllegalArgumentException if {@code amount} carries more decimal places than
+     *     {@code currency} admits, or is too large to rescale to its minor units, as the
+     *     constructor refuses it
      */
     public static Money of(String amount, Currency currency) {
         return new Money(new BigDecimal(amount), currency);
     }
 
+    /** Returns the zero amount in {@code currency}, at the currency's scale. */
     public static Money zero(Currency currency) {
         return new Money(BigDecimal.ZERO, currency);
     }
 
+    /**
+     * Returns the sum of this amount and {@code other}.
+     *
+     * @throws CurrencyMismatchException if the currencies differ
+     * @throws NullPointerException if {@code other} is null
+     */
     public Money plus(Money other) {
         requireSameCurrency(other);
         return new Money(amount.add(other.amount), currency);
     }
 
+    /**
+     * Returns this amount less {@code other}.
+     *
+     * @throws CurrencyMismatchException if the currencies differ
+     * @throws NullPointerException if {@code other} is null
+     */
     public Money minus(Money other) {
         requireSameCurrency(other);
         return new Money(amount.subtract(other.amount), currency);
     }
 
+    /** Returns this amount with its sign flipped; zero stays zero, as {@link BigDecimal} has no signed zero. */
     public Money negate() {
         return new Money(amount.negate(), currency);
     }
@@ -84,11 +118,21 @@ public record Money(BigDecimal amount, Currency currency) {
     /**
      * Multiplies by a count, exactly. Never by another Money — that is not money.
      *
-     * @throws IllegalArgumentException if the product needs rounding to fit the currency
+     * @throws IllegalArgumentException if the product needs rounding to fit the currency, or its
+     *     scale would overflow an int, as {@code 12.50} times {@code 1E-2147483647} would; or if it
+     *     is too large for the constructor to rescale to the currency's minor units, as
+     *     {@code 12.50} times {@code 1E+2147483645} is
+     * @throws NullPointerException if {@code multiplier} is null
      */
     public Money times(BigDecimal multiplier) {
         Objects.requireNonNull(multiplier, "multiplier");
-        return new Money(amount.multiply(multiplier), currency);
+        BigDecimal product;
+        try {
+            product = amount.multiply(multiplier);
+        } catch (ArithmeticException cause) {
+            throw unrepresentableProduct(multiplier, cause);
+        }
+        return new Money(product, currency);
     }
 
     /**
@@ -99,21 +143,35 @@ public record Money(BigDecimal amount, Currency currency) {
      * decimal places can express, so a total cost has to be rounded somewhere. Doing it here, half
      * up, in a method the caller has to choose, beats {@link #times} throwing on perfectly ordinary
      * fractional holdings.
+     *
+     * @throws IllegalArgumentException if the product's scale would overflow an int, or rounding the
+     *     product to the currency's minor units needs a power of ten past {@code BigInteger}'s range,
+     *     because it carries that many decimal places or is that large, as {@code 12.50} times
+     *     {@code 1E+2147483645} is
+     * @throws NullPointerException if {@code multiplier} is null
      */
     public Money timesRounded(BigDecimal multiplier) {
         Objects.requireNonNull(multiplier, "multiplier");
-        BigDecimal product = amount.multiply(multiplier);
-        return new Money(product.setScale(currency.minorUnits(), RoundingMode.HALF_UP), currency);
+        BigDecimal rounded;
+        try {
+            rounded = amount.multiply(multiplier).setScale(currency.minorUnits(), RoundingMode.HALF_UP);
+        } catch (ArithmeticException cause) {
+            throw unrepresentableProduct(multiplier, cause);
+        }
+        return new Money(rounded, currency);
     }
 
+    /** Returns whether the amount is zero. */
     public boolean isZero() {
         return amount.signum() == 0;
     }
 
+    /** Returns whether the amount is greater than zero. */
     public boolean isPositive() {
         return amount.signum() > 0;
     }
 
+    /** Returns whether the amount is less than zero. */
     public boolean isNegative() {
         return amount.signum() < 0;
     }
@@ -123,16 +181,43 @@ public record Money(BigDecimal amount, Currency currency) {
      *
      * <p>Not an implementation of {@link Comparable}: see the note on this class.
      *
+     * @return negative, zero or positive as this amount is less than, equal to or greater than
+     *     {@code other}
      * @throws CurrencyMismatchException if the currencies differ; there is no cross-currency order
+     * @throws NullPointerException if {@code other} is null
      */
     public int compareTo(Money other) {
         requireSameCurrency(other);
         return amount.compareTo(other.amount);
     }
 
+    /** Returns the amount in plain notation, a space and the currency code, e.g. {@code 12.50 ILS}. */
     @Override
     public String toString() {
         return amount.toPlainString() + " " + currency;
+    }
+
+    /**
+     * The refusal of a product {@code BigDecimal} cannot hold or round, which it reports as a bare
+     * {@code ArithmeticException} outside this class's contract. Worded as the constructor words its
+     * own refusal, and for the same reason writes the amount and the multiplier with {@code toString},
+     * never {@code toPlainString}: a multiplier such as {@code 1E-2147483647} written out would not
+     * fit in a String.
+     */
+    private IllegalArgumentException unrepresentableProduct(BigDecimal multiplier, ArithmeticException cause) {
+        return new IllegalArgumentException(
+                "The product of "
+                        + amount.toString()
+                        + " "
+                        + currency
+                        + " and "
+                        + multiplier.toString()
+                        + " carries more precision than "
+                        + currency
+                        + " admits ("
+                        + currency.minorUnits()
+                        + " decimal places) and more than a BigDecimal can compute with",
+                cause);
     }
 
     private void requireSameCurrency(Money other) {

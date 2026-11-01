@@ -46,6 +46,7 @@ record Origin(Setting setting, String base) {
     private static final String SLASH = "/";
 
     /**
+     * @throws NullPointerException if {@code setting} or {@code base} is null
      * @throws IllegalArgumentException if the URL is not an absolute HTTP or HTTPS URL naming a
      *     host, or if it carries a query, a fragment or a user-info. A relative one would produce
      *     a redirect that resolved against whatever host the request happened to name — the one
