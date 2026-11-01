@@ -301,6 +301,30 @@ history; write the commit message well and this file writes itself.
 
 ### Fixed
 
+- **Every public contract is documented, stale comments are corrected, and the code findings that
+  surfaced are fixed.** Scan 10 of 12 in M0
+  ([#347](https://github.com/NaimElijah/FinAssist/issues/347)) ran `code-documentor` over every
+  codebase at `2f3030e`, changing comments only.
+  - **How the comments-only commits were checked.** The ledger and gateway bytecode
+    (`javap -c -p`) is identical before and after, every Python AST is unchanged once docstrings
+    are stripped, and every TypeScript file transpiles to the same output once comments are
+    removed.
+  - **What the documentors found.** Ports said to be unimplemented that composition implements, a
+    liability's sign stated backwards, a nonce check credited to the wrong Spring class, citations
+    of ADRs that say no such thing, and `@throws` and `:raises:` lists that omitted refusals.
+  - **The code findings, fixed in their own commits:**
+    - voiding a reconciled or voided transaction with an early date is 409, not 422;
+    - `Money.times` and `timesRounded` refuse a product `BigDecimal` cannot hold as an
+      `IllegalArgumentException`, with the assistant's `Money` at parity and six new `scalar`
+      vectors;
+    - a recurrence count must be wholly a positive integer;
+    - an unreadable ignore file is a secret-check failure;
+    - a backup or restore that reads a non-JSON answer fails as a `BackupError`, not a traceback;
+    - a trace id followed by a newline is refused.
+  - **Filed for the owner:**
+    - [#421](https://github.com/NaimElijah/FinAssist/issues/421): how a liability's balance is
+      shown;
+    - [#422](https://github.com/NaimElijah/FinAssist/issues/422): whether a lot may cost zero.
 - **A generalist review of every codebase, and the fixes it called for.** Scan 9 of 12 in M0
   ([#346](https://github.com/NaimElijah/FinAssist/issues/346)) ran `code-reviewer` over all
   production code at `d258c13`:
