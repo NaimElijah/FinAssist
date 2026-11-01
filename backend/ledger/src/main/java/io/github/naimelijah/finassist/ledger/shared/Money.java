@@ -38,7 +38,9 @@ public record Money(BigDecimal amount, Currency currency) {
      * @param currency the currency the amount is held in
      * @throws NullPointerException if either argument is null
      * @throws IllegalArgumentException if {@code amount} carries more decimal places than
-     *     {@code currency} admits, so that it would have to be rounded
+     *     {@code currency} admits, so that it would have to be rounded; or is so large that
+     *     rescaling it to the currency's minor units overflows an int, as {@code 1E+2147483647}
+     *     does, or needs a power of ten past {@code BigInteger}'s range
      */
     public Money {
         Objects.requireNonNull(amount, "amount");
@@ -74,7 +76,8 @@ public record Money(BigDecimal amount, Currency currency) {
      * @throws NumberFormatException if {@code amount} is not a decimal literal
      * @throws NullPointerException if either argument is null
      * @throws IllegalArgumentException if {@code amount} carries more decimal places than
-     *     {@code currency} admits
+     *     {@code currency} admits, or is too large to rescale to its minor units, as the
+     *     constructor refuses it
      */
     public static Money of(String amount, Currency currency) {
         return new Money(new BigDecimal(amount), currency);
@@ -116,7 +119,9 @@ public record Money(BigDecimal amount, Currency currency) {
      * Multiplies by a count, exactly. Never by another Money — that is not money.
      *
      * @throws IllegalArgumentException if the product needs rounding to fit the currency, or its
-     *     scale would overflow an int, as {@code 12.50} times {@code 1E-2147483647} would
+     *     scale would overflow an int, as {@code 12.50} times {@code 1E-2147483647} would; or if it
+     *     is too large for the constructor to rescale to the currency's minor units, as
+     *     {@code 12.50} times {@code 1E+2147483645} is
      * @throws NullPointerException if {@code multiplier} is null
      */
     public Money times(BigDecimal multiplier) {
@@ -139,9 +144,10 @@ public record Money(BigDecimal amount, Currency currency) {
      * up, in a method the caller has to choose, beats {@link #times} throwing on perfectly ordinary
      * fractional holdings.
      *
-     * @throws IllegalArgumentException if the product's scale would overflow an int, or the product
-     *     carries so many decimal places that rounding it needs a power of ten past
-     *     {@code BigInteger}'s range
+     * @throws IllegalArgumentException if the product's scale would overflow an int, or rounding the
+     *     product to the currency's minor units needs a power of ten past {@code BigInteger}'s range,
+     *     because it carries that many decimal places or is that large, as {@code 12.50} times
+     *     {@code 1E+2147483645} is
      * @throws NullPointerException if {@code multiplier} is null
      */
     public Money timesRounded(BigDecimal multiplier) {
