@@ -12,6 +12,9 @@ class RecurrenceTest {
     private static final LocalDate JANUARY = LocalDate.of(2026, 1, 1);
     private static final LocalDate NEXT_JANUARY = LocalDate.of(2027, 1, 1);
 
+    /** A billion years: one step from 2026 passes {@link LocalDate#MAX}'s year of 999,999,999. */
+    private static final int HUGE_INTERVAL = 1_000_000_000;
+
     @Test
     void Given_a_one_off_within_the_range_When_expanded_Then_it_yields_its_own_date() {
         assertThat(new Recurrence.Once().occurrences(JANUARY, JANUARY, NEXT_JANUARY))
@@ -110,6 +113,25 @@ class RecurrenceTest {
         Recurrence yearly = new Recurrence.Times(Cadence.YEARLY, 1, 5);
 
         assertThat(yearly.occurrences(JANUARY, JANUARY, NEXT_JANUARY)).containsExactly(JANUARY);
+    }
+
+    /**
+     * An interval is bounded below only, so a caller can plan one so long that its second occurrence
+     * lies past the last date {@link LocalDate} can hold. Only the first can fall in any range, and
+     * computing the second must not be attempted, or the expansion throws rather than answers.
+     */
+    @Test
+    void Given_a_bounded_recurrence_with_an_interval_beyond_the_calendar_When_expanded_Then_it_yields_only_the_first() {
+        Recurrence until = new Recurrence.Until(Cadence.YEARLY, HUGE_INTERVAL, LocalDate.of(2030, 1, 1));
+
+        assertThat(until.occurrences(JANUARY, JANUARY, NEXT_JANUARY)).containsExactly(JANUARY);
+    }
+
+    @Test
+    void Given_a_counted_recurrence_with_an_interval_beyond_the_calendar_When_expanded_Then_it_yields_only_the_first() {
+        Recurrence times = new Recurrence.Times(Cadence.YEARLY, HUGE_INTERVAL, 3);
+
+        assertThat(times.occurrences(JANUARY, JANUARY, NEXT_JANUARY)).containsExactly(JANUARY);
     }
 
     /**
