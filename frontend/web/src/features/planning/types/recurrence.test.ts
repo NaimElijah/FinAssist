@@ -227,3 +227,66 @@ describe('buildRecurrence', () => {
         },
     );
 });
+
+describe('buildRecurrence beyond a safe integer', () => {
+    // Digits alone pass the whole-text match, but a number past 2^53 - 1 no longer holds them:
+    // 401 digits parse to Infinity, which JSON sends as null, and 2^53 + 1 reads as 2^53.
+    const UNSAFE_COUNTS = [
+        ['parses_to_Infinity', `1${'0'.repeat(400)}`],
+        ['is_one_past_the_largest_safe_integer', String(Number.MAX_SAFE_INTEGER + 1)],
+        ['loses_precision_when_parsed', '9007199254740993'],
+    ] as const;
+
+    it.each(UNSAFE_COUNTS)(
+        'Given_a_count_that_%s_When_built_Then_it_is_refused_rather_than_sent_imprecisely',
+        (_reason, count) => {
+            const thrown = thrownBy(() =>
+                buildRecurrence({
+                    kind: 'TIMES',
+                    cadence: 'MONTHLY',
+                    interval: '1',
+                    until: '',
+                    count,
+                }),
+            );
+
+            expect(thrown).toBeInstanceOf(InvalidCountError);
+            expect(thrown).toHaveProperty('field', 'count');
+        },
+    );
+
+    it.each(UNSAFE_COUNTS)(
+        'Given_an_interval_that_%s_When_built_Then_it_is_refused_rather_than_sent_imprecisely',
+        (_reason, interval) => {
+            const thrown = thrownBy(() =>
+                buildRecurrence({
+                    kind: 'UNTIL',
+                    cadence: 'MONTHLY',
+                    interval,
+                    until: '2027-01-01',
+                    count: '',
+                }),
+            );
+
+            expect(thrown).toBeInstanceOf(InvalidCountError);
+            expect(thrown).toHaveProperty('field', 'interval');
+        },
+    );
+
+    it('Given_a_count_of_the_largest_safe_integer_When_built_Then_it_is_kept_exactly', () => {
+        const recurrence = buildRecurrence({
+            kind: 'TIMES',
+            cadence: 'MONTHLY',
+            interval: '1',
+            until: '',
+            count: String(Number.MAX_SAFE_INTEGER),
+        });
+
+        expect(recurrence).toEqual({
+            kind: 'TIMES',
+            cadence: 'MONTHLY',
+            interval: 1,
+            count: Number.MAX_SAFE_INTEGER,
+        });
+    });
+});

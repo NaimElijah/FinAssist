@@ -2,9 +2,9 @@
  * How a planned flow repeats: once, until a date, or a number of times, at a weekly, monthly or
  * yearly cadence.
  *
- * No arithmetic: `interval` and `count` are counts, each wholly a positive integer, never money
- * (ADR-029). `recurrenceSummary` and `buildRecurrence` are pure and used both by the flows table
- * and the plan-flow form.
+ * No arithmetic: `interval` and `count` are counts, each wholly a positive safe integer, never
+ * money (ADR-029). `recurrenceSummary` and `buildRecurrence` are pure and used both by the flows
+ * table and the plan-flow form.
  */
 import { formatCalendarDate } from '@/shared/lib/calendarDate';
 import { DISPLAY_LOCALE } from '@/shared/lib/locale';
@@ -84,8 +84,8 @@ export interface RecurrenceFormState {
 export type CountField = 'interval' | 'count';
 
 /**
- * Thrown by `buildRecurrence` when a count it needs is not a positive integer. It names the member,
- * so the plan-flow form can show the refusal on the field it came from.
+ * Thrown by `buildRecurrence` when a count it needs is not a positive safe integer. It names the
+ * member, so the plan-flow form can show the refusal on the field it came from.
  */
 export class InvalidCountError extends Error {
     /** The member that did not parse to a positive integer. */
@@ -105,18 +105,21 @@ export class InvalidCountError extends Error {
 const POSITIVE_INTEGER = /^[1-9][0-9]*$/;
 
 /**
- * `value` parsed as a positive integer count, never money (ADR-029).
+ * `value` parsed as a positive safe integer count, never money (ADR-029).
  *
  * Matched whole before it is parsed: `Number.parseInt` reads the leading digits and ignores the
- * rest, so on its own it would read `"1.5"`, `"12abc"` and `"1e3"` as 1, 12 and 1.
+ * rest, so on its own it would read `"1.5"`, `"12abc"` and `"1e3"` as 1, 12 and 1. Then held to a
+ * safe integer, since digits alone can exceed what a number holds exactly: past 2^53 - 1 a count
+ * would be sent rounded, and past about 1.8e308 as `Infinity`, which JSON writes as `null`.
  *
- * @throws InvalidCountError - when `value` is not wholly a positive integer.
+ * @throws InvalidCountError - when `value` is not wholly a positive safe integer.
  */
 function parseCount(value: string, field: CountField): number {
-    if (!POSITIVE_INTEGER.test(value)) {
+    const parsed = POSITIVE_INTEGER.test(value) ? Number.parseInt(value, 10) : Number.NaN;
+    if (!Number.isSafeInteger(parsed)) {
         throw new InvalidCountError(field, value);
     }
-    return Number.parseInt(value, 10);
+    return parsed;
 }
 
 /**
@@ -130,8 +133,9 @@ function parseCount(value: string, field: CountField): number {
  * @param form - the form's current recurrence fields.
  * @returns the mapped `Recurrence`, holding exactly the members its `kind` carries.
  * @throws InvalidCountError - when `interval` or `count` (whichever `kind` needs) is not wholly a
- *   positive integer, naming which; an empty, zero, signed, fractional or exponent value, or one
- *   with a leading zero, whitespace or trailing text, is refused rather than sent.
+ *   positive safe integer, naming which; an empty, zero, signed, fractional or exponent value, one
+ *   with a leading zero, whitespace or trailing text, or one above `Number.MAX_SAFE_INTEGER`, is
+ *   refused rather than sent.
  */
 export function buildRecurrence(form: RecurrenceFormState): Recurrence {
     if (form.kind === 'ONCE') {
