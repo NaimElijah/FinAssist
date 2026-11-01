@@ -76,11 +76,14 @@ class HostAllowList:
     INFO on ``uvicorn.error``, with the path and its query string; no route reads a query string
     and no amount travels in a URL (ADR-028).
 
-    Two differences from the ledger's filter come with the stock matching, which compares the text
-    before the header's first colon exactly. An IPv6 literal such as ``[::1]`` can never be
+    Three differences from the ledger's filter come with the stock matching, which compares the
+    text before the header's first colon exactly. An IPv6 literal such as ``[::1]`` can never be
     allowed, so ``Settings`` refuses an entry with a colon or a bracket rather than accept one that
-    matches nothing. And case is significant in the header: browsers send host names in lower
-    case, and ``Settings`` lower-cases the allowed names.
+    matches nothing. Case is significant in the header: browsers send host names in lower case,
+    and ``Settings`` lower-cases the allowed names. And whatever follows the first colon is never
+    read, so ``localhost:abc`` and ``localhost:1:2`` are admitted here, where the ledger's pattern
+    allows only digits after the colon and refuses both; no allowed name holds a colon, so the
+    name compared is the same either way.
 
     :param app: the application behind the check.
     :param allowed_hosts: the names to admit, as ``Settings.allowed_hosts`` has validated them.

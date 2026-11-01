@@ -205,10 +205,12 @@ def _refusal(status: HTTPStatus, code: str) -> Callable[[Request, Exception], JS
 
     That rests on an assumption the registration does not enforce: every exception these handlers
     receive was raised by the domain about what the caller asked for, so its message names nothing
-    the caller did not send. The typed entries hold it by construction. The ``ValueError`` entry
-    holds it only because every plain ``ValueError`` reachable today is a domain rule about the
-    caller's input, such as a blank symbol, a disposal of no units or an amount finer than its
-    currency.
+    the caller may not already read. The typed entries hold it by construction, though not by
+    naming only what was sent: ``InsufficientHoldingError`` names the quantity held and
+    ``CurrencyMismatchError`` the lots' currency, both of which the position route serves under
+    the same ``portfolio:read``. The ``ValueError`` entry holds it only because every plain
+    ``ValueError`` reachable today is a domain rule about the caller's input, such as a blank
+    symbol, a disposal of no units or an amount finer than its currency.
 
     Python raises ``ValueError`` for far more than that: ``int()``, ``UUID()``,
     ``date.fromisoformat()``, ``json.loads()`` and a failed decode all do. A parse failure in a
