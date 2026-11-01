@@ -1084,9 +1084,10 @@ the resolved `Session` through `SessionContext` rather than letting `UserMenu` f
 time. A second mount of the same query would still share the cache, but would still issue a fresh
 request by default, which `SessionContext` avoids entirely. This is not a cross-context
 translation — session belongs to no bounded context — but it is the same "resolve once, provide
-down" shape as `PlanningAccountsBridge`/`AccountOptionsContext`, chosen for the same reason: a
-test that renders a feature's routes through `renderRoutes` mounts no `Layout`, so it needs no
-session, and one that renders the real `App` needs only a session answered for `GET /bff/me`.
+down" shape as `PlanningAccountsBridge`/`AccountOptionsContext`, chosen for the same reason. It
+also keeps tests simple: a test that renders a feature's routes through `renderRoutes` mounts no
+`Layout`, so it needs no session, and one that renders the real `App` needs `GET /bff/me`
+answered on top of its data.
 
 **Domain events are raised by the application service, not by the aggregate.** `Transaction` and
 `PlannedFlow` are records whose value semantics the suites rely on, so a mutable pending-events
