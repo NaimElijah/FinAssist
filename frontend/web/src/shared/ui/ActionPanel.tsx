@@ -2,9 +2,16 @@ import { type ReactNode, useEffect, useId, useRef } from 'react';
 
 import styles from './ActionPanel.module.css';
 import { Button } from './Button';
+import { StatusLine } from './StatusLine';
 
 /** Matches the controls a person fills in, so focus lands on a field rather than a button. */
 const FIELD_SELECTOR = 'input, select, textarea';
+
+/**
+ * Announced while the panel's request is in flight: disabled buttons and `aria-busy` alone tell a
+ * screen reader nothing, and the page also disables every other row's action meanwhile.
+ */
+const PENDING_MESSAGE = 'Sending…';
 
 /** A panel's title level: below the page's h1, and no deeper than an h4 in a screen this size. */
 export type ActionPanelHeadingLevel = 2 | 3 | 4;
@@ -37,7 +44,10 @@ export interface ActionPanelProps {
      * `pending`.
      */
     readonly onCancel: () => void;
-    /** A request this panel started is in flight: submit and Cancel are disabled until it clears. */
+    /**
+     * A request this panel started is in flight: submit and Cancel are disabled until it clears,
+     * and the panel's polite status line says it is sending.
+     */
     readonly pending: boolean;
 }
 
@@ -109,6 +119,7 @@ export function ActionPanel({
                     <Button variant="secondary" onClick={onCancel} disabled={pending}>
                         Cancel
                     </Button>
+                    <StatusLine message={pending ? PENDING_MESSAGE : ''} />
                 </div>
             </form>
         </section>

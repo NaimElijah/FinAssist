@@ -5,6 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import { statusMessages } from '../testing/status';
 import { ActionPanel } from './ActionPanel';
 
 /** The panel's form, failing loudly when it is absent. */
@@ -146,6 +147,31 @@ describe('ActionPanel', () => {
         await userEvent.setup().click(screen.getByRole('button', { name: 'Cancel' }));
 
         expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('Given_an_idle_panel_When_rendered_Then_its_status_region_is_there_and_says_nothing', () => {
+        // A live region announces a change only once it is already on the page.
+        renderVoidPanel();
+
+        expect(statusMessages()).toEqual(['']);
+    });
+
+    it('Given_a_request_pending_When_rendered_Then_a_polite_status_says_it_is_sending', () => {
+        // Disabled buttons and aria-busy say nothing to a screen reader on their own.
+        const { renderPending } = renderVoidPanel();
+
+        renderPending(true);
+
+        expect(statusMessages()).toEqual(['Sending…']);
+    });
+
+    it('Given_a_request_that_settled_When_rendered_Then_the_status_is_emptied', () => {
+        // Emptied, so the next request's status is a change and is announced again.
+        const { renderPending } = renderVoidPanel(true);
+
+        renderPending(false);
+
+        expect(statusMessages()).toEqual(['']);
     });
 
     it('Given_pending_When_the_form_is_submitted_anyway_Then_onSubmit_is_not_called', () => {

@@ -294,7 +294,7 @@ const INHERITED_PAIRS: readonly InheritedPair[] = [
         foreground: 'color-muted',
         background: 'color-surface-raised',
         minimum: TEXT_MINIMUM,
-        drawnBy: "a table's column headings, the chart's axis",
+        drawnBy: "a table's column headings, the chart's axis, an action panel's status line",
     },
     {
         foreground: 'color-accent',
