@@ -17,7 +17,9 @@ class EvidenceRef:
 
     Deliberately a pair of strings rather than a typed accounting identifier: the accounting
     context owns those, and importing one here would couple two contexts. The anti-corruption
-    layer turns a ledger response into these refs.
+    layer turns a ledger response into these refs. Both strings are stripped on construction.
+
+    :raises ValueError: if either string is blank once stripped
     """
 
     kind: str
@@ -45,6 +47,9 @@ class Claim:
 
     A claim with no citations is fine when it states no figure. A claim that states a figure and
     cites nothing is the thing this context exists to catch.
+
+    :raises ValueError: if the text is blank once stripped
+    :raises TypeError: if ``citations`` is not a tuple, or holds anything but ``EvidenceRef``
     """
 
     text: str
@@ -79,6 +84,7 @@ class GroundedAnswer:
 
     @property
     def text(self) -> str:
+        """The claims' text, in order, joined by single spaces."""
         return " ".join(claim.text for claim in self.claims)
 
 
@@ -95,4 +101,5 @@ class Ungrounded:
 
     @property
     def reason(self) -> str:
+        """Why the answer was refused, quoting the text of each offending claim."""
         return "Uncited figures in: " + "; ".join(claim.text for claim in self.offending)

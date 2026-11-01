@@ -116,7 +116,8 @@ class Money:
     The amount is normalised to the currency's minor units on construction, so ``12.5`` and
     ``12.50`` are one value, and a zero carries no sign, so ``-0`` is ``0.00``. An amount
     carrying more precision than the currency admits is rejected rather than rounded — rounding
-    here would be a silent decision about money.
+    here would be a silent decision about money. Construction raises ``ValueError`` for an amount
+    that is not finite or that carries too much precision; :meth:`of` is the entry point for text.
 
     Arithmetic is closed over a single currency; combining two raises
     :class:`CurrencyMismatchError`. It is also exact: a sum, a difference, a negation or a
@@ -193,17 +194,27 @@ class Money:
 
     @classmethod
     def zero(cls, currency: Currency) -> Money:
+        """The amount ``0`` in ``currency``, at its minor units: ``0.00`` for ILS."""
         return cls(Decimal(0), currency)
 
     def plus(self, other: Money) -> Money:
+        """The exact sum of two amounts in one currency.
+
+        :raises CurrencyMismatchError: if ``other`` is in another currency
+        """
         self._require_same_currency(other)
         return Money(self._exact_sum_with(other).add(self.amount, other.amount), self.currency)
 
     def minus(self, other: Money) -> Money:
+        """The exact difference of two amounts in one currency, which may be negative.
+
+        :raises CurrencyMismatchError: if ``other`` is in another currency
+        """
         self._require_same_currency(other)
         return Money(self._exact_sum_with(other).subtract(self.amount, other.amount), self.currency)
 
     def negate(self) -> Money:
+        """The same amount with its sign flipped. Negating zero gives zero, never ``-0.00``."""
         # copy_negate flips the sign without consulting a context, so it never rounds, where
         # unary minus rounds to 28 digits (#70). The -0.00 it makes of zero is the constructor's
         # to drop.
@@ -253,25 +264,38 @@ class Money:
 
     @property
     def is_zero(self) -> bool:
+        """Whether the amount is zero, whatever its currency."""
         return self.amount == 0
 
     @property
     def is_positive(self) -> bool:
+        """Whether the amount is greater than zero."""
         return self.amount > 0
 
     @property
     def is_negative(self) -> bool:
+        """Whether the amount is less than zero. Zero is neither positive nor negative."""
         return self.amount < 0
 
     def __lt__(self, other: Money) -> bool:
+        """Orders two amounts in one currency.
+
+        :raises CurrencyMismatchError: if ``other`` is in another currency, so an ordering across
+            currencies never answers
+        """
         self._require_same_currency(other)
         return self.amount < other.amount
 
     def __le__(self, other: Money) -> bool:
+        """Orders two amounts in one currency, equal amounts included.
+
+        :raises CurrencyMismatchError: if ``other`` is in another currency
+        """
         self._require_same_currency(other)
         return self.amount <= other.amount
 
     def __str__(self) -> str:
+        """The amount at its currency's scale, a space, then the currency's name: ``12.50 ILS``."""
         return f"{self.amount} {self.currency.name}"
 
     def _exact_sum_with(self, other: Money) -> Context:

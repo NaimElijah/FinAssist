@@ -55,7 +55,9 @@ class LatestQuote:
             raise ValueError(f"max_age must be positive but was {self.max_age}")
 
     def of(self, ticker: Ticker, now: datetime) -> Quote:
-        """
+        """The feed's latest quote for the ticker, if it is fresh enough at ``now``.
+
+        :param now: the current instant, which must carry a timezone. The caller reads the clock.
         :raises QuoteUnavailableError: if the feed has nothing for the ticker
         :raises StaleQuoteError: if the quote is older than ``max_age``, or dated more than
             ``FUTURE_TOLERANCE`` ahead of ``now``

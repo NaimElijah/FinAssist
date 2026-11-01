@@ -2,7 +2,7 @@
 
 Ledger DTOs become portfolio's own model here and nowhere else (ADR-007). The HTTP client that
 will do the fetching does not exist yet. ADR-004 is Accepted and the ledger already serves
-accounting, budgeting and planning under `/api/v1` — but none of them is a lot: nothing in the
+accounting, budgeting and planning under ``/api/v1`` — but none of them is a lot: nothing in the
 ledger's published contract has a holding to fetch. What is here instead is an in-memory
 stand-in, so the use cases can be assembled and run while that gap is open.
 """
@@ -44,4 +44,5 @@ class InMemoryLedger:
         self._lots[lot.symbol] = (*self._lots.get(lot.symbol, ()), lot)
 
     def lots_for(self, symbol: Symbol) -> tuple[Lot, ...]:
+        """Every lot held for the symbol, in the order added. An empty tuple when none is."""
         return self._lots.get(symbol, ())

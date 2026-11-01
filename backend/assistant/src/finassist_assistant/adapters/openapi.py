@@ -29,6 +29,7 @@ from finassist_assistant.adapters.problems import PROBLEM_MEDIA_TYPE
 __all__ = ["BEARER_SECURITY_SCHEME", "PROBLEM_SCHEMA", "document_problems", "document_security"]
 
 PROBLEM_SCHEMA_NAME: Final = "Problem"
+"""The name :data:`PROBLEM_SCHEMA` is registered under in ``components.schemas``."""
 
 _INSTANCE_DESCRIPTION: Final = (
     "The request's path as received by the service that answered."
@@ -76,6 +77,7 @@ _FASTAPI_VALIDATION_STATUS: Final = "422"
 _FASTAPI_VALIDATION_SCHEMAS: Final = ("HTTPValidationError", "ValidationError")
 
 BEARER_SCHEME_NAME: Final = "bearerAuth"
+"""The name :data:`BEARER_SECURITY_SCHEME` is registered under in ``components.securitySchemes``."""
 
 BEARER_SECURITY_SCHEME: Final[dict[str, Any]] = {
     "type": "http",

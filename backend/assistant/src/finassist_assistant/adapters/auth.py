@@ -551,7 +551,7 @@ PUBLIC_PATHS: Final[frozenset[str]] = frozenset({"/health", "/ready", "/openapi.
 """Every path served with no bearer token at all (ADR-030).
 
 Deliberately short: the two probes, for whatever runs the process, and the committed contract's
-own document, which is already public (both contracts are committed in the repository). Every
+own document, which is already public (every contract is committed in the repository). Every
 other path denies by default, so a route added without a permission dependency is refused here
 rather than served unprotected.
 """
@@ -665,7 +665,7 @@ class BearerAuthentication:
         so nothing here says the token was bad.
 
         Logged at ERROR, under an event of its own rather than :meth:`_refuse`'s, because this is
-        the one failure here that is nobody's caller's fault: until the key source serves a key
+        the one failure here that is no caller's fault: until the key source serves a key
         set again, *no* request can be authenticated, which is "actionable now". Still the reason
         category alone, never the token. The ledger's ``ProblemAuthenticationEntryPoint`` draws the
         same line in the same place, so a rule written against one service reads the other.

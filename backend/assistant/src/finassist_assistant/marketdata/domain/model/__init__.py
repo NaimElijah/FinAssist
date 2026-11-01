@@ -15,6 +15,10 @@ class Ticker:
     The portfolio context has its own ``Symbol`` and this is deliberately not it. Sharing one
     type across two contexts is the coupling the architecture tests forbid; translating between
     them is the anti-corruption layer's job.
+
+    Surrounding whitespace is stripped and the text upper-cased on construction.
+
+    :raises ValueError: if the text is blank once stripped
     """
 
     value: str
@@ -31,7 +35,10 @@ class Ticker:
 
 @dataclass(frozen=True, slots=True)
 class Instrument:
-    """Something that can be priced."""
+    """Something that can be priced.
+
+    :raises ValueError: if the name is blank once stripped
+    """
 
     ticker: Ticker
     name: str
@@ -51,6 +58,8 @@ class Quote:
 
     ``as_of`` is the moment the *price* was true, not the moment it was fetched. A quote with no
     timestamp cannot be judged stale, so there is no default.
+
+    :raises ValueError: if the price is negative, or ``as_of`` carries no timezone
     """
 
     ticker: Ticker
