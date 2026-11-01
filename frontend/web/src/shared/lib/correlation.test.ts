@@ -48,6 +48,8 @@ describe('traceparent', () => {
         ['a_short_trace_id', '00-abc-00f067aa0ba902b7-01'],
         ['a_non_hex_trace_id', '00-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-00f067aa0ba902b7-01'],
         ['too_few_fields', '00-4bf92f3577b34da6a3ce929d0e0e4736'],
+        // The W3C format reserves the all-zero id as invalid, and the assistant refuses it too.
+        ['an_all_zero_trace_id', `00-${'0'.repeat(32)}-00f067aa0ba902b7-01`],
     ])('Given_%s_When_parsed_Then_null_is_returned', (_name, value) => {
         expect(traceIdOf(value)).toBeNull();
     });

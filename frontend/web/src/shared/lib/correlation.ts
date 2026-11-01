@@ -19,6 +19,9 @@ const SAMPLED_FLAGS = '01';
 const TRACE_ID_BYTES = 16;
 const SPAN_ID_BYTES = 8;
 
+/** The W3C format reserves the all-zero trace id as invalid, so a header carrying it names none. */
+const INVALID_TRACE_ID = '0'.repeat(TRACE_ID_BYTES * 2);
+
 function randomHex(bytes: number): string {
     const buffer = new Uint8Array(bytes);
     crypto.getRandomValues(buffer);
@@ -54,8 +57,12 @@ export function newTraceparent(traceId: string = newTraceId()): string {
 /**
  * Extract the trace id from a `traceparent`, or `null` if the value is not one.
  *
+ * The assistant's `trace_id_of` applies the same rule, the all-zero id refused alike, so neither
+ * side lets in an id the other would turn away.
+ *
  * @param traceparent - a header value, possibly malformed or absent.
- * @returns the 32-character trace id, or `null` when the header cannot be parsed.
+ * @returns the 32-character trace id, or `null` when the header cannot be parsed or carries the
+ *   all-zero id.
  */
 export function traceIdOf(traceparent: string | null | undefined): string | null {
     if (!traceparent) {
@@ -63,7 +70,12 @@ export function traceIdOf(traceparent: string | null | undefined): string | null
     }
     const fields = traceparent.split('-');
     const traceId = fields[1];
-    if (fields.length < 4 || traceId === undefined || !/^[0-9a-f]{32}$/.test(traceId)) {
+    if (
+        fields.length < 4 ||
+        traceId === undefined ||
+        !/^[0-9a-f]{32}$/.test(traceId) ||
+        traceId === INVALID_TRACE_ID
+    ) {
         return null;
     }
     return traceId;
