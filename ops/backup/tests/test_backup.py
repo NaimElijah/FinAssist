@@ -229,6 +229,21 @@ def Given_a_manifest_that_is_not_json_When_read_Then_it_is_refused(tmp_path: Pat
         backup._manifest_entries(tmp_path)
 
 
+# A manifest re-saved by Windows PowerShell 5.1's `>` is UTF-16, which UTF-8 cannot decode.
+@pytest.mark.parametrize(
+    "content",
+    [json.dumps(_manifest_for(b"PGDMP")).encode("utf-16"), b"\xff\xfe{}"],
+    ids=["utf-16", "undecodable"],
+)
+def Given_a_manifest_that_is_not_utf8_When_read_Then_it_is_refused(
+    content: bytes, tmp_path: Path
+) -> None:
+    (tmp_path / backup.MANIFEST_NAME).write_bytes(content)
+
+    with pytest.raises(backup.BackupError, match="not a manifest this made"):
+        backup._manifest_entries(tmp_path)
+
+
 # --- docker compose ps --format json, in both of its shapes -----------------------------------
 
 
