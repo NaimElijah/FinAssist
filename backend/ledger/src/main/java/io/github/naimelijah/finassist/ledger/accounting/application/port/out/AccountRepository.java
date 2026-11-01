@@ -44,8 +44,7 @@ public interface AccountRepository {
      * <p><strong>Implementations enforce name uniqueness themselves</strong>, and must do it atomically.
      * {@code AccountService} checks first so that the ordinary path fails with a message naming the
      * account, but a check followed by a write is not a rule - two callers can pass the check together
-     * and both insert. The durable adapter carries a unique index on the normalised name; the in-memory
-     * one claims the name with {@code putIfAbsent}.
+     * and both insert. The durable adapter carries a unique index on the normalised name.
      *
      * @throws io.github.naimelijah.finassist.ledger.accounting.application.port.in.DuplicateAccountNameException
      *     if a different account already holds the name
