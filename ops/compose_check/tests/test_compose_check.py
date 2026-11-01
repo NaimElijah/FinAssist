@@ -30,6 +30,7 @@ DEEP_NESTING = 200_000
 SECRET = "Fixture-only-5Wd8Jq2Ns6"
 PASSED = "Every service follows the Compose conventions"
 POLICY = "unless-stopped"
+STOP_GRACE = "30s"
 BOUNDED_LOGS = {"driver": "json-file", "options": {"max-file": "3", "max-size": "10m"}}
 LOOPBACK = "127.0.0.1"
 NO_CAPABILITIES = ["ALL"]
@@ -105,7 +106,12 @@ def _bind(source: str, target: str) -> dict[str, Any]:
 
 
 def _long_running(**members: Any) -> dict[str, Any]:
-    return {"restart": POLICY, "logging": copy.deepcopy(BOUNDED_LOGS), **members}
+    return {
+        "restart": POLICY,
+        "logging": copy.deepcopy(BOUNDED_LOGS),
+        "stop_grace_period": STOP_GRACE,
+        **members,
+    }
 
 
 def _hardened(service: dict[str, Any]) -> dict[str, Any]:
@@ -119,6 +125,7 @@ def _conforming() -> dict[str, Any]:
         "name": "finassist",
         "x-restart-policy": POLICY,
         "x-logging": copy.deepcopy(BOUNDED_LOGS),
+        "x-stop-grace-period": STOP_GRACE,
         "x-hardened": {"cap_drop": list(NO_CAPABILITIES), "security_opt": list(NO_NEW_PRIVILEGES)},
         "services": {
             "db": _long_running(
@@ -300,6 +307,58 @@ def Given_a_one_shot_service_with_a_restart_policy_or_log_bound_When_checked_The
 
     assert status == compose_check.EXIT_FAILED
     assert lines == [f"{one_shot}: a one-shot service takes no restart or logging"]
+
+
+def Given_a_long_running_service_without_a_stop_grace_When_checked_Then_it_fails_by_name(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    del resolved["services"]["db"]["stop_grace_period"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["db: needs stop_grace_period as the x-stop-grace-period block sets it"]
+
+
+@pytest.mark.parametrize("grace", ["3s", "1m", "30"])
+def Given_a_long_running_service_with_a_stop_grace_of_its_own_When_checked_Then_it_fails_by_name(
+    grace: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["ledger"]["stop_grace_period"] = grace
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["ledger: needs stop_grace_period as the x-stop-grace-period block sets it"]
+
+
+@pytest.mark.parametrize("one_shot", ONE_SHOT_SERVICES)
+def Given_a_one_shot_service_with_a_stop_grace_When_checked_Then_it_fails_by_name(
+    one_shot: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][one_shot]["stop_grace_period"] = STOP_GRACE
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{one_shot}: a one-shot service takes no stop_grace_period"]
+
+
+def Given_the_stop_grace_block_missing_from_the_resolved_file_When_checked_Then_it_fails_saying_so(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    del resolved["x-stop-grace-period"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines[0] == "the resolved file holds no x-stop-grace-period block"
+    # With nothing to compare against, every long-running service fails as well.
+    assert "db: needs stop_grace_period as the x-stop-grace-period block sets it" in lines
 
 
 @pytest.mark.parametrize(("service", "path"), READINESS_PROBES)
@@ -533,15 +592,24 @@ def Given_an_x_block_missing_from_the_resolved_file_When_checked_Then_it_fails_s
             {"driver": "json-file"},
             "the resolved file's x-logging block must be json-file, max-size 10m, max-file 3",
         ),
+        (
+            "x-stop-grace-period",
+            "3s",
+            "the resolved file's x-stop-grace-period block must be 30s",
+        ),
     ],
-    ids=["restart-always", "logs-larger", "logs-another-driver", "logs-unbounded"],
+    ids=["restart-always", "logs-larger", "logs-another-driver", "logs-unbounded", "grace-shorter"],
 )
 def Given_an_x_block_changed_and_every_service_following_it_When_checked_Then_the_block_is_named(
     block: str, value: object, problem: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     resolved = _conforming()
     resolved[block] = value
-    member = {"x-restart-policy": "restart", "x-logging": "logging"}[block]
+    member = {
+        "x-restart-policy": "restart",
+        "x-logging": "logging",
+        "x-stop-grace-period": "stop_grace_period",
+    }[block]
     for name, service in resolved["services"].items():
         if name not in ONE_SHOT_SERVICES:
             service[member] = copy.deepcopy(value)

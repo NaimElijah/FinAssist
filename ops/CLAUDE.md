@@ -25,9 +25,11 @@ One directory per tool, none of them a deployable service of this repository's (
 - `ops/compose_check/compose_check.py` — a standard-library check, run on the host with
   `uv run`, of the resolved Compose file it reads on stdin: each long-running service's restart
   and log bound, as the `x-restart-policy` and `x-logging` blocks set them, those blocks pinned to
-  ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shots' lack of either, four
-  readiness probes, each one that runs `curl` running it directly in exec form (`["CMD", "curl",
-  …]`) and passing `-f`, `--fail` or `--fail-with-body`, never `--no-fail` (#142, ADR-039), every
+  ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shots' lack of either;
+  each long-running service's `stop_grace_period` as the `x-stop-grace-period` block sets it, that
+  block pinned to `30s`, and none on a one-shot (#349); four readiness probes, each one that runs
+  `curl` running it directly in exec form (`["CMD", "curl", …]`) and passing `-f`, `--fail` or
+  `--fail-with-body`, never `--no-fail` (#142, ADR-039), every
   published port's `host_ip` exactly `127.0.0.1` and no port on `keycloak-db` (ADR-030),
   `auth-smoke` behind exactly `profiles: [smoke]` and `secret-check` behind none, and `db`,
   `keycloak-db` and `grafana` each depending on `secret-check` with `condition:

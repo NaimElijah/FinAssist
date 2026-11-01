@@ -8,8 +8,10 @@
 script's standard input (ADR-049). Every long-running service must take the restart policy and the
 log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, those blocks must hold
 ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shot services must take
-neither, and four healthchecks must probe readiness, any that runs `curl` doing so in exec form with
-`-f`, so that a 503 fails it (#142, ADR-039). Every published port must bind `127.0.0.1` and
+neither, every long-running service and no one-shot must take the stop grace exactly as the
+`x-stop-grace-period` block sets it, that block must hold `30s` (#349), and four healthchecks must
+probe readiness, any that runs `curl` doing so in exec form with `-f`, so that a 503 fails it (#142,
+ADR-039). Every published port must bind `127.0.0.1` and
 `keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit behind exactly the `smoke`
 profile and `secret-check` behind none, and `db`, `keycloak-db` and `grafana` must each depend on
 `secret-check` with `condition: service_completed_successfully` (ADR-034, ADR-044). Every service
@@ -52,11 +54,18 @@ EXIT_FAILED: Final = 1
 EXIT_MISCONFIGURED: Final = 2
 RESTART_BLOCK: Final = "x-restart-policy"
 LOGGING_BLOCK: Final = "x-logging"
+STOP_GRACE_BLOCK: Final = "x-stop-grace-period"
+STOP_GRACE_MEMBER: Final = "stop_grace_period"
 # ADR-039's decision, so a block changed in the file, every service following it, still fails.
 RESTART_POLICY: Final = "unless-stopped"
 LOG_DRIVER: Final = "json-file"
 LOG_MAX_SIZE: Final = "10m"
 LOG_MAX_FILES: Final = "3"
+# Room for the Spring services to drain a request and exit, and for PostgreSQL's shutdown
+# checkpoint, where Compose would otherwise kill a stopping container after about 3 s (#349).
+# Compared as `config` writes it, so an equal duration spelt another way fails, as another restart
+# policy does.
+STOP_GRACE_PERIOD: Final = "30s"
 # The block as `config` resolves it, so it compares equal to the resolved file's.
 _BOUNDED_LOGS: Final = {
     "driver": LOG_DRIVER,
@@ -351,6 +360,11 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
             f"the resolved file's {LOGGING_BLOCK} block must be {LOG_DRIVER}, "
             f"max-size {LOG_MAX_SIZE}, max-file {LOG_MAX_FILES}"
         )
+    stop_grace = resolved.get(STOP_GRACE_BLOCK)
+    if stop_grace is None:
+        found.append(f"the resolved file holds no {STOP_GRACE_BLOCK} block")
+    elif stop_grace != STOP_GRACE_PERIOD:
+        found.append(f"the resolved file's {STOP_GRACE_BLOCK} block must be {STOP_GRACE_PERIOD}")
     if resolved.get(HARDENED_BLOCK) != _HARDENED_MEMBERS:
         found.append(
             f"the resolved file's {HARDENED_BLOCK} block must drop {', '.join(NO_CAPABILITIES)} "
@@ -364,8 +378,15 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
         if name in ONE_SHOT_SERVICES:
             if service.get("restart") or service.get("logging"):
                 found.append(f"{name}: a one-shot service takes no restart or logging")
-        elif service.get("restart") != policy or service.get("logging") != bounded_logs:
-            found.append(f"{name}: needs restart and logging as the x- blocks set them")
+            if service.get(STOP_GRACE_MEMBER):
+                found.append(f"{name}: a one-shot service takes no {STOP_GRACE_MEMBER}")
+        else:
+            if service.get("restart") != policy or service.get("logging") != bounded_logs:
+                found.append(f"{name}: needs restart and logging as the x- blocks set them")
+            if service.get(STOP_GRACE_MEMBER) != stop_grace:
+                found.append(
+                    f"{name}: needs {STOP_GRACE_MEMBER} as the {STOP_GRACE_BLOCK} block sets it"
+                )
         if name in SPRING_SERVICES:
             environment = _mapping(service.get("environment") or {}, "an environment")
             found.extend(
