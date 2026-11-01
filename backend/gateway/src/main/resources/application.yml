@@ -20,7 +20,8 @@ server:
         # owner's tokens, which never leave this process.
         http-only: true
         # Lax, not None: the cookie rides a top-level navigation, which is what the return from
-        # Keycloak is, and not a cross-site request a hostile page made.
+        # Keycloak is, and not a cross-site request a hostile page made. Read by the CSRF cookie in
+        # GatewaySecurityConfiguration too, so the two cookies can never disagree.
         same-site: lax
         # False by default because development is plain HTTP on loopback and Safari refuses a
         # Secure cookie over it. Must be true behind TLS.
