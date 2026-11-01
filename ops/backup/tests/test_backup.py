@@ -477,6 +477,50 @@ def _written_backup(
     return folder
 
 
+# --- check names the step that failed ----------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _ProjectThatWillNotStart(_Project):
+    """A check's project whose databases fail to start, as `up --wait` fails on a port in use."""
+
+    def require(
+        self,
+        what: str,
+        *args: str,
+        stdin: IO[bytes] | None = None,
+        stdout: IO[bytes] | None = None,
+        input_bytes: bytes | None = None,
+    ) -> bytes:
+        self.calls.append(args)
+        match args:
+            case ("down", "--remove-orphans"):
+                return b""
+            case ("up", *_):
+                raise backup.BackupError(f"{what} failed with exit status 1: port is allocated")
+        raise AssertionError(f"backup.py sent a command this project does not expect: {args}")
+
+
+def Given_databases_that_fail_to_start_When_checked_Then_the_set_up_is_blamed_not_check_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def no_volumes(command: list[str], **options: object) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
+
+    # `_clean_up` lists the check's volumes with `docker volume ls`, outside Compose.
+    monkeypatch.setattr(subprocess, "run", no_volumes)
+    project = _ProjectThatWillNotStart(project=backup.CHECK_PROJECT)
+
+    status = backup._run_checks(backup._CheckRun(), project, _written_backup(tmp_path))
+
+    assert status == 1
+    report = capsys.readouterr().out
+    assert "1. both dumps match their manifest: PASS" in report
+    [failed] = [line for line in report.splitlines() if line.startswith("FAILED")]
+    assert failed.startswith("FAILED set-up (")
+    assert "port is allocated" in failed
+
+
 # --- a restore writes only into an empty database, with its consumer stopped (ADR-038) ---------
 
 

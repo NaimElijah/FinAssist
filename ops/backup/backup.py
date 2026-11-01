@@ -673,7 +673,11 @@ class _CheckRun:
 
     def __init__(self) -> None:
         self.passed = 0
-        self.current = "0 (setting up)"
+        self.current = "set-up"
+
+    def set_up(self, name: str) -> None:
+        """Names a step that is not a check, so a failure in it is not blamed on the last one."""
+        self.current = f"set-up ({name})"
 
     def check[**P, R](
         self, name: str, step: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs
@@ -684,7 +688,7 @@ class _CheckRun:
             `current`, which already names this check.
         """
         number = self.passed + 1
-        self.current = f"{number} ({name})"
+        self.current = f"check {number} ({name})"
         result = step(*args, **kwargs)
         _report(f"{number}. {name}: PASS")
         self.passed = number
@@ -915,6 +919,7 @@ def _run_checks(run: _CheckRun, compose: Compose, folder: Path) -> int:
         # The backup is read first, so a mistyped folder or a changed dump fails here, before a
         # single database has been started for it.
         run.check("both dumps match their manifest", _verify_backup, folder)
+        run.set_up("a clean project with db and keycloak-db started")
         _clean_up(compose)
         compose.require(
             "starting db and keycloak-db",
@@ -943,15 +948,15 @@ def _run_checks(run: _CheckRun, compose: Compose, folder: Path) -> int:
             "the owner's credentials survive Keycloak's start", _otp_unchanged, compose, before
         )
     except BackupError as failure:
-        _report(f"FAILED check {run.current}: {failure}")
+        _report(f"FAILED {run.current}: {failure}")
         return 1
     except OSError as error:
-        _report(f"FAILED check {run.current}: {type(error).__name__}: {error}")
+        _report(f"FAILED {run.current}: {type(error).__name__}: {error}")
         return 1
     except Exception as error:
         # Last resort, so every failure still names its check. The type alone: a message could
         # quote a row or a response body.
-        _report(f"FAILED check {run.current}: unexpected {type(error).__name__}")
+        _report(f"FAILED {run.current}: unexpected {type(error).__name__}")
         return 1
     _report(f"{run.passed}/{run.passed} checks passed")
     return 0
