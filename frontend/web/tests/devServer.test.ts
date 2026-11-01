@@ -6,7 +6,7 @@
  * assistant and the gateway's own `/bff` endpoints - through one origin to the gateway, per
  * ADR-026 (one origin via proxy) and ADR-030 (BFF gateway, loopback bind, Host allow-list).
  */
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http, { type IncomingHttpHeaders, type OutgoingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -216,6 +216,9 @@ describe('the dev/preview server', () => {
  */
 const SECRET_IN_ENV_FILE = 'not-a-real-grafana-password-7f3c';
 
+/** Node's code for reading a directory as a file, which a `.env` made a directory raises. */
+const UNREADABLE_DIRECTORY_CODE = 'EISDIR';
+
 describe('gatewayEnvironment', () => {
     let envDirectory: string;
     let originalGatewayPort: string | undefined;
@@ -288,6 +291,14 @@ describe('gatewayEnvironment', () => {
 
         expect(environment[GATEWAY_PORT_VARIABLE]).toBeUndefined();
         expect(gatewayTarget(environment)).toBe('http://127.0.0.1:8090');
+    });
+
+    it('Given_a_dot_env_that_cannot_be_read_When_read_Then_it_throws', () => {
+        // Only a missing `.env` reads as empty: one that exists but cannot be read must stop the
+        // config, or the proxy would quietly target the default port instead of the owner's.
+        mkdirSync(path.join(envDirectory, '.env'));
+
+        expect(() => gatewayEnvironment(envDirectory)).toThrow(UNREADABLE_DIRECTORY_CODE);
     });
 });
 
