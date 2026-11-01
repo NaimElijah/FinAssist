@@ -146,13 +146,13 @@ public record PlannedFlow(
      * describes money that has already moved and cannot be un-spent by editing a plan.
      *
      * @throws IllegalPlanTransitionException if the flow is already {@code Realised} or
-     *     {@code Cancelled}
+     *     {@code Cancelled}; the state is checked before either argument, as {@link #commit} and
+     *     {@link #realise} check it
      * @throws IllegalArgumentException if {@code reason} is blank, or the flow is {@code Committed}
      *     and {@code cancelledOn} is before the date it was committed
      * @throws NullPointerException if {@code cancelledOn} or {@code reason} is null
      */
     public PlannedFlow cancel(LocalDate cancelledOn, String reason) {
-        Objects.requireNonNull(cancelledOn, "cancelledOn");
         PlanState next = switch (state) {
             case PlanState.Planned planned -> planned.cancel(cancelledOn, reason);
             case PlanState.Committed committed -> {

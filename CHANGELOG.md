@@ -314,6 +314,8 @@ history; write the commit message well and this file writes itself.
     of ADRs that say no such thing, and `@throws` and `:raises:` lists that omitted refusals.
   - **The code findings, fixed in their own commits:**
     - voiding a reconciled or voided transaction with an early date is 409, not 422;
+    - cancelling a realised or cancelled planned flow with no date is refused as an illegal
+      transition, its state checked first as a void's is, not with a `NullPointerException`;
     - `Money.times` and `timesRounded` refuse a product `BigDecimal` cannot hold as an
       `IllegalArgumentException`, where they let its bare `ArithmeticException` escape. The
       assistant's `Money` returned `0.00` for those products, which is wrong money and not only a
