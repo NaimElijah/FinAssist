@@ -8,22 +8,22 @@
 script's standard input (ADR-049). Every long-running service must take the restart policy and the
 log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, those blocks must hold
 ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shot services must take
-neither, and four healthchecks must probe readiness, any that runs `curl` with `-f` so that a 503
-fails it (#142, ADR-039). Every published port must bind `127.0.0.1` and `keycloak-db` must publish
-none (ADR-030, ADR-031); `auth-smoke` must sit behind exactly the `smoke` profile and `secret-check`
-behind none, and `db`, `keycloak-db` and `grafana` must each depend on `secret-check` with
-`condition: service_completed_successfully` (ADR-034, ADR-044). Every service but the two databases
-must take the `x-hardened` block's `cap_drop` and `security_opt`, and every one but those and
-Keycloak must set `read_only`; no service, a database included, may set `cap_add`, `privileged`,
-`pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as root by `user`, or bind-mount a file named
-`docker.sock`; and each database must attach to one network alone, shared with its one client and
-nothing else, judged by the Docker network each key resolves to, so that no other key may resolve to
-it, neither database network may be `external`, and `identity` must be `internal` (ADR-063). No
-service may set `network_mode` but `secret-check`, whose must be exactly `none`, and Prometheus's
-`command` must carry exactly `--web.cors.origin=`, the empty regex, which grants no origin, with no
-`entrypoint` to run it otherwise (ADR-057). Neither the ledger nor the gateway may set, in its
-environment, a key that reopens the Actuator exposure their code pins, nor a `command` or
-`entrypoint`, whose arguments would reach Spring as properties, nor a volume, `volumes_from`, a
+neither, and four healthchecks must probe readiness, any that runs `curl` doing so in exec form with
+`-f`, so that a 503 fails it (#142, ADR-039). Every published port must bind `127.0.0.1` and
+`keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit behind exactly the `smoke`
+profile and `secret-check` behind none, and `db`, `keycloak-db` and `grafana` must each depend on
+`secret-check` with `condition: service_completed_successfully` (ADR-034, ADR-044). Every service
+but the two databases must take the `x-hardened` block's `cap_drop` and `security_opt`, and every
+one but those and Keycloak must set `read_only`; no service, a database included, may set `cap_add`,
+`privileged`, `pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as root by `user`, or bind-mount
+a file named `docker.sock`; and each database must attach to one network alone, shared with its one
+client and nothing else, judged by the Docker network each key resolves to, so that no other key may
+resolve to it, neither database network may be `external`, and `identity` must be `internal`
+(ADR-063). No service may set `network_mode` but `secret-check`, whose must be exactly `none`, and
+Prometheus's `command` must carry exactly `--web.cors.origin=`, the empty regex, which grants no
+origin, with no `entrypoint` to run it otherwise (ADR-057). Neither the ledger nor the gateway may
+set, in its environment, a key that reopens the Actuator exposure their code pins, nor a `command`
+or `entrypoint`, whose arguments would reach Spring as properties, nor a volume, `volumes_from`, a
 config, a secret or a `working_dir`, which could put a configuration file in the working directory
 or its `config/`, where Spring reads one; nor may the gateway set a log level, a log group, a
 logging configuration or Spring Boot's `debug` or `trace` switch, since below INFO it logs
@@ -72,10 +72,19 @@ READINESS_PROBES: Final = {
     "keycloak": "/health/ready",
 }
 # curl exits 0 on any HTTP status unless told to fail, so without one of these a readiness probe
-# passes on the 503 a service that is not ready answers. `-f` may sit in a cluster such as `-fsS`.
+# passes on the 503 a service that is not ready answers. `-f` may sit in a cluster such as `-fsS`;
+# the later of an option and its `--no-` form wins, so a negation anywhere is refused.
 CURL: Final = "curl"
 CURL_FAIL_OPTIONS: Final = frozenset({"--fail", "--fail-with-body"})
+CURL_NO_FAIL_OPTIONS: Final = frozenset({"--no-fail", "--no-fail-with-body"})
 CURL_FAIL_SHORT: Final = "f"
+# Only exec form runs curl with exactly the arguments read here: a shell could run another command
+# first, test curl's output instead of its status, or turn its failure into success.
+EXEC_FORM: Final = "CMD"
+# curl's short options that take no argument (`curl --help all`, 8.17). Any other letter in a
+# cluster takes the rest of it, or the next word, as its argument, so `-sofile` writes to `file`
+# and never fails; an unlisted letter is assumed to take one, so an unknown option fails the rule.
+CURL_FLAG_SHORTS: Final = frozenset("aBgGiIjJklLMnNOpqRsSvVZ")
 _SHORT_OPTIONS: Final = re.compile(r"-[A-Za-z]+")
 # The Spring services pin their Actuator exposure in code, and their tests read the test JVM's
 # environment, never Compose's: so a Compose key that reopens it would pass every other test.
@@ -277,23 +286,45 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
     for name, path in READINESS_PROBES.items():
         service = _mapping(services.get(name) or {}, "a service")
         healthcheck = _mapping(service.get("healthcheck") or {}, "a healthcheck")
-        command = _command(healthcheck.get("test"))
+        test = _arguments(healthcheck.get("test"))
+        command = " ".join(test)
         if path not in command:
             found.append(f"{name}: its healthcheck must probe {path}")
-        elif _curl_without_fail(command):
-            found.append(f"{name}: its curl probe must pass -f, so a failing status fails it")
+        else:
+            found.extend(_curl_probe_problems(name, test))
     return found
 
 
-def _curl_without_fail(command: str) -> bool:
-    words = command.split()
-    if not any(word.rsplit("/", 1)[-1] == CURL for word in words):
-        return False
-    return not any(
-        word in CURL_FAIL_OPTIONS
-        or (_SHORT_OPTIONS.fullmatch(word) is not None and CURL_FAIL_SHORT in word)
-        for word in words
-    )
+def _curl_probe_problems(name: str, test: list[str]) -> list[str]:
+    # A word merely containing curl counts, so a quoted `'curl'` or a `$(curl` is caught too.
+    if not any(CURL in _file_name(word) for word in " ".join(test).split()):
+        return []
+    if not (len(test) > 1 and test[0] == EXEC_FORM and _file_name(test[1]) == CURL):
+        return [f"{name}: a curl probe must run curl directly in exec form"]
+    if not _curl_fails(test[2:]):
+        return [f"{name}: its curl probe must pass -f, so a failing status fails it"]
+    return []
+
+
+def _curl_fails(arguments: list[str]) -> bool:
+    """Whether curl, given these arguments, exits non-zero on an HTTP error status."""
+    fails = False
+    words = iter(arguments)
+    for word in words:
+        if word in CURL_NO_FAIL_OPTIONS:
+            return False
+        if word in CURL_FAIL_OPTIONS:
+            fails = True
+        elif _SHORT_OPTIONS.fullmatch(word):
+            letters = word[1:]
+            for position, letter in enumerate(letters):
+                if letter == CURL_FAIL_SHORT:
+                    fails = True
+                elif letter not in CURL_FLAG_SHORTS:
+                    if position == len(letters) - 1:
+                        next(words, None)
+                    break
+    return fails
 
 
 def _hardening_problems(name: str, service: Mapping[str, object]) -> list[str]:
@@ -460,17 +491,10 @@ def _lowers_log_level(key: str) -> bool:
 
 
 def _arguments(command: object) -> list[str]:
-    """A service's `command` as its arguments, or none when it is not a list of strings."""
+    """A `command` or a healthcheck's `test` as its words, or none unless a list of strings."""
     if isinstance(command, list) and all(isinstance(part, str) for part in command):
         return command
     return []
-
-
-def _command(test: object) -> str:
-    """A healthcheck's command as one string, or empty when it has none Compose could run."""
-    if isinstance(test, list) and all(isinstance(part, str) for part in test):
-        return " ".join(test)
-    return ""
 
 
 def _report(line: str) -> None:

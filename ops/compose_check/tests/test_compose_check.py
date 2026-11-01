@@ -346,9 +346,22 @@ def Given_a_probed_service_missing_from_the_file_When_checked_Then_its_probe_is_
         ["CMD", "curl", "http://localhost:8080{path}"],
         ["CMD", "curl", "-sS", "http://localhost:8080{path}"],
         ["CMD", "/usr/bin/curl", "--silent", "http://localhost:8080{path}"],
-        ["CMD-SHELL", "curl http://localhost:8080{path} || exit 1"],
+        # The `f` is the file -o writes to, not curl's -f.
+        ["CMD", "curl", "-sofile", "http://localhost:8080{path}"],
+        ["CMD", "curl", "-o", "-f", "http://localhost:8080{path}"],
+        # The later option wins, so curl ends up not failing.
+        ["CMD", "curl", "-f", "--no-fail", "http://localhost:8080{path}"],
+        ["CMD", "curl", "--fail-with-body", "--no-fail-with-body", "http://localhost:8080{path}"],
     ],
-    ids=["bare", "other-flags", "full-path", "shell"],
+    ids=[
+        "bare",
+        "other-flags",
+        "full-path",
+        "attached-argument",
+        "separate-argument",
+        "no-fail",
+        "no-fail-with-body",
+    ],
 )
 @pytest.mark.parametrize(("service", "path"), READINESS_PROBES)
 def Given_a_curl_readiness_probe_without_fail_When_checked_Then_it_is_named(
@@ -365,6 +378,35 @@ def Given_a_curl_readiness_probe_without_fail_When_checked_Then_it_is_named(
     assert lines == [f"{service}: its curl probe must pass -f, so a failing status fails it"]
 
 
+# Only an exec-form curl can be judged by its arguments: a shell can run another command first, test
+# curl's output rather than its status, or turn its failure into success.
+@pytest.mark.parametrize(
+    "test",
+    [
+        ["CMD-SHELL", "curl http://localhost:8080{path} || exit 1"],
+        ["CMD-SHELL", "curl -sf http://localhost:8080{path} || exit 1"],
+        ["CMD-SHELL", "test -f /tmp/x; curl -s http://localhost:8080{path}"],
+        ["CMD-SHELL", "curl -sf http://localhost:8080{path} || true"],
+        ["CMD-SHELL", 'test -n "$(curl -s http://localhost:8080{path})"'],
+        ["CMD", "sh", "-c", "'curl' -s http://localhost:8080{path}"],
+    ],
+    ids=["shell", "shell-with-fail", "after-a-test", "or-true", "substitution", "quoted"],
+)
+@pytest.mark.parametrize(("service", "path"), READINESS_PROBES)
+def Given_a_curl_readiness_probe_through_a_shell_When_checked_Then_it_is_named(
+    service: str, path: str, test: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["healthcheck"] = {
+        "test": [part.format(path=path) for part in test]
+    }
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: a curl probe must run curl directly in exec form"]
+
+
 @pytest.mark.parametrize(
     "test",
     [
@@ -372,9 +414,10 @@ def Given_a_curl_readiness_probe_without_fail_When_checked_Then_it_is_named(
         ["CMD", "curl", "--fail-with-body", "http://localhost:8080/ready"],
         ["CMD", "curl", "-fsS", "http://localhost:8080/ready"],
         ["CMD", "curl", "-sS", "http://localhost:8080/ready", "-f"],
-        ["CMD-SHELL", "curl -sf http://localhost:8080/ready || exit 1"],
+        ["CMD", "curl", "-sSf", "http://localhost:8080/ready"],
+        ["CMD", "/usr/bin/curl", "-f", "http://localhost:8080/ready"],
     ],
-    ids=["long", "with-body", "cluster", "after-the-url", "shell"],
+    ids=["long", "with-body", "cluster", "after-the-url", "cluster-end", "full-path"],
 )
 def Given_a_curl_readiness_probe_that_fails_on_an_error_status_When_checked_Then_it_passes(
     test: list[str], capsys: pytest.CaptureFixture[str]
