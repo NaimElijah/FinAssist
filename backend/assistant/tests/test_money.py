@@ -1,8 +1,12 @@
-"""The Money contract, mirroring backend/ledger/.../shared/MoneyTest.java case for case.
+"""The Money contract, mirroring backend/ledger/.../shared/MoneyTest.java.
 
 ADR-010 accepts that Money is implemented once per language rather than shared, and names
 equivalent tests on both sides as the thing that keeps the two honest. Changing behaviour in
 one file without changing the other is the drift this pair exists to catch.
+
+One case is not mirrored: a product whose rounding needs a power of ten past Java's
+``BigInteger`` range, which ``MoneyTest`` pins as refused and ``times_rounded`` here answers
+``0.00``. That is a known gap tracked by #416, not a contract, so nothing here pins it.
 """
 
 from decimal import Decimal

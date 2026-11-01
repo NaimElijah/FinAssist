@@ -124,8 +124,10 @@ class Money:
     product never rounds, however many digits it carries. Only :meth:`times_rounded` rounds, and
     its name says so.
 
-    The Java counterpart is ``ledger.shared.Money`` and ``tests/test_money.py`` mirrors
-    ``MoneyTest.java`` case for case.
+    The Java counterpart is ``ledger.shared.Money``, and ``tests/test_money.py`` mirrors
+    ``MoneyTest.java``. The two answer alike except where Java needs a power of ten past its
+    ``BigInteger`` range: an amount that large (:meth:`of`), or a product whose rounding needs
+    one (:meth:`times_rounded`), is refused by the ledger alone, a known gap tracked by #416.
     """
 
     amount: Decimal
@@ -243,6 +245,11 @@ class Money:
         in a method the caller has to choose, beats :meth:`times` throwing on perfectly ordinary
         fractional holdings.
 
+        A known gap, not intended behaviour: when rounding the product to the minor units needs a
+        power of ten past Java's ``BigInteger`` range, as ``12.50`` times ``1E-700000000`` or
+        ``1E-2147483645`` does, the ledger's ``timesRounded`` refuses it and this returns
+        ``0.00``. Whether to bound such sizes is #416's decision, as it is for :meth:`of`.
+
         :raises ValueError: if the multiplier is not finite, or the product's scale would
             overflow a Java int
         """
@@ -315,10 +322,13 @@ class Money:
         """Refuses a product whose scale the ledger's ``BigDecimal.multiply`` would refuse.
 
         Java adds the two scales and refuses a sum outside an int whenever the amount is not zero,
-        even when the multiplier is zero. Here the product is exact at any scale, so a zero
-        product, or any product ``times_rounded`` rounds to ``0.00``, came back as ``0.00``: one
-        input priced on this side and refused on the other (ADR-018). Every amount's scale is its
-        currency's minor units.
+        even when the multiplier is zero. ``Decimal`` multiplies exactly at any scale, so without
+        this check a zero product, or any product ``times_rounded`` rounds to ``0.00``, would
+        price an input the ledger refuses (ADR-018). Every amount's scale is its currency's minor
+        units, so the product's is those minus the multiplier's exponent.
+
+        :raises ValueError: if the amount is not zero and the product's scale falls outside a
+            Java int
         """
         if self.amount.is_zero():
             return
