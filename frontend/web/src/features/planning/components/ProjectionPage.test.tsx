@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLogSink } from '@/shared/lib/logger';
 import type { WriteAccess } from '@/shared/lib/writeAccess';
+import { accessibleDescriptionOf } from '@/shared/testing/descriptions';
 import {
     type FetchAnswer,
     fakeFetch,
@@ -583,6 +584,44 @@ describe('ProjectionPage', () => {
 
         await user.selectOptions(screen.getByLabelText('Scenario'), 'Move abroad (USD)');
         expect(labelsIn('Cash accounts')).toEqual(['US checking']);
+    });
+
+    it('Given_an_account_ticked_on_one_side_When_the_other_side_is_shown_Then_it_is_disabled_there_and_every_box_states_why', async () => {
+        // The ledger refuses an account named as both cash and invested with a 422 naming a raw
+        // id the page never shows, so the pickers never let the owner send one.
+        fakeFetch(ledger([SAVING]));
+        renderProjection();
+        const user = userEvent.setup({ delay: null });
+        await user.selectOptions(
+            await screen.findByLabelText('Scenario'),
+            'Aggressive saving (ILS)',
+        );
+        const box = (group: string, account: string) =>
+            within(screen.getByRole('group', { name: group })).getByLabelText(account);
+
+        await user.click(box('Cash accounts', 'Checking'));
+        await user.click(box('Invested accounts', 'Brokerage'));
+
+        expect(box('Invested accounts', 'Checking')).toHaveProperty('disabled', true);
+        expect(box('Cash accounts', 'Brokerage')).toHaveProperty('disabled', true);
+        expect(box('Cash accounts', 'Checking')).toHaveProperty('disabled', false);
+        expect(box('Invested accounts', 'Brokerage')).toHaveProperty('disabled', false);
+        expect(
+            screen.getByText('An account counts as cash or as invested, not both.'),
+        ).toBeDefined();
+        for (const group of ['Cash accounts', 'Invested accounts']) {
+            for (const checkbox of within(screen.getByRole('group', { name: group })).getAllByRole(
+                'checkbox',
+            )) {
+                expect(accessibleDescriptionOf(checkbox)).toBe(
+                    'An account counts as cash or as invested, not both.',
+                );
+            }
+        }
+
+        await user.click(box('Cash accounts', 'Checking'));
+
+        expect(box('Invested accounts', 'Checking')).toHaveProperty('disabled', false);
     });
 
     it('Given_ILS_accounts_checked_When_the_scenario_becomes_USD_and_is_projected_Then_only_USD_accounts_are_sent', async () => {
