@@ -28,6 +28,7 @@ import {
     CADENCES,
     type Cadence,
     InvalidCountError,
+    POSITIVE_INTEGER_PATTERN,
     RECURRENCE_KIND_LABELS,
     RECURRENCE_KINDS,
     type Recurrence,
@@ -61,13 +62,6 @@ const DEFAULT_DIRECTION: Direction = 'OUTFLOW';
 const DEFAULT_CURRENCY: Currency = 'ILS';
 const DEFAULT_CADENCE: Cadence = 'MONTHLY';
 const DEFAULT_INTERVAL = '1';
-
-/**
- * Matches a positive integer count, no leading zero and no zero itself: `interval` and `count`
- * are counts, never money (ADR-029), and the ledger's own domain constructors refuse anything
- * below one.
- */
-const POSITIVE_INTEGER_PATTERN = '[1-9][0-9]*';
 
 /** `POSITIVE_INTEGER_PATTERN` in words, shown on Every and Times before anything is typed. */
 const COUNT_HINT = 'A whole number, 1 or more';

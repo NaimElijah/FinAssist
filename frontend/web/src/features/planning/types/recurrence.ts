@@ -99,10 +99,15 @@ export class InvalidCountError extends Error {
 }
 
 /**
- * The whole text of a positive integer: digits only, no leading zero. The same rule as the
- * plan-flow form's `pattern` on Every and Times, so a value the form refuses is refused here too.
+ * A positive integer count as an HTML `pattern`: digits only, no leading zero and no zero itself,
+ * since the ledger's own domain constructors refuse a count below one. The plan-flow form sets it
+ * on Every and Times, and `buildRecurrence` matches it too, so a value the form refuses is refused
+ * here as well.
  */
-const POSITIVE_INTEGER = /^[1-9][0-9]*$/;
+export const POSITIVE_INTEGER_PATTERN = '[1-9][0-9]*';
+
+/** `POSITIVE_INTEGER_PATTERN` held to the whole text, as the browser holds a `pattern`. */
+const POSITIVE_INTEGER = new RegExp(`^(?:${POSITIVE_INTEGER_PATTERN})$`);
 
 /**
  * `value` parsed as a positive safe integer count, never money (ADR-029).
