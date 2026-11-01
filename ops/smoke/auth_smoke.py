@@ -16,8 +16,9 @@ Standard library only, so it runs unmodified from the pinned `python:3.13.18-sli
 with no `pip install` step (the same tag `backend/assistant/Dockerfile` already builds from).
 
 Each `check_*` function returns normally when what it checks holds and raises `SmokeCheckError`
-otherwise; `main` runs them in order and exits non-zero on the first failure, naming which check
-failed and why. Never prints a token, a client secret, a cookie, an `Authorization` header or a
+otherwise, or `OSError` when a service it calls cannot be reached, which `main` reports apart;
+`main` runs them in order and exits non-zero on the first failure, naming which check failed and
+why. Never prints a token, a client secret, a cookie, an `Authorization` header or a
 response body. A failure message may quote a non-secret claim value (the token's `alg`, `iss` or
 `aud`, a role name) where the failure cannot be diagnosed without it, and a response's status,
 problem code, `WWW-Authenticate` challenge, or redirect target stripped of its query. An error none
@@ -238,6 +239,8 @@ def check_assistant_token_claims() -> str:
         endpoint refuses the client or answers a malformed token, or a claim is not as ADR-030
         through ADR-032 promise: `alg`, `iss`, `aud` (the ledger's, and not the assistant's),
         `roles` (including `assistant`) and `sub`.
+    :raises OSError: if Keycloak cannot be reached over the backchannel, or does not answer in
+        time.
     """
     secret = _required_environment(ASSISTANT_CLIENT_SECRET_ENV)
     public_issuer = _public_url(KEYCLOAK_PUBLIC_URL_ENV) + REALM_PATH
