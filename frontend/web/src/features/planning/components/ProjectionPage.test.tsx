@@ -765,6 +765,16 @@ describe('ProjectionPage', () => {
         expect(screen.queryByRole('button', { name: 'Project' })).toBeNull();
     });
 
+    it('Given_no_scenarios_and_a_read_only_session_When_the_page_renders_Then_the_empty_state_invites_nothing_it_cannot_do', async () => {
+        // A viewer is offered no form to define a scenario, so pointing at one would mislead.
+        fakeFetch(ledger([]));
+
+        renderProjection(LOADED, { canWrite: false });
+
+        expect(await screen.findByText('No scenarios to project yet.')).toBeDefined();
+        expect(screen.queryByText(/define one/)).toBeNull();
+    });
+
     it('Given_no_scenarios_shown_When_the_list_is_read_again_and_fails_Then_the_failure_shows_above_the_empty_state', async () => {
         // An empty list is still what the ledger last answered, and a scenario defined since may
         // be what the failed read would have found, so the owner is told it did not land.

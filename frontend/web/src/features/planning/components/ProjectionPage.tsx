@@ -1,5 +1,6 @@
 import { type SubmitEvent, useId, useState } from 'react';
 
+import { useWriteAccess } from '@/shared/lib/writeAccess';
 import { Button, DataTable, DateText, SelectField, type SelectOption } from '@/shared/ui';
 
 import { useAccountOptions } from '../hooks/accountOptions';
@@ -21,6 +22,9 @@ import { ReadResult } from './ReadResult';
 import { ScenarioChoice } from './ScenarioChoice';
 
 const NO_SCENARIOS_MESSAGE = 'No scenarios to project yet — define one under Scenarios.';
+
+/** No scenarios, for a viewer, whom Scenarios offers no form to define one with (ADR-032). */
+const READ_ONLY_NO_SCENARIOS_MESSAGE = 'No scenarios to project yet.';
 
 const NO_CURRENCY_MESSAGE = 'Choose a scenario to offer the accounts in its currency.';
 
@@ -151,6 +155,7 @@ export function ProjectionPage() {
     const headingId = useId();
     const [submitted, setSubmitted] = useState<ProjectionParams | undefined>(undefined);
     const invalidateProjection = useInvalidateProjection();
+    const { canWrite } = useWriteAccess();
 
     function project(params: ProjectionParams) {
         // Unchanged fields keep the same key, which the cache alone would answer.
@@ -164,7 +169,9 @@ export function ProjectionPage() {
                 <h2 id={headingId} className={styles.heading}>
                     Project a scenario
                 </h2>
-                <ScenarioChoice emptyMessage={NO_SCENARIOS_MESSAGE}>
+                <ScenarioChoice
+                    emptyMessage={canWrite ? NO_SCENARIOS_MESSAGE : READ_ONLY_NO_SCENARIOS_MESSAGE}
+                >
                     {(scenarios) => <ProjectionForm scenarios={scenarios} onProject={project} />}
                 </ScenarioChoice>
             </section>

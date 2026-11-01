@@ -743,6 +743,16 @@ describe('ComparisonPage', () => {
         expect(screen.queryByRole('button', { name: 'Compare' })).toBeNull();
     });
 
+    it('Given_no_scenarios_and_a_read_only_session_When_the_page_renders_Then_the_empty_state_invites_nothing_it_cannot_do', async () => {
+        // A viewer is offered no form to define a scenario, so pointing at one would mislead.
+        fakeFetch(ledger([]));
+
+        renderComparison(LOADED, { canWrite: false });
+
+        expect(await screen.findByText('No scenarios to compare yet.')).toBeDefined();
+        expect(screen.queryByText(/define at least two/)).toBeNull();
+    });
+
     it('Given_the_scenarios_read_fails_When_the_page_renders_Then_a_retry_is_offered_that_refetches', async () => {
         let failing = true;
         const requests = fakeFetch((request) => {

@@ -20,6 +20,9 @@ import { accountPath, RECORD_TRANSACTION_PATH } from './paths';
 
 const EMPTY_MESSAGE = 'No accounts yet — open one below';
 
+/** The empty list for a viewer, who is offered no form to open one with (ADR-032). */
+const READ_ONLY_EMPTY_MESSAGE = 'No accounts yet';
+
 /** One account's name, linking to its detail, and taking focus once when it was just opened. */
 function AccountLink({
     account,
@@ -112,6 +115,7 @@ function AccountsList({
     readonly onFocused: () => void;
 }) {
     const accounts = useAccounts();
+    const { canWrite } = useWriteAccess();
     const { targetRef, onRetry } = useRetryFocus<HTMLDivElement>(
         accounts.error,
         accounts.isFetching,
@@ -133,7 +137,7 @@ function AccountsList({
         <div ref={targetRef} tabIndex={-1} className={styles.stack}>
             {failure}
             {accounts.data.length === 0 ? (
-                <EmptyState message={EMPTY_MESSAGE} />
+                <EmptyState message={canWrite ? EMPTY_MESSAGE : READ_ONLY_EMPTY_MESSAGE} />
             ) : (
                 <DataTable
                     caption="Accounts"
