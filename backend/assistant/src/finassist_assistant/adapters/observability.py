@@ -160,11 +160,11 @@ def set_correlation_id(value: str | None) -> None:
 def trace_id_of(traceparent: str | None) -> str | None:
     """Extract the trace id from a ``traceparent``, or ``None`` if it is not one.
 
-    Validates the shape rather than trusting it: the header is caller-supplied, it ends up in
-    every log line for the request and in a response header, and the web client's own
-    ``traceIdOf`` applies the same shape rule; this side also refuses the all-zero id, which the
-    W3C format reserves as invalid. Two implementations of one header format that disagree is how
-    malformed data gets in through the more permissive side.
+    Validates the shape rather than trusting it: the header is caller-supplied, and it ends up in
+    every log line for the request and in a response header. The web client's own ``traceIdOf``
+    applies the same rule, the shape and the refusal of the all-zero id, which the W3C format
+    reserves as invalid. Two implementations of one header format that disagree is how malformed
+    data gets in through the more permissive side.
 
     It lives at the logging boundary rather than in the app because both the correlation
     middleware and the Host allow-list, which runs before it, bind the id it yields.
