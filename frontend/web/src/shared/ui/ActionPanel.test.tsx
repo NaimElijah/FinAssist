@@ -127,6 +127,27 @@ describe('ActionPanel', () => {
         expect(onSubmit).not.toHaveBeenCalled();
     });
 
+    it('Given_pending_When_Cancel_is_clicked_Then_it_is_disabled_and_onCancel_is_not_called', async () => {
+        // Cancelling unmounts the panel that holds the request, and the request's answer - a
+        // success, or a 504 whose outcome is unknown - would then never be shown.
+        const { onCancel } = renderVoidPanel(true);
+
+        const cancel = screen.getByRole('button', { name: 'Cancel' });
+        await userEvent.setup().click(cancel);
+
+        expect(cancel).toHaveProperty('disabled', true);
+        expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it('Given_a_request_that_settled_When_rendered_Then_Cancel_is_enabled_again', async () => {
+        const { onCancel, renderPending } = renderVoidPanel(true);
+
+        renderPending(false);
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
     it('Given_pending_When_the_form_is_submitted_anyway_Then_onSubmit_is_not_called', () => {
         // A disabled submit button stops a click, but a form can still receive a submit event -
         // from a script, or a browser whose implicit submission ignores the disabled button. The

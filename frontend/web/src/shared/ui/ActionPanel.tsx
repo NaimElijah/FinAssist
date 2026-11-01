@@ -32,9 +32,12 @@ export interface ActionPanelProps {
      * starts nothing leaves the panel ignoring submits until its caller renders it again.
      */
     readonly onSubmit: () => void;
-    /** Called by the Cancel button. The caller closes the panel by unmounting it. */
+    /**
+     * Called by the Cancel button. The caller closes the panel by unmounting it. Never called while
+     * `pending`.
+     */
     readonly onCancel: () => void;
-    /** A request this panel started is in flight: submit is disabled until it clears. */
+    /** A request this panel started is in flight: submit and Cancel are disabled until it clears. */
     readonly pending: boolean;
 }
 
@@ -100,7 +103,10 @@ export function ActionPanel({
                     <Button type="submit" pending={pending}>
                         {submitLabel}
                     </Button>
-                    <Button variant="secondary" onClick={onCancel}>
+                    {/* Cancelling unmounts the panel that holds the request, and TanStack Query
+                        runs a `mutate` call's callbacks only while its observer is mounted, so its
+                        answer - a success, or a 504 whose outcome is unknown - would never show. */}
+                    <Button variant="secondary" onClick={onCancel} disabled={pending}>
                         Cancel
                     </Button>
                 </div>
