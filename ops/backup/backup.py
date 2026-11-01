@@ -17,7 +17,7 @@ output as text and would corrupt a custom-format dump.
 Every Compose call names `docker-compose.yml` explicitly, from the repository root, so a stray
 override file or a `COMPOSE_FILE` in the environment can never redirect one. For `backup` and
 `restore`, the project is whatever that file and the environment resolve, `finassist` by default,
-and it is printed before anything is read. `check` runs only in its own project,
+and it is printed before any database is read or written. `check` runs only in its own project,
 `finassist-restore-check`, which it passes as `-p` on every call, so nothing in the environment can
 point it at the owner's.
 
@@ -280,6 +280,7 @@ def _require(
     reaches the report unless it has been through `_withheld`.
 
     :param what: names the step in the error, such as "pg_dump of ledger".
+    :return: the command's stdout, or empty bytes when it was sent to `stdout`.
     :raises BackupError: if the command exits non-zero, with its output through `_withheld`.
     """
     result = subprocess.run(
@@ -301,6 +302,9 @@ def _require(
 @dataclass(frozen=True)
 class Compose:
     """Runs `docker compose` against this repository's file, and nothing else.
+
+    Every method that runs a command raises `BackupError` when `docker compose` exits non-zero,
+    its output through `_withheld`.
 
     :param project: passed as `-p` when given. When omitted, the project is whatever
         `docker-compose.yml` and the environment resolve (`finassist` by default).
@@ -328,6 +332,7 @@ class Compose:
         """Runs one `docker compose` command and returns its captured stdout.
 
         :param what: names the step in the error, such as "pg_dump of ledger".
+        :return: the command's stdout, or empty bytes when it was sent to `stdout`.
         :raises BackupError: if the command exits non-zero, with its output through `_withheld`.
         """
         return _require(
@@ -343,6 +348,8 @@ class Compose:
         """The Compose model as Compose resolves it, `.env` interpolated.
 
         It holds every secret `.env` sets, so nothing from it is ever reported.
+
+        :raises BackupError: if `docker compose config` fails or answers JSON that is not an object.
         """
         model = json.loads(
             self.require("resolving the Compose model", "config", "--format", "json")
@@ -352,7 +359,10 @@ class Compose:
         return model
 
     def project_name(self) -> str:
-        """The project every other call acts on, as Compose itself resolves it."""
+        """The project every other call acts on, as Compose itself resolves it.
+
+        :raises BackupError: if Compose resolves no name.
+        """
         name = self.resolved().get("name")
         if not isinstance(name, str) or not name:
             raise BackupError("docker compose config named no project")
@@ -378,6 +388,9 @@ class Compose:
     def psql(self, database: Database, sql: str, *variables: tuple[str, str]) -> list[list[str]]:
         """Runs `sql` in `database`'s own container and returns its rows, each a list of fields.
 
+        Fields are split on `|` with no unescaping, so a value holding one is split in two. A
+        statement that prints no row returns an empty list.
+
         :param variables: psql variables, each read in `sql` as `:'name'`, so a value is quoted
             by psql rather than built into the statement.
         """
@@ -400,7 +413,10 @@ class Compose:
         return int(self.psql(database, COUNT_TABLES_SQL)[0][0])
 
     def image_of(self, service: str) -> str:
-        """The image `service`'s running container was started from."""
+        """The image `service`'s running container was started from.
+
+        :raises BackupError: if `docker compose ps` lists no container for `service`.
+        """
         listed = self.require(f"inspecting {service}", "ps", "--format", "json", service)
         for container in _containers(listed.decode("utf-8")):
             if container.get("Service") == service and isinstance(container.get("Image"), str):
@@ -504,8 +520,8 @@ def backup(compose: Compose, root: Path, now: datetime) -> Path:
     folder = root / now.astimezone(UTC).strftime(TIMESTAMP_FORMAT)
     folder.mkdir(mode=OWNER_ONLY_DIRECTORY)
     try:
-        # Taken before and after the dumps: when the two agree, nothing was written to the books
-        # in between, so the digest describes exactly the books ledger.dump holds.
+        # Taken before and after the dumps: when the two agree, the books held the same rows at
+        # both ends, so the digest describes the books ledger.dump holds.
         books = _books_digest(compose)
         entries = []
         for database in DATABASES:
@@ -609,10 +625,13 @@ def restore(compose: Compose, folder: Path, databases: tuple[Database, ...]) -> 
       would migrate or import into the empty database first;
     - each database is running, and holds no table.
 
-    Each restore is one transaction, so a database is left either restored whole or empty.
+    Each restore is one transaction, so a database is left either restored whole or empty. When
+    `databases` holds the ledger, its restored books are then compared with the digest the manifest
+    recorded; a backup taken before the ledger had a journal records none, and is not compared.
 
-    :raises BackupError: naming the first precondition that does not hold, or the restore that
-        failed.
+    :raises BackupError: naming the first precondition that does not hold, the restore that
+        failed, or the restored books that do not match the recorded digest. A restore that fails
+        after an earlier one landed leaves the earlier database restored.
     """
     entries = _manifest_entries(folder)
     dumps = {database: _verify(folder, database, entries) for database in databases}
@@ -1018,9 +1037,13 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str], now: datetime) -> int:
-    """Runs one command, reading the clock nowhere but here.
+    """Parses `argv`, runs the command it names, and reports its outcome on stdout.
 
+    :param argv: the command line without the program name.
+    :param now: the time a `backup` names its folder for. The `__main__` guard reads the clock
+        once and passes it down, so nothing below it calls `now()`.
     :return: the process exit status: 0 when the command did everything it promises, else 1.
+    :raises SystemExit: with status 2, from `argparse`, when `argv` names no valid command.
     """
     arguments = _parser().parse_args(argv)
     try:

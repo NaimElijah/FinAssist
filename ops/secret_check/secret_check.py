@@ -191,6 +191,7 @@ def _ignored(path: str, is_directory: bool, rules: tuple[_IgnoreRule, ...]) -> b
     return ignored
 
 
+# The one place bytes are read from the clone, so a test can make a read fail.
 def _read(path: Path) -> bytes:
     return path.read_bytes()
 
@@ -235,6 +236,8 @@ def scanned_files(root: Path) -> Iterator[str]:
     `tests/test_secret_check.py` fails the day one appears (ADR-044).
 
     :raises SecretCheckError: if a directory git does not ignore cannot be listed.
+    :raises OSError: if an ignore file cannot be read. It is not wrapped, so `check` raises it too,
+        and `main` reports it by its type like any error it did not foresee.
     """
     exclude = root / INFO_EXCLUDE
     rules = _rules(_ignore_file(exclude), "") if exclude.is_file() else ()
@@ -267,8 +270,10 @@ def check(root: Path, environment: Mapping[str, str]) -> Verdict:
     :param root: the repository's root, which must hold `ANCHOR_FILE`.
     :param environment: where each of `SECRET_VARIABLES` is read from; an unset or empty one is
         skipped, since each service that needs it refuses to start without it anyway.
-    :raises SecretCheckError: if `root` is not the repository, or a directory or file in it that
+    :return: which variables are published or too short, and how many were looked for and searched.
+    :raises SecretCheckError: if `root` is not the repository, or a directory or a file in it that
         git does not ignore cannot be read.
+    :raises OSError: if an ignore file cannot be read (see `scanned_files`).
     """
     if not (root / ANCHOR_FILE).is_file():
         raise SecretCheckError(
@@ -305,6 +310,11 @@ def _report(line: str) -> None:
 def main(argv: Sequence[str], environment: Mapping[str, str]) -> int:
     """Checks the clone named by the only argument against the secrets in `environment`.
 
+    Writes the verdict to stdout, naming each refused variable and never its value or the file
+    that holds it.
+
+    :param argv: the command line without the program name: exactly one path, the repository root.
+    :param environment: where each secret is read from, as for `check`.
     :return: `EXIT_PASSED` when no secret appears in a file git does not ignore and none is shorter
         than `MIN_SECRET_LENGTH`, `EXIT_REFUSED` when one does or is, and `EXIT_MISCONFIGURED`
         when the clone could not be searched. Compose starts nothing that waits on this unless it

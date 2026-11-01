@@ -15,14 +15,15 @@ public issuer in a token (ADR-031: two addresses, one issuer).
 Standard library only, so it runs unmodified from the pinned `python:3.13.18-slim-trixie` image
 with no `pip install` step (the same tag `backend/assistant/Dockerfile` already builds from).
 
-Exits non-zero on the first failed check, naming which one failed and why. Never prints a
-token, a client secret, a cookie, an `Authorization` header or a response body. A failure
-message may quote a non-secret claim value (the token's `alg`, `iss` or `aud`, a role name)
-where the failure cannot be diagnosed without it, and a response's status, problem code,
-`WWW-Authenticate` challenge, or redirect target stripped of its query. An error none of the
-checks anticipated is reported by its type alone: a standard-library exception's message can
-quote its input, and `http.client`'s "Invalid header value" quotes the whole rejected header,
-token included.
+Each `check_*` function returns normally when what it checks holds and raises `SmokeCheckError`
+otherwise; `main` runs them in order and exits non-zero on the first failure, naming which check
+failed and why. Never prints a token, a client secret, a cookie, an `Authorization` header or a
+response body. A failure message may quote a non-secret claim value (the token's `alg`, `iss` or
+`aud`, a role name) where the failure cannot be diagnosed without it, and a response's status,
+problem code, `WWW-Authenticate` challenge, or redirect target stripped of its query. An error none
+of the checks anticipated is reported by its type alone: a standard-library exception's message can
+quote its input, and `http.client`'s "Invalid header value" quotes the whole rejected header, token
+included.
 
 Run it with `make smoke-auth` (see docs/operations/operations.md, "Smoke-testing
 authentication"). Refs #38.
@@ -231,6 +232,12 @@ def check_assistant_token_claims() -> str:
     ADR-031), the value their `LEDGER_OIDC_ISSUER` and `ASSISTANT_OIDC_ISSUER` are built from. If
     Keycloak put the backchannel address there instead, both would refuse every token: check 2
     would then fail with a 401 that does not say why, and this check names the cause first.
+
+    :return: the access token, which checks 2, 3 and 5 present to the ledger and the assistant.
+    :raises SmokeCheckError: if `ASSISTANT_CLIENT_SECRET` or a public URL is unset, the token
+        endpoint refuses the client or answers a malformed token, or a claim is not as ADR-030
+        through ADR-032 promise: `alg`, `iss`, `aud` (the ledger's, and not the assistant's),
+        `roles` (including `assistant`) and `sub`.
     """
     secret = _required_environment(ASSISTANT_CLIENT_SECRET_ENV)
     public_issuer = _public_url(KEYCLOAK_PUBLIC_URL_ENV) + REALM_PATH
@@ -506,7 +513,11 @@ class _CheckRun:
 
 
 def main() -> int:
-    """Runs every check in order, stopping at the first failure (see the module docstring)."""
+    """Runs every check in order, stopping at the first failure (see the module docstring).
+
+    :return: the process exit status: 0 when every check passed, else 1, with the failure already
+        reported on stdout.
+    """
     run = _CheckRun()
     try:
         token = run.check("assistant client-credentials token claims", check_assistant_token_claims)
