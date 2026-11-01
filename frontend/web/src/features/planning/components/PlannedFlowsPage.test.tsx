@@ -2,7 +2,8 @@
 // Renders the planning routes through the feature's own route table, so it needs a DOM. fetch is
 // faked, so the feature's real api/ module and its mapping run under test.
 
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { onlineManager } from '@tanstack/react-query';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { type UserEvent, userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -753,6 +754,65 @@ describe('PlannedFlowsPage lifecycle actions', () => {
             await edit(user);
 
             expect(screen.queryByRole('alert')).toBeNull();
+        });
+    }
+
+    // Every lifecycle mutation, since each sets its own network mode.
+    for (const { action, submitLabel, path, flow, reason } of [
+        { action: 'Commit', submitLabel: 'Commit', path: 'commit', flow: RENT, reason: undefined },
+        {
+            action: 'Realise',
+            submitLabel: 'Realise',
+            path: 'realise',
+            flow: SALARY,
+            reason: undefined,
+        },
+        {
+            action: 'Cancel',
+            submitLabel: 'Cancel flow',
+            path: 'cancel',
+            flow: RENT,
+            reason: 'No longer needed',
+        },
+    ] as const) {
+        it(`Given_the_browser_offline_When_a_${action}_is_submitted_Then_the_panel_shows_the_failure_and_Cancel_is_enabled_again`, async () => {
+            // Offline, TanStack Query would hold the mutation paused and pending, and the panel
+            // disables Cancel while pending: the owner would be stuck with nothing saying why.
+            const actionUrl = `${FLOWS_URL}/${flow.id}/${path}`;
+            const requests = fakeFetch(
+                ledger([flow], (request) =>
+                    request.url === actionUrl && request.method === 'POST'
+                        ? networkFailure()
+                        : unexpectedRequest(request),
+                ),
+            );
+            renderFlows();
+            const user = userEvent.setup({ delay: null });
+            await screen.findByRole('table', { name: 'Planned flows' });
+            await user.click(
+                within(rowOf(flow.description)).getByRole('button', {
+                    name: nameStartingWith(action),
+                }),
+            );
+            if (reason !== undefined) {
+                await user.type(screen.getByLabelText('Reason'), reason);
+            }
+            try {
+                act(() => {
+                    onlineManager.setOnline(false);
+                });
+
+                await user.click(screen.getByRole('button', { name: submitLabel }));
+
+                await screen.findByRole('alert');
+                expect(screen.getByRole('button', { name: 'Cancel' })).toHaveProperty(
+                    'disabled',
+                    false,
+                );
+                expect(requests.filter((request) => request.url === actionUrl)).toHaveLength(1);
+            } finally {
+                onlineManager.setOnline(true);
+            }
         });
     }
 

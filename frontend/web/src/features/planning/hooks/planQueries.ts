@@ -5,6 +5,7 @@
  * rather than a key spelled twice.
  */
 import {
+    type NetworkMode,
     type QueryClient,
     useIsMutating,
     useMutation,
@@ -207,6 +208,14 @@ export function usePlanFlow() {
  */
 const FLOW_LIFECYCLE_KEY = [...PLANS_KEY, 'lifecycle'] as const;
 
+/**
+ * How Commit, Realise and Cancel meet the network. `'always'` sends one submitted offline at once,
+ * so it fails as a retryable network error the panel shows. TanStack Query's default,
+ * `'online'`, holds it paused and pending instead, while the panel disables Cancel and the page
+ * every other row's action: the owner would be stuck, with nothing on screen saying why.
+ */
+const LIFECYCLE_NETWORK_MODE: NetworkMode = 'always';
+
 /** Whether a flow lifecycle mutation is in flight, read two ways. */
 export interface LifecycleInFlight {
     /** As of the last render, for disabling the controls that would start another. */
@@ -275,6 +284,7 @@ export function useCommitFlow() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationKey: FLOW_LIFECYCLE_KEY,
+        networkMode: LIFECYCLE_NETWORK_MODE,
         mutationFn: ({ flowId, on }: TransitionVariables) => commitFlow(flowId, on),
         onSuccess: () => queryClient.invalidateQueries({ queryKey: planKeys.flows }),
         onError: (error) => refreshAfterIllegalTransition(queryClient, error),
@@ -313,6 +323,7 @@ export function useRealiseFlow() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationKey: FLOW_LIFECYCLE_KEY,
+        networkMode: LIFECYCLE_NETWORK_MODE,
         mutationFn: ({ flowId, on }: TransitionVariables) => realiseFlow(flowId, on),
         onSuccess: () => invalidateAfterLeavingProjection(queryClient),
         onError: (error) => refreshAfterIllegalTransition(queryClient, error),
@@ -335,6 +346,7 @@ export function useCancelFlow() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationKey: FLOW_LIFECYCLE_KEY,
+        networkMode: LIFECYCLE_NETWORK_MODE,
         mutationFn: ({ flowId, on, reason }: CancelVariables) => cancelFlow(flowId, on, reason),
         onSuccess: () => invalidateAfterLeavingProjection(queryClient),
         onError: (error) => refreshAfterIllegalTransition(queryClient, error),

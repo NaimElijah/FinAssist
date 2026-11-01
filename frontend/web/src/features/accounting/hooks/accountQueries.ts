@@ -5,6 +5,7 @@
  * rather than a key spelled twice.
  */
 import {
+    type NetworkMode,
     type QueryClient,
     useIsMutating,
     useMutation,
@@ -165,6 +166,14 @@ export function useRecordTransaction() {
  */
 const TRANSACTION_LIFECYCLE_KEY = [...ACCOUNTS_KEY, 'lifecycle'] as const;
 
+/**
+ * How Clear, Reconcile and Void meet the network. `'always'` sends one submitted offline at once,
+ * so it fails as a retryable network error the panel shows. TanStack Query's default,
+ * `'online'`, holds it paused and pending instead, while the panel disables Cancel and the page
+ * every other row's action: the owner would be stuck, with nothing on screen saying why.
+ */
+const LIFECYCLE_NETWORK_MODE: NetworkMode = 'always';
+
 /** Whether a transaction lifecycle mutation is in flight, read two ways. */
 export interface LifecycleInFlight {
     /** As of the last render, for disabling the controls that would start another. */
@@ -235,6 +244,7 @@ export function useClearTransaction(accountId: string) {
     const queryClient = useQueryClient();
     return useMutation({
         mutationKey: TRANSACTION_LIFECYCLE_KEY,
+        networkMode: LIFECYCLE_NETWORK_MODE,
         mutationFn: ({ transactionId, on }: TransitionVariables) =>
             clearTransaction(transactionId, on),
         onSuccess: (transaction) => invalidateAccounts(queryClient, accountIdsOf(transaction)),
@@ -253,6 +263,7 @@ export function useReconcileTransaction(accountId: string) {
     const queryClient = useQueryClient();
     return useMutation({
         mutationKey: TRANSACTION_LIFECYCLE_KEY,
+        networkMode: LIFECYCLE_NETWORK_MODE,
         mutationFn: ({ transactionId, on }: TransitionVariables) =>
             reconcileTransaction(transactionId, on),
         onSuccess: (transaction) => invalidateAccounts(queryClient, accountIdsOf(transaction)),
@@ -276,6 +287,7 @@ export function useVoidTransaction(accountId: string) {
     const queryClient = useQueryClient();
     return useMutation({
         mutationKey: TRANSACTION_LIFECYCLE_KEY,
+        networkMode: LIFECYCLE_NETWORK_MODE,
         mutationFn: ({ transactionId, on, reason }: VoidVariables) =>
             voidTransaction(transactionId, on, reason),
         onSuccess: (transaction) => invalidateAccounts(queryClient, accountIdsOf(transaction)),

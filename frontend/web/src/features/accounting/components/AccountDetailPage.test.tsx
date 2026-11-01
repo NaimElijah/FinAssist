@@ -2,8 +2,8 @@
 // Renders an account's page through the feature's own routes, so it needs a DOM. fetch is faked,
 // so the feature's real api/ module and its mapping run under test.
 
-import type { QueryClient } from '@tanstack/react-query';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { onlineManager, type QueryClient } from '@tanstack/react-query';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 
@@ -12,6 +12,7 @@ import {
     type FetchAnswer,
     fakeFetch,
     jsonResponse,
+    networkFailure,
     pendingResponse,
     problemResponse,
     unexpectedRequest,
@@ -1084,6 +1085,55 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
             expect(screen.getByRole('button', { name: 'Clear' })).toHaveProperty('disabled', true);
         });
     });
+
+    // Every lifecycle mutation, since each sets its own network mode.
+    for (const { action, transaction, reason } of [
+        { action: 'Clear', transaction: PENDING_TX, reason: undefined },
+        { action: 'Reconcile', transaction: CLEARED_TX, reason: undefined },
+        { action: 'Void', transaction: PENDING_TX, reason: 'Entered twice' },
+    ] as const) {
+        it(`Given_the_browser_offline_When_a_${action}_is_submitted_Then_the_panel_shows_the_failure_and_Cancel_is_enabled_again`, async () => {
+            // Offline, TanStack Query would hold the mutation paused and pending, and the panel
+            // disables Cancel while pending: the owner would be stuck with nothing saying why.
+            const actionUrl = `${RECORD_URL}/${transaction.id}/${action.toLowerCase()}`;
+            const requests = fakeFetch(
+                lifecycleLedger(
+                    () => [transaction],
+                    (request) =>
+                        request.url === actionUrl && request.method === 'POST'
+                            ? networkFailure()
+                            : unexpectedRequest(request),
+                ),
+            );
+            renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+            const user = userEvent.setup({ delay: null });
+            await screen.findByRole('table', { name: 'Transactions' });
+            await user.click(
+                within(rowOf(transaction.description)).getByRole('button', {
+                    name: nameStartingWith(action),
+                }),
+            );
+            if (reason !== undefined) {
+                await user.type(screen.getByLabelText('Reason'), reason);
+            }
+            try {
+                act(() => {
+                    onlineManager.setOnline(false);
+                });
+
+                await user.click(screen.getByRole('button', { name: action }));
+
+                await screen.findByRole('alert');
+                expect(screen.getByRole('button', { name: 'Cancel' })).toHaveProperty(
+                    'disabled',
+                    false,
+                );
+                expect(requests.filter((request) => request.url === actionUrl)).toHaveLength(1);
+            } finally {
+                onlineManager.setOnline(true);
+            }
+        });
+    }
 
     it('Given_a_panel_open_on_a_pending_row_When_cancelled_Then_focus_returns_to_the_button_that_opened_it', async () => {
         fakeFetch(lifecycleLedger(() => [PENDING_TX], unexpectedRequest));
