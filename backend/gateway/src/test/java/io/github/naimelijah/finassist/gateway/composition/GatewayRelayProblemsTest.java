@@ -21,7 +21,9 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
+import org.springframework.cloud.gateway.server.mvc.common.MvcUtils;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -50,10 +52,10 @@ import tools.jackson.databind.json.JsonMapper;
  * logs and answers when a relay's authorization cannot be renewed.
  *
  * <p>Called directly rather than through a running gateway and a fault-injecting fake: each
- * handler takes only the exception, the response and at most a request holding the session, so it
- * needs neither a route nor a Spring context to prove what it does — the same reasoning, and the
- * same technique, {@code SignInFailureHandlerTest} already uses for the one other place in this
- * service where an unexpected value could reach a log line.
+ * handler takes only the exception, the response and at most a request holding the session or the
+ * route id, so it needs neither a route nor a Spring context to prove what it does — the same
+ * reasoning, and the same technique, {@code SignInFailureHandlerTest} already uses for the one
+ * other place in this service where an unexpected value could reach a log line.
  *
  * <p>{@code IllegalStateException} stands in for "anything else": nothing about this handler's
  * behaviour depends on which unmapped exception type arrives, since the catch-all branch of
@@ -79,6 +81,11 @@ class GatewayRelayProblemsTest {
      */
     private static final String RELAYED_REQUEST_MESSAGE =
             "I/O error on POST request for \"http://ledger:8080/api/v1/transactions?memo=rent-to-landlord\"";
+
+    /** The relay routes {@code application.yml} declares, by the ids Server MVC sets on the request. */
+    private static final String LEDGER_ROUTE = "ledger";
+
+    private static final String ASSISTANT_ROUTE = "assistant";
 
     /** The registration {@code KeycloakRegistration} declares, as a refused authorization names it. */
     private static final String REGISTRATION_ID = "keycloak";
@@ -408,9 +415,55 @@ class GatewayRelayProblemsTest {
                         "an unresolvable host", new ResourceAccessException(RELAYED_REQUEST_MESSAGE, unresolvable)));
     }
 
+    /** A request as Server MVC leaves it once a route has matched: carrying that route's id. */
+    private static MockHttpServletRequest relayOn(String routeId) {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setAttribute(MvcUtils.GATEWAY_ROUTE_ID_ATTR, routeId);
+        return request;
+    }
+
+    private static MockHttpServletRequest ledgerRelay() {
+        return relayOn(LEDGER_ROUTE);
+    }
+
+    /**
+     * Two upstreams sit behind the gateway, so a line saying one failed must say which. The route
+     * id is the gateway's own configuration, never anything the request carried.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {LEDGER_ROUTE, ASSISTANT_ROUTE})
+    void Given_a_relay_on_a_route_When_its_upstream_fails_either_way_Then_each_warn_names_that_route(String routeId)
+            throws IOException {
+        problems.upstreamFailed(readTimeout(), relayOn(routeId), response);
+        problems.upstreamFailed(
+                new ResourceAccessException(RELAYED_REQUEST_MESSAGE, new ConnectException()),
+                relayOn(routeId),
+                new MockHttpServletResponse());
+
+        assertThat(captured.list)
+                .hasSize(2)
+                .allSatisfy(line -> assertThat(line.getFormattedMessage()).contains("route " + routeId));
+    }
+
+    /**
+     * Nothing but a matched route reaches this handler today, but a line that named no route at all
+     * would read as if the gateway itself were unreachable, so a missing id is said to be missing.
+     */
+    @Test
+    void Given_a_request_carrying_no_route_id_When_its_upstream_fails_Then_the_warn_says_the_route_is_unknown()
+            throws IOException {
+        problems.upstreamFailed(
+                new ResourceAccessException(RELAYED_REQUEST_MESSAGE, new ConnectException()),
+                new MockHttpServletRequest(),
+                response);
+
+        assertThat(captured.list).hasSize(1);
+        assertThat(captured.list.getFirst().getFormattedMessage()).contains("route unknown");
+    }
+
     @Test
     void Given_a_read_timeout_When_the_relay_fails_Then_it_answers_504_upstream_timeout() throws IOException {
-        problems.upstreamFailed(readTimeout(), response);
+        problems.upstreamFailed(readTimeout(), ledgerRelay(), response);
 
         assertThat(response.getStatus()).isEqualTo(504);
         assertThat(response.getContentType()).isEqualTo(PROBLEM_JSON);
@@ -423,7 +476,7 @@ class GatewayRelayProblemsTest {
     @MethodSource("connectionsNeverOpened")
     void Given_a_connection_never_opened_When_the_relay_fails_Then_it_answers_502_upstream_unavailable(
             String scenario, ResourceAccessException failure) throws IOException {
-        problems.upstreamFailed(failure, response);
+        problems.upstreamFailed(failure, ledgerRelay(), response);
 
         assertThat(response.getStatus()).isEqualTo(502);
         assertThat(response.getContentType()).isEqualTo(PROBLEM_JSON);
@@ -446,7 +499,7 @@ class GatewayRelayProblemsTest {
         IOException second = new IOException("second", first);
         first.initCause(second);
 
-        problems.upstreamFailed(new ResourceAccessException(RELAYED_REQUEST_MESSAGE, first), response);
+        problems.upstreamFailed(new ResourceAccessException(RELAYED_REQUEST_MESSAGE, first), ledgerRelay(), response);
 
         assertThat(response.getStatus()).isEqualTo(502);
     }
@@ -460,9 +513,10 @@ class GatewayRelayProblemsTest {
     @Test
     void Given_a_read_timeout_and_a_connection_never_opened_When_each_is_logged_Then_each_is_a_distinct_fixed_warn()
             throws IOException {
-        problems.upstreamFailed(readTimeout(), response);
+        problems.upstreamFailed(readTimeout(), ledgerRelay(), response);
         problems.upstreamFailed(
                 new ResourceAccessException(RELAYED_REQUEST_MESSAGE, new ConnectException()),
+                ledgerRelay(),
                 new MockHttpServletResponse());
 
         assertThat(captured.list).hasSize(2);

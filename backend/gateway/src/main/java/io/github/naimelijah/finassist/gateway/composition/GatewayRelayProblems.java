@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cloud.gateway.server.mvc.common.MvcUtils;
 import org.springframework.cloud.gateway.server.mvc.filter.TokenRelayFilterFunctions;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.core.OAuth2AuthorizationException;
@@ -109,6 +110,9 @@ final class GatewayRelayProblems {
     private static final byte[] INTERNAL_ERROR_BODY =
             GatewayProblems.write(HttpStatus.INTERNAL_SERVER_ERROR, INTERNAL_DETAIL, GatewayProblems.INTERNAL_ERROR);
 
+    /** Stands in for a route id the request does not carry, so the line still says one is missing. */
+    private static final String UNKNOWN_ROUTE = "unknown";
+
     private static final String METHOD_NOT_ALLOWED_DETAIL = "This path answers no such method.";
 
     private static final String NOT_ACCEPTABLE_DETAIL = "This path produces no representation this request accepts.";
@@ -177,21 +181,30 @@ final class GatewayRelayProblems {
      * reached. Anything else — a refused or unresolvable connection, or a connect timeout — is
      * {@code 502 UPSTREAM_UNAVAILABLE}, as is an I/O failure this class cannot place, whose chain does
      * not say whether the request was written: a reset after sending is one, and #407 tracks answering
-     * it as outcome unknown. Each is logged at WARN by a fixed line: the wrapper's
-     * message names the relayed URL, query included, so it is never written.
+     * it as outcome unknown. Each is logged at WARN by a fixed line naming the route, {@code
+     * ledger} or {@code assistant}, and nothing else: the wrapper's message names the relayed URL,
+     * query included, so it is never written.
      *
      * @param failure the wrapper whose cause chain says which failure this was
+     * @param request carries the id of the route that matched, which Server MVC sets as {@link
+     *     MvcUtils#GATEWAY_ROUTE_ID_ATTR} from {@code application.yml}, never from the request
      * @param response the response to answer
      * @throws IOException if the problem body cannot be written
      */
     @ExceptionHandler(ResourceAccessException.class)
-    void upstreamFailed(ResourceAccessException failure, HttpServletResponse response) throws IOException {
+    void upstreamFailed(ResourceAccessException failure, HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
+        String route = request.getAttribute(MvcUtils.GATEWAY_ROUTE_ID_ATTR) instanceof String routeId
+                ? routeId
+                : UNKNOWN_ROUTE;
         if (timedOutAwaitingAnswer(failure)) {
-            LOG.warn("A relay's upstream service did not answer in time; the request's outcome is unknown");
+            LOG.warn(
+                    "A relay's upstream service on route {} did not answer in time; the request's outcome is unknown",
+                    route);
             GatewayProblems.send(response, HttpStatus.GATEWAY_TIMEOUT, UPSTREAM_TIMEOUT_BODY);
             return;
         }
-        LOG.warn("A relay's upstream service could not be reached");
+        LOG.warn("A relay's upstream service on route {} could not be reached", route);
         GatewayProblems.send(response, HttpStatus.BAD_GATEWAY, UPSTREAM_UNAVAILABLE_BODY);
     }
 
