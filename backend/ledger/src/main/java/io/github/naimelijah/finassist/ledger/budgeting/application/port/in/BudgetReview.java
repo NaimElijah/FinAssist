@@ -36,6 +36,8 @@ public record BudgetReview(
         Objects.requireNonNull(budget, "budget");
         Objects.requireNonNull(period, "period");
         Objects.requireNonNull(currency, "currency");
+        Objects.requireNonNull(categories, "categories");
+        Objects.requireNonNull(unbudgeted, "unbudgeted");
         Objects.requireNonNull(uncategorised, "uncategorised");
         categories = List.copyOf(categories);
         // Not Map.copyOf: it is unmodifiable and unordered, and the order is the point.

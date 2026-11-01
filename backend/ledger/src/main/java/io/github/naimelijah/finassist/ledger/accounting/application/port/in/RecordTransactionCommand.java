@@ -26,6 +26,7 @@ public record RecordTransactionCommand(
         Objects.requireNonNull(occurredOn, "occurredOn");
         Objects.requireNonNull(description, "description");
         Objects.requireNonNull(recordedBy, "recordedBy");
+        Objects.requireNonNull(entries, "entries");
         entries = List.copyOf(entries);
     }
 }

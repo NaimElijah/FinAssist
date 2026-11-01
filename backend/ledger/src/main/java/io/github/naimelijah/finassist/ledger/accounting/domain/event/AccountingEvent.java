@@ -53,6 +53,7 @@ public sealed interface AccountingEvent {
             Objects.requireNonNull(transaction, "transaction");
             Objects.requireNonNull(occurredOn, "occurredOn");
             Objects.requireNonNull(description, "description");
+            Objects.requireNonNull(accounts, "accounts");
             accounts = List.copyOf(accounts);
         }
     }
