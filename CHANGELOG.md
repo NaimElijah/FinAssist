@@ -315,11 +315,20 @@ history; write the commit message well and this file writes itself.
   - **The code findings, fixed in their own commits:**
     - voiding a reconciled or voided transaction with an early date is 409, not 422;
     - `Money.times` and `timesRounded` refuse a product `BigDecimal` cannot hold as an
-      `IllegalArgumentException`, with the assistant's `Money` at parity and six new `scalar`
-      vectors;
-    - a recurrence count must be wholly a positive integer;
+      `IllegalArgumentException`, where they let its bare `ArithmeticException` escape. The
+      assistant's `Money` returned `0.00` for those products, which is wrong money and not only a
+      wrong exception; it now refuses them too, at parity with the ledger for a product scale past
+      a Java `int`, pinned by six new `scalar` vectors. A narrower divergence remains at Java's
+      `BigInteger` range
+      ([#416](https://github.com/NaimElijah/FinAssist/issues/416));
+    - a null collection in `RecordTransactionCommand`, `TransactionRecorded` or `BudgetReview` is
+      refused with a `NullPointerException` naming the field, as every neighbouring
+      `requireNonNull` does;
+    - a recurrence count or interval must be wholly a positive integer, and one past the
+      safe-integer range is refused;
     - an unreadable ignore file is a secret-check failure;
-    - a backup or restore that reads a non-JSON answer fails as a `BackupError`, not a traceback;
+    - a backup or restore that reads a non-JSON answer, or JSON of the wrong shape, fails as a
+      `BackupError`, not a traceback;
     - a trace id followed by a newline is refused.
   - **Filed for the owner:**
     - [#421](https://github.com/NaimElijah/FinAssist/issues/421): how a liability's balance is
