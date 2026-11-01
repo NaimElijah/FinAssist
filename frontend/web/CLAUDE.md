@@ -9,8 +9,10 @@ binds the web client alone.
 `src/app/` composes them, and `src/app/session/` gates every screen on a signed-in session
 (`SessionGate`, `SessionContext`). `vite.config.ts` proxies `/ledger`, `/assistant` and `/bff` to
 the gateway at `127.0.0.1:${GATEWAY_PORT}`, read from the environment, then the repository's
-`.env`, and 8090 when unset (`gatewayTarget` in `src/shared/api/backends.ts`). Each feature maps
-the generated wire types onto its own types in its `api/`.
+`.env` alone, and 8090 when unset (`gatewayEnvironment` in `vite.config.ts`, `gatewayTarget` in
+`src/shared/api/backends.ts`). Not Vite's `loadEnv`: it also reads `.env.local` and
+`.env.<mode>`, which Compose never does, and writes some of what it reads into `process.env`.
+Each feature maps the generated wire types onto its own types in its `api/`.
 
 - **Accounting.** `AccountsPage` opens an account and lists every one with its derived balance.
   `RecordTransactionPage` records a transaction by hand at the static route

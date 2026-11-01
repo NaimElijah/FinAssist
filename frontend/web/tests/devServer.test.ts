@@ -6,22 +6,24 @@
  * assistant and the gateway's own `/bff` endpoints - through one origin to the gateway, per
  * ADR-026 (one origin via proxy) and ADR-030 (BFF gateway, loopback bind, Host allow-list).
  */
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http, { type IncomingHttpHeaders, type OutgoingHttpHeaders } from 'node:http';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 
 import { createServer, type ProxyOptions, type ViteDevServer } from 'vite';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
     ASSISTANT_BACKEND,
     BFF_BACKEND,
     GATEWAY_PORT_VARIABLE,
+    gatewayTarget,
     LEDGER_BACKEND,
     LOOPBACK_HOST,
 } from '../src/shared/api/backends';
-import viteConfig, { GATEWAY_TARGET } from '../vite.config';
+import viteConfig, { GATEWAY_TARGET, gatewayEnvironment } from '../vite.config';
 
 /** A gateway port other than the default, as an owner who moved it would set. */
 const MOVED_GATEWAY_PORT = '18090';
@@ -205,6 +207,87 @@ describe('the dev/preview server', () => {
 
         expect(bffKey.test('/bffx')).toBe(false);
         expect(bffKey.test('/bff-evil')).toBe(false);
+    });
+});
+
+/**
+ * A secret the repository's `.env` holds beside the port, distinctive enough that finding it in
+ * what the config reads back cannot be a coincidence.
+ */
+const SECRET_IN_ENV_FILE = 'not-a-real-grafana-password-7f3c';
+
+describe('gatewayEnvironment', () => {
+    let envDirectory: string;
+    let originalGatewayPort: string | undefined;
+
+    beforeEach(() => {
+        envDirectory = mkdtempSync(path.join(tmpdir(), 'finassist-web-env-'));
+        // The owner's own shell may set it; each test decides whether the process has it.
+        originalGatewayPort = process.env[GATEWAY_PORT_VARIABLE];
+        Reflect.deleteProperty(process.env, GATEWAY_PORT_VARIABLE);
+    });
+
+    afterEach(() => {
+        if (originalGatewayPort === undefined) {
+            Reflect.deleteProperty(process.env, GATEWAY_PORT_VARIABLE);
+        } else {
+            process.env[GATEWAY_PORT_VARIABLE] = originalGatewayPort;
+        }
+        rmSync(envDirectory, { recursive: true, force: true });
+    });
+
+    /** Write one env file into the test's directory. */
+    function writeEnvFile(name: string, lines: readonly string[]): void {
+        writeFileSync(path.join(envDirectory, name), `${lines.join('\n')}\n`);
+    }
+
+    it('Given_a_dot_env_holding_the_port_and_secrets_When_read_Then_only_the_port_comes_back_and_process_env_is_untouched', () => {
+        // The repository's `.env` holds every service's secrets: none may reach this config, and
+        // nothing in it - BROWSER, NODE_ENV - may leak into the dev server's own process.
+        writeEnvFile('.env', [
+            `${GATEWAY_PORT_VARIABLE}=${MOVED_GATEWAY_PORT}`,
+            `GRAFANA_ADMIN_PASSWORD=${SECRET_IN_ENV_FILE}`,
+            'BROWSER=none',
+            'NODE_ENV=production',
+        ]);
+        const processEnvironmentBefore = { ...process.env };
+
+        const environment = gatewayEnvironment(envDirectory);
+
+        expect(gatewayTarget(environment)).toBe(`http://127.0.0.1:${MOVED_GATEWAY_PORT}`);
+        expect(Object.keys(environment)).toEqual([GATEWAY_PORT_VARIABLE]);
+        expect(JSON.stringify(environment)).not.toContain(SECRET_IN_ENV_FILE);
+        expect({ ...process.env }).toEqual(processEnvironmentBefore);
+    });
+
+    it('Given_local_and_mode_env_files_beside_dot_env_When_read_Then_only_dot_env_is_read', () => {
+        // Compose reads the repository's `.env` alone, so the proxy must too, or it could point
+        // at a port nothing publishes.
+        writeEnvFile('.env', [`${GATEWAY_PORT_VARIABLE}=${MOVED_GATEWAY_PORT}`]);
+        writeEnvFile('.env.local', [`${GATEWAY_PORT_VARIABLE}=18091`]);
+        writeEnvFile('.env.development', [`${GATEWAY_PORT_VARIABLE}=18092`]);
+        writeEnvFile('.env.development.local', [`${GATEWAY_PORT_VARIABLE}=18093`]);
+
+        expect(gatewayTarget(gatewayEnvironment(envDirectory))).toBe(
+            `http://127.0.0.1:${MOVED_GATEWAY_PORT}`,
+        );
+    });
+
+    it('Given_GATEWAY_PORT_in_the_process_and_in_dot_env_When_read_Then_the_process_wins', () => {
+        writeEnvFile('.env', [`${GATEWAY_PORT_VARIABLE}=18091`]);
+        process.env[GATEWAY_PORT_VARIABLE] = MOVED_GATEWAY_PORT;
+
+        expect(gatewayTarget(gatewayEnvironment(envDirectory))).toBe(
+            `http://127.0.0.1:${MOVED_GATEWAY_PORT}`,
+        );
+    });
+
+    it('Given_no_dot_env_When_read_Then_the_port_is_unset_and_the_default_is_targeted', () => {
+        // A fresh clone has no `.env` until `make setup` copies it.
+        const environment = gatewayEnvironment(envDirectory);
+
+        expect(environment[GATEWAY_PORT_VARIABLE]).toBeUndefined();
+        expect(gatewayTarget(environment)).toBe('http://127.0.0.1:8090');
     });
 });
 
