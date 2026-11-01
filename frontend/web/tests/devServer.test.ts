@@ -12,16 +12,19 @@ import path from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 
 import { createServer, type ProxyOptions, type ViteDevServer } from 'vite';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
     ASSISTANT_BACKEND,
     BFF_BACKEND,
-    GATEWAY_TARGET,
+    GATEWAY_PORT_VARIABLE,
     LEDGER_BACKEND,
     LOOPBACK_HOST,
 } from '../src/shared/api/backends';
-import viteConfig from '../vite.config';
+import viteConfig, { GATEWAY_TARGET } from '../vite.config';
+
+/** A gateway port other than the default, as an owner who moved it would set. */
+const MOVED_GATEWAY_PORT = '18090';
 
 /**
  * Find the proxy map entry for a backend, keyed by its own anchored RegExp string rather than
@@ -126,6 +129,31 @@ describe('the dev/preview server', () => {
         expect(bff.target).toBe(GATEWAY_TARGET);
         expect(bff.changeOrigin).toBe(true);
         expect(bff.rewrite).toBeUndefined();
+    });
+
+    it('Given_GATEWAY_PORT_in_the_environment_When_the_config_loads_Then_every_prefix_targets_that_port', async () => {
+        // Compose publishes the gateway on `${GATEWAY_PORT:-8090}`, so a fixed 8090 here would
+        // point the proxy at nothing once the owner moves it. The config is evaluated afresh,
+        // since it reads the variable when the module loads.
+        const original = process.env[GATEWAY_PORT_VARIABLE];
+        process.env[GATEWAY_PORT_VARIABLE] = MOVED_GATEWAY_PORT;
+        try {
+            vi.resetModules();
+            const { default: movedConfig } = await import('../vite.config');
+
+            for (const backend of [LEDGER_BACKEND, ASSISTANT_BACKEND, BFF_BACKEND]) {
+                expect(proxyOptionsFor(movedConfig.server?.proxy, backend.prefix).target).toBe(
+                    `http://127.0.0.1:${MOVED_GATEWAY_PORT}`,
+                );
+            }
+        } finally {
+            if (original === undefined) {
+                Reflect.deleteProperty(process.env, GATEWAY_PORT_VARIABLE);
+            } else {
+                process.env[GATEWAY_PORT_VARIABLE] = original;
+            }
+            vi.resetModules();
+        }
     });
 
     it('Given_the_ledger_proxy_key_When_tested_as_a_RegExp_Then_it_matches_the_prefix_and_its_subpaths', () => {

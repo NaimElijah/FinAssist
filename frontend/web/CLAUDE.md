@@ -8,7 +8,9 @@ binds the web client alone.
 `src/features/` holds one directory per user-facing context; `src/shared/` is their common ground;
 `src/app/` composes them, and `src/app/session/` gates every screen on a signed-in session
 (`SessionGate`, `SessionContext`). `vite.config.ts` proxies `/ledger`, `/assistant` and `/bff` to
-the gateway. Each feature maps the generated wire types onto its own types in its `api/`.
+the gateway at `127.0.0.1:${GATEWAY_PORT}`, read from the environment, then the repository's
+`.env`, and 8090 when unset (`gatewayTarget` in `src/shared/api/backends.ts`). Each feature maps
+the generated wire types onto its own types in its `api/`.
 
 - **Accounting.** `AccountsPage` opens an account and lists every one with its derived balance.
   `RecordTransactionPage` records a transaction by hand at the static route

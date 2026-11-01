@@ -1,7 +1,7 @@
 import { fileURLToPath, URL } from 'node:url';
 
 import react from '@vitejs/plugin-react';
-import type { Plugin, ProxyOptions } from 'vite';
+import { loadEnv, type Plugin, type ProxyOptions } from 'vite';
 // defineConfig comes from vitest/config, not vite: it carries the `test` key's types, which
 // the triple-slash reference used to supply before this file imported from vitest at all.
 import { coverageConfigDefaults, defineConfig } from 'vitest/config';
@@ -13,10 +13,33 @@ import { coverageConfigDefaults, defineConfig } from 'vitest/config';
 import {
     ASSISTANT_BACKEND,
     BFF_BACKEND,
+    GATEWAY_PORT_VARIABLE,
+    gatewayTarget,
     LEDGER_BACKEND,
     LOOPBACK_HOST,
     type ProxiedBackend,
 } from './src/shared/api/backends';
+
+/** Where Compose reads `.env`, two levels above this workspace. */
+const REPOSITORY_ROOT = fileURLToPath(new URL('../..', import.meta.url));
+
+/**
+ * The mode `loadEnv` is asked for. It only adds `.env.<mode>` files beside `.env`, which the
+ * repository does not keep: Compose reads `.env` alone, and so, in effect, does this.
+ */
+const ENV_FILE_MODE = 'development';
+
+/**
+ * The gateway every prefix is proxied to, at the port Compose publishes it on. `GATEWAY_PORT` is
+ * read from the process environment first, then from the repository's `.env`; `loadEnv` is given
+ * that one name as its prefix, so no other variable in `.env`, its secrets among them, is
+ * returned to this config. Exported for the proxy's own tests.
+ *
+ * @throws Error - when the config loads with a `GATEWAY_PORT` that is not a port number.
+ */
+export const GATEWAY_TARGET = gatewayTarget(
+    loadEnv(ENV_FILE_MODE, REPOSITORY_ROOT, GATEWAY_PORT_VARIABLE),
+);
 
 /**
  * The proxy map key for one backend, anchored so only its own prefix matches.
@@ -42,9 +65,9 @@ function proxyKey(backend: ProxiedBackend): string {
  * path, and `/bff/**` is matched whole too, so stripping the prefix here as well would leave the
  * gateway nothing to match — its deny-by-default security chain would then refuse every call.
  */
-function proxyEntry(backend: ProxiedBackend): ProxyOptions {
+function proxyEntry(): ProxyOptions {
     return {
-        target: backend.target,
+        target: GATEWAY_TARGET,
         changeOrigin: true,
     };
 }
@@ -52,9 +75,9 @@ function proxyEntry(backend: ProxiedBackend): ProxyOptions {
 // Defined once and given to both `server.proxy` and `preview.proxy` below, so `vite preview`
 // can never drift from `vite dev` (ADR-026: one origin, both environments).
 const proxy: Record<string, ProxyOptions> = {
-    [proxyKey(LEDGER_BACKEND)]: proxyEntry(LEDGER_BACKEND),
-    [proxyKey(ASSISTANT_BACKEND)]: proxyEntry(ASSISTANT_BACKEND),
-    [proxyKey(BFF_BACKEND)]: proxyEntry(BFF_BACKEND),
+    [proxyKey(LEDGER_BACKEND)]: proxyEntry(),
+    [proxyKey(ASSISTANT_BACKEND)]: proxyEntry(),
+    [proxyKey(BFF_BACKEND)]: proxyEntry(),
 };
 
 /**
