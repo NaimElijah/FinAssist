@@ -1,6 +1,6 @@
-# Only what the baseline requires of any service: a configurable port, health and readiness
-# endpoints, and the observability wiring ADR-019 records. Everything else arrives with the
-# code that needs it.
+# The ledger's configuration: its port and bind address, the Host allow-list, the token checks,
+# the contract's generation, the PostgreSQL store and its Flyway migrations, and the health and
+# observability wiring ADR-019 records.
 server:
   port: ${LEDGER_PORT:8080}
   # Loopback by default, kept as defence in depth now that every business request also needs a

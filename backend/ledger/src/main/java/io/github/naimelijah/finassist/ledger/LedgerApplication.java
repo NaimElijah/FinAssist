@@ -8,8 +8,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *
  * <p>It sits in the root package so component scanning reaches every context beneath it. The domain
  * and application packages carry no annotation and are wired by constructor rather than by the
- * container, which {@code LedgerArchitectureTest.the_application_layer_depends_on_no_framework} now
- * enforces instead of merely asserting here.
+ * container, which {@code LedgerArchitectureTest.the_application_layer_depends_on_no_framework}
+ * enforces.
  *
  * <p>The wiring itself lives in {@code composition}, which is Spring-aware by design and is the only
  * package permitted to see two contexts at once (ADR-022). Controllers are the exception: they are
@@ -21,6 +21,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication
 public class LedgerApplication {
 
+    /**
+     * Starts the ledger.
+     *
+     * @param args command-line arguments, read by Spring Boot as property overrides
+     */
     public static void main(String[] args) {
         SpringApplication.run(LedgerApplication.class, args);
     }

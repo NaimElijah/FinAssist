@@ -31,6 +31,12 @@ public class AccountingSpendJournal implements SpendJournal {
 
     private final ViewJournalUseCase journal;
 
+    /**
+     * Builds the translation over accounting's journal in-port.
+     *
+     * @param journal the in-port posted lines are read through, never accounting's repositories
+     * @throws NullPointerException if {@code journal} is null
+     */
     public AccountingSpendJournal(ViewJournalUseCase journal) {
         this.journal = Objects.requireNonNull(journal, "journal");
     }

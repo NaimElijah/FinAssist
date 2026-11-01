@@ -18,6 +18,10 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 /** Structured fields attached to a record. Values are redacted before they are written. */
 export type LogFields = Record<string, unknown>;
 
+/**
+ * What a sink receives: the redacted caller fields, then `timestamp` (ISO 8601, UTC), `level` and
+ * `event`, which no caller field can replace.
+ */
 export interface LogRecord {
     readonly timestamp: string;
     readonly level: LogLevel;
@@ -28,6 +32,7 @@ export interface LogRecord {
 /** A sink a record is handed to. Swapped in tests; the default writes to the console. */
 export type LogSink = (record: LogRecord) => void;
 
+/** What replaces the value of a secret-named key, and anything nested deeper than is walked. */
 export const REDACTED = '[redacted]';
 
 /**
@@ -137,11 +142,15 @@ function write(level: LogLevel, event: string, fields: LogFields = {}): void {
 }
 
 /**
- * Write a structured record.
+ * Write a structured record at the level of the member called: `debug`, `info`, `warn` or `error`.
+ * Each takes the same two arguments and returns nothing.
  *
- * @param event - a short, stable description. Variable parts belong in `fields`, so records
- *   stay groupable rather than each one being unique prose.
- * @param fields - structured context, redacted before writing.
+ * With the default sink, a record is one JSON line on the console, `console.error` for `error`,
+ * `console.warn` for `warn` and `console.log` for the others.
+ *
+ * `event` is a short, stable description. Variable parts belong in `fields`, so records stay
+ * groupable rather than each one being unique prose. `fields` is structured context, redacted
+ * before writing.
  */
 export const log = {
     debug: (event: string, fields?: LogFields) => {

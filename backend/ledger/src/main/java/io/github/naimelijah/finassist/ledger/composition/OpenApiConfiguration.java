@@ -36,8 +36,8 @@ import org.springframework.context.annotation.Configuration;
  *       that cannot return either.
  * </ul>
  *
- * <p>{@link #unboundedSizes()} corrects one thing swagger-core gets wrong: the maximum a minimum-only
- * {@code @Size} never set.
+ * <p>{@link #unboundedSizes()} corrects one thing swagger-core gets wrong: it publishes a maximum that
+ * a minimum-only {@code @Size} never set.
  *
  * <p>{@code springdoc.writer-with-order-by-keys} and {@code springdoc.paths-to-match} in {@code
  * application.yml} make up the rest: stable key order, and nothing outside {@code /api/v1} in the
@@ -76,7 +76,7 @@ public class OpenApiConfiguration {
      * The document's identity, the one server it names, and the {@code bearerAuth} scheme every
      * operation requires (ADR-030). A global {@link SecurityRequirement} rather than one per
      * operation: every endpoint the ledger serves under {@code /api/v1} needs a bearer token, and a
-     * generated client should not have to be told that 23 times.
+     * generated client should not have to be told that on each one.
      */
     @Bean
     OpenAPI ledgerOpenApi() {

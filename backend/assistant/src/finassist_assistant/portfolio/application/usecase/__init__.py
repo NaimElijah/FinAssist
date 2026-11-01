@@ -35,7 +35,11 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class Valuation:
-    """What a holding is worth at a given unit price, and what that implies about gain."""
+    """What a holding is worth at a given unit price, and what that implies about gain.
+
+    ``market_value`` and ``unrealised_gain`` are in the price's currency, as the domain's
+    ``market_value`` and ``unrealised_gain`` return them.
+    """
 
     position: Position
     unit_price: Money
@@ -71,7 +75,8 @@ class ViewPosition:
     ledger: LedgerPort
 
     def of(self, symbol: Symbol) -> Position:
-        """
+        """The position held in ``symbol``, totalled across all of its lots.
+
         :raises HoldingNotFoundError: if nothing is held for the symbol
         :raises CurrencyMismatchError: if the lots cost more than one currency
         """
@@ -86,7 +91,8 @@ class ValueHolding:
     quotes: QuotePort
 
     def of(self, symbol: Symbol) -> Valuation:
-        """
+        """The position held in ``symbol``, valued at the price ``quotes`` gives for it now.
+
         :raises HoldingNotFoundError: if nothing is held for the symbol
         :raises PriceUnavailableError: if no usable price exists
         :raises CurrencyMismatchError: if the lots cost more than one currency, or the price is
@@ -109,7 +115,12 @@ class DisposeUnits:
     ledger: LedgerPort
 
     def of(self, symbol: Symbol, quantity: Decimal, proceeds: Money) -> Disposition:
-        """
+        """Prices selling ``quantity`` units of ``symbol`` for ``proceeds`` in total.
+
+        Reads the lots and writes nothing: the ledger port has no write, so no lot is consumed
+        and the lots that would remain are only returned. ``proceeds`` is the whole amount the sale
+        brings in, not a price per unit.
+
         :raises HoldingNotFoundError: if nothing is held for the symbol
         :raises InsufficientHoldingError: if fewer units are held than requested
         :raises ValueError: if the quantity is not finite or not positive

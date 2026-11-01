@@ -20,8 +20,8 @@ import java.util.Objects;
  *
  * <p>Holds no rule of its own. Whether a transition is legal is {@code PlanState}'s business, and it
  * answers by declaring no method — a {@code Realised} plan cannot be cancelled because there is
- * nothing to call, and the run-time guard exists because this service holds the state as the sealed
- * interface rather than a concrete type.
+ * nothing to call, and the run-time guard exists because {@code PlannedFlow}, which this service
+ * calls, holds the state as the sealed interface rather than a concrete type.
  */
 public class PlanService implements PlanFlowUseCase, TransitionPlanUseCase, ListPlannedFlowsUseCase {
 

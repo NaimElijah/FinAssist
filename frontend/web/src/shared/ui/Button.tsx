@@ -22,9 +22,9 @@ export interface ButtonProps extends ComponentPropsWithRef<'button'> {
  * A button in one of three variants.
  *
  * Native props pass through, `ref` among them, so a caller can move focus back to the button,
- * with one deliberate difference: `type` defaults to `button` rather
- * than the native `submit`, so a button inside a form submits it only when asked to. An
- * accidental submit here is an accidental create.
+ * with one deliberate difference: `type` defaults to `button` rather than the native `submit`, so
+ * a button inside a form submits it only when asked to. An accidental submit here is an
+ * accidental create.
  *
  * @param props - see `ButtonProps`. `disabled` and `pending` combine; either disables the button.
  */

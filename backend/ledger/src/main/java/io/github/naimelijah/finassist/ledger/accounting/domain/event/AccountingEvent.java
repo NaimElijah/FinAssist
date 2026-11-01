@@ -42,6 +42,9 @@ public sealed interface AccountingEvent {
     /**
      * A balanced transaction entered the journal.
      *
+     * <p>No component may be null. The accounts are copied, so a later change to the caller's list does
+     * not reach the event, and a null account is refused as a null list is.
+     *
      * @param accounts every account the transaction touches, so a subscriber can decide whether it cares
      *     without loading the transaction back
      */
@@ -53,6 +56,7 @@ public sealed interface AccountingEvent {
             Objects.requireNonNull(transaction, "transaction");
             Objects.requireNonNull(occurredOn, "occurredOn");
             Objects.requireNonNull(description, "description");
+            Objects.requireNonNull(accounts, "accounts");
             accounts = List.copyOf(accounts);
         }
     }

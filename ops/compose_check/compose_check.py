@@ -531,6 +531,10 @@ def _is_root(user: object) -> bool:
 
 
 def _file_name(path: object) -> str:
+    """The last component of `path` in either slash style, ignoring trailing slashes.
+
+    Empty for a non-string, such as the absent `source` of a volume.
+    """
     return path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1] if isinstance(path, str) else ""
 
 
@@ -660,6 +664,8 @@ def _report(line: str) -> None:
 
 def main(source: BinaryIO) -> int:
     """Checks the resolved Compose file read, as JSON, from `source`.
+
+    Writes the report to stdout: one line per problem, or `PASSED` when there is none.
 
     :return: `EXIT_PASSED` when every service follows the conventions, `EXIT_FAILED` when one does
         not, and `EXIT_MISCONFIGURED` when `source` holds no resolved Compose file: not JSON, nested

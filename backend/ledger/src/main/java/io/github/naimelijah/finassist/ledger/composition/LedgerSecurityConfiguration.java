@@ -48,6 +48,11 @@ import org.springframework.web.client.RestTemplate;
  * {@code contexts_do_not_depend_on_each_other}, and this configuration has no context of its own to
  * be one.
  *
+ * <p>Public, with no token: {@code /actuator/health/**}, {@code /actuator/info}, {@code
+ * /actuator/prometheus}, {@code /actuator/metrics/**}, {@code /v3/api-docs} and {@code
+ * /v3/api-docs.yaml}. {@code GET /api/v1/**} needs {@link LedgerPermissions#LEDGER_READ}, {@code POST
+ * /api/v1/**} needs {@link LedgerPermissions#LEDGER_WRITE}, and everything else is denied.
+ *
  * <p><b>Where each rule below comes from, and why it undoes a Spring default:</b>
  *
  * <ul>
@@ -315,9 +320,6 @@ public class LedgerSecurityConfiguration {
                         .accessDeniedHandler(accessDeniedHandler))
                 .exceptionHandling(exceptions ->
                         exceptions.authenticationEntryPoint(entryPoint).accessDeniedHandler(accessDeniedHandler))
-                // Neither exists to be disabled for tidiness: a bearer-token API takes no cookie, so
-                // there is nothing for a cross-site page to ride along with, and Basic or a form
-                // login would be a second way in that no ADR describes.
                 .csrf(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)

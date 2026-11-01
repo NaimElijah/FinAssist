@@ -39,6 +39,14 @@ public record Comparison(Map<String, Projection> projections) {
     /** The most projections one comparison holds: each is a projection computed and held in full. */
     public static final int MAXIMUM_SCENARIOS = 10;
 
+    /**
+     * Holds the projections under their stripped names, in the order given.
+     *
+     * @throws NullPointerException if the map, a name or a projection is null
+     * @throws IllegalArgumentException if a name is blank, two names are equal once stripped, the
+     *     projections disagree on currency, horizon, step or dates, or there are fewer than two or
+     *     more than {@value #MAXIMUM_SCENARIOS} of them
+     */
     public Comparison {
         Objects.requireNonNull(projections, "projections");
 
@@ -86,6 +94,7 @@ public record Comparison(Map<String, Projection> projections) {
         return new Comparison(projections);
     }
 
+    /** The scenario names, in the order the comparison was built with. */
     public Set<String> names() {
         return projections.keySet();
     }
@@ -103,7 +112,7 @@ public record Comparison(Map<String, Projection> projections) {
     }
 
     /**
-     * One projection by name.
+     * One projection by name, matched after stripping surrounding whitespace as the names were.
      *
      * @throws IllegalArgumentException if no scenario of that name is in this comparison
      */

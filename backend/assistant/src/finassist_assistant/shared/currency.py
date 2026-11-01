@@ -15,6 +15,9 @@ class Currency(Enum):
     ``Currency.USD is Currency.ILS`` is true, every currency with two decimal places collapses
     into one member, and no mismatch can ever be detected. Java enums cannot express that
     mistake, which is exactly the kind of asymmetry the mirrored tests exist to catch - and did.
+
+    ``code`` is the three-letter ISO 4217 code, which is what the wire carries; ``minor_units`` is
+    the number of decimal places an amount in the currency admits (``JPY`` has none).
     """
 
     ILS = ("ILS", 2)

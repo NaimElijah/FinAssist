@@ -27,6 +27,12 @@ public sealed interface Recurrence {
      * {@link Cadence#advance} for why that matters at month ends.
      *
      * @param start the date the first occurrence falls on
+     * @param fromInclusive the first date of the range
+     * @param toExclusive the end of the range; a date on it is not reported
+     * @throws IllegalArgumentException if {@code fromInclusive} is not before {@code toExclusive},
+     *     which is refused rather than answered with an empty list; {@link Until} also refuses an
+     *     end that is not after {@code start}
+     * @throws NullPointerException if any argument is null
      */
     List<LocalDate> occurrences(LocalDate start, LocalDate fromInclusive, LocalDate toExclusive);
 
@@ -40,7 +46,13 @@ public sealed interface Recurrence {
         }
     }
 
-    /** Repeats every {@code interval} cadences, up to but not including {@code until}. */
+    /**
+     * Repeats every {@code interval} cadences, up to but not including {@code until}.
+     *
+     * <p>The interval must be at least one. That {@code until} falls after the start cannot be
+     * checked here, which has no start: {@link PlannedFlow}'s constructor and {@link #occurrences}
+     * check it.
+     */
     record Until(Cadence cadence, int interval, LocalDate until) implements Recurrence {
 
         public Until {
@@ -75,7 +87,12 @@ public sealed interface Recurrence {
         }
     }
 
-    /** Repeats every {@code interval} cadences, exactly {@code count} times in total. */
+    /**
+     * Repeats every {@code interval} cadences, exactly {@code count} times in total.
+     *
+     * <p>The interval and the count must each be at least one; {@link Once} is the single
+     * occurrence.
+     */
     record Times(Cadence cadence, int interval, int count) implements Recurrence {
 
         public Times {

@@ -16,5 +16,6 @@ public interface ScenarioRepository {
      */
     List<Scenario> all();
 
+    /** Stores the scenario, replacing any earlier state of the same identity. */
     void save(Scenario scenario);
 }

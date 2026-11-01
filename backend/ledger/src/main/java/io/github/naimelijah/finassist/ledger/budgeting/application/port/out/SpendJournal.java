@@ -12,8 +12,9 @@ import java.util.List;
  * context that needs the answer rather than offered by the one that has it — so budgeting depends on
  * an interface it owns, and the translation depends on budgeting rather than the other way round.
  *
- * <p>Nothing inside the ledger implements this. The translation over accounting lives in the
- * composition root, which is the only package permitted to see two contexts at once (ADR-022).
+ * <p>No bounded context implements this. The translation over accounting,
+ * {@code AccountingSpendJournal}, lives in the composition root, which is the only package
+ * permitted to see two contexts at once (ADR-022).
  */
 public interface SpendJournal {
 
@@ -25,6 +26,10 @@ public interface SpendJournal {
      * the currency makes that the question rather than a silent omission from the answer: spend in
      * another currency belongs to another budget, exactly as {@code Balance.of} yields a balance per
      * account rather than refusing a book that holds two currencies.
+     *
+     * @return the spend, every record's amount in {@code currency}; empty when nothing was spent.
+     *     {@code BudgetReviewService} fails a review with an {@code IllegalStateException} when a
+     *     record arrives in another currency.
      */
     List<SpendRecord> spendDuring(BudgetPeriod period, Currency currency);
 }

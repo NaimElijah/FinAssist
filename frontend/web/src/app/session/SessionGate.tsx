@@ -20,7 +20,9 @@ const CHECKING_TITLE = 'Checking your session';
 /** Heads the screen shown when the session check fails for any reason but "not signed in". */
 const OUTAGE_TITLE = 'Service unavailable';
 
+/** What the gate protects. */
 export interface SessionGateProps {
+    /** Rendered only once a session has loaded. */
     readonly children: ReactNode;
 }
 

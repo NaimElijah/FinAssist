@@ -11,6 +11,13 @@ public class IllegalPlanTransitionException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;
 
+    /**
+     * Builds the refusal for a transition the state does not allow.
+     *
+     * @param from the state the plan is in
+     * @param attempted the verb the caller tried, such as {@code "cancel"}; the message reads
+     *     "Cannot cancel a plan that is Realised"
+     */
     public IllegalPlanTransitionException(PlanState from, String attempted) {
         super("Cannot " + attempted + " a plan that is " + from.name());
     }

@@ -22,6 +22,12 @@ import java.util.Objects;
  */
 public record Account(AccountId id, String name, AccountType type, Currency currency) {
 
+    /**
+     * Creates an account, stripping surrounding whitespace from {@code name}.
+     *
+     * @throws NullPointerException if any component is null
+     * @throws IllegalArgumentException if {@code name} is blank
+     */
     public Account {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(type, "type");
@@ -33,6 +39,15 @@ public record Account(AccountId id, String name, AccountType type, Currency curr
         name = name.strip();
     }
 
+    /**
+     * Opens a new account under a freshly generated identity.
+     *
+     * <p>Name uniqueness is not checked here: it is a property of the whole chart, enforced by
+     * {@code AccountService} and by the store.
+     *
+     * @throws NullPointerException if any argument is null
+     * @throws IllegalArgumentException if {@code name} is blank
+     */
     public static Account open(String name, AccountType type, Currency currency) {
         return new Account(AccountId.generate(), name, type, currency);
     }

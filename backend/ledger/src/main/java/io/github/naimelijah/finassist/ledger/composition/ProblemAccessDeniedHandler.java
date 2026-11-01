@@ -31,6 +31,9 @@ import tools.jackson.databind.json.JsonMapper;
  * or anonymous, delegates to the entry point rather than answering 403 for a caller who was never
  * given the chance to authenticate at all.
  *
+ * <p>The 403 carries {@code WWW-Authenticate: Bearer error="insufficient_scope"} and the
+ * {@code FORBIDDEN} code, with a fixed detail that names neither the subject nor the permission.
+ *
  * <p>Not logged, for the genuine-denial branch. Unlike a rejected token, an authenticated caller
  * asking for something their role does not grant is an ordinary, expected shape of request — a
  * viewer's browser calling a write endpoint the UI should not have offered it, say — and logging

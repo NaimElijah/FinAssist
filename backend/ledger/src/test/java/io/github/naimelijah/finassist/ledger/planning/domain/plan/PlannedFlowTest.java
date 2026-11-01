@@ -106,6 +106,38 @@ class PlannedFlowTest {
     }
 
     @Test
+    void Given_a_realised_flow_When_cancelled_with_no_date_Then_the_transition_is_refused() {
+        PlannedFlow realised = aPurchase().commit(JANUARY).realise(MARCH);
+
+        assertThatThrownBy(() -> realised.cancel(null, "changed my mind"))
+                .isInstanceOf(IllegalPlanTransitionException.class)
+                .hasMessageContaining("Realised");
+    }
+
+    @Test
+    void Given_a_cancelled_flow_When_cancelled_again_with_no_date_Then_the_transition_is_refused() {
+        PlannedFlow cancelled = aPurchase().cancel(JANUARY, "no longer needed");
+
+        assertThatThrownBy(() -> cancelled.cancel(null, "still not needed"))
+                .isInstanceOf(IllegalPlanTransitionException.class)
+                .hasMessageContaining("Cancelled");
+    }
+
+    @Test
+    void Given_a_planned_flow_When_cancelled_with_no_date_Then_it_is_refused() {
+        PlannedFlow planned = aPurchase();
+
+        assertThatThrownBy(() -> planned.cancel(null, "changed my mind")).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void Given_a_committed_flow_When_cancelled_with_no_date_Then_it_is_refused() {
+        PlannedFlow committed = aPurchase().commit(JANUARY);
+
+        assertThatThrownBy(() -> committed.cancel(null, "changed my mind")).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
     void Given_a_cancellation_with_no_reason_When_applied_Then_it_is_refused() {
         assertThatThrownBy(() -> aPurchase().cancel(JANUARY, "  "))
                 .isInstanceOf(IllegalArgumentException.class)

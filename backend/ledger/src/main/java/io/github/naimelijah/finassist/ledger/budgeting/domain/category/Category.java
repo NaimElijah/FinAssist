@@ -23,6 +23,11 @@ public record Category(String name) {
         name = name.strip().toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * Creates a category; the name is stripped and lower-cased with {@code Locale.ROOT}.
+     *
+     * @throws IllegalArgumentException if the name is blank
+     */
     public static Category of(String name) {
         return new Category(name);
     }

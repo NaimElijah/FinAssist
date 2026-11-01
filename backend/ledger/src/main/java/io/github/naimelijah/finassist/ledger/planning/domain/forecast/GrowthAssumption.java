@@ -43,7 +43,13 @@ public record GrowthAssumption(BigDecimal ratePerStep) {
         return new GrowthAssumption(BigDecimal.ZERO);
     }
 
-    /** Builds a rate from its decimal text, e.g. {@code perStep("0.005")} for 0.5% a step. */
+    /**
+     * Builds a rate from its decimal text, e.g. {@code perStep("0.005")} for 0.5% a step.
+     *
+     * @throws NumberFormatException if {@code rate} is not a decimal number
+     * @throws IllegalArgumentException if the rate is at or below minus one
+     * @throws NullPointerException if {@code rate} is null
+     */
     public static GrowthAssumption perStep(String rate) {
         return new GrowthAssumption(new BigDecimal(rate));
     }

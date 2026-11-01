@@ -58,10 +58,11 @@ const MALFORMED_REQUEST_STATUS = 400;
 const INVALID_CONTROL_SELECTOR = '[aria-invalid="true"]';
 
 /**
- * The form's top-level fields, named as the ledger names them in a problem's `errors`. A limit
- * row's own `category` and `limit` are not among them - the same exclusion
- * `RecordTransactionForm` makes for an entry row's fields - so a 400 naming one falls to
- * `ErrorState` instead of being silently dropped.
+ * The fields a 400's `errors` can be placed on, named as the ledger names them. A limit row's own
+ * `category` and `limit` are not among them - the same exclusion `RecordTransactionForm` makes
+ * for an entry row's fields - and neither is `period`, which the Month field fills under another
+ * name. A 400 naming any of them falls to `ErrorState` instead of being silently dropped, listed
+ * under the form's own label by `fieldLabel`.
  */
 const FIELD_NAMES = ['currency'] as const;
 

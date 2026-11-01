@@ -30,8 +30,9 @@ class QuoteFeedPort(Protocol):
     def latest(self, ticker: Ticker) -> Quote:
         """The most recent quote the feed holds.
 
-        Freshness is not promised — judging it is :class:`~...usecase.LatestQuote`'s job, against
-        a clock the caller supplies.
+        Freshness is not promised — judging it is
+        :class:`~finassist_assistant.marketdata.application.usecase.LatestQuote`'s job, against a
+        clock the caller supplies.
 
         :raises QuoteUnavailableError: if the feed has nothing for the ticker
         """

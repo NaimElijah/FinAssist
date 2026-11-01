@@ -6,8 +6,8 @@ import { StandalonePage } from '../StandalonePage';
 const LOGIN_ENTRY_URL = `${BFF_API}/oauth2/authorization/keycloak`;
 
 /**
- * The query parameter the gateway's callback redirects back with after a sign-in Keycloak, or
- * the callback itself, refused.
+ * The query parameter, and its value, the gateway redirects back with after a sign-in that
+ * Keycloak or the gateway's callback refused (`?signin=failed`, ADR-030).
  */
 const SIGNIN_FAILED_PARAM = 'signin';
 const SIGNIN_FAILED_VALUE = 'failed';

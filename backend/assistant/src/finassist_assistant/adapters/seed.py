@@ -70,7 +70,8 @@ class SeededQuoteFeed:
     clock: Clock
 
     def latest(self, ticker: Ticker) -> Quote:
-        """
+        """The seeded price for the ticker, stamped with the clock as read now.
+
         :raises QuoteUnavailableError: if the ticker is not one the seed prices
         """
         try:
@@ -88,6 +89,8 @@ def seeded_assembly(clock: Clock = utc_now) -> Assembly:
         :func:`~finassist_assistant.adapters.wiring.assemble` and to :class:`SeededQuoteFeed`, so
         a test can fix it and a real run reads the wall clock — the same discipline every other
         composition-root function in this package follows.
+    :returns: an assembly whose ledger already holds the seeded lots, and whose feed is a
+        :class:`SeededQuoteFeed`. Every call builds a fresh, independent one.
     """
     assembly = assemble(clock=clock, feed=SeededQuoteFeed(prices=_PRICES, clock=clock))
     for lot in _LOTS:

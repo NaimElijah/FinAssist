@@ -42,7 +42,10 @@ def is_stale(quote: Quote, now: datetime, max_age: timedelta) -> bool:
 
 
 def age(quote: Quote, now: datetime) -> timedelta:
-    """How old a quote is. Negative when the quote is timestamped in the future."""
+    """How old a quote is. Negative when the quote is timestamped in the future.
+
+    :raises ValueError: if ``now`` is naive
+    """
     if now.tzinfo is None:
         raise ValueError("now must carry a timezone; naive datetimes are ambiguous")
     return now - quote.as_of
@@ -54,7 +57,8 @@ def normalise(ticker: str, price: str, currency: Currency, as_of: datetime) -> Q
     Prices arrive from feeds as text, and must stay text until they become a ``Decimal``:
     parsing through ``float`` would lose exactness before the value is ever stored.
 
-    :raises ValueError: if the price is not a number the currency can represent
+    :raises ValueError: if the ticker is blank, the price is not a number the currency can
+        represent or is negative, or ``as_of`` carries no timezone
     """
     return Quote(Ticker(ticker), Money.of(price, currency), as_of)
 

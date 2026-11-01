@@ -116,15 +116,21 @@ class Money:
     The amount is normalised to the currency's minor units on construction, so ``12.5`` and
     ``12.50`` are one value, and a zero carries no sign, so ``-0`` is ``0.00``. An amount
     carrying more precision than the currency admits is rejected rather than rounded — rounding
-    here would be a silent decision about money.
+    here would be a silent decision about money. Construction raises ``ValueError`` for an amount
+    that is not finite or that carries too much precision; :meth:`of` is the entry point for text.
 
     Arithmetic is closed over a single currency; combining two raises
     :class:`CurrencyMismatchError`. It is also exact: a sum, a difference, a negation or a
     product never rounds, however many digits it carries. Only :meth:`times_rounded` rounds, and
     its name says so.
 
-    The Java counterpart is ``ledger.shared.Money`` and ``tests/test_money.py`` mirrors
-    ``MoneyTest.java`` case for case.
+    The Java counterpart is ``ledger.shared.Money``, and ``tests/test_money.py`` mirrors
+    ``MoneyTest.java``. The two answer alike except where Java needs a power of ten past its
+    ``BigInteger`` range, which the ledger refuses and this does not, a known gap tracked by #416.
+    That is an amount so large that rescaling it to the minor units needs one, however it is
+    built: by :meth:`of`, by the constructor, or as a product of :meth:`times`, such as ``12.50``
+    times ``1E+2147483645``, whose scale fits a Java int. It is also any product whose rounding
+    in :meth:`times_rounded` needs one, whether the product is that large or that small.
     """
 
     amount: Decimal
@@ -193,17 +199,27 @@ class Money:
 
     @classmethod
     def zero(cls, currency: Currency) -> Money:
+        """The amount ``0`` in ``currency``, at its minor units: ``0.00`` for ILS."""
         return cls(Decimal(0), currency)
 
     def plus(self, other: Money) -> Money:
+        """The exact sum of two amounts in one currency.
+
+        :raises CurrencyMismatchError: if ``other`` is in another currency
+        """
         self._require_same_currency(other)
         return Money(self._exact_sum_with(other).add(self.amount, other.amount), self.currency)
 
     def minus(self, other: Money) -> Money:
+        """The exact difference of two amounts in one currency, which may be negative.
+
+        :raises CurrencyMismatchError: if ``other`` is in another currency
+        """
         self._require_same_currency(other)
         return Money(self._exact_sum_with(other).subtract(self.amount, other.amount), self.currency)
 
     def negate(self) -> Money:
+        """The same amount with its sign flipped. Negating zero gives zero, never ``-0.00``."""
         # copy_negate flips the sign without consulting a context, so it never rounds, where
         # unary minus rounds to 28 digits (#70). The -0.00 it makes of zero is the constructor's
         # to drop.
@@ -212,10 +228,11 @@ class Money:
     def times(self, multiplier: Decimal) -> Money:
         """Multiplies by a count, exactly. Never by another Money — that is not money.
 
-        :raises ValueError: if the multiplier is not finite, or the product needs rounding to
-            fit the currency
+        :raises ValueError: if the multiplier is not finite, the product needs rounding to fit
+            the currency, or the product's scale would overflow a Java int
         """
         _require_finite_multiplier(multiplier)
+        self._require_product_scale_fits(multiplier)
         # A product of two coefficients needs no more digits than both together. Exact first,
         # so the constructor then refuses a product the currency cannot hold rather than
         # accepting one the default context had already rounded to fit.
@@ -231,9 +248,16 @@ class Money:
         in a method the caller has to choose, beats :meth:`times` throwing on perfectly ordinary
         fractional holdings.
 
-        :raises ValueError: if the multiplier is not finite
+        A known gap, not intended behaviour: when rounding the product to the minor units needs a
+        power of ten past Java's ``BigInteger`` range, as ``12.50`` times ``1E-700000000`` or
+        ``1E-2147483645`` does, the ledger's ``timesRounded`` refuses it and this returns
+        ``0.00``. Whether to bound such sizes is #416's decision, as it is for :meth:`of`.
+
+        :raises ValueError: if the multiplier is not finite, or the product's scale would
+            overflow a Java int
         """
         _require_finite_multiplier(multiplier)
+        self._require_product_scale_fits(multiplier)
         # Sized to this particular product, for the reason __post_init__ is sized to its
         # particular value. A fixed precision raises decimal.InvalidOperation - an
         # ArithmeticError, not the ValueError this module's contract promises - once the
@@ -253,25 +277,38 @@ class Money:
 
     @property
     def is_zero(self) -> bool:
+        """Whether the amount is zero, whatever its currency."""
         return self.amount == 0
 
     @property
     def is_positive(self) -> bool:
+        """Whether the amount is greater than zero."""
         return self.amount > 0
 
     @property
     def is_negative(self) -> bool:
+        """Whether the amount is less than zero. Zero is neither positive nor negative."""
         return self.amount < 0
 
     def __lt__(self, other: Money) -> bool:
+        """Orders two amounts in one currency.
+
+        :raises CurrencyMismatchError: if ``other`` is in another currency, so an ordering across
+            currencies never answers
+        """
         self._require_same_currency(other)
         return self.amount < other.amount
 
     def __le__(self, other: Money) -> bool:
+        """Orders two amounts in one currency, equal amounts included.
+
+        :raises CurrencyMismatchError: if ``other`` is in another currency
+        """
         self._require_same_currency(other)
         return self.amount <= other.amount
 
     def __str__(self) -> str:
+        """The amount at its currency's scale, a space, then the currency's name: ``12.50 ILS``."""
         return f"{self.amount} {self.currency.name}"
 
     def _exact_sum_with(self, other: Money) -> Context:
@@ -283,6 +320,28 @@ class Money:
         exponents would need more, and never reach here.
         """
         return _exact(max(_precision_for(self.amount), _precision_for(other.amount)))
+
+    def _require_product_scale_fits(self, multiplier: Decimal) -> None:
+        """Refuses a product whose scale the ledger's ``BigDecimal.multiply`` would refuse.
+
+        Java adds the two scales and refuses a sum outside an int whenever the amount is not zero,
+        even when the multiplier is zero. ``Decimal`` multiplies exactly at any scale, so without
+        this check a zero product, or any product ``times_rounded`` rounds to ``0.00``, would
+        price an input the ledger refuses (ADR-018). Every amount's scale is its currency's minor
+        units, so the product's is those minus the multiplier's exponent.
+
+        :raises ValueError: if the amount is not zero and the product's scale falls outside a
+            Java int
+        """
+        if self.amount.is_zero():
+            return
+        scale = self.currency.minor_units - int(multiplier.as_tuple().exponent)
+        if not _MIN_SCALE <= scale <= _MAX_SCALE:
+            raise ValueError(
+                f"The product of {self} and {multiplier} carries more precision than "
+                f"{self.currency.name} admits ({self.currency.minor_units} decimal places); "
+                "its scale overflows a Java int"
+            )
 
     def _require_same_currency(self, other: Money) -> None:
         if self.currency is not other.currency:

@@ -14,6 +14,7 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+"""The levels ``ASSISTANT_LOG_LEVEL`` may name, spelled as the ``logging`` module spells them."""
 
 # `TrustedHostMiddleware` reads `*` as any host, and `*.example.com` as a suffix.
 _WILDCARD: Final = "*"

@@ -47,6 +47,18 @@ public class BudgetReviewService implements ReviewBudgetUseCase {
         this.spend = Objects.requireNonNull(spend, "spend");
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>A spend record matching no rule is counted as uncategorised, and one matching a rule for a
+     * category the budget sets no limit for as unbudgeted; the first matching rule decides.
+     *
+     * @param id the identity of the budget to review
+     * @return the review, with spend that fell outside the budget reported rather than dropped
+     * @throws BudgetNotFoundException if no such budget exists
+     * @throws IllegalStateException if the {@link SpendJournal} returns a record in a currency
+     *     other than the budget's, which means the translation behind the port is broken
+     */
     @Override
     public BudgetReview review(BudgetId id) {
         Objects.requireNonNull(id, "id");

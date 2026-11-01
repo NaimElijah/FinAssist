@@ -16,7 +16,12 @@ from finassist_assistant.shared import Money
 
 @dataclass(frozen=True, slots=True)
 class Symbol:
-    """An instrument's ticker, normalised so that ``vwce`` and ``VWCE`` are one symbol."""
+    """An instrument's ticker, normalised so that ``vwce`` and ``VWCE`` are one symbol.
+
+    Surrounding whitespace is stripped and the text upper-cased on construction.
+
+    :raises ValueError: if the text is blank once stripped
+    """
 
     value: str
 
@@ -36,6 +41,9 @@ class Lot:
 
     A lot is never mutated. Selling produces a new list of lots, which is what keeps the cost
     basis auditable — you can point at exactly which purchases a sale consumed (ADR-013).
+
+    :raises ValueError: if the quantity is not finite or not positive, or the unit cost is
+        negative
     """
 
     symbol: Symbol
@@ -63,7 +71,10 @@ class Lot:
         return self.unit_cost.times_rounded(self.quantity)
 
     def with_quantity(self, quantity: Decimal) -> Lot:
-        """The same purchase, part of it. Used when a sale consumes a lot only partly."""
+        """The same purchase, part of it. Used when a sale consumes a lot only partly.
+
+        :raises ValueError: if the quantity is not finite or not positive
+        """
         return Lot(self.symbol, quantity, self.unit_cost, self.acquired_on)
 
 

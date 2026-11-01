@@ -11,6 +11,11 @@ public class IllegalTransitionException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;
 
+    /**
+     * @param from the state the transaction is in
+     * @param attempted the refused change as a verb, such as {@code "clear"}; the message reads
+     *     "Cannot clear a transaction that is Pending"
+     */
     public IllegalTransitionException(TransactionState from, String attempted) {
         super("Cannot " + attempted + " a transaction that is " + from.name());
     }

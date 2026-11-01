@@ -23,6 +23,12 @@ public enum Cadence {
      * February and then 28 March, losing the 31st for good, while advancing from the start gives 28
      * February and then 31 March. {@link LocalDate#plusMonths} clamps to the last valid day of the
      * target month, which is the behaviour wanted — as long as it is applied to the start.
+     *
+     * @param start the date the first occurrence falls on
+     * @param periods how many cadences after {@code start}; zero returns {@code start}
+     * @return the date {@code periods} cadences after {@code start}
+     * @throws java.time.DateTimeException if the result is outside the range {@link LocalDate} can
+     *     hold
      */
     public LocalDate advance(LocalDate start, long periods) {
         return switch (this) {
@@ -39,6 +45,9 @@ public enum Cadence {
      * February is one month by {@code advance}, which clamps, and zero by this, which counts whole
      * periods. Callers that need the number of steps {@code advance} would take must check the
      * answer rather than trust it.
+     *
+     * @return the number of whole cadences from {@code start} to {@code end}; negative when
+     *     {@code end} is before {@code start}
      */
     public long between(LocalDate start, LocalDate end) {
         return switch (this) {

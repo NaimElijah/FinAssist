@@ -11,6 +11,12 @@ public class CurrencyMismatchException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;
 
+    /**
+     * Builds the exception for an attempt to combine {@code left} with {@code right}.
+     *
+     * @param left the currency of the first amount; it leads in the message
+     * @param right the currency of the second amount
+     */
     public CurrencyMismatchException(Currency left, Currency right) {
         super("Cannot combine " + left + " with " + right + "; FinAssist performs no conversion");
     }

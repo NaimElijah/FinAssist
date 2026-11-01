@@ -21,6 +21,11 @@ public record Actor(String subject) {
      */
     public static final int MAX_SUBJECT_LENGTH = 255;
 
+    /**
+     * @throws NullPointerException if {@code subject} is null
+     * @throws IllegalArgumentException if {@code subject} is blank or longer than {@link
+     *     #MAX_SUBJECT_LENGTH}
+     */
     public Actor {
         Objects.requireNonNull(subject, "subject");
         if (subject.isBlank()) {

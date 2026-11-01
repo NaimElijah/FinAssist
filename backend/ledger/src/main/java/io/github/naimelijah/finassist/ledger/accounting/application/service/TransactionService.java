@@ -69,24 +69,24 @@ public class TransactionService implements RecordTransactionUseCase, TransitionT
     }
 
     @Override
-    public Transaction clear(TransactionId id, LocalDate clearedOn, Actor recordedBy) {
-        Transaction cleared = require(id).clear(clearedOn);
+    public Transaction clear(TransactionId transaction, LocalDate clearedOn, Actor recordedBy) {
+        Transaction cleared = require(transaction).clear(clearedOn);
         transactions.save(cleared, recordedBy);
         events.publish(new AccountingEvent.TransactionCleared(cleared.id(), clearedOn));
         return cleared;
     }
 
     @Override
-    public Transaction reconcile(TransactionId id, LocalDate reconciledOn, Actor recordedBy) {
-        Transaction reconciled = require(id).reconcile(reconciledOn);
+    public Transaction reconcile(TransactionId transaction, LocalDate reconciledOn, Actor recordedBy) {
+        Transaction reconciled = require(transaction).reconcile(reconciledOn);
         transactions.save(reconciled, recordedBy);
         events.publish(new AccountingEvent.TransactionReconciled(reconciled.id(), reconciledOn));
         return reconciled;
     }
 
     @Override
-    public Transaction markVoided(TransactionId id, LocalDate voidedOn, String reason, Actor recordedBy) {
-        Transaction voided = require(id).markVoided(voidedOn, reason);
+    public Transaction markVoided(TransactionId transaction, LocalDate voidedOn, String reason, Actor recordedBy) {
+        Transaction voided = require(transaction).markVoided(voidedOn, reason);
         transactions.save(voided, recordedBy);
         // Genuinely read off the aggregate now, not re-derived from the input. The two agree only
         // because Voided happens to normalise with strip() today; the day it collapses whitespace or

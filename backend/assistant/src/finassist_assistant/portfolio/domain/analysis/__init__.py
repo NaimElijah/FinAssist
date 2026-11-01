@@ -1,4 +1,4 @@
-"""Total, deterministic functions over lots. No I/O, no clock, no framework.
+"""Deterministic functions over lots. No I/O, no clock, no framework.
 
 Every function here is a pure transformation: given the same lots it returns the same answer,
 and it never reads anything it was not handed. That is what lets the analysis be tested by
@@ -155,7 +155,12 @@ def consume_fifo(lots: tuple[Lot, ...], quantity: Decimal) -> Disposal:
 
 
 def realised_gain(proceeds: Money, cost_of_sale: Money) -> Money:
-    """What a sale actually made, once what the units cost is taken off."""
+    """What a sale actually made, once what the units cost is taken off.
+
+    Negative when the sale lost money.
+
+    :raises CurrencyMismatchError: if the proceeds and the cost of sale are in different currencies
+    """
     return proceeds.minus(cost_of_sale)
 
 
@@ -165,12 +170,17 @@ def unrealised_gain(held: Position, unit_price: Money) -> Money:
     Takes a price as :class:`Money`, not a market-data quote. A quote belongs to the
     ``marketdata`` context, and importing one here would couple two contexts — which the
     architecture tests fail the build for. Translating a quote into a price is the caller's job.
+
+    :raises CurrencyMismatchError: if the price is not in the currency the position cost
     """
     return unit_price.times_rounded(held.quantity).minus(held.cost)
 
 
 def market_value(held: Position, unit_price: Money) -> Money:
-    """What the position is worth at ``unit_price``, rounded to the currency's minor units."""
+    """What the position is worth at ``unit_price``, rounded to the currency's minor units.
+
+    The result is in the price's currency; the position's cost is not consulted.
+    """
     return unit_price.times_rounded(held.quantity)
 
 

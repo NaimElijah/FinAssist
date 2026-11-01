@@ -18,8 +18,9 @@ import java.sql.SQLException;
  * with a 422 and no log line (ADR-028).
  *
  * <p>That log line is at ERROR, and ECS prints every cause's message into its stack trace. So a stored
- * value is quoted only when it is an enum discriminator; an amount is named by its row's key, and a
- * budget the domain refuses by its id, instead.
+ * value is quoted only when it is an enum discriminator, or a category the domain refused for being
+ * blank, which leaves no text to quote; an amount is named by its row's key, and a budget the
+ * domain refuses by its id, instead.
  */
 final class BudgetingRows {
 

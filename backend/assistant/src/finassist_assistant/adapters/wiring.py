@@ -9,7 +9,7 @@ can live in neither. It lives here, where seeing two contexts at once is the job
 Everything assembled here is backed by an in-memory adapter. Neither is a client: the assistant
 has no ledger client yet, so what exists is the shape one must fit — not because there is
 nothing to call. ADR-004 is Accepted and the ledger now serves accounting, budgeting and
-planning under `/api/v1`.
+planning under ``/api/v1``.
 
 ``assistance`` is deliberately absent. ``AnswerQuestion`` is written and tested, and wiring it
 would mean building an LLM adapter, which would decide by implication whether the owner's
@@ -70,6 +70,11 @@ class MarketDataQuotes:
     clock: Clock
 
     def unit_price(self, symbol: Symbol) -> Money:
+        """The latest price market data holds for the symbol, read against ``clock``.
+
+        :raises PriceUnavailableError: if market data has no quote for it, or the quote is stale
+            by ``LatestQuote``'s rule
+        """
         try:
             quote = self.quotes.of(Ticker(str(symbol)), self.clock())
         except (QuoteUnavailableError, StaleQuoteError) as unusable:
@@ -117,6 +122,8 @@ def assemble(clock: Clock = utc_now, feed: QuoteFeedPort | None = None) -> Assem
         ``InMemoryQuoteFeed`` — the development seam ``assembly.feed.publish(...)`` fills in
         tests. A caller assembling the development seed passes its own feed instead, so the same
         object this function wires into ``ValueHolding`` is the one ``Assembly.feed`` exposes.
+    :returns: a fresh assembly: an empty in-memory ledger, the feed, and the portfolio use cases
+        over them. Nothing is shared between two calls.
     """
     ledger = InMemoryLedger()
     resolved_feed: QuoteFeedPort = feed if feed is not None else InMemoryQuoteFeed()

@@ -27,6 +27,16 @@ import java.util.Objects;
 public record Transaction(
         TransactionId id, LocalDate occurredOn, String description, List<Entry> entries, TransactionState state) {
 
+    /**
+     * Creates a transaction, stripping surrounding whitespace from {@code description} and copying
+     * {@code entries}.
+     *
+     * @throws NullPointerException if any component is null
+     * @throws IllegalArgumentException if {@code description} is blank, there are fewer than two
+     *     entries, or the entries do not sum to zero
+     * @throws io.github.naimelijah.finassist.ledger.shared.CurrencyMismatchException
+     *     if the entries are not all in one currency
+     */
     public Transaction {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(occurredOn, "occurredOn");
@@ -57,7 +67,15 @@ public record Transaction(
         }
     }
 
-    /** Records a new transaction. It starts {@code Pending} — nothing has confirmed it yet. */
+    /**
+     * Records a new transaction under a freshly generated identity. It starts {@code Pending} —
+     * nothing has confirmed it yet.
+     *
+     * @throws NullPointerException if any argument is null
+     * @throws IllegalArgumentException if the constructor refuses the entries or the description
+     * @throws io.github.naimelijah.finassist.ledger.shared.CurrencyMismatchException
+     *     if the entries are not all in one currency
+     */
     public static Transaction record(LocalDate occurredOn, String description, List<Entry> entries) {
         return new Transaction(
                 TransactionId.generate(), occurredOn, description, entries, new TransactionState.Pending());
@@ -88,6 +106,9 @@ public record Transaction(
     /**
      * Confirms the transaction, on a date that cannot precede the day it happened.
      *
+     * @return a copy in the {@code Cleared} state; this transaction is unchanged
+     * @throws IllegalTransitionException if the transaction is not {@code Pending}
+     * @throws NullPointerException if {@code clearedOn} is null
      * @throws IllegalArgumentException if {@code clearedOn} is before {@link #occurredOn}
      */
     public Transaction clear(LocalDate clearedOn) {
@@ -101,6 +122,9 @@ public record Transaction(
     /**
      * Matches the transaction to a statement, on a date that cannot precede the day it cleared.
      *
+     * @return a copy in the {@code Reconciled} state; this transaction is unchanged
+     * @throws IllegalTransitionException if the transaction is not {@code Cleared}
+     * @throws NullPointerException if {@code reconciledOn} is null
      * @throws IllegalArgumentException if {@code reconciledOn} is before the clearing date
      */
     public Transaction reconcile(LocalDate reconciledOn) {
@@ -118,14 +142,24 @@ public record Transaction(
      * <p>A void reverses whatever the transaction had already done, so it cannot predate it. For a
      * cleared transaction that means the clearing date, not merely the date it occurred.
      *
+     * @param reason why it is voided; stripped, and never blank
+     * @return a copy in the {@code Voided} state; this transaction is unchanged
+     * @throws IllegalTransitionException if the transaction is {@code Reconciled} or already
+     *     {@code Voided}; the state is checked before either argument, as {@link #clear} and
+     *     {@link #reconcile} check it
+     * @throws NullPointerException if {@code voidedOn} or {@code reason} is null
      * @throws IllegalArgumentException if {@code voidedOn} precedes the date the transaction
-     *     occurred, or the date it cleared when it had already cleared
+     *     occurred, or the date it cleared when it had already cleared, or if {@code reason} is
+     *     blank
      */
     public Transaction markVoided(LocalDate voidedOn, String reason) {
-        requireNotBefore(voidedOn, occurredOn, "voided", "occurred");
         TransactionState next = switch (state) {
-            case TransactionState.Pending pending -> pending.markVoided(voidedOn, reason);
+            case TransactionState.Pending pending -> {
+                requireNotBefore(voidedOn, occurredOn, "voided", "occurred");
+                yield pending.markVoided(voidedOn, reason);
+            }
             case TransactionState.Cleared cleared -> {
+                requireNotBefore(voidedOn, occurredOn, "voided", "occurred");
                 requireNotBefore(voidedOn, cleared.clearedOn(), "voided", "cleared");
                 yield cleared.markVoided(voidedOn, reason);
             }

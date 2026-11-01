@@ -33,6 +33,7 @@ from starlette.types import Scope
 from finassist_assistant.adapters.settings import Settings
 
 REDACTED: Final = "[redacted]"
+"""What replaces a secret-named field's value, and each registered secret found in a string."""
 
 # Substrings, not exact names, so `anthropic_api_key` and `x-api-key` are both caught without
 # listing every spelling anyone might use. Matched against a form with `-` folded to `_`.
@@ -76,10 +77,14 @@ _secret_values: set[str] = set()
 _correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
 TRACEPARENT_HEADER: Final = "traceparent"
-CORRELATION_ID_FIELD: Final = "correlation_id"
+"""The W3C Trace Context request header (lower case, as Starlette's ``Headers`` matches it)."""
 
-# A W3C trace id is 32 lowercase hex characters, and all-zero is explicitly invalid.
-_TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
+CORRELATION_ID_FIELD: Final = "correlation_id"
+"""The key under which :func:`add_correlation_id` puts the bound id on every log event."""
+
+# A W3C trace id is 32 lowercase hex characters, and all-zero is explicitly invalid. Matched with
+# fullmatch: `$` would also match before a final newline, letting one into a log line.
+_TRACE_ID = re.compile(r"[0-9a-f]{32}")
 _INVALID_TRACE_ID: Final = "0" * 32
 _TRACEPARENT_FIELDS: Final = 4
 
@@ -128,7 +133,12 @@ class _LazyStdout:
 
 
 def register_secret(value: str | None) -> None:
-    """Register a value to be scrubbed from every log event."""
+    """Register a value to be scrubbed from every log event.
+
+    A value shorter than eight characters, an empty one and ``None`` are ignored: a short secret
+    would match inside ordinary words and turn every message into redaction markers. Registered
+    values live for the life of the process, or until :func:`forget_secrets`.
+    """
     if value and len(value) >= _MIN_SECRET_LENGTH:
         _secret_values.add(value)
 
@@ -139,17 +149,22 @@ def forget_secrets() -> None:
 
 
 def set_correlation_id(value: str | None) -> None:
-    """Bind the correlation id for the current context."""
+    """Bind the correlation id for the current context, or unbind it with ``None``.
+
+    Held in a ``ContextVar``, so one request's id is never seen by a concurrent one.
+    :func:`add_correlation_id` puts it on every line logged while it is bound.
+    """
     _correlation_id.set(value)
 
 
 def trace_id_of(traceparent: str | None) -> str | None:
     """Extract the trace id from a ``traceparent``, or ``None`` if it is not one.
 
-    Validates the shape rather than trusting it: the header is caller-supplied, it ends up in
-    every log line for the request and in a response header, and the web client's own
-    ``traceIdOf`` applies exactly this rule. Two implementations of one header format that
-    disagree is how malformed data gets in through the more permissive side.
+    Validates the shape rather than trusting it: the header is caller-supplied, and it ends up in
+    every log line for the request and in a response header. The web client's own ``traceIdOf``
+    applies the same rule, the shape and the refusal of the all-zero id, which the W3C format
+    reserves as invalid. Two implementations of one header format that disagree is how malformed
+    data gets in through the more permissive side.
 
     It lives at the logging boundary rather than in the app because both the correlation
     middleware and the Host allow-list, which runs before it, bind the id it yields.
@@ -163,7 +178,7 @@ def trace_id_of(traceparent: str | None) -> str | None:
     if len(fields) < _TRACEPARENT_FIELDS:
         return None
     trace_id = fields[1]
-    if not _TRACE_ID.match(trace_id) or trace_id == _INVALID_TRACE_ID:
+    if not _TRACE_ID.fullmatch(trace_id) or trace_id == _INVALID_TRACE_ID:
         return None
     return trace_id
 
@@ -251,9 +266,10 @@ def log_request(scope: Scope, status: int, started: float) -> None:
     is switched off because it is written later, from the protocol layer, with nothing bound. A
     failure worth acting on already has its own ERROR line from the problem handlers.
 
-    :param scope: the request's ASGI scope. Its ``path`` never holds the query string, which is
-        why the line is built from it: a URL is no place to assume nothing sensitive travels, and
-        no amount is ever logged (ADR-028).
+    :param scope: the request's ASGI scope, which must be an ``http`` one: the line reads its
+        ``method``, and a ``websocket`` scope carries none. Its ``path`` never holds the query
+        string, which is why the line is built from it: a URL is no place to assume nothing
+        sensitive travels, and no amount is ever logged (ADR-028).
     :param status: the status the request was answered with.
     :param started: :func:`time.perf_counter` when the request arrived.
     """
@@ -287,9 +303,13 @@ def _processors() -> Iterable[structlog.typing.Processor]:
 def configure_logging(settings: Settings) -> None:
     """Configure structlog to emit JSON on stdout, through the redaction boundary.
 
-    Rebinds the stdlib root logger too, so a library that logs through ``logging`` is rendered
-    in the same format instead of bypassing the boundary with its own. The one exception to the
-    configured level is httpx, held at WARNING because it logs every request's full URL at INFO.
+    Registers ``ANTHROPIC_API_KEY``, when one is set, as a secret to scrub. Rebinds the stdlib
+    root logger too, so a library that logs through ``logging`` is rendered in the same format
+    instead of bypassing the boundary with its own. The one exception to the configured level is
+    httpx, held at WARNING because it logs every request's full URL at INFO.
+
+    It replaces the root logger's handlers. The first call records what they were, so
+    :func:`reset_logging` can restore them; a repeated call keeps that first record.
     """
     global _root_handlers_before, _root_level_before, _url_logger_level_before
 
@@ -359,7 +379,7 @@ def configure_tracing(settings: Settings) -> TracerProvider | None:
     """Install an OTLP tracer provider, or none at all.
 
     :returns: the provider that is actually installed, or ``None`` when export is disabled.
-    :raises RuntimeError: if a different tracer provider is already installed.
+    :raises RuntimeError: if export is enabled and an SDK tracer provider is already installed.
 
     Returning ``None`` rather than installing a provider with no exporter is deliberate: it
     makes "telemetry is off" observable to a test, and it keeps the OpenTelemetry default no-op

@@ -45,8 +45,8 @@ function holdingUrl(symbol: string, resource: 'position' | 'valuation' | 'dispos
 /**
  * A currency the contract does not name.
  *
- * The generated type promises one of five codes, but the body is unvalidated JSON, so this keeps
- * a runtime default rather than trusting it blindly.
+ * The generated type promises one of five codes, but the body is unvalidated JSON, so a runtime
+ * check refuses any other rather than trusting it blindly.
  *
  * @throws ApiBodyError - always.
  */

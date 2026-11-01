@@ -49,6 +49,10 @@ class InMemoryQuoteFeed:
         return quote
 
     def latest(self, ticker: Ticker) -> Quote:
+        """The newest quote published for the ticker.
+
+        :raises QuoteUnavailableError: if nothing was published for it
+        """
         try:
             return self._quotes[ticker]
         except KeyError as missing:
