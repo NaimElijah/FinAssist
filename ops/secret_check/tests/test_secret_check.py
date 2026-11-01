@@ -408,6 +408,37 @@ def Given_an_unreadable_file_git_does_not_ignore_When_checked_Then_it_fails_misc
     assert "PermissionError" in output
 
 
+@pytest.mark.parametrize(
+    ("ignore_file", "named"),
+    [
+        (Path(".gitignore"), ".gitignore"),
+        (Path("nested", ".gitignore"), "nested/.gitignore"),
+        (secret_check.INFO_EXCLUDE, ".git/info/exclude"),
+    ],
+    ids=["root-gitignore", "nested-gitignore", "info-exclude"],
+)
+def Given_an_unreadable_ignore_file_When_checked_Then_it_fails_naming_it_by_type_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ignore_file: Path, named: str
+) -> None:
+    root = _clone(tmp_path, {"nested/.gitignore": b"*.log\n", ".git/info/exclude": b"*.tmp\n"})
+    read = secret_check._read
+
+    def failing_read(path: Path) -> bytes:
+        if path != root / ignore_file:
+            return read(path)
+        raise PermissionError(f"denied reading a file holding {PUBLISHED}")
+
+    monkeypatch.setattr(secret_check, "_read", failing_read)
+
+    # Raised as an OSError, it escaped the wrapping every other read failure has, and `main`
+    # reported it only by its type, without saying which file could not be read.
+    with pytest.raises(secret_check.SecretCheckError) as failed:
+        secret_check.check(root, _environment())
+
+    assert str(failed.value) == f"cannot read {named}: PermissionError"
+    assert PUBLISHED not in str(failed.value)
+
+
 def Given_no_root_argument_When_checked_Then_it_fails_misconfigured(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

@@ -196,10 +196,10 @@ def _read(path: Path) -> bytes:
     return path.read_bytes()
 
 
-def _ignore_file(path: Path) -> str:
+def _ignore_file(root: Path, relative: str) -> str:
     # git skips a UTF-8 byte-order mark, which PowerShell writes; kept, it would turn a first-line
     # `!pattern` into a pattern that matches nothing.
-    return _read(path).decode("utf-8-sig", "replace")
+    return _content(root, relative).decode("utf-8-sig", "replace")
 
 
 def _walk(root: Path, directory: str, inherited: tuple[_IgnoreRule, ...]) -> Iterator[str]:
@@ -211,7 +211,9 @@ def _walk(root: Path, directory: str, inherited: tuple[_IgnoreRule, ...]) -> Ite
         raise SecretCheckError(f"cannot list {directory or '.'}: {type(error).__name__}") from error
     rules = inherited
     if any(entry.name == GITIGNORE and entry.is_file(follow_symlinks=False) for entry in entries):
-        rules += _rules(_ignore_file(here / GITIGNORE), directory)
+        rules += _rules(
+            _ignore_file(root, f"{directory}/{GITIGNORE}" if directory else GITIGNORE), directory
+        )
     for entry in entries:
         # A symlink's target may lie outside the clone, and git stores only the link itself.
         if entry.name == GIT_METADATA or entry.is_symlink():
@@ -235,12 +237,11 @@ def scanned_files(root: Path) -> Iterator[str]:
     yielded: only the index knows it, and this reads the patterns alone. The checkout test in
     `tests/test_secret_check.py` fails the day one appears (ADR-044).
 
-    :raises SecretCheckError: if a directory git does not ignore cannot be listed.
-    :raises OSError: if an ignore file cannot be read. It is not wrapped, so `check` raises it too,
-        and `main` reports it by its type like any error it did not foresee.
+    :raises SecretCheckError: if a directory git does not ignore cannot be listed, or an ignore
+        file cannot be read; either is named, with the error's type and never its message.
     """
     exclude = root / INFO_EXCLUDE
-    rules = _rules(_ignore_file(exclude), "") if exclude.is_file() else ()
+    rules = _rules(_ignore_file(root, INFO_EXCLUDE.as_posix()), "") if exclude.is_file() else ()
     yield from _walk(root, "", rules)
 
 
@@ -272,8 +273,7 @@ def check(root: Path, environment: Mapping[str, str]) -> Verdict:
         skipped, since each service that needs it refuses to start without it anyway.
     :return: which variables are published or too short, and how many were looked for and searched.
     :raises SecretCheckError: if `root` is not the repository, or a directory or a file in it that
-        git does not ignore cannot be read.
-    :raises OSError: if an ignore file cannot be read (see `scanned_files`).
+        git does not ignore, or an ignore file, cannot be read.
     """
     if not (root / ANCHOR_FILE).is_file():
         raise SecretCheckError(
