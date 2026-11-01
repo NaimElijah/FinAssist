@@ -80,7 +80,7 @@ describe('DateText', () => {
     });
 
     it('Given_a_date_that_does_not_exist_When_rendered_Then_it_throws', () => {
-        // Date.UTC would silently roll 30 February over into 2 March.
+        // A Date built from the parts would silently roll 30 February over into 2 March.
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
         expect(() => renderedTime(DateText, '2026-02-30')).toThrow(/not a calendar date/);

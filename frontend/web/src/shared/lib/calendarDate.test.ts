@@ -27,6 +27,29 @@ describe('formatCalendarDate', () => {
         });
     }
 
+    it('Given_a_formatter_pinned_to_UTC_When_a_date_is_formatted_with_it_Then_it_uses_that_formatter', () => {
+        const longDate = new Intl.DateTimeFormat('en-IL', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+            timeZone: 'UTC',
+        });
+
+        expect(formatCalendarDate('0027-01-01', longDate)).toBe('1 January 27');
+    });
+
+    it('Given_a_formatter_not_pinned_to_UTC_When_a_date_is_formatted_with_it_Then_it_throws', () => {
+        // The instant is UTC midnight; any other zone can name the previous day.
+        const localZone = new Intl.DateTimeFormat('en-IL', {
+            dateStyle: 'medium',
+            timeZone: 'America/Los_Angeles',
+        });
+
+        expect(() => formatCalendarDate('2026-09-01', localZone)).toThrow(
+            /^formatCalendarDate needs a formatter pinned to timeZone UTC$/,
+        );
+    });
+
     it('Given_a_day_that_does_not_exist_When_formatted_Then_the_error_names_this_function_and_never_the_value', () => {
         // Matched whole, so the value - which a render error's message can carry into the logs -
         // is shown to be left out.

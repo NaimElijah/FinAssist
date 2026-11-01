@@ -67,10 +67,10 @@ From `frontend/web`:
   every other source file sitting in a layer, and `src/features/` itself holds only feature
   directories; from inside the feature, only tests import the root. Its `types/` imports nothing
   from the UI kit, `src/shared/ui`, and neither does `src/shared/lib`, so a value both need, such
-  as `DISPLAY_LOCALE`, lives in `src/shared/lib` without bringing the kit along. Only its `api/`
-  imports a generated contract type. `tests/architecture.test.ts` fails the build otherwise,
-  reading every import form with the TypeScript parser and refusing a computed specifier it
-  cannot resolve.
+  as `DISPLAY_LOCALE` or `formatCalendarDate`, lives in `src/shared/lib` without bringing the kit
+  along. Only its `api/` imports a generated contract type. `tests/architecture.test.ts` fails the
+  build otherwise, reading every import form with the TypeScript parser and refusing a computed
+  specifier it cannot resolve.
 - **No file hands markup to the HTML parser** through `dangerouslySetInnerHTML` or `srcDoc` (as a
   JSX prop, or `dangerouslySetInnerHTML` as an object property), an `innerHTML` or `outerHTML`
   assignment or member given to `Object.assign`, a call to `insertAdjacentHTML`,
@@ -130,9 +130,10 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
   call's arguments.
 - **A date helper does calendar-part arithmetic on integers, never a `Date` parsed from a
   string.** `period.ts`'s month-to-period mapping and day-before calculation use plain year/month
-  integers with a leap-year-aware days-in-month table. A `Date` is built only to hand an already
-  computed instant to `Intl.DateTimeFormat`, pinned to `timeZone: 'UTC'` exactly as `DateText`
-  does, so formatting cannot shift the result with the browser's own zone.
+  integers with a leap-year-aware days-in-month table. A date becomes text only through
+  `formatCalendarDate` (`src/shared/lib/calendarDate.ts`), which `DateText` also calls, given a
+  formatter pinned to `timeZone: 'UTC'` when another shape is wanted, so formatting cannot shift
+  the result with the browser's own zone or read a year below 100 as one in the 1900s.
 - **Cross-feature data enters a feature only through a context the feature declares and `src/app`
   provides.** Planning declares `AccountOptionsContext`, in its own terms, and
   `PlanningAccountsBridge` in `src/app` fills it from accounting's `useAccounts` (ADR-010,
@@ -202,7 +203,7 @@ Nothing here fails CI. These are patterns to check for in review, named so they 
 - **A row action's accessible name is its visible word, then the row** — "Void Rent, 1 Sept
   2026" — so "Void" stays first (WCAG 2.5.3) and a list of controls tells the rows apart; a
   lifecycle panel's title names the row too. Dates in a name go through `formatCalendarDate`
-  (`src/shared/ui/calendarDate.ts`) so they read as the row shows them. A test finds such a
+  (`src/shared/lib/calendarDate.ts`) so they read as the row shows them. A test finds such a
   control with `nameStartingWith` from `src/shared/testing/names.ts`; an absence check takes
   `nameIsOrStartsWith` instead, since `nameStartingWith` never matches the bare word and would
   pass if the control were offered under it.

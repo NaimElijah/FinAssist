@@ -1,7 +1,15 @@
-import { DISPLAY_LOCALE } from '../lib/locale';
+/**
+ * The one place a calendar date, `YYYY-MM-DD`, becomes text on screen. It lives in `shared/lib`
+ * rather than the UI kit so a feature's `types/`, which may not import the kit, formats a date
+ * exactly as `DateText` renders it instead of keeping a copy that drifts.
+ */
+import { DISPLAY_LOCALE } from './locale';
 
 /** A calendar date as the wire carries it: year, month and day, with no time and no zone. */
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** The only zone a formatter given to `formatCalendarDate` may name. */
+const UTC = 'UTC';
 
 /**
  * Formats in UTC because the instant below is built in UTC. Applying no offset at either end is
@@ -9,7 +17,7 @@ const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
  */
 const DATE_FORMAT = new Intl.DateTimeFormat(DISPLAY_LOCALE, {
     dateStyle: 'medium',
-    timeZone: 'UTC',
+    timeZone: UTC,
 });
 
 /**
@@ -21,12 +29,21 @@ const DATE_FORMAT = new Intl.DateTimeFormat(DISPLAY_LOCALE, {
  * west of Greenwich.
  *
  * @param value - an ISO `YYYY-MM-DD` date, such as `"2026-09-01"`.
- * @returns the date in `DISPLAY_LOCALE`, such as "1 Sept 2026".
- * @throws Error - when `value` is not `YYYY-MM-DD`, or names a day that does not exist, such as
- *   30 February. The value is left out of the message, because a render error's message can
- *   reach the logs.
+ * @param format - the formatter to apply, when the date is wanted in another shape than
+ *   `DateText`'s, such as a month and year. It must be built with `timeZone: 'UTC'`.
+ * @returns the date as `format` writes it; by default in `DISPLAY_LOCALE`'s medium style, such as
+ *   "1 Sept 2026".
+ * @throws Error - when `format` is not pinned to UTC, or `value` is not `YYYY-MM-DD` or names a
+ *   day that does not exist, such as 30 February. The value is left out of the message, because a
+ *   render error's message can reach the logs.
  */
-export function formatCalendarDate(value: string): string {
+export function formatCalendarDate(
+    value: string,
+    format: Intl.DateTimeFormat = DATE_FORMAT,
+): string {
+    if (format.resolvedOptions().timeZone !== UTC) {
+        throw new Error('formatCalendarDate needs a formatter pinned to timeZone UTC');
+    }
     const match = ISO_DATE.exec(value);
     if (match === null) {
         throw new Error('formatCalendarDate expects an ISO date, YYYY-MM-DD');
@@ -49,5 +66,5 @@ export function formatCalendarDate(value: string): string {
     ) {
         throw new Error('formatCalendarDate was given a value that is not a calendar date');
     }
-    return DATE_FORMAT.format(instant);
+    return format.format(instant);
 }

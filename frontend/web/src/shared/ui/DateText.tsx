@@ -1,4 +1,4 @@
-import { formatCalendarDate } from './calendarDate';
+import { formatCalendarDate } from '../lib/calendarDate';
 import styles from './DateText.module.css';
 
 /** A calendar date to display. */
