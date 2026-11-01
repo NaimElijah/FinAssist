@@ -113,9 +113,7 @@ Detected applied migration not resolved locally: 1.3.
 …
 ```
 
-Flyway lists one such line for each of the unknown versions. The text is Flyway 12.4.0's, the
-version the upgraded ledger ships; the previous ledger's Flyway is a different build, and its
-wording is unverified.
+Flyway lists one such line for each unknown version: `1.3` to `1.7` and `2.2`.
 
 You need the folder of the backup taken before the upgrade, and the commit you were on then
 (`git rev-parse --short HEAD`). `backups/` and `.env` are git-ignored, so checking out older code
