@@ -112,11 +112,15 @@ spring:
                 - RemoveRequestHeader=Cookie
                 - RemoveRequestHeader=X-FINASSIST-XSRF-TOKEN
                 # Authorization is removed rather than left to be overwritten. TokenRelay's
-                # setBearerAuth replaces, so a browser-supplied header is overwritten on the
-                # ordinary path - but that same filter falls through to the unmodified request
-                # when there is no authorized client, and on that path a header the browser chose
-                # would reach the service untouched. Removing it makes the guarantee this
-                # gateway's rather than a library's choice of `set` over `add`.
+                # setBearerAuth replaces, so a browser-supplied header is overwritten whenever a
+                # token is relayed. A session holding no authorized client never gets that far: the
+                # authorization_code provider KeycloakRegistration configures throws
+                # ClientAuthorizationRequiredException, answered 401 by GatewayRelayProblems. The
+                # filter passes the request on unmodified only for a principal that is not an
+                # OAuth2AuthenticationToken (read from the 5.0.4 bytecode), which this chain, signing
+                # in by oauth2Login alone, never lets reach the route. Removing the header is
+                # defence in depth: the guarantee stays this gateway's, not a consequence of that
+                # chain or of a library's choice of `set` over `add`.
                 - RemoveRequestHeader=Authorization
                 # The hop-by-hop filter Spring Cloud Gateway runs on every relay strips Upgrade and
                 # Connection but not HTTP2-Settings (its removal set omits it, read from the 5.0.4

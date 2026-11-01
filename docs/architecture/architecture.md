@@ -671,17 +671,18 @@ does on the ledger, and refuses a foreign `Host` before a session or a route is 
 Spring Security requires an authenticated session for `GET`/`POST /ledger/api/v1/**` and
 `/assistant/api/v1/**` → a Spring Cloud Gateway Server Web MVC route matches the path and method →
 `StripPrefix=1` removes the gateway's own segment → `RemoveRequestHeader=` removes the browser's
-`Authorization` — `TokenRelay=` sets the bearer header on the ordinary path, but falls through to
-the unmodified request when the session holds no authorized client, and a header the browser chose
-would then reach the service — along with `Cookie`, `X-FINASSIST-XSRF-TOKEN` and `HTTP2-Settings`,
-so none of the four ever leaves this process; the last because Spring Cloud Gateway's own
-hop-by-hop filter strips `Upgrade` and `Connection` but not it → `TokenRelay=` asks
-`OAuth2AuthorizedClientManager` for the session's access token, which refreshes it against
-Keycloak first if it has expired, and attaches it as `Authorization: Bearer` → `RestClient`
-proxies the request to `GATEWAY_LEDGER_URI` or `GATEWAY_ASSISTANT_URI`, over **HTTP/1.1**: the JDK
-client underneath defaults to HTTP/2, which on a cleartext hop means offering an h2c upgrade that
-uvicorn refuses outright when the request carries a body, so `GatewayConfiguration` pins the
-version for every outbound call this process makes
+`Authorization` — `TokenRelay=` replaces the bearer header whenever it relays a token, and a session
+holding no authorized client is refused 401 rather than relayed, but the filter passes the request
+on unmodified for a principal that is not an `OAuth2AuthenticationToken`; the chain never lets one
+reach these routes, so the removal is defence in depth — along with `Cookie`,
+`X-FINASSIST-XSRF-TOKEN` and `HTTP2-Settings`, so none of the four ever leaves this process; the
+last because Spring Cloud Gateway's own hop-by-hop filter strips `Upgrade` and `Connection` but not
+it → `TokenRelay=` asks `OAuth2AuthorizedClientManager` for the session's access token, which
+refreshes it against Keycloak first if it has expired, and attaches it as `Authorization: Bearer`
+→ `RestClient` proxies the request to `GATEWAY_LEDGER_URI` or `GATEWAY_ASSISTANT_URI`, over
+**HTTP/1.1**: the JDK client underneath defaults to HTTP/2, which on a cleartext hop means offering
+an h2c upgrade that uvicorn refuses outright when the request carries a body, so
+`GatewayConfiguration` pins the version for every outbound call this process makes
 ([ADR-053](../ADRs/ADR-053-the-gateways-outbound-calls-speak-http-1-1-under-one-time-budget.md)). **A downstream
 `application/problem+json` response passes back through unchanged** — the gateway's `RestClient`
 call applies no status handler of its own, so the browser sees the ledger's or the assistant's own
