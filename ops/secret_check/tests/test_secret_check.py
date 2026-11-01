@@ -284,6 +284,95 @@ def Given_a_short_secret_a_committed_file_also_holds_When_checked_Then_both_refu
     assert short not in output
 
 
+# --- The ledger's database password --------------------------------------------------------------
+
+# A role name for fixtures alone; docker-compose.yml's default is pinned by the Compose tests below.
+SHARED_ROLE = "fixture-role"
+LEDGER_OWN_ROLE = "fixture-ledger-role"
+DATABASE_PASSWORD = f"{FRESH}-database"
+OTHER_PASSWORD = f"{FRESH}-other"
+
+
+def _signing_in(
+    database_user: str, ledger_user: str, database_password: str, ledger_password: str
+) -> dict[str, str]:
+    """A fresh environment in which `db` creates `database_user` and the ledger signs in as
+    `ledger_user`, each with its own password."""
+    return _environment(POSTGRES_PASSWORD=database_password, LEDGER_DB_PASSWORD=ledger_password) | {
+        "POSTGRES_USER": database_user,
+        "LEDGER_DB_USERNAME": ledger_user,
+    }
+
+
+def Given_the_ledger_on_the_database_role_with_another_password_When_checked_Then_both_are_named(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"README.md": b"text\n"})
+    environment = _signing_in(SHARED_ROLE, SHARED_ROLE, DATABASE_PASSWORD, OTHER_PASSWORD)
+
+    status, output = _run(root, environment, capsys)
+
+    assert status == secret_check.EXIT_REFUSED
+    refusals = [line for line in output.splitlines() if "REFUSED" in line]
+    assert len(refusals) == 1
+    assert "REFUSED: LEDGER_DB_PASSWORD differs from POSTGRES_PASSWORD" in refusals[0]
+    assert secret_check.ROTATION_GUIDE in output
+    assert not any(value in output for value in (DATABASE_PASSWORD, OTHER_PASSWORD, SHARED_ROLE))
+
+
+def Given_the_ledger_on_the_database_role_with_its_password_When_checked_Then_it_passes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"README.md": b"text\n"})
+    environment = _signing_in(SHARED_ROLE, SHARED_ROLE, DATABASE_PASSWORD, DATABASE_PASSWORD)
+
+    status, _ = _run(root, environment, capsys)
+
+    assert status == secret_check.EXIT_PASSED
+
+
+# The day #34 gives the ledger a less privileged role of its own (ADR-024), its password is that
+# role's, and nothing ties it to the database owner's.
+def Given_the_ledger_on_a_role_of_its_own_When_its_password_differs_Then_it_passes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"README.md": b"text\n"})
+    environment = _signing_in(SHARED_ROLE, LEDGER_OWN_ROLE, DATABASE_PASSWORD, OTHER_PASSWORD)
+
+    status, _ = _run(root, environment, capsys)
+
+    assert status == secret_check.EXIT_PASSED
+
+
+@pytest.mark.parametrize(
+    "unset", ["POSTGRES_USER", "LEDGER_DB_USERNAME"], ids=["database-user", "ledger-user"]
+)
+def Given_a_username_unset_When_the_passwords_differ_Then_no_role_is_compared_and_it_passes(
+    unset: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"README.md": b"text\n"})
+    environment = _signing_in(SHARED_ROLE, SHARED_ROLE, DATABASE_PASSWORD, OTHER_PASSWORD)
+    del environment[unset]
+
+    status, _ = _run(root, environment, capsys)
+
+    assert status == secret_check.EXIT_PASSED
+
+
+def Given_a_published_database_password_the_ledger_lacks_When_checked_Then_both_are_named(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"docs/notes.md": f"`{PUBLISHED}`\n".encode()})
+    environment = _signing_in(SHARED_ROLE, SHARED_ROLE, PUBLISHED, OTHER_PASSWORD)
+
+    status, output = _run(root, environment, capsys)
+
+    assert status == secret_check.EXIT_REFUSED
+    assert "REFUSED: POSTGRES_PASSWORD appears" in output
+    assert "REFUSED: LEDGER_DB_PASSWORD differs from POSTGRES_PASSWORD" in output
+    assert PUBLISHED not in output
+
+
 # --- Which files count ---------------------------------------------------------------------------
 
 
@@ -500,6 +589,25 @@ def Given_the_compose_file_When_the_check_service_is_read_Then_it_is_handed_each
     handed = set(re.findall(r"^\s+([A-Z0-9_]+): \$\{\1:-\}$", block, re.MULTILINE))
 
     assert handed == set(secret_check.SECRET_VARIABLES)
+
+
+@pytest.mark.parametrize(
+    ("username", "service"),
+    [("POSTGRES_USER", "db"), ("LEDGER_DB_USERNAME", "ledger")],
+    ids=["database-user", "ledger-user"],
+)
+def Given_the_compose_file_When_the_check_service_is_read_Then_each_username_resolves_alike(
+    username: str, service: str
+) -> None:
+    compose = (REPOSITORY_ROOT / "docker-compose.yml").read_bytes().decode()
+    entry = re.compile(rf"^\s+{username}: (\$\{{{username}:-[^}}]+\}})$", re.MULTILINE)
+
+    handed = entry.findall(_service_block(compose, "secret-check"))
+    used = entry.findall(_service_block(compose, service))
+
+    assert len(used) == 1
+    assert handed == used
+    assert username not in secret_check.SECRET_VARIABLES
 
 
 def _service_block(compose: str, service: str) -> str:

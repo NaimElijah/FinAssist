@@ -265,7 +265,9 @@ Before you start:
 ### The ledger's database password
 
 `POSTGRES_PASSWORD` and `LEDGER_DB_PASSWORD` hold the same value. Compose creates the role from
-the first, and the ledger signs in with the second. Set both to the new value in `.env`, then:
+the first, and the ledger signs in with the second. Set both to the new value in `.env`:
+`secret-check` refuses to start `db` while the two differ and `LEDGER_DB_USERNAME` names
+`POSTGRES_USER`'s role. Then:
 
 ```bash
 docker compose up -d --wait db       # recreated with the new value, which an initialised volume ignores

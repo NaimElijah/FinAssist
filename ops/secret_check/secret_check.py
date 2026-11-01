@@ -9,7 +9,9 @@ wait on (ADR-044). PostgreSQL applies a password only when it first initialises 
 a check made any later, such as in the ledger's start-up, would come after a published value was
 already in the store.
 
-It also refuses a secret shorter than `MIN_SECRET_LENGTH` characters.
+It also refuses a secret shorter than `MIN_SECRET_LENGTH` characters, and a `LEDGER_DB_PASSWORD`
+that differs from `POSTGRES_PASSWORD` while the ledger signs in as the role `db` creates, which
+would otherwise pass here and leave the ledger refused at every connection, restarting.
 
 It reads each secret from its own environment and walks the clone it is given, mounted read-only.
 It searches every file that git would not ignore for each value: its UTF-8 bytes as a whole token,
@@ -45,6 +47,14 @@ SECRET_VARIABLES: Final = (
     "ASSISTANT_CLIENT_SECRET",
     "GRAFANA_ADMIN_PASSWORD",
 )
+# The ledger signs in as the role `db` creates until #34 gives it one of its own (ADR-024): while
+# these two usernames name the same role, its two passwords must be one value. The usernames are
+# not secrets, so Compose hands them with `db`'s and the ledger's own defaults, and they are never
+# searched for.
+DATABASE_ROLE_USER: Final = "POSTGRES_USER"
+DATABASE_ROLE_PASSWORD: Final = "POSTGRES_PASSWORD"
+LEDGER_ROLE_USER: Final = "LEDGER_DB_USERNAME"
+LEDGER_ROLE_PASSWORD: Final = "LEDGER_DB_PASSWORD"
 # What `openssl rand -hex 16`, the generator docs/operations/operations.md documents, writes. Length
 # is the only bound on guessing a secret that no account lockout protects.
 MIN_SECRET_LENGTH: Final = 32
@@ -81,12 +91,15 @@ class Verdict:
 
     :param published: the variables whose value a searched file holds, in `SECRET_VARIABLES` order.
     :param short: the variables whose value is shorter than `MIN_SECRET_LENGTH`, in the same order.
+    :param ledger_password_differs: whether `LEDGER_ROLE_PASSWORD` differs from
+        `DATABASE_ROLE_PASSWORD` while `LEDGER_ROLE_USER` and `DATABASE_ROLE_USER` name one role.
     :param checked: how many variables had a value to look for; an unset or empty one has none.
     :param files: how many files were searched.
     """
 
     published: tuple[str, ...]
     short: tuple[str, ...]
+    ledger_password_differs: bool
     checked: int
     files: int
 
@@ -264,14 +277,29 @@ def _finder(value: str) -> Callable[[bytes], bool]:
     )
 
 
+def _ledger_password_differs(environment: Mapping[str, str]) -> bool:
+    """Whether the ledger signs in as the role `db` creates, with a password that is not the role's.
+
+    An unset or empty username names no role, so nothing is compared: Compose always hands both.
+    """
+    database_user = environment.get(DATABASE_ROLE_USER, "")
+    shares_role = bool(database_user) and environment.get(LEDGER_ROLE_USER, "") == database_user
+    return shares_role and (
+        environment.get(LEDGER_ROLE_PASSWORD, "") != environment.get(DATABASE_ROLE_PASSWORD, "")
+    )
+
+
 def check(root: Path, environment: Mapping[str, str]) -> Verdict:
     """Searches every file under `root` that git would not ignore for each secret in `environment`,
-    and measures each one against `MIN_SECRET_LENGTH`.
+    measures each one against `MIN_SECRET_LENGTH`, and compares the ledger's database password with
+    the role's when the ledger signs in as the role `db` creates.
 
     :param root: the repository's root, which must hold `ANCHOR_FILE`.
-    :param environment: where each of `SECRET_VARIABLES` is read from; an unset or empty one is
-        skipped, since each service that needs it refuses to start without it anyway.
-    :return: which variables are published or too short, and how many were looked for and searched.
+    :param environment: where each of `SECRET_VARIABLES` is read from, and the two usernames; an
+        unset or empty secret is skipped, since each service that needs it refuses to start without
+        it anyway.
+    :return: which variables are published or too short, whether the ledger's password differs from
+        its role's, and how many variables were looked for and files searched.
     :raises SecretCheckError: if `root` is not the repository, or a directory or a file in it that
         git does not ignore, or an ignore file, cannot be read.
     """
@@ -289,6 +317,7 @@ def check(root: Path, environment: Mapping[str, str]) -> Verdict:
     return Verdict(
         published=tuple(name for name in SECRET_VARIABLES if name in found),
         short=tuple(name for name, value in values.items() if len(value) < MIN_SECRET_LENGTH),
+        ledger_password_differs=_ledger_password_differs(environment),
         checked=len(finders),
         files=len(files),
     )
@@ -319,10 +348,10 @@ def main(argv: Sequence[str], environment: Mapping[str, str]) -> int:
 
     :param argv: the command line without the program name: exactly one path, the repository root.
     :param environment: where each secret is read from, as for `check`.
-    :return: `EXIT_PASSED` when no secret appears in a file git does not ignore and none is shorter
-        than `MIN_SECRET_LENGTH`, `EXIT_REFUSED` when one does or is, and `EXIT_MISCONFIGURED`
-        when the clone could not be searched. Compose starts nothing that waits on this unless it
-        is `EXIT_PASSED`.
+    :return: `EXIT_PASSED` when no secret appears in a file git does not ignore, none is shorter
+        than `MIN_SECRET_LENGTH` and the ledger's password is its role's; `EXIT_REFUSED` when any
+        of the three does not hold; `EXIT_MISCONFIGURED` when the clone could not be searched.
+        Compose starts nothing that waits on this unless it is `EXIT_PASSED`.
     """
     if len(argv) != 1:
         _report("secret-check FAILED: give the repository's root as the only argument")
@@ -338,7 +367,7 @@ def main(argv: Sequence[str], environment: Mapping[str, str]) -> int:
         # refuses to start.
         _report(f"secret-check FAILED: {type(error).__name__}")
         return EXIT_MISCONFIGURED
-    if verdict.published or verdict.short:
+    if verdict.published or verdict.short or verdict.ledger_password_differs:
         for name in verdict.published:
             _report(
                 f"secret-check REFUSED: {name} appears in a file git does not ignore, so the "
@@ -348,6 +377,13 @@ def main(argv: Sequence[str], environment: Mapping[str, str]) -> int:
             _report(
                 f"secret-check REFUSED: {name} is shorter than the {MIN_SECRET_LENGTH} characters "
                 "every secret needs"
+            )
+        if verdict.ledger_password_differs:
+            _report(
+                f"secret-check REFUSED: {LEDGER_ROLE_PASSWORD} differs from "
+                f"{DATABASE_ROLE_PASSWORD}, while {LEDGER_ROLE_USER} and {DATABASE_ROLE_USER} name "
+                "the same role, so the database would refuse the ledger's every sign-in. Give both "
+                "one value"
             )
         _report(
             "secret-check: nothing that waits on this check starts until each one is changed. "

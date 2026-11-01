@@ -99,6 +99,11 @@ services:
       GATEWAY_CLIENT_SECRET: ${GATEWAY_CLIENT_SECRET:-}
       ASSISTANT_CLIENT_SECRET: ${ASSISTANT_CLIENT_SECRET:-}
       GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      # Not secrets, and never searched for: resolved exactly as `db` and the ledger resolve them,
+      # so the check refuses a LEDGER_DB_PASSWORD that is not POSTGRES_PASSWORD while both name
+      # one role, which `db` would otherwise accept and the ledger then fail on at every start.
+      POSTGRES_USER: ${POSTGRES_USER:-finassist}
+      LEDGER_DB_USERNAME: ${LEDGER_DB_USERNAME:-finassist}
       # Nothing here may be written, and this user could not write it anyway.
       PYTHONDONTWRITEBYTECODE: "1"
     command: ["python", "/repo/ops/secret_check/secret_check.py", "/repo"]

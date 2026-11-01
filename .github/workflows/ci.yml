@@ -270,7 +270,13 @@ jobs:
             echo "db started on a published secret"; exit 1
           fi
           test -z "$(docker compose ps -q --status running db)"
+          # The ledger signs in as the role db creates, so the check refuses its password apart
+          # from the role's: the two take one fresh value.
+          database_password="$(openssl rand -hex 16)"
           for name in $variables; do
-            echo "$name=$(openssl rand -hex 16)"
+            case "$name" in
+              POSTGRES_PASSWORD | LEDGER_DB_PASSWORD) echo "$name=$database_password" ;;
+              *) echo "$name=$(openssl rand -hex 16)" ;;
+            esac
           done > "$RUNNER_TEMP/fresh.env"
           docker compose --env-file "$RUNNER_TEMP/fresh.env" run --rm secret-check
