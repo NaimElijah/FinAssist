@@ -171,6 +171,23 @@ def Given_a_multiplication_needing_rounding_When_applied_Then_it_is_rejected() -
         Money.of("0.01", Currency.USD).times(Decimal("0.5"))
 
 
+@pytest.mark.parametrize("multiplier", ["1E-2147483647", "0E-2147483647"])
+@pytest.mark.parametrize("operation", ["times", "times_rounded"])
+def Given_a_product_scale_past_an_int_When_multiplied_Then_it_is_refused_with_a_short_message(
+    operation: str, multiplier: str
+) -> None:
+    # The mirror of the Java pair. BigDecimal refuses a product whose scale overflows an int
+    # whenever the amount is not zero, even by a zero multiplier; this side returned 0.00 for
+    # times_rounded and for a zero multiplier, so the two languages answered one input apart.
+    amount = Money.of("12.50", Currency.USD)
+
+    with pytest.raises(ValueError, match="more precision") as refused:
+        getattr(amount, operation)(Decimal(multiplier))
+
+    assert type(refused.value) is ValueError
+    assert len(str(refused.value)) < MESSAGE_BOUND
+
+
 def Given_a_non_finite_amount_When_constructed_Then_it_is_rejected() -> None:
     with pytest.raises(ValueError, match="finite"):
         Money(Decimal("NaN"), Currency.ILS)

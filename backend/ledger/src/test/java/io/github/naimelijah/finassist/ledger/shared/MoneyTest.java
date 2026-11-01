@@ -169,6 +169,53 @@ class MoneyTest {
     }
 
     /**
+     * {@code BigDecimal.multiply} refuses a product whose scale overflows an int with a bare
+     * {@code ArithmeticException}, which both multiplications' contracts leave out. A zero
+     * multiplier is refused too: {@code BigDecimal} checks the scale whenever the amount is not
+     * zero, whatever it is multiplied by. Mirrored in {@code tests/test_money.py}.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"1E-2147483647", "0E-2147483647"})
+    void Given_a_product_scale_past_an_int_When_multiplied_Then_it_is_refused_with_a_short_message(String multiplier) {
+        Money amount = Money.of("12.50", Currency.USD);
+
+        assertThatThrownBy(() -> amount.times(new BigDecimal(multiplier)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("more precision")
+                .satisfies(refusal -> assertThat(refusal.getMessage()).hasSizeLessThan(MESSAGE_BOUND));
+    }
+
+    /** The same refusal from {@code timesRounded}. Mirrored in {@code tests/test_money.py}. */
+    @ParameterizedTest
+    @ValueSource(strings = {"1E-2147483647", "0E-2147483647"})
+    void Given_a_product_scale_past_an_int_When_times_rounded_Then_it_is_refused_with_a_short_message(
+            String multiplier) {
+        Money amount = Money.of("12.50", Currency.USD);
+
+        assertThatThrownBy(() -> amount.timesRounded(new BigDecimal(multiplier)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("more precision")
+                .satisfies(refusal -> assertThat(refusal.getMessage()).hasSizeLessThan(MESSAGE_BOUND));
+    }
+
+    /**
+     * Here the product's scale fits an int, but rounding it to cents needs a power of ten past
+     * {@code BigInteger}'s range, which {@code setScale} refuses with the same bare
+     * {@code ArithmeticException}. Not mirrored: Python's {@code Decimal} has no such bound and
+     * rounds the product to {@code 0.00}, a divergence of the same kind as an amount past
+     * {@code BigInteger}'s range, which the assistant's {@code Money.of} documents.
+     */
+    @Test
+    void Given_a_product_too_precise_to_round_When_times_rounded_Then_it_is_refused_with_a_short_message() {
+        Money amount = Money.of("12.50", Currency.USD);
+
+        assertThatThrownBy(() -> amount.timesRounded(new BigDecimal("1E-2147483645")))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("more precision")
+                .satisfies(refusal -> assertThat(refusal.getMessage()).hasSizeLessThan(MESSAGE_BOUND));
+    }
+
+    /**
      * Asserted for {@code plus} and {@code compareTo} since the beginning, and never for
      * {@code minus} - mutation testing found that deleting its {@code requireSameCurrency} call
      * broke nothing. The same blind spot existed in the Python mirror.

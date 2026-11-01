@@ -223,10 +223,11 @@ class Money:
     def times(self, multiplier: Decimal) -> Money:
         """Multiplies by a count, exactly. Never by another Money — that is not money.
 
-        :raises ValueError: if the multiplier is not finite, or the product needs rounding to
-            fit the currency
+        :raises ValueError: if the multiplier is not finite, the product needs rounding to fit
+            the currency, or the product's scale would overflow a Java int
         """
         _require_finite_multiplier(multiplier)
+        self._require_product_scale_fits(multiplier)
         # A product of two coefficients needs no more digits than both together. Exact first,
         # so the constructor then refuses a product the currency cannot hold rather than
         # accepting one the default context had already rounded to fit.
@@ -242,9 +243,11 @@ class Money:
         in a method the caller has to choose, beats :meth:`times` throwing on perfectly ordinary
         fractional holdings.
 
-        :raises ValueError: if the multiplier is not finite
+        :raises ValueError: if the multiplier is not finite, or the product's scale would
+            overflow a Java int
         """
         _require_finite_multiplier(multiplier)
+        self._require_product_scale_fits(multiplier)
         # Sized to this particular product, for the reason __post_init__ is sized to its
         # particular value. A fixed precision raises decimal.InvalidOperation - an
         # ArithmeticError, not the ValueError this module's contract promises - once the
@@ -307,6 +310,25 @@ class Money:
         exponents would need more, and never reach here.
         """
         return _exact(max(_precision_for(self.amount), _precision_for(other.amount)))
+
+    def _require_product_scale_fits(self, multiplier: Decimal) -> None:
+        """Refuses a product whose scale the ledger's ``BigDecimal.multiply`` would refuse.
+
+        Java adds the two scales and refuses a sum outside an int whenever the amount is not zero,
+        even when the multiplier is zero. Here the product is exact at any scale, so a zero
+        product, or any product ``times_rounded`` rounds to ``0.00``, came back as ``0.00``: one
+        input priced on this side and refused on the other (ADR-018). Every amount's scale is its
+        currency's minor units.
+        """
+        if self.amount.is_zero():
+            return
+        scale = self.currency.minor_units - int(multiplier.as_tuple().exponent)
+        if not _MIN_SCALE <= scale <= _MAX_SCALE:
+            raise ValueError(
+                f"The product of {self} and {multiplier} carries more precision than "
+                f"{self.currency.name} admits ({self.currency.minor_units} decimal places); "
+                "its scale overflows a Java int"
+            )
 
     def _require_same_currency(self, other: Money) -> None:
         if self.currency is not other.currency:

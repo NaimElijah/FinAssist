@@ -115,12 +115,19 @@ public record Money(BigDecimal amount, Currency currency) {
     /**
      * Multiplies by a count, exactly. Never by another Money — that is not money.
      *
-     * @throws IllegalArgumentException if the product needs rounding to fit the currency
+     * @throws IllegalArgumentException if the product needs rounding to fit the currency, or its
+     *     scale would overflow an int, as {@code 12.50} times {@code 1E-2147483647} would
      * @throws NullPointerException if {@code multiplier} is null
      */
     public Money times(BigDecimal multiplier) {
         Objects.requireNonNull(multiplier, "multiplier");
-        return new Money(amount.multiply(multiplier), currency);
+        BigDecimal product;
+        try {
+            product = amount.multiply(multiplier);
+        } catch (ArithmeticException cause) {
+            throw unrepresentableProduct(multiplier, cause);
+        }
+        return new Money(product, currency);
     }
 
     /**
@@ -132,12 +139,20 @@ public record Money(BigDecimal amount, Currency currency) {
      * up, in a method the caller has to choose, beats {@link #times} throwing on perfectly ordinary
      * fractional holdings.
      *
+     * @throws IllegalArgumentException if the product's scale would overflow an int, or the product
+     *     carries so many decimal places that rounding it needs a power of ten past
+     *     {@code BigInteger}'s range
      * @throws NullPointerException if {@code multiplier} is null
      */
     public Money timesRounded(BigDecimal multiplier) {
         Objects.requireNonNull(multiplier, "multiplier");
-        BigDecimal product = amount.multiply(multiplier);
-        return new Money(product.setScale(currency.minorUnits(), RoundingMode.HALF_UP), currency);
+        BigDecimal rounded;
+        try {
+            rounded = amount.multiply(multiplier).setScale(currency.minorUnits(), RoundingMode.HALF_UP);
+        } catch (ArithmeticException cause) {
+            throw unrepresentableProduct(multiplier, cause);
+        }
+        return new Money(rounded, currency);
     }
 
     /** Returns whether the amount is zero. */
@@ -174,6 +189,28 @@ public record Money(BigDecimal amount, Currency currency) {
     @Override
     public String toString() {
         return amount.toPlainString() + " " + currency;
+    }
+
+    /**
+     * The refusal of a product {@code BigDecimal} cannot hold or round, which it reports as a bare
+     * {@code ArithmeticException} outside this class's contract. Worded as the constructor words its
+     * own refusal, and for its reason written with {@code toString}, never {@code toPlainString}: a
+     * multiplier such as {@code 1E-2147483647} written out would not fit in a String.
+     */
+    private IllegalArgumentException unrepresentableProduct(BigDecimal multiplier, ArithmeticException cause) {
+        return new IllegalArgumentException(
+                "The product of "
+                        + amount.toString()
+                        + " "
+                        + currency
+                        + " and "
+                        + multiplier.toString()
+                        + " carries more precision than "
+                        + currency
+                        + " admits ("
+                        + currency.minorUnits()
+                        + " decimal places) and more than a BigDecimal can compute with",
+                cause);
     }
 
     private void requireSameCurrency(Money other) {
