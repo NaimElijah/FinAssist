@@ -123,7 +123,7 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 - **A create answers `201` with the created representation and no `Location` header**: there is no
   single-item read for one to name (ADR-028).
 - **Every ledger and assistant POST `consumes` `application/json`**, so a cross-site form post is
-  refused 415 before a handler runs (ADR-030); the gateway's `POST /bff/logout` is held by CSRF.
+  refused 415 before a handler runs (ADR-030); new ones in review (#426); `/bff/logout` uses CSRF.
 
 ### Security and operations
 

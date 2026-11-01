@@ -361,8 +361,10 @@ process, decides whether generating this file from the
   - **Rules claimed as build-enforced that no check holds** are now marked. `System.out` in Java
     is refused only in the ledger's core, through its `java.io` rule, and elsewhere is held in
     review until [#425](https://github.com/NaimElijah/FinAssist/issues/425). Identity never
-    accepted on a command is held in review. No test holds the gateway's export switches, for any
-    signal, until [#99](https://github.com/NaimElijah/FinAssist/issues/99).
+    accepted on a command is held in review. A new POST's `consumes` is held in review until
+    [#426](https://github.com/NaimElijah/FinAssist/issues/426), each existing one being pinned by
+    its own test. No test holds the gateway's export switches, for any signal, until
+    [#99](https://github.com/NaimElijah/FinAssist/issues/99).
   - **Statements the code contradicted** are corrected, among them:
     - the ledger's `CLAUDE.md` said every request needs a token, though its Actuator and
       API-document paths are public;
