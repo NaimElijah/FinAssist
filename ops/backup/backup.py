@@ -481,8 +481,14 @@ def backup(compose: Compose, root: Path, now: datetime) -> Path:
     Both database containers must already be running: this never starts one, because `up` in the
     owner's project could recreate a database under a running ledger.
 
+    Whatever is raised once the folder exists, an interrupt included, is re-raised unchanged after
+    the partial folder is removed.
+
     :return: the new backup folder.
-    :raises BackupError: on any failure, after removing the partial folder.
+    :raises BackupError: if a Compose command fails, a database is not running, a dump is empty or
+        does not read back, or the books change while they are being backed up.
+    :raises OSError: if `root`, the folder or a file in it cannot be created or written:
+        `FileExistsError` when a backup was already taken under `root` in the same second.
     """
     project = compose.project_name()
     _report(f"Compose project: {project}")
