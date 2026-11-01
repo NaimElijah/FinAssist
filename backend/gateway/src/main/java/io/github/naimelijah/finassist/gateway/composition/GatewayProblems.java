@@ -68,8 +68,9 @@ final class GatewayProblems {
 
     /**
      * The request needs a signed-in session and has none, or the one it has can no longer renew its
-     * access token. The gateway reads no bearer token, so a session cookie is the only credential
-     * that could change this answer.
+     * access token; or it asks the login entry for a registration that does not exist, signed in or
+     * not ({@link LoginEntryFailureHandler}). The gateway reads no bearer token, so but for that last
+     * case a session cookie is the only credential that could change this answer.
      */
     static final String UNAUTHENTICATED = "UNAUTHENTICATED";
 

@@ -67,7 +67,8 @@ import org.springframework.context.annotation.Configuration;
  * /v3/api-docs}/{@code /openapi.json} publicly by design, so a request against the running service
  * costs them nothing extra to permit. The gateway's own design decision is narrower — apart from
  * the sign-in entry and its callback, {@code health} is its one public endpoint (ADR-030) — and the
- * document is already committed in the repository, so widening the chain to serve a second copy of it would buy nothing.
+ * document is already committed in the repository, so widening the chain to serve a second copy of
+ * it would buy nothing.
  *
  * <p>{@code springdoc.writer-with-order-by-keys} and {@code springdoc.paths-to-match} in {@code
  * application.yml} make up the rest: stable key order, and nothing outside {@code /bff} in the
@@ -88,7 +89,8 @@ public class GatewayOpenApiConfiguration {
     /**
      * The {@code Problem} shape, spelled out again rather than imported. See the class javadoc for
      * why: it is not a Java type either service owns, so there is no legal shared home for it
-     * (ADR-007: no shared kernel between the services), and {@code GatewayContractIT} is what proves the two copies stay identical.
+     * (ADR-007: no shared kernel between the services), and {@code GatewayContractIT} is what proves
+     * the two copies stay identical.
      */
     private static final String PROBLEM_SCHEMA = "Problem";
 
