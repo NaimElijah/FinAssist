@@ -11,6 +11,7 @@ import json
 import logging
 import socket
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from decimal import Decimal
@@ -30,6 +31,7 @@ from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.testclient import WebSocketDenialResponse
 
+from finassist_assistant.adapters import observability
 from finassist_assistant.adapters.__main__ import (
     MAX_HEADER_BLOCK_BYTES,
     WEBSOCKET_IMPLEMENTATION,
@@ -37,6 +39,7 @@ from finassist_assistant.adapters.__main__ import (
 )
 from finassist_assistant.adapters.app import (
     CORRELATION_ID_HEADER,
+    PORTFOLIO_PREFIX,
     _correlation_id_for,
     create_app,
 )
@@ -45,11 +48,13 @@ from finassist_assistant.adapters.observability import (
     REDACTED,
     configure_logging,
     configure_tracing,
+    log_request,
     redact_secrets,
     register_secret,
     reset_logging,
     trace_id_of,
 )
+from finassist_assistant.adapters.seed import SEED_SYMBOLS, seeded_assembly
 from finassist_assistant.adapters.settings import Settings
 from finassist_assistant.adapters.wiring import assemble
 
@@ -57,6 +62,8 @@ SECRET = "sk-ant-000000000000000000000000"
 VALID_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
 TRACEPARENT = f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"
 REQUEST_LINE = "request answered"
+# Public and answered 200 like a probe, but logged at INFO like any request that is not one.
+NON_PROBE_PATH = "/openapi.json"
 HOST_REFUSED_EVENT = "refused a request whose Host header names no host on the allow-list"
 # A recognisable amount, sent in a query string that must never reach a log line.
 AMOUNT = "98765.43"
@@ -214,7 +221,7 @@ def Given_a_request_When_it_is_logged_Then_the_header_and_the_log_line_agree(
     with TestClient(app) as running:
         capsys.readouterr()
         response = running.get(
-            "/health", headers={"traceparent": f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"}
+            NON_PROBE_PATH, headers={"traceparent": f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"}
         )
 
     [line] = _request_lines(capsys.readouterr().out)
@@ -235,7 +242,7 @@ def Given_a_traceparent_When_a_request_is_served_Then_one_request_line_carries_i
     capsys.readouterr()
 
     client.get(
-        "/health",
+        NON_PROBE_PATH,
         params={"amount": AMOUNT},
         headers={"traceparent": f"00-{VALID_TRACE_ID}-00f067aa0ba902b7-01"},
     )
@@ -243,7 +250,7 @@ def Given_a_traceparent_When_a_request_is_served_Then_one_request_line_carries_i
     [line] = _request_lines(capsys.readouterr().out)
     assert line["correlation_id"] == VALID_TRACE_ID
     assert line["method"] == "GET"
-    assert line["path"] == "/health"
+    assert line["path"] == NON_PROBE_PATH
     assert line["status"] == 200
     assert line["level"] == "info"
     assert isinstance(line["duration_ms"], float)
@@ -269,7 +276,7 @@ def Given_a_refused_unknown_or_failing_request_When_answered_Then_one_info_reque
     headers: dict[str, str],
     status: int,
 ) -> None:
-    """Every request leaves exactly one line, at INFO whatever its status, with the caller's trace.
+    """Every request but a successful probe leaves one line, at INFO whatever its status, traced.
 
     A refusal is the assistant's considered answer, not an incident; an unexpected failure has its
     own ERROR line from the problem handlers, so the request line need not repeat the alarm.
@@ -337,6 +344,105 @@ def Given_the_middleware_itself_fails_When_a_request_is_served_Then_one_request_
     assert response.status_code == 500
     assert [(line["path"], line["status"], line["level"]) for line in lines] == [
         ("/fails", 500, "info")
+    ]
+
+
+# --- the probes' request lines -------------------------------------------------------------
+
+
+@pytest.fixture
+def debug_settings(settings: Settings) -> Settings:
+    """The suite's settings with the structured logger's threshold lowered to DEBUG."""
+    return settings.model_copy(update={"log_level": "DEBUG"})
+
+
+@pytest.fixture
+def uncached_request_logger(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Gives the logging boundary a logger no earlier test has used (#417).
+
+    ``configure_logging`` turns on ``cache_logger_on_first_use``, so the module's logger keeps the
+    level of whichever test first wrote through it, INFO in this suite, and a DEBUG line would pass
+    alone and vanish in the full run. A fresh proxy binds to the level configured after it.
+    """
+    monkeypatch.setattr(observability, "_log", structlog.get_logger(observability.__name__))
+
+
+@pytest.mark.parametrize("path", ["/health", "/ready"])
+def Given_a_probe_that_succeeds_When_answered_Then_no_info_request_line_is_written(
+    client: TestClient, capsys: pytest.CaptureFixture[str], path: str
+) -> None:
+    """Compose probes readiness every five seconds; at INFO that history would be all probes."""
+    capsys.readouterr()
+
+    response = client.get(path)
+
+    lines = _request_lines(capsys.readouterr().out)
+    assert response.status_code == 200
+    assert [line for line in lines if line["level"] == "info"] == []
+
+
+@pytest.mark.usefixtures("uncached_request_logger")
+@pytest.mark.parametrize("path", ["/health", "/ready"])
+def Given_debug_logging_When_a_probe_succeeds_Then_one_debug_request_line_is_written(
+    debug_settings: Settings,
+    token_verifier: TokenVerifier,
+    capsys: pytest.CaptureFixture[str],
+    path: str,
+) -> None:
+    """A probe is quieted, not dropped: a DEBUG run still sees every one, with its trace."""
+    app = create_app(debug_settings, token_verifier=token_verifier)
+    with TestClient(app) as running:
+        capsys.readouterr()
+        response = running.get(path, headers={"traceparent": TRACEPARENT})
+
+    lines = _request_lines(capsys.readouterr().out)
+    assert response.status_code == 200
+    assert [
+        (line["path"], line["status"], line["level"], line.get("correlation_id")) for line in lines
+    ] == [(path, 200, "debug", VALID_TRACE_ID)]
+
+
+def Given_an_api_request_that_succeeds_When_answered_Then_its_request_line_is_info(
+    settings: Settings,
+    token_verifier: TokenVerifier,
+    owner_headers: dict[str, str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Only the probes are quieted; a business request answered 200 keeps its INFO line."""
+    path = f"{PORTFOLIO_PREFIX}/holdings/{SEED_SYMBOLS[0]}/position"
+    app = create_app(settings, assembly=seeded_assembly(), token_verifier=token_verifier)
+    with TestClient(app, headers=owner_headers) as running:
+        capsys.readouterr()
+        response = running.get(path)
+
+    lines = _request_lines(capsys.readouterr().out)
+    assert response.status_code == 200
+    assert [(line["path"], line["status"], line["level"]) for line in lines] == [
+        (path, 200, "info")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("path", "status"),
+    [("/ready", 503), ("/health", 500), ("/ready", 302)],
+    ids=["not-ready", "health-fails", "not-a-success"],
+)
+def Given_a_probe_that_does_not_succeed_When_logged_Then_its_request_line_stays_info(
+    settings: Settings, capsys: pytest.CaptureFixture[str], path: str, status: int
+) -> None:
+    """A failing probe is the one worth seeing, so only a 2xx answer is moved to DEBUG.
+
+    ``/ready`` cannot answer 503 yet, since the assistant depends on nothing, so the boundary is
+    driven directly with the answer it will give once it does.
+    """
+    configure_logging(settings)
+    capsys.readouterr()
+
+    log_request({"type": "http", "method": "GET", "path": path}, status, time.perf_counter())
+
+    lines = _request_lines(capsys.readouterr().out)
+    assert [(line["path"], line["status"], line["level"]) for line in lines] == [
+        (path, status, "info")
     ]
 
 
