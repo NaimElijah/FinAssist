@@ -145,17 +145,21 @@ public record Transaction(
      * @param reason why it is voided; stripped, and never blank
      * @return a copy in the {@code Voided} state; this transaction is unchanged
      * @throws IllegalTransitionException if the transaction is {@code Reconciled} or already
-     *     {@code Voided}
+     *     {@code Voided}; the state is checked before either argument, as {@link #clear} and
+     *     {@link #reconcile} check it
      * @throws NullPointerException if {@code voidedOn} or {@code reason} is null
      * @throws IllegalArgumentException if {@code voidedOn} precedes the date the transaction
      *     occurred, or the date it cleared when it had already cleared, or if {@code reason} is
      *     blank
      */
     public Transaction markVoided(LocalDate voidedOn, String reason) {
-        requireNotBefore(voidedOn, occurredOn, "voided", "occurred");
         TransactionState next = switch (state) {
-            case TransactionState.Pending pending -> pending.markVoided(voidedOn, reason);
+            case TransactionState.Pending pending -> {
+                requireNotBefore(voidedOn, occurredOn, "voided", "occurred");
+                yield pending.markVoided(voidedOn, reason);
+            }
             case TransactionState.Cleared cleared -> {
+                requireNotBefore(voidedOn, occurredOn, "voided", "occurred");
                 requireNotBefore(voidedOn, cleared.clearedOn(), "voided", "cleared");
                 yield cleared.markVoided(voidedOn, reason);
             }

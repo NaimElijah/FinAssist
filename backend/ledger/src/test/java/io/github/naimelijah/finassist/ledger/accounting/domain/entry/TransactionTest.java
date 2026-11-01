@@ -112,6 +112,28 @@ class TransactionTest {
         assertThatThrownBy(() -> voided.markVoided(WHEN, "again")).isInstanceOf(IllegalTransitionException.class);
     }
 
+    /**
+     * The state is checked before the date, as {@code clear} and {@code reconcile} do: a void that
+     * is illegal from this state is a 409, whatever date it names, never a 422 about the date.
+     */
+    @Test
+    void Given_a_reconciled_transaction_When_voided_before_it_occurred_Then_the_transition_is_refused() {
+        Transaction reconciled = coffee().clear(WHEN).reconcile(WHEN);
+
+        assertThatThrownBy(() -> reconciled.markVoided(WHEN.minusDays(1), "mistake"))
+                .isInstanceOf(IllegalTransitionException.class)
+                .hasMessageContaining("Reconciled");
+    }
+
+    @Test
+    void Given_a_voided_transaction_When_voided_again_before_it_occurred_Then_the_transition_is_refused() {
+        Transaction voided = coffee().markVoided(WHEN, "duplicate");
+
+        assertThatThrownBy(() -> voided.markVoided(WHEN.minusDays(1), "again"))
+                .isInstanceOf(IllegalTransitionException.class)
+                .hasMessageContaining("Voided");
+    }
+
     @Test
     void Given_a_void_without_a_reason_When_applied_Then_it_is_refused() {
         assertThatThrownBy(() -> coffee().markVoided(WHEN, "  "))
