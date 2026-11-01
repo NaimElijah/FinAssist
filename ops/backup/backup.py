@@ -214,14 +214,29 @@ def _json(source: str, text: str | bytes) -> Any:
 
     :param source: what answered `text`, named in the refusal. The text itself never is: it can
         carry a resolved secret, a row or a response body.
-    :raises BackupError: if `text` is not JSON, so that `backup` and `restore` refuse it as they
-        refuse any other failed step, rather than ending in a traceback.
+    :raises BackupError: if `text` is not JSON, or is nested deeper than the parser recurses, so
+        that `backup` and `restore` refuse it as they refuse any other failed step, rather than
+        ending in a traceback.
     """
     try:
         return json.loads(text)
-    # ValueError covers both JSONDecodeError and the UnicodeDecodeError of bytes that are not text.
-    except ValueError as error:
+    # ValueError covers both JSONDecodeError and the UnicodeDecodeError of bytes that are not text;
+    # RecursionError, which is no ValueError, is what deeply nested arrays or objects raise.
+    except (ValueError, RecursionError) as error:
         raise BackupError(f"{source} did not answer JSON ({type(error).__name__})") from None
+
+
+def _json_object(source: str, text: str | bytes) -> dict[str, Any]:
+    """`text` parsed as one JSON object, for a reader that looks its members up by name.
+
+    :param source: what answered `text`, named in the refusal, as `_json` names it.
+    :raises BackupError: if `text` is not JSON, as `_json` refuses it, or is JSON of another
+        shape, such as an array or a string.
+    """
+    parsed = _json(source, text)
+    if not isinstance(parsed, dict):
+        raise BackupError(f"{source} did not answer a JSON object")
+    return parsed
 
 
 def _report(line: str) -> None:
@@ -445,7 +460,8 @@ def _containers(text: str) -> list[dict[str, object]]:
     """The containers `docker compose ps --format json` listed: one JSON object per line, or one
     array, depending on the Compose version.
 
-    :raises BackupError: if the array, or a line, is not JSON.
+    :raises BackupError: if the array, or a line, is not JSON, or something it lists is not a
+        JSON object.
     """
     source = "docker compose ps"
     text = text.strip()
@@ -453,8 +469,12 @@ def _containers(text: str) -> list[dict[str, object]]:
         return []
     if text.startswith("["):
         listed = _json(source, text)
-        return [container for container in listed if isinstance(container, dict)]
-    return [_json(source, line) for line in text.splitlines() if line.strip()]
+    else:
+        listed = [_json(source, line) for line in text.splitlines() if line.strip()]
+    containers = [container for container in listed if isinstance(container, dict)]
+    if len(containers) != len(listed):
+        raise BackupError(f"{source} listed something that is not a container")
+    return containers
 
 
 def _books_digest(compose: Compose) -> str | None:
@@ -869,6 +889,9 @@ def _assistant_token(compose: Compose) -> str:
 
     The secret is the one `.env` gives Keycloak, read from the resolved Compose model. A restored
     Keycloak keeps the secret it imported originally, so a mismatch means `.env` changed since.
+
+    :raises BackupError: if the secret is not set, Keycloak refuses it, or its answer is not a
+        JSON object carrying an `access_token`.
     """
     services = compose.resolved().get("services")
     keycloak = services.get("keycloak") if isinstance(services, dict) else None
@@ -892,7 +915,7 @@ def _assistant_token(compose: Compose) -> str:
             f"realm keeps the secret it was given, so {ASSISTANT_CLIENT_SECRET_ENV} in .env may "
             "have changed since the backup"
         )
-    token = _json("Keycloak's token endpoint", body).get("access_token")
+    token = _json_object("Keycloak's token endpoint", body).get("access_token")
     if not isinstance(token, str) or not token:
         raise BackupError("Keycloak's token response carried no access_token")
     return token
@@ -900,7 +923,12 @@ def _assistant_token(compose: Compose) -> str:
 
 def _accounts_served(compose: Compose) -> None:
     """The ledger lists exactly the accounts the restored books hold, and answers each one's
-    balance in that account's currency. Reports counts, never an id, a name or an amount."""
+    balance in that account's currency. Reports counts, never an id, a name or an amount.
+
+    :raises BackupError: if the books hold no account, a request is refused, the listing is not
+        a JSON list of objects, a balance answer is not a JSON object holding a `balance` object,
+        or the two sets of accounts or any currency differ.
+    """
     held = {row[0]: row[1] for row in compose.psql(LEDGER, ACCOUNTS_SQL)}
     if not held:
         raise BackupError("the restored books hold no account, so there is nothing to prove")
@@ -908,7 +936,10 @@ def _accounts_served(compose: Compose) -> None:
     status, body = _request(LEDGER_CHECK_PORT, "GET", ACCOUNTS_PATH, token=token)
     if status != HTTP_OK:
         raise BackupError(f"GET {ACCOUNTS_PATH} answered {status}")
-    listed = {str(account.get("id")) for account in _json(f"GET {ACCOUNTS_PATH}", body)}
+    accounts = _json(f"GET {ACCOUNTS_PATH}", body)
+    if not isinstance(accounts, list) or not all(isinstance(each, dict) for each in accounts):
+        raise BackupError(f"GET {ACCOUNTS_PATH} did not answer a list of accounts")
+    listed = {str(account.get("id")) for account in accounts}
     if listed != set(held):
         raise BackupError(
             f"the ledger lists {len(listed)} accounts and the database holds {len(held)}, "
@@ -919,7 +950,9 @@ def _accounts_served(compose: Compose) -> None:
         status, body = _request(LEDGER_CHECK_PORT, "GET", path, token=token)
         if status != HTTP_OK:
             raise BackupError(f"an account's balance answered {status}")
-        balance = _json("an account's balance", body).get("balance") or {}
+        balance = _json_object("an account's balance", body).get("balance")
+        if not isinstance(balance, dict):
+            raise BackupError("an account's balance answered no balance")
         if balance.get("currency") != currency:
             raise BackupError("an account's balance came back in another currency than its own")
     _report(f"   {len(held)} accounts listed, each balance answered in its own currency")
