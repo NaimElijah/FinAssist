@@ -26,6 +26,16 @@ all of its document that is checked against the ledger's.
   asks springdoc for the document directly
   ([ADR-030](../docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)).
 
+A contract lists the routes a client calls as a client. Each one deliberately leaves out:
+
+- the service's Actuator, health and readiness probes;
+- the service's own `/openapi.json` or `/v3/api-docs`;
+- for the gateway, the browser-navigated sign-in entry
+  `GET /bff/oauth2/authorization/{registrationId}` and its callback
+  `GET /bff/login/oauth2/code/{registrationId}`, which a browser follows and a client never calls;
+- for the gateway, its relay routes under `/ledger/api/v1/**` and `/assistant/api/v1/**`, which
+  the ledger's and the assistant's own documents describe.
+
 **Value-semantics conformance vectors.** `money-vectors.v1.json` is the behaviour both `Money`
 implementations must agree on, read by `MoneyVectorsTest` in the ledger and
 `test_money_vectors.py` in the assistant. ADR-010 forbids a shared kernel across languages and
