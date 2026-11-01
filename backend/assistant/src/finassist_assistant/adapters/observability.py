@@ -82,8 +82,9 @@ TRACEPARENT_HEADER: Final = "traceparent"
 CORRELATION_ID_FIELD: Final = "correlation_id"
 """The key under which :func:`add_correlation_id` puts the bound id on every log event."""
 
-# A W3C trace id is 32 lowercase hex characters, and all-zero is explicitly invalid.
-_TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
+# A W3C trace id is 32 lowercase hex characters, and all-zero is explicitly invalid. Matched with
+# fullmatch: `$` would also match before a final newline, letting one into a log line.
+_TRACE_ID = re.compile(r"[0-9a-f]{32}")
 _INVALID_TRACE_ID: Final = "0" * 32
 _TRACEPARENT_FIELDS: Final = 4
 
@@ -176,7 +177,7 @@ def trace_id_of(traceparent: str | None) -> str | None:
     if len(fields) < _TRACEPARENT_FIELDS:
         return None
     trace_id = fields[1]
-    if not _TRACE_ID.match(trace_id) or trace_id == _INVALID_TRACE_ID:
+    if not _TRACE_ID.fullmatch(trace_id) or trace_id == _INVALID_TRACE_ID:
         return None
     return trace_id
 

@@ -166,8 +166,10 @@ def Given_a_traceparent_When_a_request_is_served_Then_its_trace_id_is_continued(
         f"00-{'Z' * 32}-00f067aa0ba902b7-01",
         f"00-{'0' * 32}-00f067aa0ba902b7-01",
         f"00-{VALID_TRACE_ID}",
+        # `$` also matches before a final newline, so this one was accepted, newline and all.
+        f"00-{VALID_TRACE_ID}\n-00f067aa0ba902b7-01",
     ],
-    ids=["empty", "prose", "short", "non-hex", "all-zero", "too-few-fields"],
+    ids=["empty", "prose", "short", "non-hex", "all-zero", "too-few-fields", "trailing-newline"],
 )
 def Given_a_malformed_traceparent_When_parsed_Then_it_is_refused(traceparent: str) -> None:
     """The header is caller-supplied and ends up in a log line and a response header.
