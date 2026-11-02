@@ -788,12 +788,21 @@ still at hand needs steps 1 and 2 only.
 ## Recovering Keycloak's admin account
 
 **A locked-out admin waits, or is let in by a temporary admin.** `master` locks the admin out
-after five wrong passwords, for a minute that grows to fifteen
+after five wrong passwords, or two less than a second apart, for a minute that grows to fifteen
 ([ADR-073](../ADRs/ADR-073-every-realm-locks-out-a-guessed-sign-in-for-a-while-never-for-good.md)),
-and while it lasts `keycloak-master` cannot sign in, so `docker compose up` fails and the gateway
-does not start. Wait it out and run `docker compose up -d --wait` again, or clear it as the
-temporary admin below, with `k delete "attack-detection/brute-force/users/$id" -r master` for the
-admin's `id`, before deleting the temporary admin.
+and the lock survives a restart of Keycloak. While it lasts `keycloak-master` cannot sign in, so
+`docker compose up` fails and the gateway does not start, and the one-shot prints the same
+`Invalid user credentials` as for a drifted `.env`. To tell the two apart, sign the CLI in as a
+temporary admin (below) and read the admin's lock:
+
+```bash
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; id=$(k get users -r master -q exact=true -q "username=$KC_BOOTSTRAP_ADMIN_USERNAME" --fields id --format csv --noquotes) && k get "attack-detection/brute-force/users/$id" -r master'
+```
+
+`"disabled" : true` with a `numFailures` is a lockout, and `lastIPFailure` names where the last
+wrong password came from; anything else points at `.env`. A lockout that keeps coming back means
+something keeps guessing: find it before anything else. Otherwise wait it out and run
+`docker compose up -d --wait` again, or let the recovery below clear it.
 
 **A lost admin password is recovered with a temporary admin, and `keycloak-db-data` is never
 touched.** Recreating that volume would bring the admin back from `.env`, but it would delete the
@@ -822,15 +831,20 @@ exits 0. In that case, `export TEMP_ADMIN` with another name and run `docker com
 every command below reads the name from `TEMP_ADMIN`.
 
 Then, as the temporary admin, set the real admin's password to `KEYCLOAK_ADMIN_PASSWORD` from
-`.env`. Sign in as the real admin, and delete the temporary one:
+`.env` and clear any lock on it, since a locked admin cannot sign in. Sign in as the real admin,
+delete the temporary one, and check that it is gone:
 
 ```bash
 export KC_CLI_PASSWORD="$TEMP_ADMIN_PASSWORD"
 docker compose exec -T -e KC_CLI_PASSWORD -e TEMP_ADMIN keycloak sh -c '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user "$TEMP_ADMIN" --config /tmp/kcadm.config'
 unset KC_CLI_PASSWORD TEMP_ADMIN_PASSWORD
 docker compose exec -T keycloak sh -c 'KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" /opt/keycloak/bin/kcadm.sh set-password -r master --username "$KC_BOOTSTRAP_ADMIN_USERNAME" --config /tmp/kcadm.config'
-docker compose exec -T -e TEMP_ADMIN keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" k config credentials --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" && id=$(k get users -r master -q exact=true -q "username=$TEMP_ADMIN" --fields id --format csv --noquotes) && k delete "users/$id" -r master'
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; aid=$(k get users -r master -q exact=true -q "username=$KC_BOOTSTRAP_ADMIN_USERNAME" --fields id --format csv --noquotes) && k delete "attack-detection/brute-force/users/$aid" -r master'
+docker compose exec -T -e TEMP_ADMIN keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" k config credentials --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" && id=$(k get users -r master -q exact=true -q "username=$TEMP_ADMIN" --fields id --format csv --noquotes) && k delete "users/$id" -r master && k get users -r master -q exact=true -q "username=$TEMP_ADMIN" && rm /tmp/kcadm.config'
+docker compose up -d --wait   # keycloak-master signs in with .env's admin again
 ```
+
+The check prints `[ ]` once the temporary admin is gone.
 
 An account left by an earlier recovery is deleted the same way, with `TEMP_ADMIN` set to its name.
 To give the admin a new password rather than the one `.env` holds, write it into `.env` before you
