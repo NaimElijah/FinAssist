@@ -612,8 +612,11 @@ Keycloak reads `KEYCLOAK_ADMIN_PASSWORD`, as `KC_BOOTSTRAP_ADMIN_PASSWORD`, only
 creates its `master` realm. **But the `keycloak-master` one-shot signs in with it on every `up`, and
 the gateway waits on that** (ADR-074), so `.env` must hold the administrator's live password: one
 changed in Keycloak alone stops the gateway at the next `up`, with `keycloak-master` exiting 1 on
-`Invalid user credentials`, until `.env` matches again. Note the current value first: a later step
-signs in with it, after `.env` has stopped holding it. Then set the new value in `.env`, and run:
+`Invalid user credentials`, until `.env` matches again. **The same holds for
+`KEYCLOAK_ADMIN_USERNAME`:** it must name the live admin. Keycloak's console calls the account
+"temporary" and suggests replacing it; under ADR-074 it stays, and if an admin is ever replaced,
+`.env` changes first. Note the current value first: a later step signs in with it, after `.env` has
+stopped holding it. Then set the new value in `.env`, and run:
 
 ```bash
 docker compose up -d --wait keycloak   # now carries the new value; the admin still has the old one
@@ -628,12 +631,20 @@ characters (ADR-074), as `secret-check` refuses one in `.env`:
 docker compose exec -T keycloak sh -c 'KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" /opt/keycloak/bin/kcadm.sh set-password -r master --username "$KC_BOOTSTRAP_ADMIN_USERNAME" --config /tmp/kcadm.config'
 ```
 
+A new password does not end the admin's existing sessions, offline ones included, so end them,
+the CLI's own last:
+
+```bash
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; id=$(k get users -r master -q exact=true -q "username=$KC_BOOTSTRAP_ADMIN_USERNAME" --fields id --format csv --noquotes) && k create "users/$id/logout" -r master && rm /tmp/kcadm.config'
+```
+
 You can use the admin console instead:
 
 1. Sign in at `http://localhost:8081/admin` with the current password.
 2. Choose the `master` realm under "Manage realms".
 3. Open Users → `admin` → Credentials → "Reset password".
 4. Enter the new value, of at least 32 characters, with "Temporary" switched off.
+5. Open the admin's Sessions tab and sign every session out.
 
 Then `docker compose up -d --wait`, which runs `keycloak-master` with the new value.
 
