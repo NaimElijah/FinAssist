@@ -165,9 +165,11 @@ Keycloak keeps the backup's client secrets, not `.env`'s ([below](#backing-up-an
 **Before step 1, still on the newer code, back up the books as they are now.** Nothing is deleted
 until step 3, and step 2 can fail. This backup keeps every write made since the upgrade as a dump,
 whatever happens next. Take it now, because the backup CLI you run is the one in the working tree,
-and step 1 replaces it with the previous release's:
+and step 1 replaces it with the previous release's. Stop the gateway and the ledger first, so that
+no write lands after the dump and is lost at step 4; the backup needs only the two databases:
 
 ```bash
+docker compose stop gateway ledger
 docker compose up -d --wait db keycloak-db
 make backup   # raw: uv run ops/backup/backup.py backup
 ```
