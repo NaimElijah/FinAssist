@@ -611,7 +611,7 @@ variable. If the admin's password is lost altogether, see
 Keycloak reads `KEYCLOAK_ADMIN_PASSWORD`, as `KC_BOOTSTRAP_ADMIN_PASSWORD`, only when it first
 creates its `master` realm. **But the `keycloak-master` one-shot signs in with it on every `up`, and
 the gateway waits on that** (ADR-074), so `.env` must hold the administrator's live password: one
-changed in Keycloak alone stops the gateway at the next `up`, with `keycloak-master` exiting 1 on
+changed in Keycloak alone makes the next `up` start no gateway, with `keycloak-master` exiting 1 on
 `Invalid user credentials`, until `.env` matches again. **The same holds for
 `KEYCLOAK_ADMIN_USERNAME`:** it must name the live admin. Keycloak's console calls the account
 "temporary" and suggests replacing it; under ADR-074 it stays, and if an admin is ever replaced,

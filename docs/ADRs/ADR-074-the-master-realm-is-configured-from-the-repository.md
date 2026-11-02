@@ -54,8 +54,13 @@ service merges it into the running realm on every `up`.**
   ADR-039's one-shots take none, and runs as `nobody` on a read-only root with `/tmp` on a tmpfs,
   on the default network only. The same `up` configures a fresh volume and an existing one.
 - **The gateway waits on it.** `gateway` depends on `keycloak-master` completing successfully,
-  so the stack does not open sign-in while `master` is unconfigured. `make check-compose` holds
-  that gate as it holds `secret-check`'s.
+  so `up` fails, and starts no gateway, while `master` is unconfigured or the administrator's
+  credential in `.env` has drifted, rather than leaving `master` on defaults unnoticed. It orders a
+  start and stops nothing: `master`'s own sign-in, the console and token endpoint on Keycloak's
+  port, opens as soon as Keycloak is healthy, before the one-shot runs, and a Docker restart brings
+  the gateway back without `depends_on`. The settings persist in `keycloak-db`, so only a volume
+  never configured runs on defaults, and only until the one-shot first succeeds. `make
+  check-compose` holds that gate as it holds `secret-check`'s.
 - **The administrator stays one account, signing in with a password.** No second factor and no
   replacement account. **The owner's decision, made on 2026-11-02.** `master`'s `admin-cli` keeps
   the password grant, because every `kcadm.sh` runbook signs in through it.
@@ -77,11 +82,14 @@ service merges it into the running realm on every `up`.**
 - **The administrator's password is single-factor.** Brute-force protection, the 32-character
   minimum and loopback-only ports protect it; a second factor does not. A process that can read
   `.env` holds it either way.
-- **A drifted `.env` stops sign-in.** If the administrator's password changes anywhere but `.env`
-  first, the one-shot fails and the gateway does not start. The runbooks write `.env` first.
-- **A lockout of the administrator stops the stack's start for its length.** Five wrong passwords
-  lock the administrator out for up to fifteen minutes (ADR-073), and the one-shot cannot sign in
-  until it ends.
+- **A drifted `.env` stops `up`.** If the administrator's username or password changes anywhere
+  but `.env` first, the one-shot fails and `up` starts no gateway. The runbooks write `.env` first.
+- **A lockout of the administrator stops the stack's start while it lasts.** Five wrong passwords,
+  or two less than a second apart, lock the administrator out for a minute growing to fifteen
+  (ADR-073), the lock survives a restart of Keycloak, and the one-shot cannot sign in until it ends.
+  Something that keeps guessing keeps it locked, so a starting gateway stays down for as long as it
+  guesses; a running one is unaffected. `docs/operations/operations.md` tells a lockout from drift
+  by reading the administrator's lock.
 - **A setting removed from the file stays in `master`.** A merge changes what the file names; a
   setting taken out of it keeps its last value until it is set again, by the file or by hand.
 - **Three one-shots instead of two,** each one more exemption for `make check-compose` to name.

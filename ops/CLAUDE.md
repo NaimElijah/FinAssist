@@ -173,8 +173,8 @@ From the repository root unless stated:
   never by recreating `keycloak-db-data`.
 - **`KEYCLOAK_ADMIN_PASSWORD` must equal the administrator's live password** (ADR-074). The
   `keycloak-master` one-shot signs in with it on every `up`, and the gateway waits on that, so a
-  password changed anywhere but `.env` first stops the gateway, as five wrong ones do while the
-  administrator is locked out (ADR-073). `master`'s policy holds every password set for it to 32
+  password changed anywhere but `.env` first keeps `up` from starting the gateway, as a lockout of the
+  administrator does, after five wrong passwords or two within a second (ADR-073). `master`'s policy holds every password set for it to 32
   characters, a temporary one from `kc.sh bootstrap-admin` included.
 - **Every secret and credential in the realm is a `${VAR}` placeholder**, pinned by
   `KeycloakRealmTest`. `KeycloakRealmIT` imports the file into a real Keycloak and reads back the

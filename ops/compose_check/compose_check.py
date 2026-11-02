@@ -292,10 +292,10 @@ UNPUBLISHED_SERVICES: Final = frozenset({"keycloak-db"})
 PINNED_PROFILES: Final = {"auth-smoke": ("smoke",), "keycloak-master": (), "secret-check": ()}
 # Each gating one-shot and the services that wait on it. The secret check gates every database and
 # Grafana, and every other service holding a secret waits on one of those (ADR-044); the
-# master-realm one-shot gates the gateway, so sign-in never opens while `master` runs on Keycloak's
-# defaults (ADR-074). Only a pass releases them: `service_started` would not wait for its verdict,
-# and `required: false` lets the service start without it. Compose defaults `required` to true, so
-# a resolved file that omits it is gated.
+# master-realm one-shot gates the gateway, so `up` fails, without starting the gateway, while
+# `master` is unconfigured (ADR-074). Only a pass releases them: `service_started` would not wait
+# for its verdict, and `required: false` lets the service start without it. Compose defaults
+# `required` to true, so a resolved file that omits it is gated.
 ONE_SHOT_GATES: Final = {
     "keycloak-master": frozenset({"gateway"}),
     "secret-check": frozenset({"db", "keycloak-db", "grafana"}),

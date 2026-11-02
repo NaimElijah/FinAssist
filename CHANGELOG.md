@@ -798,8 +798,9 @@ process, decides whether generating this file from the
   `ops/keycloak/master-realm.json` into it with `kcadm.sh` on every `docker compose up`, keeping
   every user. It gives `master` the same lockout policy as `finassist`, a 32-character password
   policy and no event listener, and the gateway waits on it. **`KEYCLOAK_ADMIN_PASSWORD` must now
-  stay equal to the admin's live password**: one changed in Keycloak alone stops the gateway at the
-  next `up` until `.env` matches. A temporary admin from `kc.sh bootstrap-admin` also needs 32
+  stay equal to the admin's live password**, and `KEYCLOAK_ADMIN_USERNAME` name the admin: one
+  changed in Keycloak alone makes the next `up` fail, without starting the gateway, until `.env`
+  matches. A temporary admin from `kc.sh bootstrap-admin` also needs 32
   characters. The lockout thresholds are now a recorded decision
   ([ADR-073](docs/ADRs/ADR-073-every-realm-locks-out-a-guessed-sign-in-for-a-while-never-for-good.md),
   [ADR-074](docs/ADRs/ADR-074-the-master-realm-is-configured-from-the-repository.md),

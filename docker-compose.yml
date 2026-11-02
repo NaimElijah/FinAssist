@@ -360,9 +360,10 @@ services:
   # --- Keycloak's master realm (ADR-074) -------------------------------------------------------
   # Keycloak creates `master` itself, before it imports anything, so `--import-realm` never reads a
   # `master` file. This one-shot merges ops/keycloak/master-realm.json into the running realm with
-  # `kcadm.sh` on every `up`, keeping every user, and the gateway waits on it, so sign-in never
-  # opens while `master` runs on Keycloak's defaults. It signs in as the bootstrap administrator,
-  # so KEYCLOAK_ADMIN_PASSWORD must stay equal to the administrator's live password.
+  # `kcadm.sh` on every `up`, keeping every user, and the gateway waits on it, so `up` fails, and
+  # starts no gateway, while `master` is unconfigured. `master`'s own sign-in opens with Keycloak,
+  # before this runs; the settings then persist in `keycloak-db`. It signs in as the bootstrap
+  # administrator, so KEYCLOAK_ADMIN_USERNAME and KEYCLOAK_ADMIN_PASSWORD must name the live one.
   keycloak-master:
     # The same build as `keycloak`, which BuildKit serves from its cache. Not a shared image tag:
     # each Compose project names its own image, so an isolated `-p` run never replaces the owner's.
@@ -396,9 +397,9 @@ services:
     depends_on:
       keycloak:
         condition: service_healthy
-      # Sign-in opens only once `master` holds the repository's settings (ADR-074): an
-      # administrator password that no longer signs in stops the gateway, rather than the stack
-      # starting with `master` unconfigured.
+      # `up` starts the gateway only once `master` holds the repository's settings (ADR-074), so an
+      # unconfigured `master`, or an administrator credential that no longer signs in, fails
+      # loudly rather than going unnoticed. It orders the start; it stops nothing that runs.
       keycloak-master:
         condition: service_completed_successfully
     # Loopback only (ADR-030) — the gateway is what the browser talks to directly, so its
