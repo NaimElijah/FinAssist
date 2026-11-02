@@ -155,8 +155,8 @@ migrations, from a commit dated 2026-10-13 or later but before `8aaf518` (2026-1
 landed.* The recipe needs the previous commit to carry `ops/backup/backup.py`, which arrived on
 2026-10-13, because steps 2 and 5 run that commit's copy. The previous ledger carries four
 migrations, `1.1`, `1.2`, `2.1` and `3.1`. The upgraded history also holds `1.3` to `1.7` and
-`2.2`, each below `3.1`, so the previous ledger refuses to start. `3.2` sits above the newest one
-it knows, so it alone would not stop it.
+`2.2`, each below `3.1`, so the previous ledger refuses to start. `3.2` and `3.3` sit above the
+newest one it knows, so they alone would not stop it.
 
 **Skip the restore and the symptom is a ledger that restarts.** `docker compose ps` shows `ledger`
 as `Restarting`, because `restart: unless-stopped` starts it again after each refusal, and
