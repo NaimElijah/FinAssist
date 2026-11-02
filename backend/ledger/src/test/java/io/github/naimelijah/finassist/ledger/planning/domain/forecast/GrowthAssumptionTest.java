@@ -111,7 +111,7 @@ class GrowthAssumptionTest {
         assertThat(GrowthAssumption.perStep("0.10000000000").ratePerStep()).isEqualTo(new BigDecimal("0.1"));
     }
 
-    /** The upper bound is checked before trailing zeros are dropped, so the order cannot let it slip. */
+    /** The maximum written with trailing zeros is the maximum. */
     @Test
     void Given_the_maximum_written_with_trailing_zeros_When_an_assumption_is_built_Then_it_is_allowed() {
         assertThat(GrowthAssumption.perStep("1.000").ratePerStep()).isEqualTo(BigDecimal.ONE);
