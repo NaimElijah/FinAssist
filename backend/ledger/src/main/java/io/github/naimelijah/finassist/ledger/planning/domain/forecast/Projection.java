@@ -128,7 +128,8 @@ public record Projection(Horizon horizon, Cadence step, List<BalancePoint> point
         requireWithinBound(openingCash, "the opening cash");
         requireWithinBound(openingInvested, "the opening investments");
         for (PlannedFlow flow : scenario.forecastableFlows()) {
-            requireWithinBound(flow.amount(), "a planned flow's amount");
+            requireWithinBound(
+                    flow.amount(), "the amount of planned flow " + flow.id().value());
         }
 
         int steps = Math.toIntExact(stepsAcross(horizon, step));

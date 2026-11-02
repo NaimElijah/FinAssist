@@ -55,8 +55,8 @@ can be as long as the request that carried it. **The figures are the owner's dec
   refuses `NaN`, which `V3_1`'s `growth_per_step > -1` admits.
 - **A projection refuses any amount of more than 18 integer digits,** that is, any amount at or
   beyond 10^18 either side of zero. `Projection.MAXIMUM_INTEGER_DIGITS`. `Projection.of` checks
-  its inputs first, the opening cash, the opening investments and each planned flow's amount,
-  before it expands a single recurrence, then every point's cash, invested balance and total as it
+  its inputs first, the opening cash, the opening investments and the amount of each flow it
+  counts, a cancelled or realised one moving no balance, before it expands a single recurrence, then every point's cash, invested balance and total as it
   builds them. The work stops at the first amount past the bound.
 - **A recurrence is expanded only from the first period that can reach the horizon.** Occurrences
   are measured from a flow's start, so the periods before the horizon need not be stepped through,

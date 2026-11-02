@@ -408,8 +408,25 @@ class ProjectionTest {
                         scenario, QUARTER, Cadence.MONTHLY, Money.zero(Currency.ILS), Money.zero(Currency.ILS)))
                 .isExactlyInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining(BOUND_REFUSAL)
-                .hasMessageContaining("planned flow")
+                .hasMessageContaining("planned flow " + windfall.id().value())
                 .satisfies(refusal -> assertThat(refusal.getMessage()).doesNotContain("1000000000000000000"));
+    }
+
+    /**
+     * Only the flows a projection counts are checked: a cancelled or realised one moves no balance, so
+     * its amount, however large, is no part of what the projection computes.
+     */
+    @Test
+    void Given_a_cancelled_flow_past_the_maximum_integer_digits_When_projected_Then_it_is_ignored() {
+        PlannedFlow cancelled = PlannedFlow.plan(
+                        "Windfall", ils(PAST_THE_BOUND), Direction.INFLOW, FEBRUARY, new Recurrence.Once())
+                .cancel(FEBRUARY, "never coming");
+        Scenario scenario = Scenario.of("Dream", Currency.ILS, List.of(cancelled), GrowthAssumption.none());
+
+        Projection projection =
+                Projection.of(scenario, QUARTER, Cadence.MONTHLY, ils("1000.00"), Money.zero(Currency.ILS));
+
+        assertThat(projection.endState().cash()).isEqualTo(ils("1000.00"));
     }
 
     @Test
