@@ -150,17 +150,20 @@ A commit recorded after the pull is the newer release, and checking it out re-ru
 
 **Check Keycloak's version before you start.** A rollback rebuilds every image from the previous
 commit, Keycloak's included, and starts it on the `keycloak-db-data` the newer Keycloak has already
-used. Keycloak documents no downgrade, and this recipe has not been run across a Keycloak version
-change. Compare the two:
+used, under the previous `keycloak-db` image. Keycloak documents no downgrade, a PostgreSQL major
+version cannot open a data directory a newer major wrote, and this recipe has not been run across
+either change. Compare both:
 
 ```bash
 git diff <commit> HEAD -- ops/keycloak/Dockerfile   # no output: the same Keycloak either way
+git diff <commit> HEAD -- docker-compose.yml | grep -n 'image: postgres'   # keycloak-db's major
 ```
 
-If the `FROM quay.io/keycloak/keycloak:` tag differs, restore Keycloak's database from the same
-backup too, with step 3's alternative in place of steps 3 to 5. That loses every change to the
-identity store since the backup: a password, a TOTP device, a viewer added by hand, and the restored
-Keycloak keeps the backup's client secrets, not `.env`'s ([below](#backing-up-and-restoring)).
+If the `FROM quay.io/keycloak/keycloak:` tag differs, or `keycloak-db`'s `postgres:` major differs
+(#314 moves it to 18), restore Keycloak's database from the same backup too, with step 3's
+alternative in place of steps 3 to 5. That loses every change to the identity store since the
+backup: a password, a TOTP device, a viewer added by hand, and the restored Keycloak keeps the
+backup's client secrets, not `.env`'s ([below](#backing-up-and-restoring)).
 
 **Before step 1, still on the newer code, back up the books as they are now.** Nothing is deleted
 until step 3, and step 2 can fail. This backup keeps every write made since the upgrade as a dump,
