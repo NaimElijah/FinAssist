@@ -324,6 +324,20 @@ class ProjectionTest {
                 .hasMessageContaining("must open on");
     }
 
+    /** The bound is the type's, not only {@code of}'s: a series built by hand is held to it too. */
+    @Test
+    void Given_a_point_past_the_maximum_integer_digits_When_a_projection_is_built_from_points_Then_it_is_refused() {
+        BalancePoint january = new BalancePoint(JANUARY, ils("1000.00"), Money.zero(Currency.ILS));
+        BalancePoint february = new BalancePoint(FEBRUARY, ils(PAST_THE_BOUND), Money.zero(Currency.ILS));
+        BalancePoint march = new BalancePoint(MARCH, ils("1000.00"), Money.zero(Currency.ILS));
+        BalancePoint april = new BalancePoint(APRIL, ils("1000.00"), Money.zero(Currency.ILS));
+
+        assertThatThrownBy(() -> new Projection(QUARTER, Cadence.MONTHLY, List.of(january, february, march, april)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(BOUND_REFUSAL)
+                .hasMessageContaining("cash on " + FEBRUARY);
+    }
+
     @Test
     void Given_points_in_two_currencies_When_a_projection_is_built_Then_it_is_refused() {
         BalancePoint january = new BalancePoint(JANUARY, ils("1000.00"), Money.zero(Currency.ILS));

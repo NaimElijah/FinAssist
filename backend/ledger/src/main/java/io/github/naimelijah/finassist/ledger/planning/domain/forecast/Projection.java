@@ -51,7 +51,8 @@ public record Projection(Horizon horizon, Cadence step, List<BalancePoint> point
      * @throws NullPointerException if any argument is null
      * @throws IllegalArgumentException if there are no points, the first is not dated
      *     {@code horizon.from()} or the last {@code horizon.to()}, a point is not dated on its
-     *     step boundary, or the points are not all in one currency
+     *     step boundary, the points are not all in one currency, or a point's cash, invested balance
+     *     or total has more than {@link #MAXIMUM_INTEGER_DIGITS} integer digits (ADR-072)
      */
     public Projection {
         Objects.requireNonNull(horizon, "horizon");
@@ -93,6 +94,9 @@ public record Projection(Horizon horizon, Cadence step, List<BalancePoint> point
                 throw new IllegalArgumentException("A projection is in one currency, but " + point.date() + " is in "
                         + point.currency() + " where it opened in " + currency);
             }
+            // Checked here as well as in of(), which checks each point as it computes it so that the
+            // work stops there: a projection built from points by hand holds the bound too.
+            withinBound(point);
             previous = point.date();
         }
     }
