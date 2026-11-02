@@ -54,7 +54,7 @@ append-only history: to change course, add a new record and mark the old one
 | [046](ADR-046-architecture-rules-read-the-code-never-load-it.md) | Architecture rules read the code and never load it | Accepted |
 | [047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) | Twelve passages of Accepted records reconciled with the system as built | Accepted |
 | [048](ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md) | Domain events stay in-process until a consumer exists, and production keeps no event log | Accepted |
-| [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted, extended by 061 and 063 |
+| [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted, extended by 061, 063 and 074 |
 | [050](ADR-050-no-domain-metric-yet-decided-again.md) | No domain metric yet, decided again, with new triggers | Accepted |
 | [051](ADR-051-what-a-translation-may-decide.md) | What a translation may decide: choosing records stays in `composition`, a rule in the downstream's own words moves into it | Accepted |
 | [052](ADR-052-ops-holds-operator-code-one-directory-per-tool.md) | `ops/` holds operator code, one directory per tool | Accepted |
@@ -430,7 +430,7 @@ never a permanent lockout, because each realm has one person who would otherwise
 Every realm the repository configures takes the same policy, `master` included, and the tests hold
 the two realm files equal ([#351](https://github.com/NaimElijah/FinAssist/issues/351)).
 
-074 extends 031, 039 and 060 on 2026-11-02. Keycloak creates its `master` realm itself, before it
+074 extends 031, 039, 049 and 060 on 2026-11-02. Keycloak creates its `master` realm itself, before it
 imports anything, so `--import-realm` never reads a `master` file and `master` ran on Keycloak's
 defaults. `ops/keycloak/master-realm.json` now holds its settings: 073's lockout policy, a
 32-character password policy and no event listener. A third one-shot, `keycloak-master`, merges it
