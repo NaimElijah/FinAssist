@@ -408,7 +408,7 @@ because the realm pins the owner's id, so every journal row the owner wrote stil
 account:
 
 ```bash
-docker compose build keycloak      # the realm file is copied into the image at build time
+docker compose build keycloak keycloak-master   # both carry the realm's files, copied in at build time
 docker compose stop keycloak       # Keycloak requires every node stopped before an override import
 docker compose run --rm keycloak import --optimized --file /opt/keycloak/data/import/finassist-realm.json --override true
 docker compose up -d keycloak gateway   # recreates each whose image or configuration changed
@@ -425,7 +425,7 @@ included, which it creates again from `KEYCLOAK_ADMIN_USERNAME` and `KEYCLOAK_AD
 ```bash
 docker compose rm --stop --force keycloak keycloak-db   # these two containers only
 docker volume rm finassist_keycloak-db-data             # Keycloak's volume only, never finassist_db-data
-docker compose build keycloak
+docker compose build keycloak keycloak-master   # both carry the realm's files
 docker compose up -d keycloak gateway                   # imports the realm into the new, empty volume
 ```
 
