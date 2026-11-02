@@ -205,12 +205,13 @@ are declared in `application.yml` rather than in Java.
 Operational configuration lives in `ops/`: the collector, Prometheus and Grafana configuration that
 the `monitoring` Compose profile mounts (`otel-collector.yaml`, `prometheus.yml`, `grafana/`);
 `ops/keycloak/`, the `Dockerfile` that builds the identity provider, the `finassist` realm it
-imports at start-up (ADR-031), and `master`'s settings with the script that merges them (ADR-074); `ops/smoke/auth_smoke.py`, the opt-in smoke check behind the `smoke`
-profile (ADR-034); `ops/backup/backup.py`, the operator CLI that backs up, restores and proves a
-restore of each database (ADR-038); `ops/secret_check/secret_check.py`, the one-shot that refuses a
-published or short secret (ADR-044, ADR-061) and a ledger password apart from its role's (ADR-071);
-and `ops/compose_check/compose_check.py`, the check that `make check-compose` pipes the resolved
-Compose file into (ADR-049). One directory per tool, none of them a service
+imports at start-up (ADR-031), and `master`'s settings with the script that merges them (ADR-074);
+`ops/smoke/auth_smoke.py`, the opt-in smoke check behind the `smoke` profile (ADR-034);
+`ops/backup/backup.py`, the operator CLI that backs up, restores and proves a restore of each
+database (ADR-038); `ops/secret_check/secret_check.py`, the one-shot that refuses a published or
+short secret (ADR-044, ADR-061) and a ledger password apart from its role's (ADR-071); and
+`ops/compose_check/compose_check.py`, the check that `make check-compose` pipes the resolved Compose
+file into (ADR-049). One directory per tool, none of them a service
 ([ADR-052](../ADRs/ADR-052-ops-holds-operator-code-one-directory-per-tool.md)).
 
 ## Communication
