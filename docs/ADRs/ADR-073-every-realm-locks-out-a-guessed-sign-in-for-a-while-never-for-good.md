@@ -46,12 +46,16 @@ already held, on 2026-11-02.**
 - **Temporary, because each realm has one person who would have to undo a permanent lockout.** The
   owner signs in to `finassist` and is also `master`'s administrator. A permanent lockout of either
   would need the recovery runbooks every time, `kc.sh bootstrap-admin` for the administrator.
-- **It is enough here because of what sits around it.** Every published port binds loopback
-  ([ADR-030](ADR-030-oidc-authentication-through-a-bff-gateway.md)), every Compose secret is at
-  least 32 characters and not published
-  ([ADR-061](ADR-061-the-stack-refuses-a-configuration-that-weakens-a-credential.md)), and the owner
-  signs in to `finassist` with TOTP. At five guesses per wait, a password of that length is out of
-  reach.
+- **It is enough here because of what sits around each realm.** Every published port binds
+  loopback ([ADR-030](ADR-030-oidc-authentication-through-a-bff-gateway.md)).
+  - In `finassist`, a password has at least 12 characters, by the realm's policy. The owner also
+    needs TOTP, but a viewer signs in with a password alone
+    ([ADR-060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md)),
+    so for a viewer the lockout is the only defence against guessing.
+  - In `master`, the administrator's password has at least 32 characters, by the policy ADR-074
+    sets, as `secret-check` holds the bootstrap value
+    ([ADR-061](ADR-061-the-stack-refuses-a-configuration-that-weakens-a-credential.md)). At five
+    guesses per wait, a password of that length is out of reach.
 - **One policy, written twice.** `finassist-realm.json` and `master-realm.json` each carry the full
   block. `KeycloakRealmTest` requires the two to be equal, and `KeycloakRealmIT` reads both back
   from a running Keycloak.
@@ -84,6 +88,8 @@ already held, on 2026-11-02.**
 
 - **Sign-in is reachable beyond loopback** (M5, [#61](https://github.com/NaimElijah/FinAssist/issues/61)).
 - **More than one household signs in** (M6): a lockout then affects people who are not the owner.
+- **A viewer is added who does not share the owner's devices** (ADR-060's trigger): a
+  single-factor viewer is the account this policy protects least.
 - **The owner, or the administrator, is locked out by accident** in practice.
 
 ## What lands with this record
