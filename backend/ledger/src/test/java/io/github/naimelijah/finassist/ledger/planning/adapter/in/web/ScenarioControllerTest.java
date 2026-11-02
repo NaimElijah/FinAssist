@@ -1,6 +1,8 @@
 package io.github.naimelijah.finassist.ledger.planning.adapter.in.web;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -237,10 +239,10 @@ class ScenarioControllerTest {
 
     /**
      * A rate above 1 a step, or with more than ten decimal places, is refused as a rule (ADR-072): a
-     * "5" typed to mean 5% would otherwise compound a projection into figures nobody could hold.
+     * "12" typed to mean 12% would otherwise compound a projection into figures nobody could hold.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"1.5", "5", "0.00000000001"})
+    @ValueSource(strings = {"1.5", "12", "0.00000000001"})
     void Given_a_growth_rate_beyond_its_upper_bounds_When_defined_Then_it_is_a_422_rule_violated_problem(String rate)
             throws Exception {
         mvc.perform(post(SCENARIOS)
@@ -248,7 +250,9 @@ class ScenarioControllerTest {
                         .content(defineRequest("Buy the car", "[]", rate)))
                 .andExpect(status().is(422))
                 .andExpect(content().contentType(PROBLEM_JSON))
-                .andExpect(jsonPath("$.code").value("RULE_VIOLATED"));
+                .andExpect(jsonPath("$.code").value("RULE_VIOLATED"))
+                .andExpect(jsonPath("$.detail").value(containsString("at most")))
+                .andExpect(jsonPath("$.detail").value(not(containsString(rate))));
 
         verifyNoInteractions(definer);
     }

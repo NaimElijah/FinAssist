@@ -75,7 +75,7 @@ class PlanningHttpIT extends PostgresFixture {
              "recurrence": {"kind": "UNTIL", "cadence": "YEARLY", "interval": 1000000000, "until": "2030-01-01"}}
             """;
 
-    /** 600 quadrillion ILS on 1 January 2026: within the bound alone, and past it twice over. */
+    /** 600 quadrillion ILS on 1 January 2026: within the bound alone, and past it when two land at once. */
     private static final String VAST_INFLOW = """
             {"description": "Windfall", "amount": {"amount": "600000000000000000.00", "currency": "ILS"},
              "direction": "INFLOW", "startsOn": "2026-01-01", "recurrence": {"kind": "ONCE"}}
@@ -271,8 +271,8 @@ class PlanningHttpIT extends PostgresFixture {
     @Test
     void Given_growth_rates_beyond_the_upper_bounds_When_defined_Then_each_is_a_422_and_none_is_listed()
             throws Exception {
-        assertProblem(post(SCENARIOS, defineRequest("Typed as a percentage", "5")), 422, "RULE_VIOLATED");
-        assertProblem(post(SCENARIOS, defineRequest("Too precise", "0.00000000001")), 422, "RULE_VIOLATED");
+        assertRuleViolated(post(SCENARIOS, defineRequest("Typed as a percentage", "5")), "at most 1 a step");
+        assertRuleViolated(post(SCENARIOS, defineRequest("Too precise", "0.00000000001")), "at most 10 decimal places");
 
         assertThat(ok(get(SCENARIOS))
                         .valueStream()
@@ -290,12 +290,11 @@ class PlanningHttpIT extends PostgresFixture {
         String dream = define("Dream", "0", plan(VAST_INFLOW), plan(VAST_INFLOW));
         String doNothing = define("Do nothing", "0");
 
-        assertProblem(get(SCENARIOS + "/" + dream + "/projection?" + YEAR_2026), 422, "RULE_VIOLATED");
-        assertProblem(
+        assertRuleViolated(get(SCENARIOS + "/" + dream + "/projection?" + YEAR_2026), "18 integer digits");
+        assertRuleViolated(
                 get(COMPARISONS + "?scenario=" + doNothing + "&scenario=" + dream + "&baseline=" + doNothing + "&"
                         + YEAR_2026),
-                422,
-                "RULE_VIOLATED");
+                "18 integer digits");
     }
 
     /** One unknown scenario, two statuses: 404 named in a projection's path, 422 named in a comparison's query. */
@@ -436,6 +435,12 @@ class PlanningHttpIT extends PostgresFixture {
         assertThat(response.headers().firstValue(HttpHeaders.CONTENT_TYPE))
                 .hasValue(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         assertThat(json(response).path("code").asString()).isEqualTo(code);
+    }
+
+    /** {@code RULE_VIOLATED} answers any rule, so the detail says which one refused. */
+    private static void assertRuleViolated(HttpResponse<String> response, String detail) {
+        assertProblem(response, 422, "RULE_VIOLATED");
+        assertThat(json(response).path("detail").asString()).contains(detail);
     }
 
     private HttpResponse<String> get(String path) throws IOException, InterruptedException {
