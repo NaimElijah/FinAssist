@@ -119,9 +119,10 @@ not stop the previous ledger from starting, though it then runs on a schema newe
 Whether a release must stay compatible with the one before it is
 [#187](https://github.com/NaimElijah/FinAssist/issues/187)'s question, and is not settled here.
 
-*Worked example: an upgrade from any commit before 2026-10-31 to a later one, across
+*Worked example: an upgrade from any commit from 2026-09-22 up to 2026-10-31 to a later one, across
 [#343](https://github.com/NaimElijah/FinAssist/issues/343)'s migrations.* The previous ledger
-carries four migrations, `1.1`, `1.2`, `2.1` and `3.1`. The upgraded history also holds `1.3` to
+carries four migrations, `1.1`, `1.2`, `2.1` and `3.1` (`1.2` arrived on 2026-09-22; before that a
+commit carries only `1.1`, `2.1` and `3.1`). The upgraded history also holds `1.3` to
 `1.7` and `2.2`, each below `3.1`, so the previous ledger refuses to start. `3.2` sits above the
 newest one it knows, so it alone would not stop it.
 
@@ -139,7 +140,8 @@ Detected applied migration not resolved locally: 1.3.
 Flyway lists one such line for each unknown version: in the worked example, `1.3` to `1.7` and
 `2.2`.
 
-You need the folder of the backup taken before the upgrade, and the commit you were on then, which
+You need the folder of the backup taken before the upgrade, called `<pre-upgrade folder>` below,
+and the commit you were on then, which
 [the upgrade](#upgrading-an-existing-ledger-volume) told you to write down before you pulled. If
 you did not, `git reflog -n 5` or `git rev-parse --short ORIG_HEAD` right after the pull names it.
 A commit recorded after the pull is the newer release, and checking it out re-runs the new ledger.
@@ -169,7 +171,17 @@ docker compose up -d --wait db keycloak-db
 make backup   # raw: uv run ops/backup/backup.py backup
 ```
 
-Write its folder down beside the pre-upgrade one.
+**If it fails, stop:** step 4 deletes the only other copy of the writes since the upgrade. Write its
+folder down as `<post-upgrade folder>`, beside `<pre-upgrade folder>`, and prove it restores, still
+on the newer code and before step 1:
+
+```bash
+make restore-check BACKUP=backups/<post-upgrade folder>   # raw: uv run ops/backup/backup.py check backups/<post-upgrade folder>
+```
+
+After step 4 it is the only copy of the writes since the upgrade. It is the newest folder in
+`backups/`, and not the one that step 2, step 3's alternative and step 5 name: restoring it there
+would bring back the migrated books and the newer Keycloak.
 
 Run the steps in order, from the repository root:
 
@@ -183,15 +195,15 @@ Run the steps in order, from the repository root:
 2. **Prove the backup restores under the previous code.** This builds the previous ledger and
    Keycloak into a Compose project of its own, restores the backup there, and shows the previous
    ledger become ready on it, before anything of yours is deleted
-   ([above](#backing-up-and-restoring)):
+   ([below](#backing-up-and-restoring)):
 
    ```bash
-   make restore-check BACKUP=backups/<UTC time>   # raw: uv run ops/backup/backup.py check backups/<UTC time>
+   make restore-check BACKUP=backups/<pre-upgrade folder>   # raw: uv run ops/backup/backup.py check backups/<pre-upgrade folder>
    ```
 
    **If it fails, stop here.** Nothing has been deleted: the volume still holds the upgraded
-   books, and the backup you took before step 1 holds them as a dump. Switch back to the branch you
-   left (`git switch -`) and find the cause before you try again.
+   books, and the `<post-upgrade folder>` backup you took before step 1 holds them as a dump.
+   Switch back to the branch you left (`git switch -`) and find the cause before you try again.
 
 3. **Stop the ledger.** Nothing else needs to stop: `make restore` refuses only while the ledger
    is running, restarting or paused. Calls the gateway relays to the ledger fail meanwhile.
@@ -209,7 +221,7 @@ Run the steps in order, from the repository root:
    docker compose rm --stop --force ledger db keycloak keycloak-db
    docker volume rm finassist_db-data finassist_keycloak-db-data
    docker compose up -d --wait db keycloak-db
-   make restore BACKUP=backups/<UTC time>   # raw: uv run ops/backup/backup.py restore backups/<UTC time>
+   make restore BACKUP=backups/<pre-upgrade folder>   # raw: uv run ops/backup/backup.py restore backups/<pre-upgrade folder>
    ```
 
    **A restored Keycloak brings back every credential and access the backup held,** including each
@@ -222,8 +234,9 @@ Run the steps in order, from the repository root:
    - change again each password you changed;
    - remove again the old TOTP device, as in
      [Restoring the owner's sign-in](#restoring-the-owners-sign-in);
-   - rotate again each client secret, the admin's password and any realm key you rotated, in
-     Keycloak, to the value `.env` holds ([Rotating a secret](#rotating-a-secret));
+   - rotate again each client secret and the admin's password, in Keycloak, to the value `.env`
+     holds ([Rotating a secret](#rotating-a-secret));
+   - rotate again any realm key you rotated, in Keycloak's admin console;
    - then sign every session in the realm out, under Sessions in the admin console.
 
    Then go on to step 6, which starts the gateway.
@@ -238,11 +251,11 @@ Run the steps in order, from the repository root:
    docker compose up -d --wait db   # the volume comes back empty
    ```
 
-5. **Restore the books** from the backup taken before the upgrade. `DATABASE=ledger` leaves
-   Keycloak's database alone:
+5. **Restore the books** from `<pre-upgrade folder>`, the backup taken before the upgrade.
+   `DATABASE=ledger` leaves Keycloak's database alone:
 
    ```bash
-   make restore BACKUP=backups/<UTC time> DATABASE=ledger   # raw: uv run ops/backup/backup.py restore backups/<UTC time> --database ledger
+   make restore BACKUP=backups/<pre-upgrade folder> DATABASE=ledger   # raw: uv run ops/backup/backup.py restore backups/<pre-upgrade folder> --database ledger
    ```
 
    It prints that the dump matches its manifest and that the restored books match the digest the
@@ -450,11 +463,13 @@ value for each published or short secret into `.env`, then follow
 [Every secret at once](#every-secret-at-once): the databases start again as soon as no secret is
 published, short or mismatched.
 
-**For a mismatched pair, keep the role's current password.** Set both variables to the value the
-role holds now, which is the one the ledger signs in with. Setting both to a new value passes the
-check but leaves an initialised volume's role on the old password, so the ledger cannot sign in
-until you run the recipe in [The ledger's database password](#the-ledgers-database-password),
-which rotates the role in place.
+**For a mismatched pair alone, keep the value both passwords held when the ledger last started
+successfully.** Undo whichever of `LEDGER_DB_PASSWORD` and `POSTGRES_PASSWORD` you changed, or
+rotate the role in place first with the recipe in
+[The ledger's database password](#the-ledgers-database-password). `secret-check` prints this advice
+only when neither of the two is published or short; otherwise write new values as above. Setting both to a
+new value passes the check but leaves an initialised volume's role on the old password, so the
+ledger cannot sign in until you rotate the role in place.
 
 Before you start:
 
@@ -481,8 +496,8 @@ the first, and the ledger signs in with the second. Set both to the new value in
 `POSTGRES_USER`'s role
 ([ADR-071](../ADRs/ADR-071-secret-check-refuses-a-ledger-password-its-role-does-not-hold.md)).
 If `secret-check` refused only a mismatch, and you have not changed the role's password, you want no
-new value: set both to the password the role holds now, the one the ledger signs in with, and start
-the stack. To apply a new value, run:
+new value: set both to the value both held when the ledger last started successfully, which means
+undoing whichever of the two you changed, and start the stack. To apply a new value, run:
 
 ```bash
 docker compose up -d --wait db       # recreated with the new value, which an initialised volume ignores
