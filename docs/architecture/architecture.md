@@ -609,7 +609,12 @@ from the store raises → `ForecastService` loads the `Scenario` and **re-reads 
 cancelled since it was named stops counting → `OpeningPositionProvider` →
 `AccountingOpeningPositions` translates each `AccountRef` to an `AccountId`, refuses a reference
 that names no account or a balance in another currency, and sums `ViewBalanceUseCase` →
-`Projection.of`.
+`Projection.of`, which refuses an opening amount or a flow's amount past
+`Projection.MAXIMUM_INTEGER_DIGITS`, 18, before it expands a recurrence, and a point past it as soon
+as it is computed, so its work stops there; the refusal is 422 `RULE_VIOLATED`. The growth rate it
+compounds was bounded when the strategy was defined, at most 1 a step with at most ten decimal
+places, by `GrowthAssumption` and in the store by `V3_3`
+([ADR-072](../ADRs/ADR-072-a-projection-bounds-its-growth-rate-and-its-amounts.md)).
 
 **Looking up and valuing a holding, from the browser.** `SymbolLookup` trims the symbol,
 invalidates its `portfolioKeys.holding(symbol)` prefix, so looking up the symbol already on screen

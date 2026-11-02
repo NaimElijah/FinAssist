@@ -75,6 +75,12 @@ class PlanningHttpIT extends PostgresFixture {
              "recurrence": {"kind": "UNTIL", "cadence": "YEARLY", "interval": 1000000000, "until": "2030-01-01"}}
             """;
 
+    /** 600 quadrillion ILS on 1 January 2026: within the bound alone, and past it when two land at once. */
+    private static final String VAST_INFLOW = """
+            {"description": "Windfall", "amount": {"amount": "600000000000000000.00", "currency": "ILS"},
+             "direction": "INFLOW", "startsOn": "2026-01-01", "recurrence": {"kind": "ONCE"}}
+            """;
+
     /** One client for the class, closed afterwards, for the reason {@code LedgerApplicationIT} gives. */
     private static final HttpClient CLIENT = HttpClient.newHttpClient();
 
@@ -258,6 +264,39 @@ class PlanningHttpIT extends PostgresFixture {
         assertProblem(response, 422, "UNKNOWN_PLAN");
     }
 
+    /**
+     * A rate above 1 a step, typed "5" for 5%, and one past ten decimal places are rules the running
+     * ledger refuses, and nothing is stored (ADR-072).
+     */
+    @Test
+    void Given_growth_rates_beyond_the_upper_bounds_When_defined_Then_each_is_a_422_and_none_is_listed()
+            throws Exception {
+        assertRuleViolated(post(SCENARIOS, defineRequest("Typed as a percentage", "5")), "at most 1 a step");
+        assertRuleViolated(post(SCENARIOS, defineRequest("Too precise", "0.00000000001")), "at most 10 decimal places");
+
+        assertThat(ok(get(SCENARIOS))
+                        .valueStream()
+                        .map(scenario -> scenario.path("name").asString()))
+                .doesNotContain("Typed as a percentage", "Too precise");
+    }
+
+    /**
+     * Two flows that each hold the bound carry the cash past 18 integer digits in the first step, so
+     * the running ledger refuses both the projection and a comparison that includes it (ADR-072).
+     */
+    @Test
+    void Given_flows_that_carry_cash_past_the_maximum_integer_digits_When_projected_and_compared_Then_each_is_a_422()
+            throws Exception {
+        String dream = define("Dream", "0", plan(VAST_INFLOW), plan(VAST_INFLOW));
+        String doNothing = define("Do nothing", "0");
+
+        assertRuleViolated(get(SCENARIOS + "/" + dream + "/projection?" + YEAR_2026), "18 integer digits");
+        assertRuleViolated(
+                get(COMPARISONS + "?scenario=" + doNothing + "&scenario=" + dream + "&baseline=" + doNothing + "&"
+                        + YEAR_2026),
+                "18 integer digits");
+    }
+
     /** One unknown scenario, two statuses: 404 named in a projection's path, 422 named in a comparison's query. */
     @Test
     void Given_a_scenario_that_does_not_exist_When_projected_by_path_and_compared_by_query_Then_it_is_404_then_422()
@@ -396,6 +435,12 @@ class PlanningHttpIT extends PostgresFixture {
         assertThat(response.headers().firstValue(HttpHeaders.CONTENT_TYPE))
                 .hasValue(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         assertThat(json(response).path("code").asString()).isEqualTo(code);
+    }
+
+    /** {@code RULE_VIOLATED} answers any rule, so the detail says which one refused. */
+    private static void assertRuleViolated(HttpResponse<String> response, String detail) {
+        assertProblem(response, 422, "RULE_VIOLATED");
+        assertThat(json(response).path("detail").asString()).contains(detail);
     }
 
     private HttpResponse<String> get(String path) throws IOException, InterruptedException {

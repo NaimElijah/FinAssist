@@ -38,7 +38,8 @@ import org.springframework.web.bind.annotation.RestController;
  * {@link AccountRef}. One named twice is refused as the command is built, before the scenario is looked
  * up, and the composition root turns one that is malformed, unknown or in another currency into an
  * {@link IllegalArgumentException}; each is answered 422 {@code RULE_VIOLATED} like a horizon that is
- * not a whole number of steps or does not start before it ends.
+ * not a whole number of steps or does not start before it ends, and like a projection holding an amount
+ * past {@code Projection.MAXIMUM_INTEGER_DIGITS} integer digits (ADR-072).
  *
  * <p>Split from {@link ScenarioController} by the not-found semantics it needs. The scenario is named in
  * the path, so an unknown one is 404 {@code SCENARIO_NOT_FOUND}, from {@link PlanningProblemAdvice}. A

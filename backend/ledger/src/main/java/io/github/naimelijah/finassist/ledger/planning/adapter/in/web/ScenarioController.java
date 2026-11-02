@@ -54,7 +54,8 @@ public class ScenarioController {
 
     /**
      * Defines a scenario over recorded flows, possibly none. A growth rate that is not plain decimal text is
-     * 400; one at or below minus one is 422 {@code RULE_VIOLATED}.
+     * 400; one at or below minus one, above one, or with more than ten decimal places is 422 {@code
+     * RULE_VIOLATED} (ADR-072).
      */
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)

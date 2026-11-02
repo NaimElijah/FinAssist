@@ -14,8 +14,9 @@ public interface CompareScenariosUseCase {
      * @throws IllegalArgumentException when fewer than two or more than
      *     {@code Comparison.MAXIMUM_SCENARIOS} scenarios are given, two share a name (one scenario
      *     named twice included), they are in different currencies, the horizon is not a whole
-     *     number of steps, or an account reference is refused as {@code OpeningPositionProvider}
-     *     describes
+     *     number of steps, an account reference is refused as {@code OpeningPositionProvider}
+     *     describes, or an amount a projection reads or computes has more than {@code
+     *     Projection.MAXIMUM_INTEGER_DIGITS} integer digits (ADR-072)
      */
     Comparison compare(CompareScenariosCommand command);
 }

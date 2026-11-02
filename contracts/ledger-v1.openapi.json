@@ -383,6 +383,7 @@
             "type": "array"
           },
           "growthRatePerStep": {
+            "description": "The growth of the invested balance over one projection step, as a fraction: 0.05 is 5% a step. Greater than -1 and at most 1, which doubles the balance, with at most 10 decimal places.",
             "pattern": "^-?\\d+(\\.\\d+)?$",
             "type": "string"
           },
@@ -867,6 +868,7 @@
             "type": "array"
           },
           "growthRatePerStep": {
+            "description": "The growth of the invested balance over one projection step, as a fraction: 0.05 is 5% a step. Greater than -1 and at most 1, which doubles the balance, with at most 10 decimal places.",
             "pattern": "^-?\\d+(\\.\\d+)?$",
             "type": "string"
           },
@@ -1607,7 +1609,7 @@
             }
           },
           {
-            "description": "The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted. It must fall a whole number of steps after from, and at most 100 years after it.",
+            "description": "The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted. It must fall a whole number of steps after from, and at most 100 years after it. A projection in which an opening balance, a planned flow's amount, or any point's cash, invested balance or total has more than 18 integer digits is refused 422 RULE_VIOLATED; a shorter horizon may avoid one that growth or flows carry past it (ADR-072).",
             "in": "query",
             "name": "to",
             "required": true,
@@ -1777,7 +1779,7 @@
             }
           },
           {
-            "description": "The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted. It must fall a whole number of steps after from, and at most 100 years after it.",
+            "description": "The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted. It must fall a whole number of steps after from, and at most 100 years after it. A projection in which an opening balance, a planned flow's amount, or any point's cash, invested balance or total has more than 18 integer digits is refused 422 RULE_VIOLATED; a shorter horizon may avoid one that growth or flows carry past it (ADR-072).",
             "in": "query",
             "name": "to",
             "required": true,

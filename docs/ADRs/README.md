@@ -63,7 +63,7 @@ append-only history: to change course, add a new record and mark the old one
 | [055](ADR-055-the-assistants-development-seed-lives-in-its-composition-root.md) | The assistant's development seed lives in its composition root, and is off by default | Accepted |
 | [056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md) | The web client retries a failed read once, and never a write | Accepted |
 | [057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md) | A page on another `localhost` port is treated as hostile | Accepted |
-| [058](ADR-058-each-service-bounds-what-one-request-can-cost.md) | Each service bounds what one request can cost | Accepted |
+| [058](ADR-058-each-service-bounds-what-one-request-can-cost.md) | Each service bounds what one request can cost | Accepted, extended by 072 |
 | [059](ADR-059-the-assistant-trusts-only-the-key-set-it-last-fetched.md) | The assistant trusts only the key set it last fetched | Accepted |
 | [060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md) | The `finassist` realm and the Keycloak image are configured, not defaulted | Accepted, extended by 074 |
 | [061](ADR-061-the-stack-refuses-a-configuration-that-weakens-a-credential.md) | The stack refuses a configuration that weakens a credential | Accepted |
@@ -77,6 +77,7 @@ append-only history: to change course, add a new record and mark the old one
 | [069](ADR-069-the-web-client-targets-wcag-2-2-aa-and-holds-it-with-tests.md) | The web client targets WCAG 2.2 AA and holds it with tests | Accepted |
 | [070](ADR-070-a-stopping-service-gets-30-seconds-and-the-ledger-waits-5-for-a-connection.md) | A stopping service gets 30 seconds, and the ledger waits 5 seconds for a connection | Accepted |
 | [071](ADR-071-secret-check-refuses-a-ledger-password-its-role-does-not-hold.md) | `secret-check` refuses a ledger password that differs from its database role's | Accepted |
+| [072](ADR-072-a-projection-bounds-its-growth-rate-and-its-amounts.md) | A projection bounds its growth rate and its amounts | Accepted |
 | [073](ADR-073-every-realm-locks-out-a-guessed-sign-in-for-a-while-never-for-good.md) | Every realm locks out a guessed sign-in for a while, never for good | Accepted |
 | [074](ADR-074-the-master-realm-is-configured-from-the-repository.md) | The `master` realm is configured from the repository | Accepted |
 
@@ -410,6 +411,16 @@ every service behind the gate, `keycloak-db` and Grafana included, so `make run-
 on a mismatch too, though `otel-collector` and `prometheus`, which wait on nothing, still start; one
 all-or-nothing gate is simpler than one per service, and that is the accepted cost
 ([#349](https://github.com/NaimElijah/FinAssist/issues/349)).
+
+072 extends 058 on 2026-11-02. 058 bounded how many steps a projection takes and how many
+projections a comparison holds, but not what each step computes, and scan 9 measured one projection
+of a scenario with an extreme growth rate at seconds of CPU and hundreds of millions of characters.
+A growth rate is now at most 1 a step with at most ten decimal places, refused when the strategy is
+defined and held in the store by `V3_3`'s validated checks, and a projection refuses any amount past
+18 integer digits, inputs first, so its work stops at the first. A divergence can reach 19 digits by
+construction, and a digit bound on every decimal on the wire, with the two `Money` kernels' gaps,
+is its own decision, [#434](https://github.com/NaimElijah/FinAssist/issues/434)
+([#416](https://github.com/NaimElijah/FinAssist/issues/416)).
 
 073 extends 031 on 2026-11-02. 031 said only "brute-force protection on", and the thresholds behind
 it were pinned by `KeycloakRealmTest` and `KeycloakRealmIT` with no decision to cite. The owner kept

@@ -96,7 +96,14 @@ From `backend/ledger`:
   `Comparison.MAXIMUM_SCENARIOS` (10) are checked in the constructors, because a projection
   computes and holds every step at once; the controllers answer a longer horizon 422
   `RULE_VIOLATED` and more scenarios 400. Pinned by `HorizonTest`, `ComparisonTest` and
-  `ProjectionControllerTest`.
+  `ProjectionControllerTest`. What it compounds is bounded too (ADR-072): `GrowthAssumption`
+  refuses a rate above `MAXIMUM_RATE` (1) or past `MAXIMUM_DECIMAL_PLACES` (10), and
+  `DefineScenarioRequest.GROWTH_RATE` states the upper bound in words, since no annotation reads
+  a `BigDecimal`; `ScenarioControllerTest` holds the two in step. `Projection.of` refuses any input or point past
+  `MAXIMUM_INTEGER_DIGITS` (18), inputs before it expands a recurrence, and a recurrence steps
+  only from the first period that can reach the horizon; the number of flows a strategy lists is
+  unbounded until #436. A refusal names the bound
+  and what broke it, never the value. Pinned by `GrowthAssumptionTest` and `ProjectionTest`.
 - **`@Transactional` goes on the adapter, never on an application service** —
   `the_application_layer_depends_on_no_framework` fails the build for the latter. When a use case
   must write across two aggregates, the boundary moves to a decorator in `composition`.
@@ -154,7 +161,7 @@ bounded context (ADR-006, ADR-024).
 - **Each context's migrations live in `src/main/resources/db/migration/<context>/`, under the
   major version that context owns** — `accounting` 1, `budgeting` 2, `planning` 3 — and a context's
   next migration takes a version above the highest its directory holds: today `V1_8`, `V2_3` and
-  `V3_3`, each as `V<major>_<minor>__<description>.sql`. `ReleasedMigrationsTest` fails a script
+  `V3_4`, each as `V<major>_<minor>__<description>.sql`. `ReleasedMigrationsTest` fails a script
   whose major is not its directory's, and records each released script's SHA-256 in release order:
   append the new one at the end, above every version its context has released, and never change a
   digest once it is merged to `dev`.

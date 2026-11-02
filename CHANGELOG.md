@@ -805,6 +805,17 @@ process, decides whether generating this file from the
   [ADR-074](docs/ADRs/ADR-074-the-master-realm-is-configured-from-the-repository.md),
   [#368](https://github.com/NaimElijah/FinAssist/issues/368),
   [#351](https://github.com/NaimElijah/FinAssist/issues/351)).
+- **One projection can no longer cost seconds of CPU and hundreds of megabytes of response.** A
+  strategy's growth rate is now at most 1 a step (100%) with at most ten decimal places, refused
+  422 `RULE_VIOLATED` when the strategy is defined, so a `5` typed to mean 5% is caught there. A
+  projection, and a comparison holding it, refuses any amount past 18 integer digits, inputs
+  first, and stops at the first one. Neither refusal repeats the value. `V3_3` holds the store to
+  the same rate bounds; **it can refuse a rate an earlier ledger accepted**, so run the query in
+  "Upgrading an existing ledger volume" (`docs/operations/operations.md`) before upgrading. A digit
+  bound on every decimal on the wire is its own decision,
+  [#434](https://github.com/NaimElijah/FinAssist/issues/434)
+  ([ADR-072](docs/ADRs/ADR-072-a-projection-bounds-its-growth-rate-and-its-amounts.md),
+  [#416](https://github.com/NaimElijah/FinAssist/issues/416)).
 - **The ledger's store now refuses what the domain refuses across rows.** Scan 6 of 12 in M0
   ([#343](https://github.com/NaimElijah/FinAssist/issues/343)) read the schema, migrations and
   queries against ten years of synthetic books. New migrations close each gap it found:
