@@ -100,8 +100,8 @@ own.
 
 ## What lands with this record
 
-- **The rule.** `ops/secret_check/secret_check.py`: `_ledger_password_differs`, and the two
-  usernames in the `secret-check` service's environment in `docker-compose.yml`.
+- **The rule.** `ops/secret_check/secret_check.py`: `_ledger_password` and `LedgerPassword`, and
+  the two usernames in the `secret-check` service's environment in `docker-compose.yml`.
 - **The tests.** `ops/secret_check/tests/test_secret_check.py`:
   `Given_the_ledger_on_the_database_role_with_another_password_When_checked_Then_both_are_named`,
   `Given_the_ledger_on_the_database_role_with_its_password_When_checked_Then_it_passes`,
