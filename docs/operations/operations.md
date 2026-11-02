@@ -119,12 +119,13 @@ not stop the previous ledger from starting, though it then runs on a schema newe
 Whether a release must stay compatible with the one before it is
 [#187](https://github.com/NaimElijah/FinAssist/issues/187)'s question, and is not settled here.
 
-*Worked example: an upgrade from any commit from 2026-09-22 up to 2026-10-31 to a later one, across
-[#343](https://github.com/NaimElijah/FinAssist/issues/343)'s migrations.* The previous ledger
-carries four migrations, `1.1`, `1.2`, `2.1` and `3.1` (`1.2` arrived on 2026-09-22; before that a
-commit carries only `1.1`, `2.1` and `3.1`). The upgraded history also holds `1.3` to
-`1.7` and `2.2`, each below `3.1`, so the previous ledger refuses to start. `3.2` sits above the
-newest one it knows, so it alone would not stop it.
+*Worked example: an upgrade across [#343](https://github.com/NaimElijah/FinAssist/issues/343)'s
+migrations, from a commit dated 2026-10-13 or later but before `8aaf518` (2026-10-31), where `1.3`
+landed.* The recipe needs the previous commit to carry `ops/backup/backup.py`, which arrived on
+2026-10-13, because steps 2 and 5 run that commit's copy. The previous ledger carries four
+migrations, `1.1`, `1.2`, `2.1` and `3.1`. The upgraded history also holds `1.3` to `1.7` and
+`2.2`, each below `3.1`, so the previous ledger refuses to start. `3.2` sits above the newest one
+it knows, so it alone would not stop it.
 
 **Skip the restore and the symptom is a ledger that restarts.** `docker compose ps` shows `ledger`
 as `Restarting`, because `restart: unless-stopped` starts it again after each refusal, and
