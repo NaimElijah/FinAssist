@@ -369,17 +369,36 @@ class ProjectionTest {
     }
 
     @Test
-    void Given_amounts_of_exactly_the_maximum_integer_digits_When_projected_Then_they_are_allowed() {
+    void Given_an_opening_amount_of_exactly_the_maximum_integer_digits_When_projected_Then_it_is_allowed() {
         Scenario baseline = Scenario.baseline("Hold", Currency.ILS, GrowthAssumption.none());
+
+        Projection projection =
+                Projection.of(baseline, QUARTER, Cadence.MONTHLY, ils(LARGEST), Money.zero(Currency.ILS));
+
+        assertThat(projection.endState().total()).isEqualTo(ils(LARGEST));
+    }
+
+    /** A currency with no minor units holds the same eighteen integer digits, and no more. */
+    @Test
+    void Given_yen_of_exactly_the_maximum_integer_digits_When_projected_Then_it_is_allowed() {
         Scenario yen = Scenario.baseline("Hold", Currency.JPY, GrowthAssumption.none());
+        Money largest = Money.of("999999999999999999", Currency.JPY);
 
-        Projection shekels = Projection.of(baseline, QUARTER, Cadence.MONTHLY, ils(LARGEST), Money.zero(Currency.ILS));
-        Projection inYen = Projection.of(
-                yen, QUARTER, Cadence.MONTHLY, Money.zero(Currency.JPY), Money.of("999999999999999999", Currency.JPY));
+        Projection projection = Projection.of(yen, QUARTER, Cadence.MONTHLY, Money.zero(Currency.JPY), largest);
 
-        assertThat(shekels.endState().total()).isEqualTo(ils(LARGEST));
-        assertThat(inYen.endState().invested()).isEqualTo(Money.of("999999999999999999", Currency.JPY));
-        assertThat(Projection.MAXIMUM_INTEGER_DIGITS).isEqualTo(18);
+        assertThat(projection.endState().invested()).isEqualTo(largest);
+    }
+
+    @Test
+    void Given_a_planned_flow_of_exactly_the_maximum_integer_digits_When_projected_Then_it_is_allowed() {
+        PlannedFlow windfall =
+                PlannedFlow.plan("Windfall", ils(LARGEST), Direction.INFLOW, FEBRUARY, new Recurrence.Once());
+        Scenario scenario = Scenario.of("Dream", Currency.ILS, List.of(windfall), GrowthAssumption.none());
+
+        Projection projection =
+                Projection.of(scenario, QUARTER, Cadence.MONTHLY, Money.zero(Currency.ILS), Money.zero(Currency.ILS));
+
+        assertThat(projection.endState().cash()).isEqualTo(ils(LARGEST));
     }
 
     /** Each input is checked before a step is counted, and the refusal names it, never its digits. */
