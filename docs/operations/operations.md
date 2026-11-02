@@ -97,16 +97,30 @@ mean 5% is still stored. Look for one before the upgrade, once `db` is up:
 docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT id, name, growth_per_step FROM planning.scenario WHERE growth_per_step > 1 OR min_scale(growth_per_step) > 10"'
 ```
 
-An empty answer means `V3_3` applies cleanly. If it refuses, its log names
-`scenario_growth_at_most_one` or `scenario_growth_at_most_ten_places` and no value. Each
-migration commits on its own, so everything before it stays applied and only `V3_3` runs again.
+An empty answer means `V3_3` applies cleanly. The query also lists a rate of `NaN` or
+`Infinity`, which `numeric` admits and which no ledger wrote; a row written by hand could hold one.
+If `V3_3` refuses, its log names `scenario_growth_at_most_one` or
+`scenario_growth_at_most_ten_places` and no value. Each migration commits on its own, so
+everything before it stays applied and only `V3_3` runs again (`ScenarioGrowthMigrationIT`).
 
 **If a migration refuses,** either correct the mismatched row and start the ledger again, or go
 back to where you were. `budgeting.budget_limit`, `planning.scenario_flow` and `planning.scenario`
 are ordinary mutable tables, so a limit in another currency than its budget, a link to a plan in
-another currency than its strategy, or a strategy's rate can be corrected or deleted in place: for
-a rate typed as a whole percentage, `UPDATE planning.scenario SET growth_per_step = 0.05 WHERE id =
-'<id>'` turns `5` into the 5% it meant. To go back instead,
+another currency than its strategy, or a strategy's rate can be corrected or deleted in place. For
+a strategy's rate:
+
+- **Typed as a whole percentage:** `UPDATE planning.scenario SET growth_per_step = 0.05 WHERE id =
+  '<id>'` turns `5` into the 5% it meant.
+- **Past ten decimal places**, such as a weekly rate pasted at full precision: `UPDATE
+  planning.scenario SET growth_per_step = trunc(growth_per_step, 10) WHERE id = '<id>'`. `trunc`,
+  never `round`: rounding `-0.99999999999` gives `-1`, which `V3_1`'s
+  `scenario_growth_above_minus_one` refuses.
+- **`NaN` or `Infinity`:** set the rate the strategy was meant to have, as above.
+- **To delete the strategy instead,** its links go first, in one transaction, since
+  `scenario_flow` refers to it: `DELETE FROM planning.scenario_flow WHERE scenario_id = '<id>'`,
+  then `DELETE FROM planning.scenario WHERE id = '<id>'`.
+
+To go back instead,
 [restore](#backing-up-and-restoring) the backup you just took. A migration that succeeded and is
 then regretted is a different case: see
 [Rolling back the ledger after an upgrade](#rolling-back-the-ledger-after-an-upgrade).
