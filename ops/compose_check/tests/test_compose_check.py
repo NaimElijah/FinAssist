@@ -1199,31 +1199,45 @@ def Given_a_gating_one_shot_behind_a_profile_When_checked_Then_it_fails(
     assert lines == [f"{one_shot}: must take no profiles"]
 
 
-@pytest.mark.parametrize(
-    "depends_on",
-    [
+def _gate_variants(gate: str) -> list[dict[str, Any] | None]:
+    """Every way a `depends_on` can fail to wait for `gate` to pass."""
+    return [
         None,
         {},
         {"prometheus": {"condition": "service_started", "required": True}},
-        {"secret-check": {"condition": "service_started", "required": True}},
-        {"secret-check": {"condition": "service_healthy", "required": True}},
-        {"secret-check": {"condition": "service_completed_successfully", "required": False}},
-        {"secret-check": {"required": True}},
-    ],
-    ids=["none", "empty", "another-service", "started", "healthy", "not-required", "no-condition"],
-)
-@pytest.mark.parametrize("service", GATED_SERVICES)
-def Given_a_gated_service_not_waiting_for_the_secret_check_to_pass_When_checked_Then_it_is_named(
-    service: str, depends_on: dict[str, Any] | None, capsys: pytest.CaptureFixture[str]
+        {gate: {"condition": "service_started", "required": True}},
+        {gate: {"condition": "service_healthy", "required": True}},
+        {gate: {"condition": "service_completed_successfully", "required": False}},
+        {gate: {"required": True}},
+    ]
+
+
+GATE_VARIANT_IDS = [
+    "none",
+    "empty",
+    "another-service",
+    "started",
+    "healthy",
+    "not-required",
+    "no-condition",
+]
+# Each gating one-shot and a service that must wait for it to pass (ADR-044, ADR-074).
+GATES = [("secret-check", service) for service in GATED_SERVICES] + [("keycloak-master", "gateway")]
+
+
+@pytest.mark.parametrize("variant", range(len(GATE_VARIANT_IDS)), ids=GATE_VARIANT_IDS)
+@pytest.mark.parametrize(("gate", "service"), GATES, ids=[f"{s}-on-{g}" for g, s in GATES])
+def Given_a_gated_service_not_waiting_for_its_gate_to_pass_When_checked_Then_it_is_named(
+    gate: str, service: str, variant: int, capsys: pytest.CaptureFixture[str]
 ) -> None:
     resolved = _conforming()
-    resolved["services"][service]["depends_on"] = depends_on
+    resolved["services"][service]["depends_on"] = _gate_variants(gate)[variant]
 
     status, lines = _check(resolved, capsys)
 
     assert status == compose_check.EXIT_FAILED
     assert lines == [
-        f"{service}: must depend on secret-check with condition service_completed_successfully"
+        f"{service}: must depend on {gate} with condition service_completed_successfully"
     ]
 
 
@@ -1250,29 +1264,6 @@ def Given_a_gated_service_missing_from_the_file_When_checked_Then_its_gate_is_re
     assert status == compose_check.EXIT_FAILED
     assert lines == [
         "grafana: must depend on secret-check with condition service_completed_successfully"
-    ]
-
-
-@pytest.mark.parametrize(
-    "depends_on",
-    [
-        {"keycloak": {"condition": "service_healthy", "required": True}},
-        {"keycloak-master": {"condition": "service_started", "required": True}},
-        {"keycloak-master": {"condition": "service_completed_successfully", "required": False}},
-    ],
-    ids=["keycloak-only", "started", "not-required"],
-)
-def Given_the_gateway_not_waiting_for_master_to_be_configured_When_checked_Then_it_is_named(
-    depends_on: dict[str, Any], capsys: pytest.CaptureFixture[str]
-) -> None:
-    resolved = _conforming()
-    resolved["services"]["gateway"]["depends_on"] = depends_on
-
-    status, lines = _check(resolved, capsys)
-
-    assert status == compose_check.EXIT_FAILED
-    assert lines == [
-        "gateway: must depend on keycloak-master with condition service_completed_successfully"
     ]
 
 
