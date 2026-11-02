@@ -387,14 +387,20 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
 
     /**
      * {@code V3_3} holds the store to ADR-072's bounds, so no writer outside the adapter can leave a rate
-     * {@code GrowthAssumption} would refuse to read back. {@code NaN} is a {@code numeric} that {@code
-     * V3_1}'s check passes, since PostgreSQL sorts it above every number.
+     * {@code GrowthAssumption} would refuse to read back. {@code NaN} and {@code Infinity} are {@code
+     * numeric}s that {@code V3_1}'s check passes, since PostgreSQL sorts both above every number;
+     * {@code min_scale} of either is null, which a check passes, so {@code V3_3}'s first check is the
+     * one that refuses them.
      */
     @ParameterizedTest
     @CsvSource({
+        "1.0000000001, scenario_growth_at_most_one",
         "1.5, scenario_growth_at_most_one",
         "NaN, scenario_growth_at_most_one",
-        "0.00000000001, scenario_growth_at_most_ten_places"
+        "Infinity, scenario_growth_at_most_one",
+        "-Infinity, scenario_growth_above_minus_one",
+        "0.00000000001, scenario_growth_at_most_ten_places",
+        "-0.00000000001, scenario_growth_at_most_ten_places"
     })
     void Given_a_growth_rate_beyond_the_bounds_written_directly_When_stored_Then_the_database_refuses_it(
             String rate, String constraint) {
