@@ -26,7 +26,10 @@ public record ScenarioResponse(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Currency currency,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<UUID> flows,
 
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, pattern = MoneyDto.DECIMAL_TEXT)
+        @Schema(
+                requiredMode = Schema.RequiredMode.REQUIRED,
+                pattern = MoneyDto.DECIMAL_TEXT,
+                description = DefineScenarioRequest.GROWTH_RATE)
         String growthRatePerStep) {
 
     static ScenarioResponse from(Scenario scenario) {
