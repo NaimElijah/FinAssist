@@ -19,9 +19,11 @@ One directory per tool, none of them a deployable service of this repository's (
   from `POSTGRES_PASSWORD` while `LEDGER_DB_USERNAME` and `POSTGRES_USER` name one role, which
   `db` would accept and the ledger then fail on (ADR-071); Compose hands it the two usernames,
   which are not secrets, with `db`'s and the ledger's own defaults. It names a variable, never a
-  value, its length, how two values differ, or a file. On a mismatch it tells the owner to set
-  both to the password the role holds now, the one the ledger signs in with, or to rotate in place
-  first.
+  value, its length, how two values differ, or a file. On a mismatch, and only when neither of the
+  pair is published or short, it tells the owner to keep the value both passwords held when the ledger
+  last started successfully: undo whichever of the two changed, or rotate the role in place first.
+  Its pass line says `LEDGER_DB_PASSWORD` equals `POSTGRES_PASSWORD`, since it compares two `.env`
+  strings and cannot read the role.
   It runs as the one-shot `secret-check` service that both databases and Grafana wait on
   (ADR-044); a mismatch therefore blocks every service behind the gate, `make run-identity`
   included. CI's compose job gives a fresh pair one value and runs the service on a mismatched pair
@@ -57,10 +59,11 @@ One directory per tool, none of them a deployable service of this repository's (
   `volumes_from`, `configs`, `secrets` or `working_dir`, which could put an `application.*` in its
   working directory or that directory's `config/`, where Spring reads one, each of which would
   reopen the Actuator exposure their code pins and their tests cannot see; nor, in either's
-  environment and in any spelling, `SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE`, `SERVER_SHUTDOWN`
-  or `SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT`, which would override the shutdown and
-  connection-wait bounds that `*ShippedConfigurationTest` pins from `application.yml` alone
-  (ADR-070); nor a `LOGGING_LEVEL_*`,
+  environment and in any spelling, `SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE`, `SERVER_SHUTDOWN`,
+  `SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT` or `SPRING_HTTP_CLIENTS_READ_TIMEOUT`, which would
+  override the shutdown, connection-wait and relay read-timeout bounds that
+  `*ShippedConfigurationTest` and the gateway's `GatewayApplicationIT` pin from `application.yml`
+  alone (ADR-070); nor a `LOGGING_LEVEL_*`,
   `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key, in any spelling, on the gateway,
   whose Spring Web and Security loggers write credentials below INFO. It names a service, a key or a
   member, never a value. `placeholders.env` beside it holds a throwaway value for each `:?`
