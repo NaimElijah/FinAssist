@@ -89,6 +89,10 @@ From `backend/assistant`:
   and a refused request still gets a correlation id and a request-answered line. The order is
   `HostAllowList` → correlate → body limit → auth → routes; `HostAllowList` stays outermost, added
   last, so a foreign `Host` is refused before authentication is even attempted.
+- **A probe answered 2xx is logged at DEBUG, any other request at INFO.** `log_request` writes a
+  `/health` or `/ready` (`PROBE_PATHS`) answered 2xx at DEBUG, since Compose probes every five
+  seconds and those lines would crowd the bounded container log (ADR-039). A probe answered with a
+  non-2xx status stays at INFO. `tests/test_observability.py` pins both.
 - **No body is buffered past `MAX_REQUEST_BODY_BYTES`** (64 KiB, as on the ledger and the
   gateway; ADR-058). `RequestBodyLimit` sits outside authentication, because FastAPI reads and
   parses a body before any dependency runs: a declared `Content-Length` over it is refused 413

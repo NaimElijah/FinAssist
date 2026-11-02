@@ -181,14 +181,18 @@ cp .env.example .env        # then set every secret in the table below, before s
 > appears in a file git does not ignore, and `docker compose up` then stops with
 > `service "secret-check" didn't complete successfully: exit 1`.
 > It refuses a secret shorter than 32 characters the same way, so generate each with
-> `openssl rand -hex 16`. `docker compose logs secret-check` names each variable, never its value.
-> To change one, follow [Rotating a secret](docs/operations/operations.md#rotating-a-secret)
-> ([ADR-044](docs/ADRs/ADR-044-compose-refuses-a-published-secret.md)).
+> `openssl rand -hex 16`, and it refuses a `LEDGER_DB_PASSWORD` that differs from
+> `POSTGRES_PASSWORD`, since the ledger signs in as the role `db` creates. A refusal stops every
+> service behind the check, `make run-identity` included. `docker compose logs secret-check` names
+> each variable, never its value. To change one, follow
+> [Rotating a secret](docs/operations/operations.md#rotating-a-secret)
+> ([ADR-044](docs/ADRs/ADR-044-compose-refuses-a-published-secret.md),
+> [ADR-071](docs/ADRs/ADR-071-secret-check-refuses-a-ledger-password-its-role-does-not-hold.md)).
 
 | Secret | What to put in it |
 |---|---|
 | `POSTGRES_PASSWORD` | Any strong value, for the ledger's database |
-| `LEDGER_DB_PASSWORD` | The same value as `POSTGRES_PASSWORD`: the ledger connects as the role Compose creates |
+| `LEDGER_DB_PASSWORD` | The same value as `POSTGRES_PASSWORD`: the ledger connects as the role Compose creates, and `secret-check` refuses a stack where the two differ. On an existing volume, keep the value the role holds now |
 | `KEYCLOAK_DB_PASSWORD` | Any strong value, for Keycloak's own database, `keycloak-db` |
 | `KEYCLOAK_ADMIN_PASSWORD` | Any strong value, for Keycloak's admin console |
 | `FINASSIST_OWNER_INITIAL_PASSWORD` | The owner's one-time password, used once at [first sign-in](#first-sign-in). It must satisfy the realm's policy, `length(12) and notUsername and notEmail and passwordHistory(3)`, and hold at least 32 characters, like every secret |
@@ -277,7 +281,7 @@ local development only.
 | `LEDGER_ALLOWED_HOSTS` | Comma-separated host names the ledger answers to. An entry containing a `:`, a `[` or a `]`, which covers a port and every IPv6 literal, is refused at start-up. Any other `Host` header is refused with 403, which stops a DNS-rebound page in the owner's browser ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md)) | `localhost,127.0.0.1` | No |
 | `LEDGER_DB_URL` | JDBC URL. Compose sets this itself, to the service name `db`, for the `ledger` container; this default targets a native `./mvnw spring-boot:run` at the Compose `db` service's published port | `jdbc:postgresql://localhost:5432/finassist` | No |
 | `LEDGER_DB_USERNAME` | Ledger database user | `finassist` | No |
-| `LEDGER_DB_PASSWORD` | Ledger database password. The ledger connects as the role Compose creates, so this must match `POSTGRES_PASSWORD` until it gets its own role | none | Yes — the ledger refuses to start without it |
+| `LEDGER_DB_PASSWORD` | Ledger database password. The ledger connects as the role Compose creates, so this must match `POSTGRES_PASSWORD` until it gets its own role, and `secret-check` refuses a stack where they differ ([ADR-071](docs/ADRs/ADR-071-secret-check-refuses-a-ledger-password-its-role-does-not-hold.md)) | none | Yes — the ledger refuses to start without it |
 | `LEDGER_OIDC_ISSUER` | The issuer every token's `iss` claim must name. Always the public URL a browser signed in against, never an internal one ([ADR-030](docs/ADRs/ADR-030-oidc-authentication-through-a-bff-gateway.md), [ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) | `http://localhost:8081/realms/finassist` | No |
 | `LEDGER_OIDC_JWKS_URI` | Where the ledger fetches signing keys, service-to-service. Compose overrides this with the internal address; this default targets a native `./mvnw spring-boot:run` against Keycloak's published port | `http://localhost:8081/realms/finassist/protocol/openid-connect/certs` | No |
 | `KEYCLOAK_PORT` | Keycloak HTTP port | `8081` | No |
@@ -521,12 +525,12 @@ take each bump in one PR, and Temurin and Python stay on 21 and 3.13 until an AD
 
 | Suite | What it proves | Command |
 |---|---|---|
-| Ledger | Eighteen ArchUnit rules; the domain's invariants and properties from a fixed seed; every repository and the append-only journal against a real PostgreSQL; every endpoint's authorization against a named inventory; each controller's validation; Actuator's exposure pinned to four endpoints; the OpenAPI contract | `make test-ledger` |
-| Gateway | Sign-in, CSRF and sign-out; a real code-plus-PKCE sign-in and token relay against a fake OpenID provider; Keycloak timeouts; the packaged jar starting; each relay route and the security chain held to the committed ledger and assistant contracts; Actuator's exposure pinned to `health`; the realm file, read as data and run in the real Keycloak image | `make test-gateway` |
+| Ledger | Eighteen ArchUnit rules; the domain's invariants and properties from a fixed seed; every repository and the append-only journal against a real PostgreSQL; every endpoint's authorization against a named inventory; each controller's validation; Actuator's exposure pinned to four endpoints; the shutdown-phase and connection-wait bounds, pinned from `application.yml`; the OpenAPI contract | `make test-ledger` |
+| Gateway | Sign-in, CSRF and sign-out; a real code-plus-PKCE sign-in and token relay against a fake OpenID provider; Keycloak timeouts; the packaged jar starting; each relay route and the security chain held to the committed ledger and assistant contracts; Actuator's exposure pinned to `health`; the shutdown-phase bound, pinned from `application.yml`; the realm file, read as data and run in the real Keycloak image | `make test-gateway` |
 | Assistant | Source-parsing architecture rules; FIFO cost basis, grounding, staleness and Money, with Hypothesis; token verification and authorization, including a removed key, an outage past the key set's lifespan and the fetch backoff, and every route of every type declaring a permission; the 64 KiB body limit; the bounded `h11` header block, no WebSocket upgrade, no proxy or `server` header, and a registered secret scrubbed from a log line; Money past a million digits; the problem shape; the OpenAPI contract | `make test-assistant` |
 | Backup CLI | Redaction, the manifest checks, every restore precondition, a backup's refusals, the command line and the owner-project guard, without Docker | `make test-backup` |
-| Secret check | It reads exactly the files git does not ignore, matches a value literally, in UTF-8 only as a whole token and in UTF-16 anywhere, refuses a value shorter than 32 characters, and refuses by variable name, never by value | `make test-secret-check` |
-| Compose check | Each restart, log-bound, stop-grace and readiness rule fails on a crafted resolved file, a missing `x-` block fails, an `x-restart-policy` or `x-logging` block changed from ADR-039's values, or an `x-stop-grace-period` block other than `30s`, fails by block even when every service follows it, a long-running service missing that grace or taking another and a one-shot taking one each fail, a published port not bound to exactly `127.0.0.1`, a port on `keycloak-db`, `auth-smoke` outside exactly the `smoke` profile, `secret-check` behind any profile, a `db`, `keycloak-db` or `grafana` that does not wait on `secret-check` to complete successfully, a service missing the `x-hardened` block or a read-only root, a new service included, any service taking `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts`, `devices`, a root `user` or a bind of a file named `docker.sock`, an `entrypoint` on Prometheus, a database network shared beyond its one client, under any key that resolves to it, or declared `external`, an `identity` network that is not `internal`, a `network_mode` on any service but `secret-check` or anything but `none` on it, and Prometheus's `command` without exactly `--web.cors.origin=` each fail, an Actuator-exposure key or a JVM-options key (`JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS`) in the ledger's or the gateway's environment fails, as does a `command` or `entrypoint`, a volume or bind mount, `volumes_from`, config, secret or `working_dir` on either, a readiness probe that runs `curl` other than directly in exec form with `-f`, `--fail` or `--fail-with-body` fails, a `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key on the gateway fails in any spelling, input that is not a resolved file exits 2, the script run as a process exits 0, 1 and 2 as `make check-compose` reads them, and no report quotes a resolved value | `make test-compose-check` |
+| Secret check | It reads exactly the files git does not ignore, matches a value literally, in UTF-8 only as a whole token and in UTF-16 anywhere, refuses a value shorter than 32 characters, refuses a `LEDGER_DB_PASSWORD` that differs from `POSTGRES_PASSWORD` while both usernames name one role and passes it for a ledger on a role of its own, and refuses by variable name, never by value | `make test-secret-check` |
+| Compose check | Each restart, log-bound, stop-grace and readiness rule fails on a crafted resolved file, a missing `x-` block fails, an `x-restart-policy` or `x-logging` block changed from ADR-039's values, or an `x-stop-grace-period` block other than `30s`, fails by block even when every service follows it, a long-running service missing that grace or taking another, a one-shot taking one, and a `stop_signal` on any service each fail, a published port not bound to exactly `127.0.0.1`, a port on `keycloak-db`, `auth-smoke` outside exactly the `smoke` profile, `secret-check` behind any profile, a `db`, `keycloak-db` or `grafana` that does not wait on `secret-check` to complete successfully, a service missing the `x-hardened` block or a read-only root, a new service included, any service taking `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts`, `devices`, a root `user` or a bind of a file named `docker.sock`, an `entrypoint` on Prometheus, a database network shared beyond its one client, under any key that resolves to it, or declared `external`, an `identity` network that is not `internal`, a `network_mode` on any service but `secret-check` or anything but `none` on it, and Prometheus's `command` without exactly `--web.cors.origin=` each fail, an Actuator-exposure key or a JVM-options key (`JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS`) or a key that overrides the shutdown phase or the connection wait (`SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE`, `SERVER_SHUTDOWN`, `SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT`) in the ledger's or the gateway's environment fails, as does a `command` or `entrypoint`, a volume or bind mount, `volumes_from`, config, secret or `working_dir` on either, a readiness probe that runs `curl` other than directly in exec form with `-f`, `--fail` or `--fail-with-body` fails, a `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key on the gateway fails in any spelling, input that is not a resolved file exits 2, the script run as a process exits 0, 1 and 2 as `make check-compose` reads them, and no report quotes a resolved value | `make test-compose-check` |
 | Web | The file-tree architecture rules; the shared primitives; the sign-in gate; the read-only viewer; every screen end to end against a faked `fetch` | `make test-web` |
 | Cross-language | Both `Money` kernels read `contracts/money-vectors.v1.json`, so a divergence fails a build ([ADR-018](docs/ADRs/ADR-018-cross-language-money-vectors.md)) | `make test-ledger`, `make test-assistant` |
 
@@ -544,10 +548,10 @@ then lint, format check, typecheck, tests, production build and `npm audit`); an
 `make check-compose`, which runs `docker compose config` across every profile and fails a service
 without the shared restart and log policy or stop grace, a policy block (`x-restart-policy`,
 `x-logging`) changed from ADR-039's values, an `x-stop-grace-period` block other than `30s`, a
-one-shot that takes a stop grace, a healthcheck that probes anything but readiness or whose `curl`
-probe is not run directly in exec form with `-f`, `--fail` or `--fail-with-body`, a published port
-not bound to `127.0.0.1`, a profile moved
-on `auth-smoke` or `secret-check`, a `db`, `keycloak-db` or `grafana` that does not wait on
+one-shot that takes a stop grace, a `stop_signal` on any service, a healthcheck that probes
+anything but readiness or whose `curl` probe is not run directly in exec form with `-f`, `--fail`
+or `--fail-with-body`, a published port not bound to `127.0.0.1`, a profile moved on `auth-smoke` or
+`secret-check`, a `db`, `keycloak-db` or `grafana` that does not wait on
 `secret-check`, a container that keeps a capability or a writable root it does not need (a new
 service included), one that takes the host's privilege (`cap_add`, `privileged`, a shared namespace,
 a device, root, a bind of a file named `docker.sock`), a database network shared beyond its one
@@ -555,10 +559,13 @@ client under any key or declared `external`, an `identity` network that is not `
 `network_mode` that shares the host's or another container's network, a Prometheus that grants
 another origin a cross-origin read or takes an `entrypoint`, an environment key that reopens the
 ledger's or the gateway's Actuator exposure or lowers the gateway's log level, a JVM-options key
-(`JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS`) in either's environment, or a `command`,
+(`JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS`) or a shutdown or connection-wait key
+(`SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE`, `SERVER_SHUTDOWN`,
+`SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT`) in either's environment, or a `command`,
 `entrypoint`, mount, config, secret, `volumes_from` or `working_dir` on the ledger or the gateway.
 The compose job also runs `secret-check` against a published value, and requires it to refuse all
-eight secrets by name and keep `db` from starting; that step, with the `.env` seeding it needs,
+eight secrets by name and keep `db` from starting, then against a ledger password that differs
+from the database's, and requires that refusal too; that step, with the `.env` seeding it needs,
 stays inline in `ci.yml` because it starts containers under the default Compose project name
 ([ADR-049](docs/ADRs/ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md)). No CI job starts
 the rest of the Compose stack. The branch rules on `main` and `dev` require a pull request but no

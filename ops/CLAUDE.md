@@ -17,21 +17,26 @@ One directory per tool, none of them a deployable service of this repository's (
   that refuses a secret that any file git does not ignore holds (#302), in UTF-8 or UTF-16, or one
   shorter than its `MIN_SECRET_LENGTH`, 32 characters, and a `LEDGER_DB_PASSWORD` that differs
   from `POSTGRES_PASSWORD` while `LEDGER_DB_USERNAME` and `POSTGRES_USER` name one role, which
-  `db` would accept and the ledger then fail on; Compose hands it the two usernames, which are not
-  secrets, with `db`'s and the ledger's own defaults. It names a variable, never a value, its
-  length, how two values differ, or a file.
+  `db` would accept and the ledger then fail on (ADR-071); Compose hands it the two usernames,
+  which are not secrets, with `db`'s and the ledger's own defaults. It names a variable, never a
+  value, its length, how two values differ, or a file. On a mismatch it tells the owner to set
+  both to the password the role holds now, the one the ledger signs in with, or to rotate in place
+  first.
   It runs as the one-shot `secret-check` service that both databases and Grafana wait on
-  (ADR-044). Its tests are in `ops/secret_check/tests/`.
+  (ADR-044); a mismatch therefore blocks every service behind the gate, `make run-identity`
+  included. CI's compose job gives a fresh pair one value and runs the service on a mismatched pair
+  too, requiring the refusal. Its tests are in `ops/secret_check/tests/`.
 - `ops/compose_check/compose_check.py` — a standard-library check, run on the host with
   `uv run`, of the resolved Compose file it reads on stdin: each long-running service's restart
   and log bound, as the `x-restart-policy` and `x-logging` blocks set them, those blocks pinned to
   ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shots' lack of either;
   each long-running service's `stop_grace_period` as the `x-stop-grace-period` block sets it, that
-  block pinned to `30s`, and none on a one-shot (#349); four readiness probes, each one that runs
-  `curl` running it directly in exec form (`["CMD", "curl", …]`) and passing `-f`, `--fail` or
-  `--fail-with-body`, never `--no-fail` (#142, ADR-039), every
-  published port's `host_ip` exactly `127.0.0.1` and no port on `keycloak-db` (ADR-030),
-  `auth-smoke` behind exactly `profiles: [smoke]` and `secret-check` behind none, and `db`,
+  block pinned to `30s`, and none on a one-shot (#349, ADR-070); no `stop_signal` on any
+  service, so the PostgreSQL images' own `SIGINT` stays in force; four readiness probes, each one
+  that runs `curl` running it directly in exec form (`["CMD", "curl", …]`) and passing `-f`,
+  `--fail` or `--fail-with-body`, never `--no-fail` (#142, ADR-039), every published port's
+  `host_ip` exactly `127.0.0.1` and no port on `keycloak-db` (ADR-030), `auth-smoke` behind
+  exactly `profiles: [smoke]` and `secret-check` behind none, and `db`,
   `keycloak-db` and `grafana` each depending on `secret-check` with `condition:
   service_completed_successfully` (ADR-034, ADR-044); the `x-hardened` block's `cap_drop: [ALL]` and
   `no-new-privileges:true` on every service but the two databases, and `read_only: true` on every
@@ -51,7 +56,11 @@ One directory per tool, none of them a deployable service of this repository's (
   ledger's or the gateway's environment, and no `command` or `entrypoint` on either, nor `volumes`,
   `volumes_from`, `configs`, `secrets` or `working_dir`, which could put an `application.*` in its
   working directory or that directory's `config/`, where Spring reads one, each of which would
-  reopen the Actuator exposure their code pins and their tests cannot see; nor a `LOGGING_LEVEL_*`,
+  reopen the Actuator exposure their code pins and their tests cannot see; nor, in either's
+  environment and in any spelling, `SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE`, `SERVER_SHUTDOWN`
+  or `SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT`, which would override the shutdown and
+  connection-wait bounds that `*ShippedConfigurationTest` pins from `application.yml` alone
+  (ADR-070); nor a `LOGGING_LEVEL_*`,
   `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key, in any spelling, on the gateway,
   whose Spring Web and Security loggers write credentials below INFO. It names a service, a key or a
   member, never a value. `placeholders.env` beside it holds a throwaway value for each `:?`

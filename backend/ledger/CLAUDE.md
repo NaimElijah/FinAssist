@@ -170,6 +170,17 @@ bounded context (ADR-006, ADR-024).
 - **No foreign key crosses a schema.** `SchemaBoundariesIT` fails the build if one does. It is the
   storage-layer half of `contexts_do_not_depend_on_each_other`, which reads bytecode and so stops
   at the edge of the JVM.
+- **`hikari.connection-timeout` stays 5000, in milliseconds, below the gateway's 10 s relay read
+  timeout** (`application.yml`; ADR-067, ADR-070). Hikari's setter takes a `long`, so a duration
+  such as `5s` fails to bind. A request that cannot get a connection inside the gateway's budget is
+  refused here, not committed after the gateway has answered 504 "outcome unknown". A running
+  statement is unbounded until #430 sizes `statement_timeout`; Flyway shares the `DataSource`, so
+  any bound would cap a migration too. `LedgerShippedConfigurationTest` pins the figure.
+- **`spring.lifecycle.timeout-per-shutdown-phase` stays 20 s, below Compose's 30 s
+  `stop_grace_period`** (ADR-070): above the gateway's 10 s relay budget, so a request the gateway
+  still waits on finishes, and below the grace, so Compose's `SIGKILL` is the last resort.
+  `LedgerShippedConfigurationTest` pins it from `application.yml`, and `make check-compose`
+  refuses an environment override of it.
 - **Money is `numeric` with no declared precision.** PostgreSQL preserves the exact scale it is
   given, and `Money` rejects rather than rounds excess precision. `numeric(19,2)` would break JPY,
   which has no minor units.
