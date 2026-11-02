@@ -49,9 +49,9 @@ own.
 - **The refusal says which value to keep.** When the mismatch is the only refusal, it tells the
   owner to keep the value both passwords held when the ledger last started successfully: undo
   whichever of the two was changed, or rotate the role in place first ([Rotating a
-  secret](../operations/operations.md#rotating-a-secret)). That is not "the password the role holds
-  now": when `LEDGER_DB_PASSWORD` was the one changed, the role still holds the value
-  `POSTGRES_PASSWORD` has. When either of the two is also published or short, the owner writes new
+  secret](../operations/operations.md#rotating-a-secret)). That is the password the role holds now,
+  which is not always "the password the ledger signs in with": when `LEDGER_DB_PASSWORD` was the
+  one changed, the role still holds the value `POSTGRES_PASSWORD` has. When either of the two is also published or short, the owner writes new
   values and rotates, and the keep-line is not printed. The pass line says `LEDGER_DB_PASSWORD`
   equals `POSTGRES_PASSWORD`, which is all the check knows.
 - **CI exercises the refusal.** The compose job gives the fresh pair one value, as before, and runs
