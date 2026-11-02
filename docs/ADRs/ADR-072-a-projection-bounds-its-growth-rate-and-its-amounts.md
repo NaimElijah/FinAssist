@@ -57,8 +57,13 @@ can be as long as the request that carried it. **The figures are the owner's dec
   beyond 10^18 either side of zero. `Projection.MAXIMUM_INTEGER_DIGITS`. `Projection.of` checks
   its inputs first, the opening cash, the opening investments and each planned flow's amount,
   before it expands a single recurrence, then every point's cash, invested balance and total as it
-  builds them. The work stops at the first amount past the bound, so its cost is bounded whatever
-  the inputs.
+  builds them. The work stops at the first amount past the bound.
+- **A recurrence is expanded only from the first period that can reach the horizon.** Occurrences
+  are measured from a flow's start, so the periods before the horizon need not be stepped through,
+  and a flow costs the occurrences that fall in the horizon however long before it the flow began.
+- **How many flows a strategy lists is not bounded here.** Only the body cap limits it, and a
+  comparison repeats each strategy's expansion. That is its own decision,
+  [#436](https://github.com/NaimElijah/FinAssist/issues/436).
 - **A comparison inherits the bound and adds no other.** A divergence is the difference of two
   points that each hold the bound, so it can reach 19 integer digits by construction, and it is
   reported as computed.
@@ -69,8 +74,9 @@ can be as long as the request that carried it. **The figures are the owner's dec
 
 **Makes easy**
 
-- **One projection's cost has a ceiling.** At most about 5,200 points of at most 18 integer
-  digits each, computed from a rate of at most ten decimal places.
+- **What one point and one flow cost has a ceiling.** At most about 5,200 points of at most 18
+  integer digits each, computed from a rate of at most ten decimal places, with each flow costing
+  only its occurrences in the horizon.
 - **The commonest typo is refused when the strategy is defined,** with a message that says how to
   write 5%, instead of surfacing as an unreadable projection.
 
@@ -81,6 +87,8 @@ can be as long as the request that carried it. **The figures are the owner's dec
   "Upgrading an existing ledger volume", gives the query and the correction.
 - **A legitimate figure past 10^18 cannot be projected.** No household holds one, and the owner
   decides the figure again if one ever does.
+- **A projection's cost still grows with the flows its strategy lists,** up to as many as a request
+  body holds, until #436 decides a bound.
 - **A divergence can hold one digit more than the amounts it compares,** so a wire-wide digit bound
   has to say what it allows on derived figures.
 - **The rate's upper bound is written twice.** `GrowthAssumption.MAXIMUM_RATE` is a `BigDecimal`,
@@ -108,6 +116,7 @@ can be as long as the request that carried it. **The figures are the owner's dec
 
 - **The owner needs a rate above 100% a step, a finer rate than ten decimal places, or a figure
   past 10^18.** The owner decides the figure again.
+- **#436 bounds the flows a strategy lists.** A projection's cost then has a ceiling as a whole.
 - **#434 bounds every decimal on the wire.** This record's bound on a projection's amounts may then
   follow from the wire's, and the two must agree on derived figures.
 
@@ -121,6 +130,8 @@ can be as long as the request that carried it. **The figures are the owner's dec
   `LedgerUpgradeIT` and `ReleasedMigrationsTest`.
 - **The magnitude.** `Projection.MAXIMUM_INTEGER_DIGITS`; `ProjectionTest`, `ComparisonTest` and
   `PlanningHttpIT`.
+- **The expansion.** `Recurrence`'s first period reaching the range;
+  `RecurrencePropertiesTest.Given_a_schedule_that_began_long_before_the_window_When_listed_Then_it_is_every_period_from_the_start_inside_it`.
 - **Documentation.** ADR-058 reads `Accepted, extended by 072`, with its row in
   `docs/ADRs/README.md`, a row for 072 and a note; `docs/requirements/requirements.md`,
   `docs/architecture/architecture.md`, `docs/operations/operations.md` and the ledger's

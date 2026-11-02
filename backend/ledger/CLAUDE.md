@@ -100,7 +100,9 @@ From `backend/ledger`:
   refuses a rate above `MAXIMUM_RATE` (1) or past `MAXIMUM_DECIMAL_PLACES` (10), and
   `DefineScenarioRequest.GROWTH_RATE` states the upper bound in words, since no annotation reads
   a `BigDecimal`; keep the two in step. `Projection.of` refuses any input or point past
-  `MAXIMUM_INTEGER_DIGITS` (18), inputs before it expands a recurrence. A refusal names the bound
+  `MAXIMUM_INTEGER_DIGITS` (18), inputs before it expands a recurrence, and a recurrence steps
+  only from the first period that can reach the horizon; the number of flows a strategy lists is
+  unbounded until #436. A refusal names the bound
   and what broke it, never the value. Pinned by `GrowthAssumptionTest` and `ProjectionTest`.
 - **`@Transactional` goes on the adapter, never on an application service** —
   `the_application_layer_depends_on_no_framework` fails the build for the latter. When a use case

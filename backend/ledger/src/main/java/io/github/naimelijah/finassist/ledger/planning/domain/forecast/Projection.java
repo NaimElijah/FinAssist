@@ -106,7 +106,9 @@ public record Projection(Horizon horizon, Cadence step, List<BalancePoint> point
      *
      * <p>Every amount it reads or computes holds at most {@link #MAXIMUM_INTEGER_DIGITS} integer
      * digits (ADR-072). The inputs are checked before a recurrence is expanded, and each point as it
-     * is computed, so the work stops at the first amount past the bound, whatever the inputs.
+     * is computed, so the work stops at the first amount past the bound. Each recurrence costs only
+     * its occurrences in the horizon; how many flows a scenario lists is bounded only by the request
+     * that defined it (#436).
      *
      * @throws IllegalArgumentException if any amount is in a currency other than the scenario's, if
      *     the horizon is not a whole number of steps, or if an opening amount, a flow's amount, or a
