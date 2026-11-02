@@ -52,13 +52,14 @@ x-logging: &bounded-logs
     max-size: "10m"
     max-file: "3"
 
-# How long a stopping container has between SIGTERM and SIGKILL, on exactly the services that take
-# the restart policy; the one-shots take none, as they take no restart (#349, ADR-070). Left unset,
-# Compose v5.6.1 here killed a container about 3 s after TERM: a ledger draining one request died
-# with exit 137, and `db` would be killed before its shutdown checkpoint, leaving crash recovery to
-# its next start. 30 s holds the 20 s graceful-shutdown phase the ledger and the gateway each set in
-# their `application.yml` (`spring.lifecycle.timeout-per-shutdown-phase`), with time left for the
-# JVM to exit.
+# How long a stopping container has between its stop signal and SIGKILL, on exactly the services
+# that take the restart policy; the one-shots take none, as they take no restart (#349, ADR-070).
+# No service sets `stop_signal`, so each stops on its image's own, SIGINT for both PostgreSQL
+# images. With no grace set, Compose v5.6.1 here killed a container about 3 s after TERM: a ledger
+# draining one request died with exit 137, and `db` would be killed before its shutdown checkpoint,
+# leaving crash recovery to its next start. 30 s holds the 20 s graceful-shutdown phase the ledger
+# and the gateway each set in their `application.yml`
+# (`spring.lifecycle.timeout-per-shutdown-phase`), with time left for the JVM to exit.
 x-stop-grace-period: &stop-grace-period 30s
 
 # Least privilege for every container whose image runs as a user of its own and needs no Linux
