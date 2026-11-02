@@ -494,7 +494,8 @@ into its store once:
 - Grafana sets its admin's password only on its first start.
 
 After that, editing `.env` alone changes nothing in the store. A service that reads the value on
-every start — the ledger, Keycloak or the gateway — then can no longer sign in to it. A re-import
+every start — the ledger, Keycloak, the gateway, or `keycloak-master`, which signs in as
+Keycloak's admin on every `up` (ADR-074) — then can no longer sign in to it. A re-import
 would apply the client secrets, but it deletes every user in the realm
 ([above](#changing-the-realm-or-its-secrets)). Each recipe below changes the value in place
 instead, so the books, the owner's password, their TOTP enrolment and their `sub` all survive.
@@ -591,7 +592,8 @@ docker compose exec -T keycloak sh -c 'KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASS
 ```
 
 When the two differ, give the current password from your terminal instead. That happens while the
-admin's own password is being rotated, or after it was changed in the console.
+admin's own password is being rotated, or while the admin is being recovered. A password changed
+in the console must be written into `.env` too, or the next `up` fails at `keycloak-master`.
 
 ```bash
 read -rs KC_CLI_PASSWORD && export KC_CLI_PASSWORD   # the admin's current password; nothing is echoed
@@ -962,9 +964,11 @@ and only once `make restore-check` has passed for the backup you are about to re
 Never use `docker compose down -v`.
 
 **A restored Keycloak keeps the dump's own admin account and client secrets, not `.env`'s.** If
-`KEYCLOAK_ADMIN_PASSWORD`, `GATEWAY_CLIENT_SECRET` or `ASSISTANT_CLIENT_SECRET` changed in `.env`
-since the backup, change Keycloak to match `.env`, as [Rotating a secret](#rotating-a-secret) does,
-or the gateway cannot sign anyone in. Never change `.env` back to the old value: it is the one
+`KEYCLOAK_ADMIN_USERNAME`, `KEYCLOAK_ADMIN_PASSWORD`, `GATEWAY_CLIENT_SECRET` or
+`ASSISTANT_CLIENT_SECRET` changed in `.env` since the backup, change Keycloak to match `.env`, as
+[Rotating a secret](#rotating-a-secret) does. Until then `keycloak-master` cannot sign in with an
+admin password that differs, so the restore's `docker compose up` fails and the gateway does not
+start, and with a client secret that differs the gateway cannot sign anyone in. Never change `.env` back to the old value: it is the one
 the backup holds, and the one you replaced.
 
 **Undoing a realm re-import** means restoring Keycloak's database alone. A re-import deletes the
