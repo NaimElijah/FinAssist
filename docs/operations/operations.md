@@ -52,8 +52,9 @@ ledger applies every migration its volume has not yet run the moment it starts, 
 `spring.flyway.out-of-order` lets one numbered below a version already applied still run
 ([ADR-035](../ADRs/ADR-035-flyway-runs-out-of-order.md)). `LedgerUpgradeIT` rehearses the
 upgrade from the oldest history a volume can hold, `1.1`, `2.1` and `3.1`, and Flyway validates
-before it migrates, so nothing is expected to go wrong — a backup is cheap insurance, not a
-warning:
+before it migrates, so no migration is expected to refuse a row but `V3_3`, which can refuse a
+strategy's growth rate (below). Look for such a rate first; for everything else a backup is cheap
+insurance, not a warning:
 
 ```bash
 git rev-parse --short HEAD   # run BEFORE you pull: the release you are leaving. Write it down
@@ -91,7 +92,7 @@ migration back whole, the ledger does not start, and its log names the constrain
 most 1 a step and at most ten decimal places
 ([ADR-072](../ADRs/ADR-072-a-projection-bounds-its-growth-rate-and-its-amounts.md)), and checks
 every stored strategy. Before this release the ledger accepted any rate above -1, so a `5` typed to
-mean 5% is still stored. Look for one before the upgrade, once `db` is up:
+mean 5% may still be stored. Look for one before the upgrade, once `db` is up:
 
 ```bash
 docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT id, name, growth_per_step FROM planning.scenario WHERE growth_per_step > 1 OR min_scale(growth_per_step) > 10"'
