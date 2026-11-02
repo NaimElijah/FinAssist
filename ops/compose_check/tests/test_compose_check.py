@@ -30,6 +30,7 @@ DEEP_NESTING = 200_000
 SECRET = "Fixture-only-5Wd8Jq2Ns6"
 PASSED = "Every service follows the Compose conventions"
 POLICY = "unless-stopped"
+STOP_GRACE = "30s"
 BOUNDED_LOGS = {"driver": "json-file", "options": {"max-file": "3", "max-size": "10m"}}
 LOOPBACK = "127.0.0.1"
 NO_CAPABILITIES = ["ALL"]
@@ -105,7 +106,12 @@ def _bind(source: str, target: str) -> dict[str, Any]:
 
 
 def _long_running(**members: Any) -> dict[str, Any]:
-    return {"restart": POLICY, "logging": copy.deepcopy(BOUNDED_LOGS), **members}
+    return {
+        "restart": POLICY,
+        "logging": copy.deepcopy(BOUNDED_LOGS),
+        "stop_grace_period": STOP_GRACE,
+        **members,
+    }
 
 
 def _hardened(service: dict[str, Any]) -> dict[str, Any]:
@@ -119,6 +125,7 @@ def _conforming() -> dict[str, Any]:
         "name": "finassist",
         "x-restart-policy": POLICY,
         "x-logging": copy.deepcopy(BOUNDED_LOGS),
+        "x-stop-grace-period": STOP_GRACE,
         "x-hardened": {"cap_drop": list(NO_CAPABILITIES), "security_opt": list(NO_NEW_PRIVILEGES)},
         "services": {
             "db": _long_running(
@@ -300,6 +307,74 @@ def Given_a_one_shot_service_with_a_restart_policy_or_log_bound_When_checked_The
 
     assert status == compose_check.EXIT_FAILED
     assert lines == [f"{one_shot}: a one-shot service takes no restart or logging"]
+
+
+def Given_a_long_running_service_without_a_stop_grace_When_checked_Then_it_fails_by_name(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    del resolved["services"]["db"]["stop_grace_period"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["db: needs stop_grace_period as the x-stop-grace-period block sets it"]
+
+
+@pytest.mark.parametrize("grace", ["3s", "1m", "30"])
+def Given_a_long_running_service_with_a_stop_grace_of_its_own_When_checked_Then_it_fails_by_name(
+    grace: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"]["ledger"]["stop_grace_period"] = grace
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == ["ledger: needs stop_grace_period as the x-stop-grace-period block sets it"]
+
+
+@pytest.mark.parametrize("one_shot", ONE_SHOT_SERVICES)
+def Given_a_one_shot_service_with_a_stop_grace_When_checked_Then_it_fails_by_name(
+    one_shot: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][one_shot]["stop_grace_period"] = STOP_GRACE
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{one_shot}: a one-shot service takes no stop_grace_period"]
+
+
+# Even SIGTERM is refused: the PostgreSQL images stop on their own STOPSIGNAL, SIGINT, which a
+# `stop_signal` of any value would replace, and SIGKILL would make the grace meaningless.
+@pytest.mark.parametrize("signal", ["SIGKILL", "SIGTERM", SECRET], ids=["kill", "term", "secret"])
+@pytest.mark.parametrize("service", ["db", "ledger", "secret-check"])
+def Given_a_service_setting_a_stop_signal_When_checked_Then_the_service_and_member_are_named(
+    service: str, signal: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["stop_signal"] = signal
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: must not set stop_signal; the image's own stays in force"]
+
+
+def Given_the_stop_grace_block_missing_from_the_resolved_file_When_checked_Then_it_fails_saying_so(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = _conforming()
+    del resolved["x-stop-grace-period"]
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines[0] == "the resolved file holds no x-stop-grace-period block"
+    # With nothing to compare against, every long-running service fails as well.
+    assert "db: needs stop_grace_period as the x-stop-grace-period block sets it" in lines
 
 
 @pytest.mark.parametrize(("service", "path"), READINESS_PROBES)
@@ -533,15 +608,43 @@ def Given_an_x_block_missing_from_the_resolved_file_When_checked_Then_it_fails_s
             {"driver": "json-file"},
             "the resolved file's x-logging block must be json-file, max-size 10m, max-file 3",
         ),
+        (
+            "x-stop-grace-period",
+            "3s",
+            "the resolved file's x-stop-grace-period block must be 30s",
+        ),
+        # `config` keeps an `x-` block as written, so these reach the check unnormalised.
+        (
+            "x-stop-grace-period",
+            "30",
+            "the resolved file's x-stop-grace-period block must be 30s",
+        ),
+        (
+            "x-stop-grace-period",
+            "30s ",
+            "the resolved file's x-stop-grace-period block must be 30s",
+        ),
     ],
-    ids=["restart-always", "logs-larger", "logs-another-driver", "logs-unbounded"],
+    ids=[
+        "restart-always",
+        "logs-larger",
+        "logs-another-driver",
+        "logs-unbounded",
+        "grace-shorter",
+        "grace-unitless",
+        "grace-trailing-space",
+    ],
 )
 def Given_an_x_block_changed_and_every_service_following_it_When_checked_Then_the_block_is_named(
     block: str, value: object, problem: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     resolved = _conforming()
     resolved[block] = value
-    member = {"x-restart-policy": "restart", "x-logging": "logging"}[block]
+    member = {
+        "x-restart-policy": "restart",
+        "x-logging": "logging",
+        "x-stop-grace-period": "stop_grace_period",
+    }[block]
     for name, service in resolved["services"].items():
         if name not in ONE_SHOT_SERVICES:
             service[member] = copy.deepcopy(value)
@@ -634,6 +737,89 @@ def Given_both_spring_services_reopening_actuator_When_checked_Then_each_key_is_
 )
 @pytest.mark.parametrize("service", ["ledger", "gateway"])
 def Given_a_spring_service_reopening_actuator_in_bracketed_form_When_checked_Then_it_is_refused(
+    service: str, key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["environment"][key] = SECRET
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: its environment must not set {key}"]
+
+
+# --- The time bounds application.yml sets, never moved by Compose ---------------------------------
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE",
+        "spring.lifecycle.timeout-per-shutdown-phase",
+        "spring.lifecycle[timeout-per-shutdown-phase]",
+    ],
+)
+@pytest.mark.parametrize("service", ["ledger", "gateway"])
+def Given_a_spring_service_moving_its_shutdown_phase_timeout_When_checked_Then_the_key_is_named(
+    service: str, key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["environment"][key] = SECRET
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: its environment must not set {key}"]
+
+
+@pytest.mark.parametrize("key", ["SERVER_SHUTDOWN", "server.shutdown", "Server_Shutdown"])
+@pytest.mark.parametrize("service", ["ledger", "gateway"])
+def Given_a_spring_service_changing_its_shutdown_mode_When_checked_Then_the_key_is_named(
+    service: str, key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["environment"][key] = SECRET
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: its environment must not set {key}"]
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT",
+        "spring.datasource.hikari.connection-timeout",
+        "spring.datasource.hikari.connectionTimeout",
+    ],
+)
+@pytest.mark.parametrize("service", ["ledger", "gateway"])
+def Given_a_spring_service_moving_its_connection_wait_When_checked_Then_the_key_is_named(
+    service: str, key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["environment"][key] = SECRET
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: its environment must not set {key}"]
+
+
+# ADR-070 sizes the 5 s connection wait and the 20 s shutdown phase against the gateway's 10 s
+# relay budget, and the 30 s grace against the phase: so a longer budget breaks that order.
+@pytest.mark.parametrize(
+    "key",
+    [
+        "SPRING_HTTP_CLIENTS_READ_TIMEOUT",
+        "spring.http.clients.read-timeout",
+        "spring.http.clients.readTimeout",
+        "SPRING_HTTP_CLIENTS_READTIMEOUT",
+    ],
+)
+@pytest.mark.parametrize("service", ["ledger", "gateway"])
+def Given_a_spring_service_moving_its_relay_read_timeout_When_checked_Then_the_key_is_named(
     service: str, key: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     resolved = _conforming()

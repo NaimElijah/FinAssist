@@ -50,6 +50,8 @@ from finassist_assistant.adapters.auth import (
 from finassist_assistant.adapters.body_limit import RequestBodyLimit
 from finassist_assistant.adapters.hosts import HostAllowList
 from finassist_assistant.adapters.observability import (
+    HEALTH_PATH,
+    READY_PATH,
     TRACEPARENT_HEADER,
     configure_logging,
     configure_tracing,
@@ -218,12 +220,12 @@ def create_app(
     # writes the refusal's request line itself, with the trace id of the caller's traceparent.
     app.add_middleware(HostAllowList, allowed_hosts=resolved.allowed_hosts)
 
-    @app.get("/health", include_in_schema=False)
+    @app.get(HEALTH_PATH, include_in_schema=False)
     async def health() -> JSONResponse:
         """Liveness: the process is up and serving. Checks no dependency on purpose."""
         return JSONResponse({"status": "UP"})
 
-    @app.get("/ready", include_in_schema=False)
+    @app.get(READY_PATH, include_in_schema=False)
     async def ready() -> JSONResponse:
         """Readiness: the assistant is willing to take traffic.
 

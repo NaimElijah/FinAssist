@@ -8,26 +8,29 @@
 script's standard input (ADR-049). Every long-running service must take the restart policy and the
 log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, those blocks must hold
 ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shot services must take
-neither, and four healthchecks must probe readiness, any that runs `curl` doing so in exec form with
-`-f`, so that a 503 fails it (#142, ADR-039). Every published port must bind `127.0.0.1` and
-`keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit behind exactly the `smoke`
-profile and `secret-check` behind none, and `db`, `keycloak-db` and `grafana` must each depend on
-`secret-check` with `condition: service_completed_successfully` (ADR-034, ADR-044). Every service
-but the two databases must take the `x-hardened` block's `cap_drop` and `security_opt`, and every
-one but those and Keycloak must set `read_only`; no service, a database included, may set `cap_add`,
-`privileged`, `pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as root by `user`, or bind-mount
-a file named `docker.sock`; and each database must attach to one network alone, shared with its one
-client and nothing else, judged by the Docker network each key resolves to, so that no other key may
-resolve to it, neither database network may be `external`, and `identity` must be `internal`
-(ADR-063). No service may set `network_mode` but `secret-check`, whose must be exactly `none`, and
-Prometheus's `command` must carry exactly `--web.cors.origin=`, the empty regex, which grants no
-origin, with no `entrypoint` to run it otherwise (ADR-057). Neither the ledger nor the gateway may
-set, in its environment, a key that reopens the Actuator exposure their code pins, nor a `command`
-or `entrypoint`, whose arguments would reach Spring as properties, nor a volume, `volumes_from`, a
-config, a secret or a `working_dir`, which could put a configuration file in the working directory
-or its `config/`, where Spring reads one; nor may the gateway set a log level, a log group, a
-logging configuration or Spring Boot's `debug` or `trace` switch, since below INFO it logs
-credentials.
+neither, every long-running service and no one-shot must take the stop grace exactly as the
+`x-stop-grace-period` block sets it, that block must hold `30s`, and no service may set
+`stop_signal` (#349, ADR-070); and four healthchecks must probe readiness, any that runs `curl`
+doing so in exec form with `-f`, so that a 503 fails it (#142, ADR-039). Every published port must
+bind `127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit
+behind exactly the `smoke` profile and `secret-check` behind none, and `db`, `keycloak-db` and
+`grafana` must each depend on `secret-check` with `condition: service_completed_successfully`
+(ADR-034, ADR-044). Every service but the two databases must take the `x-hardened` block's
+`cap_drop` and `security_opt`, and every one but those and Keycloak must set `read_only`; no
+service, a database included, may set `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts` or
+`devices`, run as root by `user`, or bind-mount a file named `docker.sock`; and each database must
+attach to one network alone, shared with its one client and nothing else, judged by the Docker
+network each key resolves to, so that no other key may resolve to it, neither database network may
+be `external`, and `identity` must be `internal` (ADR-063). No service may set `network_mode` but
+`secret-check`, whose must be exactly `none`, and Prometheus's `command` must carry exactly
+`--web.cors.origin=`, the empty regex, which grants no origin, with no `entrypoint` to run it
+otherwise (ADR-057). Neither the ledger nor the gateway may set, in its environment, a key that
+reopens the Actuator exposure their code pins, or that moves the shutdown, connection-wait or relay
+read-timeout bound their `application.yml` sets (ADR-070), nor a `command` or `entrypoint`, whose
+arguments would reach Spring as properties, nor a volume, `volumes_from`, a config, a secret or a
+`working_dir`, which could put a configuration file in the working directory or its `config/`, where
+Spring reads one; nor may the gateway set a log level, a log group, a logging configuration or
+Spring Boot's `debug` or `trace` switch, since below INFO it logs credentials.
 
 It reads the resolved file, not its text, so an alias that stops resolving fails as surely as a
 service that never took one, and a block copied in with other values fails too.
@@ -52,11 +55,22 @@ EXIT_FAILED: Final = 1
 EXIT_MISCONFIGURED: Final = 2
 RESTART_BLOCK: Final = "x-restart-policy"
 LOGGING_BLOCK: Final = "x-logging"
+STOP_GRACE_BLOCK: Final = "x-stop-grace-period"
+STOP_GRACE_MEMBER: Final = "stop_grace_period"
 # ADR-039's decision, so a block changed in the file, every service following it, still fails.
 RESTART_POLICY: Final = "unless-stopped"
 LOG_DRIVER: Final = "json-file"
 LOG_MAX_SIZE: Final = "10m"
 LOG_MAX_FILES: Final = "3"
+# Room for the Spring services to drain a request and exit, and for PostgreSQL's shutdown
+# checkpoint, where Compose would otherwise kill a stopping container after about 3 s (#349,
+# ADR-070). `config` rewrites a service's duration to its own form, `0.5m` and `30000ms` alike to
+# `30s`, but keeps an `x-` block's value as written: so only the block is compared exactly as
+# written, and `30` or `30s ` there fails, as another restart policy does.
+STOP_GRACE_PERIOD: Final = "30s"
+# Pinned as unset, not as SIGTERM: the PostgreSQL images stop on their own STOPSIGNAL, SIGINT, and
+# any value here would replace it, while SIGKILL would leave the grace nothing to wait for.
+STOP_SIGNAL_MEMBER: Final = "stop_signal"
 # The block as `config` resolves it, so it compares equal to the resolved file's.
 _BOUNDED_LOGS: Final = {
     "driver": LOG_DRIVER,
@@ -240,6 +254,19 @@ SPRING_CONFIG_PREFIX: Final = "SPRING_CONFIG_"
 # Both images run `java -jar` and pass their arguments to SpringApplication.run, so a -D the JVM
 # reads from one of these, or an argument a Compose command appends, outranks application.yml too.
 JVM_OPTION_VARIABLES: Final = frozenset({"JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS"})
+# Each application.yml sizes its shutdown to STOP_GRACE_PERIOD, and the ledger's connection wait
+# and both shutdown phases to the gateway's 10 s relay read timeout (#349, ADR-070), so the four
+# figures hold only together. A Compose key would outrank any of them where no test of theirs
+# looks: a 60 s shutdown phase would pass while Compose kills the JVM at 30 s, and a 60 s relay
+# timeout would outlast both the ledger's shutdown phase and the grace.
+TIME_BOUND_PROPERTIES: Final = frozenset(
+    {
+        "SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE",
+        "SERVER_SHUTDOWN",
+        "SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT",
+        "SPRING_HTTP_CLIENTS_READ_TIMEOUT",
+    }
+)
 COMMAND_LINE_MEMBERS: Final = ("command", "entrypoint")
 # Spring Boot also reads `application.*` from its working directory, `/app` in both images, and from
 # `config/` beneath it, so a file put there, or a working directory moved onto one, sets properties
@@ -351,6 +378,11 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
             f"the resolved file's {LOGGING_BLOCK} block must be {LOG_DRIVER}, "
             f"max-size {LOG_MAX_SIZE}, max-file {LOG_MAX_FILES}"
         )
+    stop_grace = resolved.get(STOP_GRACE_BLOCK)
+    if stop_grace is None:
+        found.append(f"the resolved file holds no {STOP_GRACE_BLOCK} block")
+    elif stop_grace != STOP_GRACE_PERIOD:
+        found.append(f"the resolved file's {STOP_GRACE_BLOCK} block must be {STOP_GRACE_PERIOD}")
     if resolved.get(HARDENED_BLOCK) != _HARDENED_MEMBERS:
         found.append(
             f"the resolved file's {HARDENED_BLOCK} block must drop {', '.join(NO_CAPABILITIES)} "
@@ -364,14 +396,26 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
         if name in ONE_SHOT_SERVICES:
             if service.get("restart") or service.get("logging"):
                 found.append(f"{name}: a one-shot service takes no restart or logging")
-        elif service.get("restart") != policy or service.get("logging") != bounded_logs:
-            found.append(f"{name}: needs restart and logging as the x- blocks set them")
+            if service.get(STOP_GRACE_MEMBER):
+                found.append(f"{name}: a one-shot service takes no {STOP_GRACE_MEMBER}")
+        else:
+            if service.get("restart") != policy or service.get("logging") != bounded_logs:
+                found.append(f"{name}: needs restart and logging as the x- blocks set them")
+            if service.get(STOP_GRACE_MEMBER) != stop_grace:
+                found.append(
+                    f"{name}: needs {STOP_GRACE_MEMBER} as the {STOP_GRACE_BLOCK} block sets it"
+                )
+        if service.get(STOP_SIGNAL_MEMBER) is not None:
+            found.append(
+                f"{name}: must not set {STOP_SIGNAL_MEMBER}; the image's own stays in force"
+            )
         if name in SPRING_SERVICES:
             environment = _mapping(service.get("environment") or {}, "an environment")
             found.extend(
                 f"{name}: its environment must not set {key}"
                 for key in sorted(environment)
                 if _reopens_actuator(key)
+                or _moves_time_bound(key)
                 or (name in LEVEL_PINNED_SERVICES and _lowers_log_level(key))
             )
             found.extend(
@@ -639,6 +683,10 @@ def _reopens_actuator(key: str) -> bool:
     return canonical.startswith(
         (_canonical(ACTUATOR_WEB_PREFIX), _canonical(SPRING_CONFIG_PREFIX))
     ) or (canonical == _canonical(SPRING_APPLICATION_JSON) or key in JVM_OPTION_VARIABLES)
+
+
+def _moves_time_bound(key: str) -> bool:
+    return _canonical(key) in {_canonical(name) for name in TIME_BOUND_PROPERTIES}
 
 
 def _lowers_log_level(key: str) -> bool:

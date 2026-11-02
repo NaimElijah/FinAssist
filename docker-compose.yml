@@ -52,6 +52,16 @@ x-logging: &bounded-logs
     max-size: "10m"
     max-file: "3"
 
+# How long a stopping container has between its stop signal and SIGKILL, on exactly the services
+# that take the restart policy; the one-shots take none, as they take no restart (#349, ADR-070).
+# No service sets `stop_signal`, so each stops on its image's own, SIGINT for both PostgreSQL
+# images. With no grace set, Compose v5.6.1 here killed a container about 3 s after TERM: a ledger
+# draining one request died with exit 137, and `db` would be killed before its shutdown checkpoint,
+# leaving crash recovery to its next start. 30 s holds the 20 s graceful-shutdown phase the ledger
+# and the gateway each set in their `application.yml`
+# (`spring.lifecycle.timeout-per-shutdown-phase`), with time left for the JVM to exit.
+x-stop-grace-period: &stop-grace-period 30s
+
 # Least privilege for every container whose image runs as a user of its own and needs no Linux
 # capability (ADR-063): every capability dropped, and no process may gain privileges through a
 # setuid or file-capability binary. Applied with `<<: *hardened`; `make check-compose` holds every
@@ -99,6 +109,11 @@ services:
       GATEWAY_CLIENT_SECRET: ${GATEWAY_CLIENT_SECRET:-}
       ASSISTANT_CLIENT_SECRET: ${ASSISTANT_CLIENT_SECRET:-}
       GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      # Not secrets, and never searched for: resolved exactly as `db` and the ledger resolve them,
+      # so the check refuses a LEDGER_DB_PASSWORD that is not POSTGRES_PASSWORD while both name
+      # one role, which `db` would otherwise accept and the ledger then fail on at every start.
+      POSTGRES_USER: ${POSTGRES_USER:-finassist}
+      LEDGER_DB_USERNAME: ${LEDGER_DB_USERNAME:-finassist}
       # Nothing here may be written, and this user could not write it anyway.
       PYTHONDONTWRITEBYTECODE: "1"
     command: ["python", "/repo/ops/secret_check/secret_check.py", "/repo"]
@@ -107,6 +122,7 @@ services:
     image: postgres:18.6-trixie
     restart: *restart-policy
     logging: *bounded-logs
+    stop_grace_period: *stop-grace-period
     depends_on:
       secret-check:
         condition: service_completed_successfully
@@ -135,6 +151,7 @@ services:
     build: ./backend/ledger
     restart: *restart-policy
     logging: *bounded-logs
+    stop_grace_period: *stop-grace-period
     <<: *hardened
     # The JVM writes only under /tmp: its perf data and Tomcat's work and docbase directories.
     read_only: true
@@ -181,6 +198,7 @@ services:
     build: ./backend/assistant
     restart: *restart-policy
     logging: *bounded-logs
+    stop_grace_period: *stop-grace-period
     <<: *hardened
     # It writes nothing to its root filesystem: its bytecode is compiled into the image.
     read_only: true
@@ -242,6 +260,7 @@ services:
     image: postgres:17.11-trixie
     restart: *restart-policy
     logging: *bounded-logs
+    stop_grace_period: *stop-grace-period
     depends_on:
       secret-check:
         condition: service_completed_successfully
@@ -267,6 +286,7 @@ services:
     build: ./ops/keycloak
     restart: *restart-policy
     logging: *bounded-logs
+    stop_grace_period: *stop-grace-period
     <<: *hardened
     # Not `read_only`, unlike the other hardened services: it writes its transaction store under
     # /opt/keycloak/data/transaction-logs, and a read-only root with that store on a tmpfs is
@@ -341,6 +361,7 @@ services:
     build: ./backend/gateway
     restart: *restart-policy
     logging: *bounded-logs
+    stop_grace_period: *stop-grace-period
     <<: *hardened
     # As the ledger: the JVM writes only under /tmp.
     read_only: true
@@ -389,6 +410,7 @@ services:
     image: otel/opentelemetry-collector-contrib:0.139.0
     restart: *restart-policy
     logging: *bounded-logs
+    stop_grace_period: *stop-grace-period
     <<: *hardened
     # It writes nothing: its configuration is mounted read-only and it stores no telemetry.
     read_only: true
@@ -404,6 +426,7 @@ services:
     image: prom/prometheus:v3.7.3
     restart: *restart-policy
     logging: *bounded-logs
+    stop_grace_period: *stop-grace-period
     <<: *hardened
     # It writes only to its `prometheus-data` volume.
     read_only: true
@@ -427,6 +450,7 @@ services:
     image: grafana/grafana:12.3.1
     restart: *restart-policy
     logging: *bounded-logs
+    stop_grace_period: *stop-grace-period
     <<: *hardened
     # It writes to its `grafana-data` volume, and under /tmp as it downloads the plugins it
     # installs at start-up.

@@ -1,6 +1,7 @@
 # ADR-039: Compose restarts a crashed service, and keeps at most 30 MB of each container's logs
 
-- **Status:** Accepted, extended by [ADR-044](ADR-044-compose-refuses-a-published-secret.md)
+- **Status:** Accepted, extended by [ADR-044](ADR-044-compose-refuses-a-published-secret.md) and
+  [ADR-070](ADR-070-a-stopping-service-gets-30-seconds-and-the-ledger-waits-5-for-a-connection.md)
 - **Date:** 2026-10-13
 
 ## Context

@@ -20,6 +20,7 @@ import sys
 import time
 from collections.abc import Iterable, MutableMapping
 from contextvars import ContextVar
+from http import HTTPStatus
 from typing import Any, Final, TextIO
 
 import structlog
@@ -90,6 +91,18 @@ _TRACEPARENT_FIELDS: Final = 4
 
 REQUEST_EVENT: Final = "request answered"
 """The event of the one line the assistant writes for every request it answers."""
+
+HEALTH_PATH: Final = "/health"
+"""The liveness probe's path."""
+
+READY_PATH: Final = "/ready"
+"""The readiness probe's path, which Compose's healthcheck calls every five seconds."""
+
+PROBE_PATHS: Final = frozenset({HEALTH_PATH, READY_PATH})
+"""The probes whose successful answers :func:`log_request` writes at DEBUG rather than INFO."""
+
+# Only a 2xx moves a probe to DEBUG: a probe that answers anything else is the one worth seeing.
+_SUCCESS: Final = range(HTTPStatus.OK, HTTPStatus.MULTIPLE_CHOICES)
 
 _MILLISECONDS_PER_SECOND: Final = 1000
 # Microseconds: finer than anything a request's duration is read for, and short on the line.
@@ -260,7 +273,11 @@ def add_correlation_id(
 
 
 def log_request(scope: Scope, status: int, started: float) -> None:
-    """Write the one line the assistant keeps for a request, at INFO whatever its status.
+    """Write the one line kept for a request, at INFO, or at DEBUG for a probe answered 2xx.
+
+    The probes are those in :data:`PROBE_PATHS`. Compose probes readiness every five seconds, and
+    at INFO those lines would crowd everything else out of the bounded container log (ADR-039). A
+    probe answered anything else stays at INFO.
 
     Called before the correlation id is unbound, so the line carries it. Uvicorn's own access line
     is switched off because it is written later, from the protocol layer, with nothing bound. A
@@ -274,10 +291,13 @@ def log_request(scope: Scope, status: int, started: float) -> None:
     :param started: :func:`time.perf_counter` when the request arrived.
     """
     elapsed = time.perf_counter() - started
-    _log.info(
+    path = scope["path"]
+    quiet = path in PROBE_PATHS and status in _SUCCESS
+    write = _log.debug if quiet else _log.info
+    write(
         REQUEST_EVENT,
         method=scope["method"],
-        path=scope["path"],
+        path=path,
         status=status,
         duration_ms=round(elapsed * _MILLISECONDS_PER_SECOND, _DURATION_DECIMALS),
     )

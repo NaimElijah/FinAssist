@@ -270,7 +270,32 @@ jobs:
             echo "db started on a published secret"; exit 1
           fi
           test -z "$(docker compose ps -q --status running db)"
+          # The ledger signs in as the role db creates, so the check refuses its password apart
+          # from the role's: the two take one fresh value.
+          database_password="$(openssl rand -hex 16)"
           for name in $variables; do
-            echo "$name=$(openssl rand -hex 16)"
+            case "$name" in
+              POSTGRES_PASSWORD | LEDGER_DB_PASSWORD) echo "$name=$database_password" ;;
+              *) echo "$name=$(openssl rand -hex 16)" ;;
+            esac
           done > "$RUNNER_TEMP/fresh.env"
           docker compose --env-file "$RUNNER_TEMP/fresh.env" run --rm secret-check
+
+      # The same gate on the mismatch its own tests reach only in-process: every value fresh, but
+      # the ledger's password not the role's, while Compose hands both usernames their shared
+      # default. The check must refuse it by name and print no value.
+      - name: Refuse a ledger password the database role does not hold
+        run: |
+          sed "s/^LEDGER_DB_PASSWORD=.*/LEDGER_DB_PASSWORD=$(openssl rand -hex 16)/" \
+            "$RUNNER_TEMP/fresh.env" > "$RUNNER_TEMP/mismatched.env"
+          status=0
+          docker compose --env-file "$RUNNER_TEMP/mismatched.env" run --rm secret-check \
+            > "$RUNNER_TEMP/mismatched.txt" 2>&1 || status=$?
+          cat "$RUNNER_TEMP/mismatched.txt"
+          test "$status" -eq 1
+          grep -q "REFUSED: LEDGER_DB_PASSWORD differs from POSTGRES_PASSWORD" \
+            "$RUNNER_TEMP/mismatched.txt"
+          if cut -d= -f2- "$RUNNER_TEMP/mismatched.env" \
+            | grep -qFf - "$RUNNER_TEMP/mismatched.txt"; then
+            echo "the refusal printed a value"; exit 1
+          fi
