@@ -35,6 +35,10 @@ import tools.jackson.databind.node.StringNode;
  * and which nothing else makes: {@link KeycloakRealmIT} supplies every placeholder itself as
  * container environment, and the assertions below check only that each is bare.
  *
+ * <p>It reads {@code ops/keycloak/master-realm.json} the same way: the settings Keycloak's own
+ * {@code master} realm takes (ADR-074), its lockout policy held equal to the realm's (ADR-073),
+ * and the wiring of the {@code keycloak-master} one-shot that merges it in.
+ *
  * <p>{@link KeycloakRealmIT} is this file's other half: it proves Keycloak actually reads the
  * realm the way these assertions assume. This test cannot catch a wrong assumption about
  * Keycloak's own behaviour, only a wrong or drifted realm file.
@@ -117,11 +121,7 @@ class KeycloakRealmTest {
         return JSON.readTree(rawText(MASTER_REALM_FILE));
     }
 
-    /** The realm file, located through {@value #OPS_DIR_PROPERTY}, failing loudly when it is unset. */
-    private static Path realmFile() {
-        return keycloakFile(REALM_FILE);
-    }
-
+    /** A file in {@code ops/keycloak}, located through {@value #OPS_DIR_PROPERTY}, failing loudly when it is unset. */
     private static Path keycloakFile(String name) {
         String directory = System.getProperty(OPS_DIR_PROPERTY);
         if (directory == null) {
@@ -258,23 +258,36 @@ class KeycloakRealmTest {
     }
 
     /**
+     * The one-shot runs the script from the very image Keycloak runs, built from one context, as
+     * {@code nobody}, once Keycloak is ready. Two contexts would let it merge a file Keycloak's own
+     * image no longer holds (ADR-074).
+     */
+    @Test
+    void
+            Given_the_compose_file_When_the_master_realm_one_shot_is_read_Then_it_runs_the_script_from_keycloaks_build_as_nobody() {
+        Map<String, Object> oneShot = composeService(MASTER_REALM_SERVICE);
+
+        assertThat(oneShot.get("build"))
+                .isEqualTo(composeService(KEYCLOAK_SERVICE).get("build"));
+        assertThat(oneShot.get("entrypoint")).isEqualTo(List.of("sh", "/opt/finassist/apply-master-realm.sh"));
+        assertThat(oneShot.get("user")).isEqualTo("65534:65534");
+        assertThat(asMap(asMap(oneShot.get("depends_on"), "depends_on").get(KEYCLOAK_SERVICE), "keycloak"))
+                .containsEntry("condition", "service_healthy");
+    }
+
+    /**
      * The one-shot signs in as the administrator Keycloak was bootstrapped with, so each of its two
      * variables must be spelt as the {@code keycloak} service spells it: a default that differed
      * would sign in as another user, and a password that differed would never sign in (ADR-074).
      */
     @Test
-    void
-            Given_the_compose_file_When_the_master_realm_one_shot_is_read_Then_it_runs_the_script_as_keycloaks_administrator() {
-        Map<String, Object> oneShot = composeService(MASTER_REALM_SERVICE);
-        Map<String, Object> environment = asMap(oneShot.get("environment"), MASTER_REALM_SERVICE + ".environment");
+    void Given_the_compose_file_When_the_master_realm_one_shot_is_read_Then_it_signs_in_as_keycloaks_administrator() {
+        Map<String, Object> environment =
+                asMap(composeService(MASTER_REALM_SERVICE).get("environment"), MASTER_REALM_SERVICE + ".environment");
         Map<String, Object> keycloak = keycloakServiceEnvironment();
 
-        assertThat(oneShot.get("entrypoint")).isEqualTo(List.of("sh", "/opt/finassist/apply-master-realm.sh"));
         assertThat(environment.get("KEYCLOAK_ADMIN_USERNAME")).isEqualTo(keycloak.get("KC_BOOTSTRAP_ADMIN_USERNAME"));
         assertThat(environment.get("KC_CLI_PASSWORD")).isEqualTo(keycloak.get("KC_BOOTSTRAP_ADMIN_PASSWORD"));
-        assertThat(oneShot).doesNotContainKey("profiles");
-        assertThat(asMap(asMap(oneShot.get("depends_on"), "depends_on").get(KEYCLOAK_SERVICE), "keycloak"))
-                .containsEntry("condition", "service_healthy");
     }
 
     @Test
