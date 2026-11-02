@@ -273,11 +273,11 @@ def add_correlation_id(
 
 
 def log_request(scope: Scope, status: int, started: float) -> None:
-    """Write the one line the assistant keeps for a request, at INFO whatever its status.
+    """Write the one line kept for a request, at INFO, or at DEBUG for a probe answered 2xx.
 
-    The exception is a probe in :data:`PROBE_PATHS` answered 2xx, written at DEBUG: Compose
-    probes readiness every five seconds, and at INFO those lines would crowd everything else out
-    of the bounded container log (ADR-039). A probe answered anything else stays at INFO.
+    The probes are those in :data:`PROBE_PATHS`. Compose probes readiness every five seconds, and
+    at INFO those lines would crowd everything else out of the bounded container log (ADR-039). A
+    probe answered anything else stays at INFO.
 
     Called before the correlation id is unbound, so the line carries it. Uvicorn's own access line
     is switched off because it is written later, from the protocol layer, with nothing bound. A
