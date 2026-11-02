@@ -127,7 +127,8 @@ can be as long as the request that carried it. **The figures are the owner's dec
   `PlanningHttpIT.Given_growth_rates_beyond_the_upper_bounds_When_defined_Then_each_is_a_422_and_none_is_listed`;
   `DefineScenarioRequest.GROWTH_RATE` in `contracts/ledger-v1.openapi.json`.
 - **The store.** `V3_3__scenario_growth_bounded.sql`; `JdbcPlanningRepositoriesIT`,
-  `LedgerUpgradeIT` and `ReleasedMigrationsTest`.
+  `LedgerUpgradeIT`, `ScenarioGrowthMigrationIT`, which refuses an upgrade over a stored rate and
+  then applies it once the rate is corrected, and `ReleasedMigrationsTest`.
 - **The magnitude.** `Projection.MAXIMUM_INTEGER_DIGITS`; `ProjectionTest`, `ComparisonTest` and
   `PlanningHttpIT`.
 - **The expansion.** `Recurrence`'s first period reaching the range;
