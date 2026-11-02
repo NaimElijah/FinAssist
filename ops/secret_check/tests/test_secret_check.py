@@ -291,6 +291,20 @@ SHARED_ROLE = "fixture-role"
 LEDGER_OWN_ROLE = "fixture-ledger-role"
 DATABASE_PASSWORD = f"{FRESH}-database"
 OTHER_PASSWORD = f"{FRESH}-other"
+# Spelled out rather than built from the module's constants, so a reworded message fails here. The
+# role keeps the password it was initialised or rotated with, and `db` ignores a changed
+# POSTGRES_PASSWORD on an initialised volume: matching the pair to the ledger's new value would
+# pass the check and leave the ledger refused, so only the pair's last working value is safe.
+KEEP_LINE = (
+    "secret-check: nothing that waits on this check starts until the two match. Keep the value "
+    "both held when the ledger last started successfully: undo whichever of LEDGER_DB_PASSWORD "
+    "and POSTGRES_PASSWORD was changed in .env, or rotate the role in place first: "
+    "docs/operations/operations.md#the-ledgers-database-password"
+)
+ROTATION_LINE = (
+    "secret-check: nothing that waits on this check starts until each one is changed. Write a new "
+    "value into .env, then rotate it in place: docs/operations/operations.md#rotating-a-secret"
+)
 
 
 def _signing_in(
@@ -316,13 +330,8 @@ def Given_the_ledger_on_the_database_role_with_another_password_When_checked_The
     refusals = [line for line in output.splitlines() if "REFUSED" in line]
     assert len(refusals) == 1
     assert "REFUSED: LEDGER_DB_PASSWORD differs from POSTGRES_PASSWORD" in refusals[0]
-    # Alone, the mismatch needs no new value: both take the one the role already holds.
-    assert output.splitlines()[-1] == (
-        "secret-check: nothing that waits on this check starts until the two match. Set both "
-        "LEDGER_DB_PASSWORD and POSTGRES_PASSWORD in .env to the password the role holds now, "
-        "which is the one the ledger signs in with, or rotate it in place first: "
-        f"{secret_check.LEDGER_PASSWORD_GUIDE}"
-    )
+    # Alone, the mismatch needs no new value: both keep the one the role already holds.
+    assert output.splitlines()[-1] == KEEP_LINE
     assert secret_check.ROTATION_GUIDE not in output
     assert not any(value in output for value in (DATABASE_PASSWORD, OTHER_PASSWORD, SHARED_ROLE))
 
@@ -336,9 +345,10 @@ def Given_the_ledger_on_the_database_role_with_its_password_When_checked_Then_it
     status, output = _run(root, environment, capsys)
 
     assert status == secret_check.EXIT_PASSED
+    # Two strings from the environment were compared, never the role, so the line claims no more.
     assert output.rstrip().endswith(
-        "; LEDGER_DB_PASSWORD is the password of the role LEDGER_DB_USERNAME and POSTGRES_USER "
-        "both name"
+        "; LEDGER_DB_PASSWORD equals POSTGRES_PASSWORD, while LEDGER_DB_USERNAME and POSTGRES_USER "
+        "name one role"
     )
     assert DATABASE_PASSWORD not in output
     assert SHARED_ROLE not in output
@@ -429,7 +439,7 @@ def Given_the_role_shared_and_one_password_empty_When_checked_Then_it_is_refused
     assert DATABASE_PASSWORD not in output
 
 
-def Given_a_published_database_password_the_ledger_lacks_When_checked_Then_both_are_named(
+def Given_a_published_database_password_the_ledger_lacks_When_checked_Then_a_new_value_is_asked(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     root = _clone(tmp_path, {"docs/notes.md": f"`{PUBLISHED}`\n".encode()})
@@ -440,10 +450,70 @@ def Given_a_published_database_password_the_ledger_lacks_When_checked_Then_both_
     assert status == secret_check.EXIT_REFUSED
     assert "REFUSED: POSTGRES_PASSWORD appears" in output
     assert "REFUSED: LEDGER_DB_PASSWORD differs from POSTGRES_PASSWORD" in output
-    # The published value needs a new one, and the mismatch its own pointer beside it.
-    assert secret_check.ROTATION_GUIDE in output
-    assert secret_check.LEDGER_PASSWORD_GUIDE in output
+    # A published value must not be kept, so a line saying to keep the pair's would contradict the
+    # one saying to write a new value and rotate it.
+    assert ROTATION_LINE in output.splitlines()
+    assert KEEP_LINE not in output.splitlines()
+    assert secret_check.LEDGER_PASSWORD_GUIDE not in output
     assert PUBLISHED not in output
+
+
+@pytest.mark.parametrize(
+    "short", ["POSTGRES_PASSWORD", "LEDGER_DB_PASSWORD"], ids=["database", "ledger"]
+)
+def Given_one_of_the_pair_short_and_the_two_differing_When_checked_Then_only_a_new_value_is_asked(
+    short: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"README.md": b"text\n"})
+    environment = _signing_in(SHARED_ROLE, SHARED_ROLE, DATABASE_PASSWORD, OTHER_PASSWORD)
+    environment[short] = _of_length(secret_check.MIN_SECRET_LENGTH - 1)
+
+    status, output = _run(root, environment, capsys)
+
+    assert status == secret_check.EXIT_REFUSED
+    assert f"REFUSED: {short} is shorter" in output
+    assert "REFUSED: LEDGER_DB_PASSWORD differs from POSTGRES_PASSWORD" in output
+    assert ROTATION_LINE in output.splitlines()
+    assert KEEP_LINE not in output.splitlines()
+    assert secret_check.LEDGER_PASSWORD_GUIDE not in output
+
+
+@pytest.mark.parametrize(
+    ("ledger_user", "ledger_password", "expected"),
+    [
+        (SHARED_ROLE, DATABASE_PASSWORD, "EQUAL"),
+        (SHARED_ROLE, OTHER_PASSWORD, "DIFFERS"),
+        (SHARED_ROLE, "", "DIFFERS"),
+        (LEDGER_OWN_ROLE, OTHER_PASSWORD, "NOT_COMPARED"),
+        ("", OTHER_PASSWORD, "NOT_COMPARED"),
+    ],
+    ids=["shared-equal", "shared-differing", "shared-one-empty", "own-role", "no-ledger-user"],
+)
+def Given_how_the_ledger_signs_in_When_checked_Then_the_verdict_holds_one_comparison_outcome(
+    ledger_user: str, ledger_password: str, expected: str, tmp_path: Path
+) -> None:
+    root = _clone(tmp_path, {"README.md": b"text\n"})
+    environment = _signing_in(SHARED_ROLE, ledger_user, DATABASE_PASSWORD, ledger_password)
+
+    verdict = secret_check.check(root, environment)
+
+    assert verdict.ledger_password is secret_check.LedgerPassword[expected]
+
+
+# A secret outside the pair is rotated on its own, and the pair's last working value still holds.
+def Given_another_secret_published_and_the_pair_differing_When_checked_Then_each_gets_its_guidance(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _clone(tmp_path, {"docs/notes.md": f"`{PUBLISHED}`\n".encode()})
+    environment = _signing_in(SHARED_ROLE, SHARED_ROLE, DATABASE_PASSWORD, OTHER_PASSWORD)
+    environment["GRAFANA_ADMIN_PASSWORD"] = PUBLISHED
+
+    status, output = _run(root, environment, capsys)
+
+    assert status == secret_check.EXIT_REFUSED
+    assert "REFUSED: GRAFANA_ADMIN_PASSWORD appears" in output
+    assert "REFUSED: LEDGER_DB_PASSWORD differs from POSTGRES_PASSWORD" in output
+    assert output.splitlines()[-2:] == [ROTATION_LINE, KEEP_LINE]
 
 
 # --- Which files count ---------------------------------------------------------------------------
