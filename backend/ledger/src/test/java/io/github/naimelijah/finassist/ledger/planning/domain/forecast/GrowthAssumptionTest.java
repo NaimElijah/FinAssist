@@ -46,6 +46,21 @@ class GrowthAssumptionTest {
                         .doesNotContain(rate));
     }
 
+    /**
+     * The lower refusal names no rate either. A rate below -1 written as plain text, as the wire
+     * pattern allows, can be as long as the request that carried it, and the message is the 422's
+     * detail.
+     */
+    @Test
+    void Given_a_rate_below_minus_one_tens_of_thousands_of_digits_long_When_built_Then_it_is_refused_briefly() {
+        String rate = "-1." + "0".repeat(60_000) + "1";
+
+        assertThatThrownBy(() -> GrowthAssumption.perStep(rate))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("greater than -1")
+                .satisfies(refusal -> assertThat(refusal.getMessage()).hasSizeLessThan(MESSAGE_BOUND));
+    }
+
     @Test
     void Given_a_rate_with_exactly_the_maximum_decimal_places_When_an_assumption_is_built_Then_it_is_allowed() {
         assertThat(GrowthAssumption.perStep("0.0000000001").ratePerStep().scale())

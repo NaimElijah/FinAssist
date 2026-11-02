@@ -39,14 +39,12 @@ public record GrowthAssumption(BigDecimal ratePerStep) {
 
     public GrowthAssumption {
         Objects.requireNonNull(ratePerStep, "ratePerStep");
+        // No refusal names the rate: it is the caller's text, as long as the request that carried it
+        // allowed, and the message becomes a 422's detail (ADR-072).
         if (ratePerStep.compareTo(MINIMUM_EXCLUSIVE) <= 0) {
-            // toString, never toPlainString, which writes a rate such as -1E+2147483647 out digit by
-            // digit and throws OutOfMemoryError in place of this refusal.
-            throw new IllegalArgumentException("A growth rate of " + ratePerStep.toString()
-                    + " would destroy or invert the balance; it must be greater than -1");
+            throw new IllegalArgumentException(
+                    "A growth rate must be greater than -1; at or below it, it would destroy or invert the balance");
         }
-        // Neither upper refusal names the rate: a rate that passes the lower bound can be any length
-        // the request allowed, and the message becomes a 422's detail.
         if (ratePerStep.compareTo(MAXIMUM_RATE) > 0) {
             throw new IllegalArgumentException("A growth rate is at most 1 a step, which doubles the invested"
                     + " balance; a rate of 5 means 500% a step, so write 5% as 0.05");
