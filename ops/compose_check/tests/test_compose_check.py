@@ -347,6 +347,22 @@ def Given_a_one_shot_service_with_a_stop_grace_When_checked_Then_it_fails_by_nam
     assert lines == [f"{one_shot}: a one-shot service takes no stop_grace_period"]
 
 
+# Even SIGTERM is refused: the PostgreSQL images stop on their own STOPSIGNAL, SIGINT, which a
+# `stop_signal` of any value would replace, and SIGKILL would make the grace meaningless.
+@pytest.mark.parametrize("signal", ["SIGKILL", "SIGTERM", SECRET], ids=["kill", "term", "secret"])
+@pytest.mark.parametrize("service", ["db", "ledger", "secret-check"])
+def Given_a_service_setting_a_stop_signal_When_checked_Then_the_service_and_member_are_named(
+    service: str, signal: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["stop_signal"] = signal
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: must not set stop_signal; the image's own stays in force"]
+
+
 def Given_the_stop_grace_block_missing_from_the_resolved_file_When_checked_Then_it_fails_saying_so(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -597,8 +613,27 @@ def Given_an_x_block_missing_from_the_resolved_file_When_checked_Then_it_fails_s
             "3s",
             "the resolved file's x-stop-grace-period block must be 30s",
         ),
+        # `config` keeps an `x-` block as written, so these reach the check unnormalised.
+        (
+            "x-stop-grace-period",
+            "30",
+            "the resolved file's x-stop-grace-period block must be 30s",
+        ),
+        (
+            "x-stop-grace-period",
+            "30s ",
+            "the resolved file's x-stop-grace-period block must be 30s",
+        ),
     ],
-    ids=["restart-always", "logs-larger", "logs-another-driver", "logs-unbounded", "grace-shorter"],
+    ids=[
+        "restart-always",
+        "logs-larger",
+        "logs-another-driver",
+        "logs-unbounded",
+        "grace-shorter",
+        "grace-unitless",
+        "grace-trailing-space",
+    ],
 )
 def Given_an_x_block_changed_and_every_service_following_it_When_checked_Then_the_block_is_named(
     block: str, value: object, problem: str, capsys: pytest.CaptureFixture[str]
@@ -702,6 +737,65 @@ def Given_both_spring_services_reopening_actuator_When_checked_Then_each_key_is_
 )
 @pytest.mark.parametrize("service", ["ledger", "gateway"])
 def Given_a_spring_service_reopening_actuator_in_bracketed_form_When_checked_Then_it_is_refused(
+    service: str, key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["environment"][key] = SECRET
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: its environment must not set {key}"]
+
+
+# --- The shutdown and connection-wait bounds application.yml sets, never moved by Compose ---------
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE",
+        "spring.lifecycle.timeout-per-shutdown-phase",
+        "spring.lifecycle[timeout-per-shutdown-phase]",
+    ],
+)
+@pytest.mark.parametrize("service", ["ledger", "gateway"])
+def Given_a_spring_service_moving_its_shutdown_phase_timeout_When_checked_Then_the_key_is_named(
+    service: str, key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["environment"][key] = SECRET
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: its environment must not set {key}"]
+
+
+@pytest.mark.parametrize("key", ["SERVER_SHUTDOWN", "server.shutdown", "Server_Shutdown"])
+@pytest.mark.parametrize("service", ["ledger", "gateway"])
+def Given_a_spring_service_changing_its_shutdown_mode_When_checked_Then_the_key_is_named(
+    service: str, key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["environment"][key] = SECRET
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: its environment must not set {key}"]
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT",
+        "spring.datasource.hikari.connection-timeout",
+        "spring.datasource.hikari.connectionTimeout",
+    ],
+)
+@pytest.mark.parametrize("service", ["ledger", "gateway"])
+def Given_a_spring_service_moving_its_connection_wait_When_checked_Then_the_key_is_named(
     service: str, key: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     resolved = _conforming()

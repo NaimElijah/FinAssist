@@ -9,12 +9,13 @@ script's standard input (ADR-049). Every long-running service must take the rest
 log bound exactly as the `x-restart-policy` and `x-logging` blocks set them, those blocks must hold
 ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shot services must take
 neither, every long-running service and no one-shot must take the stop grace exactly as the
-`x-stop-grace-period` block sets it, that block must hold `30s` (#349), and four healthchecks must
-probe readiness, any that runs `curl` doing so in exec form with `-f`, so that a 503 fails it (#142,
-ADR-039). Every published port must bind `127.0.0.1` and
-`keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit behind exactly the `smoke`
-profile and `secret-check` behind none, and `db`, `keycloak-db` and `grafana` must each depend on
-`secret-check` with `condition: service_completed_successfully` (ADR-034, ADR-044). Every service
+`x-stop-grace-period` block sets it, that block must hold `30s`, and no service may set
+`stop_signal` (#349, ADR-070); and four healthchecks must probe readiness, any that runs `curl`
+doing so in exec form with `-f`, so that a 503 fails it (#142, ADR-039). Every published port must
+bind `127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit
+behind exactly the `smoke` profile and `secret-check` behind none, and `db`, `keycloak-db` and
+`grafana` must each depend on `secret-check` with `condition: service_completed_successfully`
+(ADR-034, ADR-044). Every service
 but the two databases must take the `x-hardened` block's `cap_drop` and `security_opt`, and every
 one but those and Keycloak must set `read_only`; no service, a database included, may set `cap_add`,
 `privileged`, `pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as root by `user`, or bind-mount
@@ -24,8 +25,9 @@ resolve to it, neither database network may be `external`, and `identity` must b
 (ADR-063). No service may set `network_mode` but `secret-check`, whose must be exactly `none`, and
 Prometheus's `command` must carry exactly `--web.cors.origin=`, the empty regex, which grants no
 origin, with no `entrypoint` to run it otherwise (ADR-057). Neither the ledger nor the gateway may
-set, in its environment, a key that reopens the Actuator exposure their code pins, nor a `command`
-or `entrypoint`, whose arguments would reach Spring as properties, nor a volume, `volumes_from`, a
+set, in its environment, a key that reopens the Actuator exposure their code pins, or that moves
+the shutdown or connection-wait bound their `application.yml` sets (ADR-070), nor a `command` or
+`entrypoint`, whose arguments would reach Spring as properties, nor a volume, `volumes_from`, a
 config, a secret or a `working_dir`, which could put a configuration file in the working directory
 or its `config/`, where Spring reads one; nor may the gateway set a log level, a log group, a
 logging configuration or Spring Boot's `debug` or `trace` switch, since below INFO it logs
@@ -62,10 +64,14 @@ LOG_DRIVER: Final = "json-file"
 LOG_MAX_SIZE: Final = "10m"
 LOG_MAX_FILES: Final = "3"
 # Room for the Spring services to drain a request and exit, and for PostgreSQL's shutdown
-# checkpoint, where Compose would otherwise kill a stopping container after about 3 s (#349).
-# Compared as `config` writes it, so an equal duration spelt another way fails, as another restart
-# policy does.
+# checkpoint, where Compose would otherwise kill a stopping container after about 3 s (#349,
+# ADR-070). `config` rewrites a service's duration to its own form, `0.5m` and `30000ms` alike to
+# `30s`, but keeps an `x-` block's value as written: so only the block is compared exactly as
+# written, and `30` or `30s ` there fails, as another restart policy does.
 STOP_GRACE_PERIOD: Final = "30s"
+# Pinned as unset, not as SIGTERM: the PostgreSQL images stop on their own STOPSIGNAL, SIGINT, and
+# any value here would replace it, while SIGKILL would leave the grace nothing to wait for.
+STOP_SIGNAL_MEMBER: Final = "stop_signal"
 # The block as `config` resolves it, so it compares equal to the resolved file's.
 _BOUNDED_LOGS: Final = {
     "driver": LOG_DRIVER,
@@ -249,6 +255,16 @@ SPRING_CONFIG_PREFIX: Final = "SPRING_CONFIG_"
 # Both images run `java -jar` and pass their arguments to SpringApplication.run, so a -D the JVM
 # reads from one of these, or an argument a Compose command appends, outranks application.yml too.
 JVM_OPTION_VARIABLES: Final = frozenset({"JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS"})
+# Each application.yml sizes these to STOP_GRACE_PERIOD, and the ledger's connection wait to the
+# gateway's relay timeout (#349, ADR-070). A Compose key would outrank either where no test of
+# theirs looks, so a 60 s shutdown phase would pass while Compose kills the JVM at 30 s.
+SHUTDOWN_BOUND_PROPERTIES: Final = frozenset(
+    {
+        "SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE",
+        "SERVER_SHUTDOWN",
+        "SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT",
+    }
+)
 COMMAND_LINE_MEMBERS: Final = ("command", "entrypoint")
 # Spring Boot also reads `application.*` from its working directory, `/app` in both images, and from
 # `config/` beneath it, so a file put there, or a working directory moved onto one, sets properties
@@ -387,12 +403,17 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
                 found.append(
                     f"{name}: needs {STOP_GRACE_MEMBER} as the {STOP_GRACE_BLOCK} block sets it"
                 )
+        if service.get(STOP_SIGNAL_MEMBER) is not None:
+            found.append(
+                f"{name}: must not set {STOP_SIGNAL_MEMBER}; the image's own stays in force"
+            )
         if name in SPRING_SERVICES:
             environment = _mapping(service.get("environment") or {}, "an environment")
             found.extend(
                 f"{name}: its environment must not set {key}"
                 for key in sorted(environment)
                 if _reopens_actuator(key)
+                or _moves_shutdown_bound(key)
                 or (name in LEVEL_PINNED_SERVICES and _lowers_log_level(key))
             )
             found.extend(
@@ -660,6 +681,10 @@ def _reopens_actuator(key: str) -> bool:
     return canonical.startswith(
         (_canonical(ACTUATOR_WEB_PREFIX), _canonical(SPRING_CONFIG_PREFIX))
     ) or (canonical == _canonical(SPRING_APPLICATION_JSON) or key in JVM_OPTION_VARIABLES)
+
+
+def _moves_shutdown_bound(key: str) -> bool:
+    return _canonical(key) in {_canonical(name) for name in SHUTDOWN_BOUND_PROPERTIES}
 
 
 def _lowers_log_level(key: str) -> bool:
