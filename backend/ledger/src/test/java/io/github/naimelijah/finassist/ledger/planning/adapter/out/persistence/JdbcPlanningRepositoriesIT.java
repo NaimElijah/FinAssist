@@ -187,18 +187,19 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
 
     /**
      * {@code GrowthAssumption} normalises with {@code stripTrailingZeros}, and a record's generated
-     * equals compares {@code BigDecimal} by scale. A rate of {@code 1.000}, the highest ADR-072
-     * allows, is held as {@code 1} and must come back equal to the {@code 1} a caller would write.
-     * This is the round trip most likely to break silently.
+     * equals compares {@code BigDecimal} by scale. {@code 0.00000010} is held as {@code 1E-7}, the
+     * one exponent form a rate within ADR-072's bounds can still take, and it must reach the store as
+     * the number it is and come back equal to the {@code 0.0000001} a caller would write.
      */
     @Test
-    void Given_a_growth_rate_whose_scale_is_normalised_When_read_back_Then_it_is_still_equal() {
-        Scenario aggressive = Scenario.baseline("Very aggressive", Currency.ILS, GrowthAssumption.perStep("1.000"));
+    void Given_a_growth_rate_whose_normal_form_takes_an_exponent_When_read_back_Then_it_is_still_equal() {
+        Scenario cautious = Scenario.baseline("Very cautious", Currency.ILS, GrowthAssumption.perStep("0.00000010"));
 
-        scenarios.save(aggressive);
+        scenarios.save(cautious);
 
-        assertThat(scenarios.findById(aggressive.id())).contains(aggressive);
-        assertThat(scenarios.findById(aggressive.id()).orElseThrow().growth()).isEqualTo(GrowthAssumption.perStep("1"));
+        assertThat(scenarios.findById(cautious.id())).contains(cautious);
+        assertThat(scenarios.findById(cautious.id()).orElseThrow().growth())
+                .isEqualTo(GrowthAssumption.perStep("0.0000001"));
     }
 
     @Test
