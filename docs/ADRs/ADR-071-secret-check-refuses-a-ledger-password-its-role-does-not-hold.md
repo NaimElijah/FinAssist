@@ -44,16 +44,16 @@ own.
   wait on `secret-check` (ADR-044), and every other service except `otel-collector` and
   `prometheus`, which have no `depends_on`, waits on one of those. So a mismatch also stops
   `keycloak-db` and Grafana, which the ledger's password does not touch, and `make run-identity` is
-  refused too, while `make run-monitoring` still starts the collector and Prometheus. One gate that holds all or nothing is simpler than a gate per
-  service, and that is an accepted cost.
+  refused too, while `make run-monitoring` still starts the collector and Prometheus. One gate that
+  holds all or nothing is simpler than a gate per service, and that is an accepted cost.
 - **The refusal says which value to keep.** When the mismatch is the only refusal, it tells the
   owner to keep the value both passwords held when the ledger last started successfully: undo
-  whichever of the two was changed, or rotate the role in place first
-  ([Rotating a secret](../operations/operations.md#rotating-a-secret)). That is not "the password
-  the role holds now": when `LEDGER_DB_PASSWORD` was the one changed, the role still holds the value
+  whichever of the two was changed, or rotate the role in place first ([Rotating a
+  secret](../operations/operations.md#rotating-a-secret)). That is not "the password the role holds
+  now": when `LEDGER_DB_PASSWORD` was the one changed, the role still holds the value
   `POSTGRES_PASSWORD` has. When either of the two is also published or short, the owner writes new
-  values and rotates, and the keep-line is not printed. The pass line says `LEDGER_DB_PASSWORD` equals
-  `POSTGRES_PASSWORD`, which is all the check knows.
+  values and rotates, and the keep-line is not printed. The pass line says `LEDGER_DB_PASSWORD`
+  equals `POSTGRES_PASSWORD`, which is all the check knows.
 - **CI exercises the refusal.** The compose job gives the fresh pair one value, as before, and runs
   `secret-check` through Compose on a mismatched pair, requiring the refusal.
 

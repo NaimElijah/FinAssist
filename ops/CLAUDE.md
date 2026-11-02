@@ -13,21 +13,21 @@ One directory per tool, none of them a deployable service of this repository's (
 - `ops/backup/backup.py` — a standard-library operator CLI, run on the host with `uv run`; its PEP
   723 block declares Python 3.13 and no dependency. It backs up and restores each database on its
   own, and proves a backup restores (ADR-038). Its tests are in `ops/backup/tests/`.
-- `ops/secret_check/secret_check.py` — a standard-library check, one file with no dependency,
-  that refuses a secret that any file git does not ignore holds (#302), in UTF-8 or UTF-16, or one
-  shorter than its `MIN_SECRET_LENGTH`, 32 characters, and a `LEDGER_DB_PASSWORD` that differs
-  from `POSTGRES_PASSWORD` while `LEDGER_DB_USERNAME` and `POSTGRES_USER` name one role, which
-  `db` would accept and the ledger then fail on (ADR-071); Compose hands it the two usernames,
-  which are not secrets, with `db`'s and the ledger's own defaults. It names a variable, never a
-  value, its length, how two values differ, or a file. On a mismatch, and only when neither of the
-  pair is published or short, it tells the owner to keep the value both passwords held when the ledger
-  last started successfully: undo whichever of the two changed, or rotate the role in place first.
-  Its pass line says `LEDGER_DB_PASSWORD` equals `POSTGRES_PASSWORD`, since it compares two `.env`
-  strings and cannot read the role.
-  It runs as the one-shot `secret-check` service that both databases and Grafana wait on
-  (ADR-044); a mismatch therefore blocks every service behind the gate, `make run-identity`
-  included. CI's compose job gives a fresh pair one value and runs the service on a mismatched pair
-  too, requiring the refusal. Its tests are in `ops/secret_check/tests/`.
+- `ops/secret_check/secret_check.py` — a standard-library check, one file with no dependency, that
+  refuses a secret that any file git does not ignore holds (#302), in UTF-8 or UTF-16, or one
+  shorter than its `MIN_SECRET_LENGTH`, 32 characters, and a `LEDGER_DB_PASSWORD` that differs from
+  `POSTGRES_PASSWORD` while `LEDGER_DB_USERNAME` and `POSTGRES_USER` name one role, which `db` would
+  accept and the ledger then fail on (ADR-071); Compose hands it the two usernames, which are not
+  secrets, with `db`'s and the ledger's own defaults. It names a variable, never a value, its
+  length, how two values differ, or a file. On a mismatch, and only when neither of the pair is
+  published or short, it tells the owner to keep the value both passwords held when the ledger last
+  started successfully: undo whichever of the two changed, or rotate the role in place first. Its
+  pass line says `LEDGER_DB_PASSWORD` equals `POSTGRES_PASSWORD`, since it compares two `.env`
+  strings and cannot read the role. It runs as the one-shot `secret-check` service that both
+  databases and Grafana wait on (ADR-044); a mismatch therefore blocks every service behind the
+  gate, `make run-identity` included. CI's compose job gives a fresh pair one value and runs the
+  service on a mismatched pair too, requiring the refusal. Its tests are in
+  `ops/secret_check/tests/`.
 - `ops/compose_check/compose_check.py` — a standard-library check, run on the host with
   `uv run`, of the resolved Compose file it reads on stdin: each long-running service's restart
   and log bound, as the `x-restart-policy` and `x-logging` blocks set them, those blocks pinned to

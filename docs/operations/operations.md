@@ -465,11 +465,11 @@ published, short or mismatched.
 
 **For a mismatched pair alone, keep the value both passwords held when the ledger last started
 successfully.** Undo whichever of `LEDGER_DB_PASSWORD` and `POSTGRES_PASSWORD` you changed, or
-rotate the role in place first with the recipe in
-[The ledger's database password](#the-ledgers-database-password). `secret-check` prints this advice
-only when neither of the two is published or short; otherwise write new values as above. Setting both to a
-new value passes the check but leaves an initialised volume's role on the old password, so the
-ledger cannot sign in until you rotate the role in place.
+rotate the role in place first with the recipe in [The ledger's database
+password](#the-ledgers-database-password). `secret-check` prints this advice only when neither of
+the two is published or short; otherwise write new values as above. Setting both to a new value
+passes the check but leaves an initialised volume's role on the old password, so the ledger cannot
+sign in until you rotate the role in place.
 
 Before you start:
 
