@@ -157,7 +157,7 @@ bounded context (ADR-006, ADR-024).
 - **Each context's migrations live in `src/main/resources/db/migration/<context>/`, under the
   major version that context owns** — `accounting` 1, `budgeting` 2, `planning` 3 — and a context's
   next migration takes a version above the highest its directory holds: today `V1_8`, `V2_3` and
-  `V3_3`, each as `V<major>_<minor>__<description>.sql`. `ReleasedMigrationsTest` fails a script
+  `V3_4`, each as `V<major>_<minor>__<description>.sql`. `ReleasedMigrationsTest` fails a script
   whose major is not its directory's, and records each released script's SHA-256 in release order:
   append the new one at the end, above every version its context has released, and never change a
   digest once it is merged to `dev`.

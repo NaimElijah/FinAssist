@@ -142,7 +142,7 @@ public class JdbcScenarioRepository implements ScenarioRepository {
         try {
             // The constructor re-applies stripTrailingZeros, so a rate stored at another scale, such
             // as a 0.0500 written by hand, normalises to the same value the caller wrote. It also
-            // re-applies ADR-072's bounds.
+            // re-applies ADR-072's bounds, which V3_3 holds the table to.
             GrowthAssumption growth = new GrowthAssumption(row.growthPerStep());
             return new Scenario(row.id(), row.name(), row.currency(), flows, growth);
         } catch (IllegalArgumentException refused) {

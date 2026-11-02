@@ -23,7 +23,9 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -384,6 +386,31 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
     }
 
     /**
+     * {@code V3_3} holds the store to ADR-072's bounds, so no writer outside the adapter can leave a rate
+     * {@code GrowthAssumption} would refuse to read back. {@code NaN} is a {@code numeric} that {@code
+     * V3_1}'s check passes, since PostgreSQL sorts it above every number.
+     */
+    @ParameterizedTest
+    @CsvSource({
+        "1.5, scenario_growth_at_most_one",
+        "NaN, scenario_growth_at_most_one",
+        "0.00000000001, scenario_growth_at_most_ten_places"
+    })
+    void Given_a_growth_rate_beyond_the_bounds_written_directly_When_stored_Then_the_database_refuses_it(
+            String rate, String constraint) {
+        assertThatThrownBy(() -> rateStoredDirectly(rate)).hasMessageContaining(constraint);
+    }
+
+    /** Decimal places are counted as {@code GrowthAssumption} counts them, after trailing zeros. */
+    @ParameterizedTest
+    @ValueSource(strings = {"1", "0.10000000000", "0.0000000001", "-0.9999999999"})
+    void Given_a_growth_rate_at_the_bounds_written_directly_When_read_back_Then_it_is_the_rate_written(String rate) {
+        ScenarioId id = rateStoredDirectly(rate);
+
+        assertThat(scenarios.findById(id).orElseThrow().growth()).isEqualTo(GrowthAssumption.perStep(rate));
+    }
+
+    /**
      * {@code Scenario} still checks every rule as a stored row is read back, and the schema states one of
      * them less strictly: {@code btrim} strips spaces alone, so a name of a tab passes its check and not
      * {@code String.isBlank}. A stored scenario the aggregate refuses is a server fault naming the
@@ -462,6 +489,15 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
                 .param("id", id.value())
                 .param("name", name)
                 .param("currency", currency)
+                .update();
+        return id;
+    }
+
+    private ScenarioId rateStoredDirectly(String rate) {
+        ScenarioId id = ScenarioId.generate();
+        jdbc().sql("INSERT INTO planning.scenario VALUES (:id, 'Stored directly', 'ILS', CAST(:rate AS numeric))")
+                .param("id", id.value())
+                .param("rate", rate)
                 .update();
         return id;
     }
