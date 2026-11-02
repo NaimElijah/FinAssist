@@ -185,19 +185,18 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
 
     /**
      * {@code GrowthAssumption} normalises with {@code stripTrailingZeros}, and a record's generated
-     * equals compares {@code BigDecimal} by scale. A rate of 100 is held as {@code 1E+2}; stored as
-     * {@code numeric} it comes back at scale 0, and only the constructor re-normalising makes the two
-     * equal. This is the round trip most likely to break silently.
+     * equals compares {@code BigDecimal} by scale. A rate of {@code 1.000}, the highest ADR-072
+     * allows, is held as {@code 1} and must come back equal to the {@code 1} a caller would write.
+     * This is the round trip most likely to break silently.
      */
     @Test
     void Given_a_growth_rate_whose_scale_is_normalised_When_read_back_Then_it_is_still_equal() {
-        Scenario aggressive = Scenario.baseline("Very aggressive", Currency.ILS, GrowthAssumption.perStep("100.000"));
+        Scenario aggressive = Scenario.baseline("Very aggressive", Currency.ILS, GrowthAssumption.perStep("1.000"));
 
         scenarios.save(aggressive);
 
         assertThat(scenarios.findById(aggressive.id())).contains(aggressive);
-        assertThat(scenarios.findById(aggressive.id()).orElseThrow().growth())
-                .isEqualTo(GrowthAssumption.perStep("100"));
+        assertThat(scenarios.findById(aggressive.id()).orElseThrow().growth()).isEqualTo(GrowthAssumption.perStep("1"));
     }
 
     @Test

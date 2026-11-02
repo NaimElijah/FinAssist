@@ -102,6 +102,9 @@ export type DefineBudgetRequest = {
 export type DefineScenarioRequest = {
     currency: 'ILS' | 'USD' | 'EUR' | 'GBP' | 'JPY';
     flows: Array<string>;
+    /**
+     * The growth of the invested balance over one projection step, as a fraction: 0.05 is 5% a step. Greater than -1 and at most 1, which doubles the balance, with at most 10 decimal places.
+     */
     growthRatePerStep: string;
     name: string;
 };

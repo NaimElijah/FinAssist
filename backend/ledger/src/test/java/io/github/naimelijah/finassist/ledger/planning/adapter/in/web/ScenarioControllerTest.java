@@ -98,11 +98,12 @@ class ScenarioControllerTest {
 
     /**
      * {@code GrowthAssumption} strips trailing zeros, which is exactly what makes {@code BigDecimal}'s
-     * {@code toString} reach for an exponent: {@code 1E-7} for a tiny rate and {@code 1E+1} for ten. The
-     * wire carries plain decimal text, which the request pattern would accept back.
+     * {@code toString} reach for an exponent: {@code 1E-7} for a tiny rate. A rate is at most 1
+     * (ADR-072), so no stored rate strips to a positive exponent, and {@code 1.000} comes back as
+     * {@code 1}. The wire carries plain decimal text, which the request pattern would accept back.
      */
     @ParameterizedTest
-    @CsvSource({"0.005, 0.005", "0.00000010, 0.0000001", "10, 10", "-0.25, -0.25"})
+    @CsvSource({"0.005, 0.005", "0.00000010, 0.0000001", "1.000, 1", "-0.25, -0.25"})
     void Given_a_growth_rate_whose_normal_form_takes_an_exponent_When_listed_Then_it_is_plain_decimal_text(
             String rate, String rendered) throws Exception {
         when(lister.all())
@@ -223,6 +224,24 @@ class ScenarioControllerTest {
     @ParameterizedTest
     @ValueSource(strings = {"-1", "-1.5"})
     void Given_a_growth_rate_at_or_below_minus_one_When_defined_Then_it_is_a_422_rule_violated_problem(String rate)
+            throws Exception {
+        mvc.perform(post(SCENARIOS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(defineRequest("Buy the car", "[]", rate)))
+                .andExpect(status().is(422))
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("RULE_VIOLATED"));
+
+        verifyNoInteractions(definer);
+    }
+
+    /**
+     * A rate above 1 a step, or with more than ten decimal places, is refused as a rule (ADR-072): a
+     * "5" typed to mean 5% would otherwise compound a projection into figures nobody could hold.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"1.5", "5", "0.00000000001"})
+    void Given_a_growth_rate_beyond_its_upper_bounds_When_defined_Then_it_is_a_422_rule_violated_problem(String rate)
             throws Exception {
         mvc.perform(post(SCENARIOS)
                         .contentType(MediaType.APPLICATION_JSON)

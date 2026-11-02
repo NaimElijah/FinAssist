@@ -140,8 +140,9 @@ public class JdbcScenarioRepository implements ScenarioRepository {
     private Scenario toScenario(ScenarioRow row) {
         List<PlannedFlow> flows = flowsOf(row.id());
         try {
-            // The constructor re-applies stripTrailingZeros, so a rate stored as 100 and read back at
-            // scale 0 normalises to the same value the caller wrote.
+            // The constructor re-applies stripTrailingZeros, so a rate stored at another scale, such
+            // as a 0.0500 written by hand, normalises to the same value the caller wrote. It also
+            // re-applies ADR-072's bounds.
             GrowthAssumption growth = new GrowthAssumption(row.growthPerStep());
             return new Scenario(row.id(), row.name(), row.currency(), flows, growth);
         } catch (IllegalArgumentException refused) {

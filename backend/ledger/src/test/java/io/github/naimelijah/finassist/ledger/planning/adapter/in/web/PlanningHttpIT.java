@@ -258,6 +258,22 @@ class PlanningHttpIT extends PostgresFixture {
         assertProblem(response, 422, "UNKNOWN_PLAN");
     }
 
+    /**
+     * A rate above 1 a step, typed "5" for 5%, and one past ten decimal places are rules the running
+     * ledger refuses, and nothing is stored (ADR-072).
+     */
+    @Test
+    void Given_growth_rates_beyond_the_upper_bounds_When_defined_Then_each_is_a_422_and_none_is_listed()
+            throws Exception {
+        assertProblem(post(SCENARIOS, defineRequest("Typed as a percentage", "5")), 422, "RULE_VIOLATED");
+        assertProblem(post(SCENARIOS, defineRequest("Too precise", "0.00000000001")), 422, "RULE_VIOLATED");
+
+        assertThat(ok(get(SCENARIOS))
+                        .valueStream()
+                        .map(scenario -> scenario.path("name").asString()))
+                .doesNotContain("Typed as a percentage", "Too precise");
+    }
+
     /** One unknown scenario, two statuses: 404 named in a projection's path, 422 named in a comparison's query. */
     @Test
     void Given_a_scenario_that_does_not_exist_When_projected_by_path_and_compared_by_query_Then_it_is_404_then_422()

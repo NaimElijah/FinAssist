@@ -16,8 +16,8 @@ import java.util.UUID;
  *
  * <p>{@code growthRatePerStep} is decimal text, like every decimal on the wire (ADR-028), and is written
  * with {@link java.math.BigDecimal#toPlainString()}. {@code GrowthAssumption} strips trailing zeros, which
- * is exactly what makes {@code toString} reach for an exponent — {@code 1E-7}, or {@code 1E+1} for ten —
- * and that text would fail the pattern a define request is held to. The contract publishes that pattern
+ * is exactly what makes {@code toString} reach for an exponent, such as {@code 1E-7} for a tiny
+ * rate, and that text would fail the pattern a define request is held to. The contract publishes that pattern
  * here too, so a client reads one shape for the rate it sends and the rate it gets back.
  */
 public record ScenarioResponse(

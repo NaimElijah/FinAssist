@@ -96,7 +96,10 @@ From `backend/ledger`:
   `Comparison.MAXIMUM_SCENARIOS` (10) are checked in the constructors, because a projection
   computes and holds every step at once; the controllers answer a longer horizon 422
   `RULE_VIOLATED` and more scenarios 400. Pinned by `HorizonTest`, `ComparisonTest` and
-  `ProjectionControllerTest`.
+  `ProjectionControllerTest`. What it compounds is bounded too (ADR-072): `GrowthAssumption`
+  refuses a rate above `MAXIMUM_RATE` (1) or past `MAXIMUM_DECIMAL_PLACES` (10), and
+  `DefineScenarioRequest.GROWTH_RATE` states the upper bound in words, since no annotation reads
+  a `BigDecimal`; keep the two in step. Pinned by `GrowthAssumptionTest`.
 - **`@Transactional` goes on the adapter, never on an application service** —
   `the_application_layer_depends_on_no_framework` fails the build for the latter. When a use case
   must write across two aggregates, the boundary moves to a decorator in `composition`.
