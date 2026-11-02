@@ -61,6 +61,8 @@ MIN_SECRET_LENGTH: Final = 32
 # The scan root must hold this, or it is not the repository and nothing was searched.
 ANCHOR_FILE: Final = "docker-compose.yml"
 ROTATION_GUIDE: Final = "docs/operations/operations.md#rotating-a-secret"
+# A mismatch alone needs no new value: both variables take the one the role already holds.
+LEDGER_PASSWORD_GUIDE: Final = "docs/operations/operations.md#the-ledgers-database-password"
 EXIT_PASSED: Final = 0
 EXIT_REFUSED: Final = 1
 EXIT_MISCONFIGURED: Final = 2
@@ -91,14 +93,17 @@ class Verdict:
 
     :param published: the variables whose value a searched file holds, in `SECRET_VARIABLES` order.
     :param short: the variables whose value is shorter than `MIN_SECRET_LENGTH`, in the same order.
+    :param ledger_password_compared: whether `LEDGER_ROLE_USER` and `DATABASE_ROLE_USER` name one
+        role, so that the two passwords were compared.
     :param ledger_password_differs: whether `LEDGER_ROLE_PASSWORD` differs from
-        `DATABASE_ROLE_PASSWORD` while `LEDGER_ROLE_USER` and `DATABASE_ROLE_USER` name one role.
+        `DATABASE_ROLE_PASSWORD` while they do; never true unless `ledger_password_compared` is.
     :param checked: how many variables had a value to look for; an unset or empty one has none.
     :param files: how many files were searched.
     """
 
     published: tuple[str, ...]
     short: tuple[str, ...]
+    ledger_password_compared: bool
     ledger_password_differs: bool
     checked: int
     files: int
@@ -277,14 +282,21 @@ def _finder(value: str) -> Callable[[bytes], bool]:
     )
 
 
-def _ledger_password_differs(environment: Mapping[str, str]) -> bool:
-    """Whether the ledger signs in as the role `db` creates, with a password that is not the role's.
+def _ledger_shares_role(environment: Mapping[str, str]) -> bool:
+    """Whether the ledger signs in as the role `db` creates.
 
     An unset or empty username names no role, so nothing is compared: Compose always hands both.
     """
     database_user = environment.get(DATABASE_ROLE_USER, "")
-    shares_role = bool(database_user) and environment.get(LEDGER_ROLE_USER, "") == database_user
-    return shares_role and (
+    return bool(database_user) and environment.get(LEDGER_ROLE_USER, "") == database_user
+
+
+def _ledger_password_differs(environment: Mapping[str, str]) -> bool:
+    """Whether the ledger signs in as the role `db` creates, with a password that is not the role's.
+
+    One password empty and the other not counts as differing, so the check fails closed.
+    """
+    return _ledger_shares_role(environment) and (
         environment.get(LEDGER_ROLE_PASSWORD, "") != environment.get(DATABASE_ROLE_PASSWORD, "")
     )
 
@@ -317,6 +329,7 @@ def check(root: Path, environment: Mapping[str, str]) -> Verdict:
     return Verdict(
         published=tuple(name for name in SECRET_VARIABLES if name in found),
         short=tuple(name for name, value in values.items() if len(value) < MIN_SECRET_LENGTH),
+        ledger_password_compared=_ledger_shares_role(environment),
         ledger_password_differs=_ledger_password_differs(environment),
         checked=len(finders),
         files=len(files),
@@ -385,15 +398,31 @@ def main(argv: Sequence[str], environment: Mapping[str, str]) -> int:
                 "the same role, so the database would refuse the ledger's every sign-in. Give both "
                 "one value"
             )
-        _report(
-            "secret-check: nothing that waits on this check starts until each one is changed. "
-            f"Write a new value into .env, then rotate it in place: {ROTATION_GUIDE}"
-        )
+        if verdict.published or verdict.short:
+            _report(
+                "secret-check: nothing that waits on this check starts until each one is changed. "
+                f"Write a new value into .env, then rotate it in place: {ROTATION_GUIDE}"
+            )
+        if verdict.ledger_password_differs:
+            # Which of the two the role holds is not visible here, and a new value would need
+            # rotating first; the one the ledger last signed in with is the role's.
+            _report(
+                "secret-check: nothing that waits on this check starts until the two match. Set "
+                f"both {LEDGER_ROLE_PASSWORD} and {DATABASE_ROLE_PASSWORD} in .env to the password "
+                "the role holds now, which is the one the ledger signs in with, or rotate it in "
+                f"place first: {LEDGER_PASSWORD_GUIDE}"
+            )
         return EXIT_REFUSED
+    role_password = (
+        f"; {LEDGER_ROLE_PASSWORD} is the password of the role {LEDGER_ROLE_USER} and "
+        f"{DATABASE_ROLE_USER} both name"
+        if verdict.ledger_password_compared
+        else ""
+    )
     _report(
         f"secret-check passed: none of the {verdict.checked} secrets set appears in the "
         f"{verdict.files} files git does not ignore, and each holds at least {MIN_SECRET_LENGTH} "
-        "characters"
+        f"characters{role_password}"
     )
     return EXIT_PASSED
 
