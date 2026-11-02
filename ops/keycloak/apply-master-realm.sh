@@ -10,13 +10,16 @@
 #
 # --no-config signs in for this one call and writes no session to disk; the password comes from
 # KC_CLI_PASSWORD, never an argument, since kcadm.sh hands its arguments to a java command line
-# that any process can read.
+# that any process can read. KEYCLOAK_URL, http://keycloak:8080 by default, lets KeycloakRealmIT
+# point it at the container it runs in. A line on success lets `docker compose logs
+# keycloak-master` show that the settings were applied.
 set -eu
 
 : "${KEYCLOAK_ADMIN_USERNAME:?set KEYCLOAK_ADMIN_USERNAME}"
 : "${KC_CLI_PASSWORD:?set KC_CLI_PASSWORD}"
 
-exec /opt/keycloak/bin/kcadm.sh update realms/master \
+/opt/keycloak/bin/kcadm.sh update realms/master \
     --file /opt/finassist/master-realm.json --merge \
     --no-config --server "${KEYCLOAK_URL:-http://keycloak:8080}" \
     --realm master --user "$KEYCLOAK_ADMIN_USERNAME"
+echo "master's settings applied from /opt/finassist/master-realm.json"
