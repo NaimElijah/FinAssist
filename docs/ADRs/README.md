@@ -36,7 +36,7 @@ append-only history: to change course, add a new record and mark the old one
 | [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030, 056, 058 and 068 |
 | [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056, 057, 062 and 069 |
 | [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, 053, 057, 058 and 067, corrected by 047 |
-| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 and 060, corrected by 047 and 064 |
+| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036, 060 and 073, corrected by 047 and 064 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted, corrected by 047 |
 | [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035 |
 | [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted, extended by 040 |
@@ -77,6 +77,7 @@ append-only history: to change course, add a new record and mark the old one
 | [069](ADR-069-the-web-client-targets-wcag-2-2-aa-and-holds-it-with-tests.md) | The web client targets WCAG 2.2 AA and holds it with tests | Accepted |
 | [070](ADR-070-a-stopping-service-gets-30-seconds-and-the-ledger-waits-5-for-a-connection.md) | A stopping service gets 30 seconds, and the ledger waits 5 seconds for a connection | Accepted |
 | [071](ADR-071-secret-check-refuses-a-ledger-password-its-role-does-not-hold.md) | `secret-check` refuses a ledger password that differs from its database role's | Accepted |
+| [073](ADR-073-every-realm-locks-out-a-guessed-sign-in-for-a-while-never-for-good.md) | Every realm locks out a guessed sign-in for a while, never for good | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -408,3 +409,11 @@ every service behind the gate, `keycloak-db` and Grafana included, so `make run-
 on a mismatch too, though `otel-collector` and `prometheus`, which wait on nothing, still start; one
 all-or-nothing gate is simpler than one per service, and that is the accepted cost
 ([#349](https://github.com/NaimElijah/FinAssist/issues/349)).
+
+073 extends 031 on 2026-11-02. 031 said only "brute-force protection on", and the thresholds behind
+it were pinned by `KeycloakRealmTest` and `KeycloakRealmIT` with no decision to cite. The owner kept
+the values the realm held: five failures, then a wait of a minute growing to fifteen, the failure
+count reset after twelve hours, Keycloak's `MULTIPLE` strategy stated rather than defaulted, and
+never a permanent lockout, because each realm has one person who would otherwise have to undo it.
+Every realm the repository configures takes the same policy, `master` included, and the tests hold
+the two realm files equal ([#351](https://github.com/NaimElijah/FinAssist/issues/351)).

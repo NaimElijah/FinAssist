@@ -566,9 +566,10 @@ class KeycloakRealmIT {
     }
 
     /**
-     * Brute-force protection as the running server applies it. {@code permanentLockout} is pinned
-     * off with the rest because the realm has a single owner: a permanent lockout after five wrong
-     * guesses would lock that owner out until someone with the admin password intervened.
+     * Brute-force protection as the running server applies it, at the thresholds ADR-073 records.
+     * {@code permanentLockout} is pinned off with the rest because the realm has a single owner: a
+     * permanent lockout after five wrong guesses would lock that owner out until someone with the
+     * admin password intervened.
      */
     @Test
     void Given_the_realm_as_imported_When_its_brute_force_settings_are_read_Then_they_hold_the_agreed_thresholds()

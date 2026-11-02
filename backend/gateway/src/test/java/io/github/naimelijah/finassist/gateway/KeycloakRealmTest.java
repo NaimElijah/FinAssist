@@ -153,13 +153,14 @@ class KeycloakRealmTest {
         assertMember(realm, "rememberMe", BooleanNode.FALSE);
     }
 
+    /** The thresholds ADR-073 records, which every realm the repository configures takes. */
     @Test
     void Given_the_realm_file_When_read_Then_brute_force_protection_is_on_with_the_agreed_thresholds() {
         JsonNode realm = realm();
 
         assertMember(realm, "bruteForceProtected", BooleanNode.TRUE);
         // Off, because the realm has one owner: a permanent lockout after five wrong guesses would
-        // lock that owner out until someone with the admin password intervened.
+        // lock that owner out until someone with the admin password intervened (ADR-073).
         assertMember(realm, "permanentLockout", BooleanNode.FALSE);
         assertMember(realm, "maxTemporaryLockouts", IntNode.valueOf(0));
         assertMember(realm, "quickLoginCheckMilliSeconds", IntNode.valueOf(1000));

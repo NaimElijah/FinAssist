@@ -1,8 +1,9 @@
 # ADR-031: Keycloak as the identity provider
 
-- **Status:** Accepted, extended by [ADR-036](ADR-036-least-privilege-keycloak-client-scoping.md)
+- **Status:** Accepted, extended by [ADR-036](ADR-036-least-privilege-keycloak-client-scoping.md),
+  [ADR-060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md)
   and
-  [ADR-060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md),
+  [ADR-073](ADR-073-every-realm-locks-out-a-guessed-sign-in-for-a-while-never-for-good.md),
   corrected by [ADR-047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) and
   [ADR-064](ADR-064-what-the-build-fetches-is-pinned-by-content.md).
 - **Date:** 2026-09-16
