@@ -358,25 +358,41 @@ process, decides whether generating this file from the
   stop and break. Its verdict was go, on condition that the owner's backup in
   [#405](https://github.com/NaimElijah/FinAssist/issues/405) comes first.
   - **Shutdown** ([ADR-070](docs/ADRs/ADR-070-a-stopping-service-gets-30-seconds-and-the-ledger-waits-5-for-a-connection.md)).
-    Compose v5.6.1 killed every service 3 s after `SIGTERM`, cutting off a ledger request in
+    Compose v5.6.1 killed every service 3 s after its stop signal. That cut off a ledger request in
     flight and `db`'s shutdown checkpoint. Every long-running service now gets 30 s from one
-    `x-stop-grace-period` block, which `make check-compose` pins. The ledger and the gateway end
-    each shutdown phase at 20 s.
+    `x-stop-grace-period` block, and the ledger and the gateway end each shutdown phase at 20 s.
+    `make check-compose` pins the grace and refuses a `stop_signal` on any service. It also
+    refuses a Compose override of the shutdown phase, the shutdown mode, the connection wait or
+    the gateway's relay read timeout. The worst case measured, a statement blocked past the phase,
+    stopped in 27.2 s.
   - **The database wait.** The ledger waited 30 s for a connection, past the gateway's 10 s relay
     budget, so a write could commit after its caller was told the outcome is unknown. It now
     gives up at 5 s. A running statement is still unbounded until
     [#430](https://github.com/NaimElijah/FinAssist/issues/430).
-  - **Configuration.** `secret-check` refuses a `LEDGER_DB_PASSWORD` that differs from
-    `POSTGRES_PASSWORD` while both name one role. Before, that mismatch started `db` and left the
-    ledger in a restart loop.
+  - **Configuration**
+    ([ADR-071](docs/ADRs/ADR-071-secret-check-refuses-a-ledger-password-its-role-does-not-hold.md)).
+    `secret-check` refuses a `LEDGER_DB_PASSWORD` that differs from `POSTGRES_PASSWORD` while both
+    usernames name one role, and says to keep the value both held when the ledger last started.
+    Before, that mismatch started `db` and left the ledger in a restart loop. CI now runs the
+    refusal through Compose.
   - **Logs.** The assistant writes a successful `/health` or `/ready` at DEBUG, so the five-second
-    probe no longer fills its 30 MB log cap.
-  - **Rollback.** `operations.md` gives the way back from an upgrade that succeeded: restore the
-    pre-upgrade backup into an emptied books volume, under the previous code. The recipe was run
-    in an isolated project, and the previous ledger came back on its own history with the row
-    seeded before the upgrade.
-  - **Filed:** [#429](https://github.com/NaimElijah/FinAssist/issues/429), Keycloak's readiness
-    ignoring its database, and #430.
+    probe no longer fills its 30 MB log cap. A failing probe stays at INFO.
+  - **Rollback.** `operations.md` gives the way back from an upgrade that succeeded. The steps, in
+    order:
+    - back up and prove the post-upgrade books;
+    - prove the pre-upgrade backup under the previous code before anything is deleted;
+    - restore that backup into an emptied books volume;
+    - compare the history with the previous commit's own migrations.
+
+    Steps 3 to 7 were run in an isolated project, with the previous image standing in for the
+    checkout, and the previous ledger came back on its own history with a row seeded before the
+    upgrade. The Keycloak-restore variant was not run.
+  - **Filed:**
+    - [#429](https://github.com/NaimElijah/FinAssist/issues/429): Keycloak's readiness ignores its
+      database.
+    - #430.
+    - [#431](https://github.com/NaimElijah/FinAssist/issues/431): a Compose profile other than
+      `monitoring` and `smoke` escapes the check.
 
 - **The documentation drift a full audit found at `c1a0128` is fixed.** Scan 11 of 12 in M0
   ([#348](https://github.com/NaimElijah/FinAssist/issues/348)) ran `docs-drift-auditor` in four
