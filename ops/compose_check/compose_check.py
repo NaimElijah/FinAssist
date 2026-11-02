@@ -13,10 +13,11 @@ neither, every long-running service and no one-shot must take the stop grace exa
 `stop_signal` (#349, ADR-070); and four healthchecks must probe readiness, any that runs `curl`
 doing so in exec form with `-f`, so that a 503 fails it (#142, ADR-039). Every published port must
 bind `127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit
-behind exactly the `smoke` profile and `secret-check` behind none, and `db`, `keycloak-db` and
-`grafana` must each depend on `secret-check` with `condition: service_completed_successfully`
-(ADR-034, ADR-044). Every service but the two databases must take the `x-hardened` block's
-`cap_drop` and `security_opt`, and every one but those and Keycloak must set `read_only`; no
+behind exactly the `smoke` profile and `secret-check` and `keycloak-master` behind none, `db`,
+`keycloak-db` and `grafana` must each depend on `secret-check`, and `gateway` on
+`keycloak-master`, with `condition: service_completed_successfully` (ADR-034, ADR-044,
+ADR-074). Every service but the two databases must take the `x-hardened` block's `cap_drop` and
+`security_opt`, and every one but those and Keycloak must set `read_only`; no
 service, a database included, may set `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts` or
 `devices`, run as root by `user`, or bind-mount a file named `docker.sock`; and each database must
 attach to one network alone, shared with its one client and nothing else, judged by the Docker
@@ -77,7 +78,7 @@ _BOUNDED_LOGS: Final = {
     "options": {"max-size": LOG_MAX_SIZE, "max-file": LOG_MAX_FILES},
 }
 # Their failure must stay a failure rather than loop (docker-compose.yml).
-ONE_SHOT_SERVICES: Final = frozenset({"auth-smoke", "secret-check"})
+ONE_SHOT_SERVICES: Final = frozenset({"auth-smoke", "keycloak-master", "secret-check"})
 # Readiness, not liveness, so `service_healthy` means "can serve" (docker-compose.yml).
 READINESS_PROBES: Final = {
     "ledger": "/actuator/health/readiness",
@@ -285,15 +286,20 @@ SPRING_LOG_SWITCHES: Final = frozenset({"DEBUG", "TRACE"})
 LOOPBACK_HOST_IP: Final = "127.0.0.1"
 # Keycloak's store is reached by Keycloak alone, over the Compose network (ADR-031).
 UNPUBLISHED_SERVICES: Final = frozenset({"keycloak-db"})
-# `auth-smoke` runs only by hand (ADR-034); `secret-check` runs on every `up`, since the databases
-# and Grafana wait on it (ADR-044). A service missing from the file has no profiles.
-PINNED_PROFILES: Final = {"auth-smoke": ("smoke",), "secret-check": ()}
-# The secret check gates every database and Grafana, and every other service holding a secret
-# waits on one of those (ADR-044). Only a pass releases them: `service_started` would not wait for
-# its verdict, and `required: false` lets the service start without it. Compose defaults
-# `required` to true, so a resolved file that omits it is gated.
-SECRET_CHECK: Final = "secret-check"
-GATED_SERVICES: Final = frozenset({"db", "keycloak-db", "grafana"})
+# `auth-smoke` runs only by hand (ADR-034); `secret-check` and `keycloak-master` run on every `up`,
+# since the services they gate wait on them (ADR-044, ADR-074). A service missing from the file has
+# no profiles.
+PINNED_PROFILES: Final = {"auth-smoke": ("smoke",), "keycloak-master": (), "secret-check": ()}
+# Each gating one-shot and the services that wait on it. The secret check gates every database and
+# Grafana, and every other service holding a secret waits on one of those (ADR-044); the
+# master-realm one-shot gates the gateway, so sign-in never opens while `master` runs on Keycloak's
+# defaults (ADR-074). Only a pass releases them: `service_started` would not wait for its verdict,
+# and `required: false` lets the service start without it. Compose defaults `required` to true, so
+# a resolved file that omits it is gated.
+ONE_SHOT_GATES: Final = {
+    "keycloak-master": frozenset({"gateway"}),
+    "secret-check": frozenset({"db", "keycloak-db", "grafana"}),
+}
 GATE_CONDITION: Final = "service_completed_successfully"
 # Least privilege for every container (ADR-063): the rules name the exemptions, never the services
 # held to them, so a service added later is hardened unless it is exempted here on purpose.
@@ -446,12 +452,13 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
                 if profiles
                 else f"{name}: must take no profiles"
             )
-    for name in sorted(GATED_SERVICES):
-        service = _mapping(services.get(name) or {}, "a service")
-        dependencies = _mapping(service.get("depends_on") or {}, "a service's depends_on")
-        gate = _mapping(dependencies.get(SECRET_CHECK) or {}, "a dependency")
-        if gate.get("condition") != GATE_CONDITION or gate.get("required", True) is not True:
-            found.append(f"{name}: must depend on {SECRET_CHECK} with condition {GATE_CONDITION}")
+    for gate_name, gated in sorted(ONE_SHOT_GATES.items()):
+        for name in sorted(gated):
+            service = _mapping(services.get(name) or {}, "a service")
+            dependencies = _mapping(service.get("depends_on") or {}, "a service's depends_on")
+            gate = _mapping(dependencies.get(gate_name) or {}, "a dependency")
+            if gate.get("condition") != GATE_CONDITION or gate.get("required", True) is not True:
+                found.append(f"{name}: must depend on {gate_name} with condition {GATE_CONDITION}")
     prometheus = _mapping(services.get(CORS_PINNED_SERVICE) or {}, "a service")
     cors = [
         argument

@@ -40,9 +40,9 @@ One directory per tool, none of them a deployable service of this repository's (
   that runs `curl` running it directly in exec form (`["CMD", "curl", …]`) and passing `-f`,
   `--fail` or `--fail-with-body`, never `--no-fail` (#142, ADR-039), every published port's
   `host_ip` exactly `127.0.0.1` and no port on `keycloak-db` (ADR-030), `auth-smoke` behind
-  exactly `profiles: [smoke]` and `secret-check` behind none, and `db`,
-  `keycloak-db` and `grafana` each depending on `secret-check` with `condition:
-  service_completed_successfully` (ADR-034, ADR-044); the `x-hardened` block's `cap_drop: [ALL]` and
+  exactly `profiles: [smoke]` and `secret-check` and `keycloak-master` behind none, `db`,
+  `keycloak-db` and `grafana` each depending on `secret-check`, and `gateway` on `keycloak-master`,
+  with `condition: service_completed_successfully` (ADR-034, ADR-044, ADR-074); the `x-hardened` block's `cap_drop: [ALL]` and
   `no-new-privileges:true` on every service but the two databases, and `read_only: true` on every
   one but those and Keycloak, the script naming the exemptions so that a new service is held to
   both; on no service, the databases included, `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`,
@@ -78,8 +78,9 @@ One directory per tool, none of them a deployable service of this repository's (
 
 From the repository root unless stated:
 
-- **Run identity only** — `make run-identity`: `docker compose up -d keycloak-db keycloak`, for
-  signing in or testing against Keycloak without the rest of the stack.
+- **Run identity only** — `make run-identity`: `docker compose up -d keycloak-db keycloak
+  keycloak-master`, for signing in or testing against Keycloak without the rest of the stack, with
+  `master`'s settings applied as a full `up` applies them.
 - **Back up** — `make backup`: `uv run ops/backup/backup.py backup`, with `db` and `keycloak-db`
   already running (it never starts a container). It writes a custom-format `pg_dump` of each, read
   back in full, plus a manifest of SHA-256s and a digest of the books' rows (never an amount),
@@ -169,6 +170,11 @@ From the repository root unless stated:
   `admin-cli`'s flows), and its "Rotating a secret" changes each secret in place, `.env` first. A
   locked-out owner or a lost admin password is restored with `kcadm.sh` or `kc.sh bootstrap-admin`,
   never by recreating `keycloak-db-data`.
+- **`KEYCLOAK_ADMIN_PASSWORD` must equal the administrator's live password** (ADR-074). The
+  `keycloak-master` one-shot signs in with it on every `up`, and the gateway waits on that, so a
+  password changed anywhere but `.env` first stops the gateway, as five wrong ones do while the
+  administrator is locked out (ADR-073). `master`'s policy holds every password set for it to 32
+  characters, a temporary one from `kc.sh bootstrap-admin` included.
 - **Every secret and credential in the realm is a `${VAR}` placeholder**, pinned by
   `KeycloakRealmTest`. `KeycloakRealmIT` imports the file into a real Keycloak and reads back the
   sign-in protection, the owner's id and required actions, and each client's scope and audience;

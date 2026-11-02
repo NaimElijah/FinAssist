@@ -793,6 +793,18 @@ process, decides whether generating this file from the
 
 ### Security
 
+- **Keycloak's own `master` realm now takes the repository's settings, on every start.** Keycloak
+  creates `master` itself, so no import reaches it. A new one-shot, `keycloak-master`, merges
+  `ops/keycloak/master-realm.json` into it with `kcadm.sh` on every `docker compose up`, keeping
+  every user. It gives `master` the same lockout policy as `finassist`, a 32-character password
+  policy and no event listener, and the gateway waits on it. **`KEYCLOAK_ADMIN_PASSWORD` must now
+  stay equal to the admin's live password**: one changed in Keycloak alone stops the gateway at the
+  next `up` until `.env` matches. A temporary admin from `kc.sh bootstrap-admin` also needs 32
+  characters. The lockout thresholds are now a recorded decision
+  ([ADR-073](docs/ADRs/ADR-073-every-realm-locks-out-a-guessed-sign-in-for-a-while-never-for-good.md),
+  [ADR-074](docs/ADRs/ADR-074-the-master-realm-is-configured-from-the-repository.md),
+  [#368](https://github.com/NaimElijah/FinAssist/issues/368),
+  [#351](https://github.com/NaimElijah/FinAssist/issues/351)).
 - **The ledger's store now refuses what the domain refuses across rows.** Scan 6 of 12 in M0
   ([#343](https://github.com/NaimElijah/FinAssist/issues/343)) read the schema, migrations and
   queries against ten years of synthetic books. New migrations close each gap it found:

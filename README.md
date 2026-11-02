@@ -196,7 +196,7 @@ cp .env.example .env        # then set every secret in the table below, before s
 | `POSTGRES_PASSWORD` | Any strong value, for the ledger's database |
 | `LEDGER_DB_PASSWORD` | The same value as `POSTGRES_PASSWORD`: the ledger connects as the role Compose creates, and `secret-check` refuses a stack where the two differ. On an existing volume, keep the value both held when the ledger last started successfully |
 | `KEYCLOAK_DB_PASSWORD` | Any strong value, for Keycloak's own database, `keycloak-db` |
-| `KEYCLOAK_ADMIN_PASSWORD` | Any strong value, for Keycloak's admin console |
+| `KEYCLOAK_ADMIN_PASSWORD` | Any strong value, for Keycloak's admin console. Keep it equal to the administrator's live password: the stack signs in with it on every start (ADR-074) |
 | `FINASSIST_OWNER_INITIAL_PASSWORD` | The owner's one-time password, used once at [first sign-in](#first-sign-in). It must satisfy the realm's policy, `length(12) and notUsername and notEmail and passwordHistory(3)`, and hold at least 32 characters, like every secret |
 | `GATEWAY_CLIENT_SECRET` | Any strong value. Keycloak sets the `finassist-gateway` client's secret from it, and the gateway signs in to Keycloak with it |
 | `ASSISTANT_CLIENT_SECRET` | Any strong value. Keycloak sets the `finassist-assistant` client's secret from it |
@@ -288,7 +288,7 @@ local development only.
 | `LEDGER_OIDC_JWKS_URI` | Where the ledger fetches signing keys, service-to-service. Compose overrides this with the internal address; this default targets a native `./mvnw spring-boot:run` against Keycloak's published port | `http://localhost:8081/realms/finassist/protocol/openid-connect/certs` | No |
 | `KEYCLOAK_PORT` | Keycloak HTTP port | `8081` | No |
 | `KEYCLOAK_ADMIN_USERNAME` | Keycloak's own bootstrap admin username — not one of FinAssist's own roles | `admin` | No |
-| `KEYCLOAK_ADMIN_PASSWORD` | Keycloak's own bootstrap admin password, for its admin console at `http://localhost:8081/admin` ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) | none | Yes — Keycloak refuses to start without it |
+| `KEYCLOAK_ADMIN_PASSWORD` | Keycloak's own bootstrap admin password, for its admin console at `http://localhost:8081/admin` ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)). The `keycloak-master` one-shot signs in with it on every `up` to apply `master`'s settings, and the gateway waits on that, so it must equal the administrator's live password ([ADR-074](docs/ADRs/ADR-074-the-master-realm-is-configured-from-the-repository.md)) | none | Yes — Keycloak and `keycloak-master` refuse to start without it |
 | `KEYCLOAK_DB_PASSWORD` | `keycloak-db`'s password. Its own database, its own volume, no published port ([ADR-031](docs/ADRs/ADR-031-keycloak-as-the-identity-provider.md)) | none | Yes — both Keycloak and its database refuse to start without it |
 | `FINASSIST_OWNER_USERNAME` | The owner's sign-in username in the `finassist` realm, seeded with the `owner` role | `owner` | No |
 | `FINASSIST_OWNER_INITIAL_PASSWORD` | The owner's temporary password in the `finassist` realm. Must satisfy the realm's password policy; used once, at [first sign-in](#first-sign-in) | none | Yes — Keycloak refuses to start without it |

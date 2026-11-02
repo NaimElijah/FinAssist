@@ -28,9 +28,9 @@
 name: finassist
 
 # One restart policy and one log bound for every long-running service (ADR-039), stated once and
-# applied by alias. Neither goes on the two one-shots, whose failure must stay a failure rather than
-# loop: `auth-smoke`, a `compose run --rm`, and `secret-check`, which every `up` runs first
-# (ADR-044).
+# applied by alias. Neither goes on the three one-shots, whose failure must stay a failure rather
+# than loop: `auth-smoke`, a `compose run --rm`; `secret-check`, which every `up` runs first
+# (ADR-044); and `keycloak-master`, which every `up` runs once Keycloak is ready (ADR-074).
 #
 # `unless-stopped`: a service that crashes comes back on its own, and so does the whole stack after
 # Docker itself restarts, while one stopped on purpose (Ctrl+C on `make run`, `docker compose stop`,
@@ -357,6 +357,33 @@ services:
       # on a fast start; it only stops a correct, slower check from failing the container outright.
       start_period: 240s
 
+  # --- Keycloak's master realm (ADR-074) -------------------------------------------------------
+  # Keycloak creates `master` itself, before it imports anything, so `--import-realm` never reads a
+  # `master` file. This one-shot merges ops/keycloak/master-realm.json into the running realm with
+  # `kcadm.sh` on every `up`, keeping every user, and the gateway waits on it, so sign-in never
+  # opens while `master` runs on Keycloak's defaults. It signs in as the bootstrap administrator,
+  # so KEYCLOAK_ADMIN_PASSWORD must stay equal to the administrator's live password.
+  keycloak-master:
+    # The same build as `keycloak`, which BuildKit serves from its cache. Not a shared image tag:
+    # each Compose project names its own image, so an isolated `-p` run never replaces the owner's.
+    build: ./ops/keycloak
+    # nobody:nogroup, and nothing written but /tmp, where kcadm's JVM keeps its temporary files.
+    user: "65534:65534"
+    <<: *hardened
+    read_only: true
+    tmpfs: [/tmp]
+    # `default` only: it reaches Keycloak by its service name, never Keycloak's database.
+    networks: [default]
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    environment:
+      # The administrator Keycloak was bootstrapped with, spelt as the `keycloak` service spells it.
+      KEYCLOAK_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+      # kcadm.sh reads the password from here, never from an argument (ADR-074).
+      KC_CLI_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
+    entrypoint: ["sh", "/opt/finassist/apply-master-realm.sh"]
+
   gateway:
     build: ./backend/gateway
     restart: *restart-policy
@@ -369,6 +396,11 @@ services:
     depends_on:
       keycloak:
         condition: service_healthy
+      # Sign-in opens only once `master` holds the repository's settings (ADR-074): an
+      # administrator password that no longer signs in stops the gateway, rather than the stack
+      # starting with `master` unconfigured.
+      keycloak-master:
+        condition: service_completed_successfully
     # Loopback only (ADR-030) — the gateway is what the browser talks to directly, so its
     # published port carries exactly the same defence as the ledger's and the assistant's.
     ports:
