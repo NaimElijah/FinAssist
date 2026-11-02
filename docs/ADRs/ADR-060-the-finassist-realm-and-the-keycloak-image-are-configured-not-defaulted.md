@@ -1,6 +1,7 @@
 # ADR-060: The `finassist` realm and the Keycloak image are configured, not defaulted
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-074](ADR-074-the-master-realm-is-configured-from-the-repository.md)
 - **Date:** 2026-10-30
 
 Extends [ADR-031](ADR-031-keycloak-as-the-identity-provider.md), which makes the realm code and

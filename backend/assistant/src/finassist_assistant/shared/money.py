@@ -126,7 +126,7 @@ class Money:
 
     The Java counterpart is ``ledger.shared.Money``, and ``tests/test_money.py`` mirrors
     ``MoneyTest.java``. The two answer alike except where Java needs a power of ten past its
-    ``BigInteger`` range, which the ledger refuses and this does not, a known gap tracked by #416.
+    ``BigInteger`` range, which the ledger refuses and this does not, a known gap tracked by #434.
     That is an amount so large that rescaling it to the minor units needs one, however it is
     built: by :meth:`of`, by the constructor, or as a product of :meth:`times`, such as ``12.50``
     times ``1E+2147483645``, whose scale fits a Java int. It is also any product whose rounding
@@ -172,7 +172,7 @@ class Money:
         Reads exactly the text the ledger's ``Money.of`` reads, and refuses the same scales, so
         one amount cannot parse on one side and be refused on the other. An amount too large for
         Java's ``BigInteger``, around 1E+646456993, is still refused by the ledger alone: whether
-        to bound an amount's size is #416's decision.
+        to bound an amount's size is #434's decision.
 
         :raises ValueError: if ``amount`` is not plain decimal text, or names an amount the
             currency cannot represent
@@ -251,7 +251,7 @@ class Money:
         A known gap, not intended behaviour: when rounding the product to the minor units needs a
         power of ten past Java's ``BigInteger`` range, as ``12.50`` times ``1E-700000000`` or
         ``1E-2147483645`` does, the ledger's ``timesRounded`` refuses it and this returns
-        ``0.00``. Whether to bound such sizes is #416's decision, as it is for :meth:`of`.
+        ``0.00``. Whether to bound such sizes is #434's decision, as it is for :meth:`of`.
 
         :raises ValueError: if the multiplier is not finite, or the product's scale would
             overflow a Java int

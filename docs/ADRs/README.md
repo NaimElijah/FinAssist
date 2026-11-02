@@ -36,7 +36,7 @@ append-only history: to change course, add a new record and mark the old one
 | [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030, 056, 058 and 068 |
 | [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056, 057, 062 and 069 |
 | [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, 053, 057, 058 and 067, corrected by 047 |
-| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036 and 060, corrected by 047 and 064 |
+| [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036, 060, 073 and 074, corrected by 047 and 064 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted, corrected by 047 |
 | [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035 |
 | [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted, extended by 040 |
@@ -44,7 +44,7 @@ append-only history: to change course, add a new record and mark the old one
 | [036](ADR-036-least-privilege-keycloak-client-scoping.md) | Deny each Keycloak client the realm's full scope | Accepted |
 | [037](ADR-037-an-unusable-key-set-is-an-outage.md) | A key set that cannot be read, or holds no key, is an outage, on both services | Accepted, extended by 059 |
 | [038](ADR-038-back-up-each-database-as-a-logical-dump.md) | Back up each database as its own logical dump, on demand, proven by an isolated restore check | Accepted |
-| [039](ADR-039-compose-restarts-services-and-bounds-their-logs.md) | Compose restarts a crashed service, and keeps at most 30 MB of each container's logs | Accepted, extended by 044 and 070 |
+| [039](ADR-039-compose-restarts-services-and-bounds-their-logs.md) | Compose restarts a crashed service, and keeps at most 30 MB of each container's logs | Accepted, extended by 044, 070 and 074 |
 | [040](ADR-040-the-smoke-check-trigger-fired.md) | ADR-034's first trigger fired: the smoke check stays manual, and CI starts the packaged gateway | Accepted |
 | [041](ADR-041-consume-fifo-orders-its-own-lots.md) | `consume_fifo` orders its own lots, oldest first | Accepted |
 | [042](ADR-042-agent-instructions-per-codebase.md) | Agent instructions split per codebase, one `CLAUDE.md` beside each | Accepted |
@@ -54,7 +54,7 @@ append-only history: to change course, add a new record and mark the old one
 | [046](ADR-046-architecture-rules-read-the-code-never-load-it.md) | Architecture rules read the code and never load it | Accepted |
 | [047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) | Twelve passages of Accepted records reconciled with the system as built | Accepted |
 | [048](ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md) | Domain events stay in-process until a consumer exists, and production keeps no event log | Accepted |
-| [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted, extended by 061 and 063 |
+| [049](ADR-049-a-check-that-needs-cis-environment-stays-in-ci.md) | A check that needs CI's throwaway environment stays in CI; every other check is a Make target | Accepted, extended by 061, 063 and 074 |
 | [050](ADR-050-no-domain-metric-yet-decided-again.md) | No domain metric yet, decided again, with new triggers | Accepted |
 | [051](ADR-051-what-a-translation-may-decide.md) | What a translation may decide: choosing records stays in `composition`, a rule in the downstream's own words moves into it | Accepted |
 | [052](ADR-052-ops-holds-operator-code-one-directory-per-tool.md) | `ops/` holds operator code, one directory per tool | Accepted |
@@ -63,9 +63,9 @@ append-only history: to change course, add a new record and mark the old one
 | [055](ADR-055-the-assistants-development-seed-lives-in-its-composition-root.md) | The assistant's development seed lives in its composition root, and is off by default | Accepted |
 | [056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md) | The web client retries a failed read once, and never a write | Accepted |
 | [057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md) | A page on another `localhost` port is treated as hostile | Accepted |
-| [058](ADR-058-each-service-bounds-what-one-request-can-cost.md) | Each service bounds what one request can cost | Accepted |
+| [058](ADR-058-each-service-bounds-what-one-request-can-cost.md) | Each service bounds what one request can cost | Accepted, extended by 072 |
 | [059](ADR-059-the-assistant-trusts-only-the-key-set-it-last-fetched.md) | The assistant trusts only the key set it last fetched | Accepted |
-| [060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md) | The `finassist` realm and the Keycloak image are configured, not defaulted | Accepted |
+| [060](ADR-060-the-finassist-realm-and-the-keycloak-image-are-configured-not-defaulted.md) | The `finassist` realm and the Keycloak image are configured, not defaulted | Accepted, extended by 074 |
 | [061](ADR-061-the-stack-refuses-a-configuration-that-weakens-a-credential.md) | The stack refuses a configuration that weakens a credential | Accepted |
 | [062](ADR-062-every-kept-dependency-is-justified-and-has-a-revisit-trigger.md) | Every kept third-party dependency is justified, and each has a revisit trigger | Accepted, corrected by 064 |
 | [063](ADR-063-every-container-holds-only-the-privilege-it-uses.md) | Under Compose, every container holds only the privilege it uses, and `make check-compose` holds it there | Accepted |
@@ -77,6 +77,9 @@ append-only history: to change course, add a new record and mark the old one
 | [069](ADR-069-the-web-client-targets-wcag-2-2-aa-and-holds-it-with-tests.md) | The web client targets WCAG 2.2 AA and holds it with tests | Accepted |
 | [070](ADR-070-a-stopping-service-gets-30-seconds-and-the-ledger-waits-5-for-a-connection.md) | A stopping service gets 30 seconds, and the ledger waits 5 seconds for a connection | Accepted |
 | [071](ADR-071-secret-check-refuses-a-ledger-password-its-role-does-not-hold.md) | `secret-check` refuses a ledger password that differs from its database role's | Accepted |
+| [072](ADR-072-a-projection-bounds-its-growth-rate-and-its-amounts.md) | A projection bounds its growth rate and its amounts | Accepted |
+| [073](ADR-073-every-realm-locks-out-a-guessed-sign-in-for-a-while-never-for-good.md) | Every realm locks out a guessed sign-in for a while, never for good | Accepted |
+| [074](ADR-074-the-master-realm-is-configured-from-the-repository.md) | The `master` realm is configured from the repository | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -408,3 +411,30 @@ every service behind the gate, `keycloak-db` and Grafana included, so `make run-
 on a mismatch too, though `otel-collector` and `prometheus`, which wait on nothing, still start; one
 all-or-nothing gate is simpler than one per service, and that is the accepted cost
 ([#349](https://github.com/NaimElijah/FinAssist/issues/349)).
+
+072 extends 058 on 2026-11-02. 058 bounded how many steps a projection takes and how many
+projections a comparison holds, but not what each step computes, and scan 9 measured one projection
+of a scenario with an extreme growth rate at seconds of CPU and hundreds of millions of characters.
+A growth rate is now at most 1 a step with at most ten decimal places, refused when the strategy is
+defined and held in the store by `V3_3`'s validated checks, and a projection refuses any amount past
+18 integer digits, inputs first, so its work stops at the first. A divergence can reach 19 digits by
+construction, and a digit bound on every decimal on the wire, with the two `Money` kernels' gaps,
+is its own decision, [#434](https://github.com/NaimElijah/FinAssist/issues/434)
+([#416](https://github.com/NaimElijah/FinAssist/issues/416)).
+
+073 extends 031 on 2026-11-02. 031 said only "brute-force protection on", and the thresholds behind
+it were pinned by `KeycloakRealmTest` and `KeycloakRealmIT` with no decision to cite. The owner kept
+the values the realm held: five failures, then a wait of a minute growing to fifteen, the failure
+count reset after twelve hours, Keycloak's `MULTIPLE` strategy stated rather than defaulted, and
+never a permanent lockout, because each realm has one person who would otherwise have to undo it.
+Every realm the repository configures takes the same policy, `master` included, and the tests hold
+the two realm files equal ([#351](https://github.com/NaimElijah/FinAssist/issues/351)).
+
+074 extends 031, 039, 049 and 060 on 2026-11-02. Keycloak creates its `master` realm itself, before it
+imports anything, so `--import-realm` never reads a `master` file and `master` ran on Keycloak's
+defaults. `ops/keycloak/master-realm.json` now holds its settings: 073's lockout policy, a
+32-character password policy and no event listener. A third one-shot, `keycloak-master`, merges it
+into the running realm with `kcadm.sh` on every `up`, keeping every user, and the gateway waits on
+it. The owner kept one administrator signing in with a password until Keycloak is reachable beyond
+loopback, so `KEYCLOAK_ADMIN_PASSWORD` must now stay equal to the live password
+([#368](https://github.com/NaimElijah/FinAssist/issues/368)).

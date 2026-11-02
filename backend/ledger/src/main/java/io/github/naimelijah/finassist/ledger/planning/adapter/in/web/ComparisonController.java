@@ -91,7 +91,8 @@ public class ComparisonController {
 
     /**
      * Each scenario's projection, end state and divergence from the baseline, over one horizon. A horizon or
-     * opening position the domain refuses is 422 {@code RULE_VIOLATED}.
+     * opening position the domain refuses, or a projection holding an amount past {@code
+     * Projection.MAXIMUM_INTEGER_DIGITS} integer digits (ADR-072), is 422 {@code RULE_VIOLATED}.
      */
     @GetMapping
     public ComparisonResponse compareScenarios(

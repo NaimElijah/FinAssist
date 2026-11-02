@@ -38,7 +38,7 @@ import org.springframework.test.context.DynamicPropertySource;
  * then seeded with rows the earlier code could leave behind: a journal transaction the way the
  * pre-{@code V1_2} repository wrote one, an entry whose account changed currency before {@code
  * V1_6}, a budget with a limit stored before {@code V2_2}, and a strategy listing a plan before
- * {@code V3_2}. Only then is the ledger's own application context started against that database,
+ * {@code V3_2}, at the highest growth rate {@code V3_3} allows. Only then is the ledger's own application context started against that database,
  * which is what runs the ledger's own {@code spring.flyway.*} configuration rather than a hand-built
  * copy of it. A context that fails to start is the owner's ledger failing to start.
  *
@@ -92,7 +92,8 @@ class LedgerUpgradeIT {
      * migrations were actually run in, so this asserts that every accounting migration released
      * since {@code 1.1}, and then {@code 2.2}, ran after {@code 3.1}, in version order, each after a
      * version higher than itself — the out-of-order application the owner's database needs and a
-     * fresh one never performs — and that {@code 3.2}, above every version applied, ran last.
+     * fresh one never performs — and that {@code 3.2} and {@code 3.3}, above every version applied,
+     * ran last.
      */
     @Test
     void
@@ -100,7 +101,7 @@ class LedgerUpgradeIT {
         assertThat(jdbc.sql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank")
                         .query(String.class)
                         .list())
-                .containsExactly("1.1", "2.1", "3.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "2.2", "3.2");
+                .containsExactly("1.1", "2.1", "3.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "2.2", "3.2", "3.3");
     }
 
     /**
@@ -202,6 +203,29 @@ class LedgerUpgradeIT {
                         "budget_limit_in_budget_currency=true",
                         "scenario_flow_in_plan_currency=true",
                         "scenario_flow_in_scenario_currency=true");
+    }
+
+    /**
+     * {@code V3_3} adds its two checks validated, as {@code V3_2} adds its keys, so it scanned the rates
+     * already stored: the historical strategy's, written at the highest rate ADR-072 allows and at a
+     * scale its trailing zeros make larger than it needs, passed, and stays.
+     */
+    @Test
+    void
+            Given_a_rate_stored_before_3_3_at_the_bounds_When_the_ledger_has_started_Then_both_growth_checks_are_validated_and_it_stays() {
+        assertThat(jdbc.sql("""
+                        SELECT conname || '=' || convalidated
+                        FROM pg_constraint
+                        WHERE connamespace = 'planning'::regnamespace
+                          AND conname IN ('scenario_growth_at_most_one', 'scenario_growth_at_most_ten_places')
+                        ORDER BY conname
+                        """).query(String.class).list())
+                .containsExactly("scenario_growth_at_most_one=true", "scenario_growth_at_most_ten_places=true");
+        assertThat(jdbc.sql("SELECT growth_per_step::text FROM planning.scenario WHERE id = :id")
+                        .param("id", HISTORICAL_SCENARIO)
+                        .query(String.class)
+                        .single())
+                .isEqualTo("1.00000000000000");
     }
 
     @Test
@@ -335,7 +359,7 @@ class LedgerUpgradeIT {
                             (id, description, amount, currency, direction, starts_on, recurrence, state)
                         VALUES (:id, 'New car', 40000.00, 'USD', 'OUTFLOW', :startsOn, 'ONCE', 'PLANNED')
                         """).param("id", plan).param("startsOn", MARCH_1).update();
-        jdbc.sql("INSERT INTO planning.scenario VALUES (:id, 'Buy the car', 'USD', 0)")
+        jdbc.sql("INSERT INTO planning.scenario VALUES (:id, 'Buy the car', 'USD', 1.00000000000000)")
                 .param("id", HISTORICAL_SCENARIO)
                 .update();
         jdbc.sql("INSERT INTO planning.scenario_flow VALUES (:id, 0, :plan)")

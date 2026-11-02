@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger.planning.adapter.in.web;
 
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Horizon;
+import io.github.naimelijah.finassist.ledger.planning.domain.forecast.Projection;
 
 /**
  * What the contract says about a horizon's bounds, shared by the projection, the comparison and {@link
@@ -20,7 +21,10 @@ final class HorizonDescriptions {
     static final String FROM_PARAMETER = FROM + " That point is the opening position, before any flow or growth.";
 
     static final String TO_PARAMETER = TO + " It must fall a whole number of steps after from, and at most "
-            + Horizon.MAXIMUM_SPAN_YEARS + " years after it.";
+            + Horizon.MAXIMUM_SPAN_YEARS + " years after it. A projection in which an opening balance, a planned"
+            + " flow's amount, or any point's cash, invested balance or total has more than "
+            + Projection.MAXIMUM_INTEGER_DIGITS + " integer digits is refused 422 RULE_VIOLATED; a shorter horizon"
+            + " may avoid one that growth or flows carry past it (ADR-072).";
 
     static final String STEP_PARAMETER =
             "The spacing of the points: each is the horizon's start advanced by a whole number of steps.";

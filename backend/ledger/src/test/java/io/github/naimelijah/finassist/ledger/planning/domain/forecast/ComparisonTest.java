@@ -248,4 +248,30 @@ class ComparisonTest {
         assertThatThrownBy(() -> new Divergence(JANUARY, ils("-400.00"), Money.of("150.00", Currency.USD)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    /**
+     * A comparison adds no bound of its own (ADR-072). A divergence is the difference of two points
+     * that each hold the bound, so it can reach nineteen integer digits, and it is reported as computed.
+     */
+    @Test
+    void
+            Given_two_projections_at_opposite_ends_of_the_bound_When_diverged_Then_the_divergence_has_nineteen_integer_digits() {
+        Map<String, Projection> named = new LinkedHashMap<>();
+        named.put(BASELINE, openingAt("-999999999999999999.99"));
+        named.put(SPEND, openingAt("999999999999999999.99"));
+
+        List<Divergence> divergence =
+                Comparison.of(named).divergenceFrom(BASELINE).get(SPEND);
+
+        assertThat(divergence.getLast().cash()).isEqualTo(ils("1999999999999999999.98"));
+    }
+
+    private static Projection openingAt(String cash) {
+        return Projection.of(
+                Scenario.baseline(BASELINE, Currency.ILS, GrowthAssumption.none()),
+                QUARTER,
+                Cadence.MONTHLY,
+                ils(cash),
+                Money.zero(Currency.ILS));
+    }
 }

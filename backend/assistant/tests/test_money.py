@@ -6,7 +6,7 @@ one file without changing the other is the drift this pair exists to catch.
 
 Every ``MoneyTest`` case is mirrored here except one: a product whose rounding needs a power of
 ten past Java's ``BigInteger`` range, which ``MoneyTest`` pins as refused and ``times_rounded``
-here answers ``0.00``. That is a known gap tracked by #416, not a contract, so nothing here pins
+here answers ``0.00``. That is a known gap tracked by #434, not a contract, so nothing here pins
 it. The converse does not hold: some cases here have no Java counterpart, such as non-finite
 multipliers, which ``BigDecimal`` cannot represent, and text parsing, where ``new BigDecimal``'s
 own grammar is the Java contract.
