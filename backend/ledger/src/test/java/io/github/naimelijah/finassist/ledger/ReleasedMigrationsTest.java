@@ -89,7 +89,10 @@ class ReleasedMigrationsTest {
                     "ee59b63dfd890dd1b8ade2dcdcba9e4de8d51e9f5f2df65819576b489b4dc06a"),
             new Released(
                     "planning/V3_2__scenario_flow_currency.sql",
-                    "3837281eb4840cb0feeebb9318197bf01a7a937ec1589ee02d83db0a02436ad0"));
+                    "3837281eb4840cb0feeebb9318197bf01a7a937ec1589ee02d83db0a02436ad0"),
+            new Released(
+                    "planning/V3_3__scenario_growth_bounded.sql",
+                    "6d72a60362c262565e517b694716cec5127bf1bd323397476f04f782287c9639"));
 
     @Test
     void Given_the_migrations_on_the_classpath_When_each_is_hashed_Then_each_matches_the_digest_it_was_released_with()

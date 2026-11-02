@@ -162,4 +162,79 @@ class RecurrencePropertiesTest {
         }
         return dates;
     }
+
+    /**
+     * Schedules that started long before the window they are asked about: month ends, leap days and
+     * intervals above one, over windows years after the start.
+     */
+    private static Stream<Arguments> longRunningSchedules() {
+        Random random = new Random(SEED);
+        Cadence[] cadences = Cadence.values();
+        List<LocalDate> awkwardStarts = List.of(
+                LocalDate.of(2000, 1, 31),
+                LocalDate.of(2000, 2, 29),
+                LocalDate.of(1999, 8, 31),
+                LocalDate.of(2001, 3, 30));
+        return IntStream.range(0, CASES).mapToObj(index -> {
+            LocalDate start = index % 2 == 0
+                    ? awkwardStarts.get(random.nextInt(awkwardStarts.size()))
+                    : EPOCH.minusDays(random.nextInt(0, 20_000));
+            LocalDate from = start.plusDays(random.nextInt(-30, 30_000));
+            LocalDate to = from.plusDays(random.nextInt(1, 800));
+            Cadence cadence = cadences[random.nextInt(cadences.length)];
+            int interval = random.nextInt(1, 4);
+            Recurrence recurrence = random.nextBoolean()
+                    ? new Recurrence.Times(cadence, interval, random.nextInt(1, 3_000))
+                    : new Recurrence.Until(cadence, interval, start.plusDays(random.nextInt(1, 40_000)));
+            return Arguments.of(recurrence, start, from, to);
+        });
+    }
+
+    /**
+     * Occurrences are measured from the start, so a recurrence computes only the periods that can
+     * reach the window, however long before it the recurrence began. Whatever it skips must be what
+     * stepping every period from the start would have found outside the window.
+     */
+    @ParameterizedTest
+    @MethodSource("longRunningSchedules")
+    void
+            Given_a_schedule_that_began_long_before_the_window_When_listed_Then_it_is_every_period_from_the_start_inside_it(
+                    Recurrence recurrence, LocalDate start, LocalDate from, LocalDate to) {
+        assertThat(recurrence.occurrences(start, from, to)).isEqualTo(steppedFromTheStart(recurrence, start, from, to));
+    }
+
+    /** The definition the recurrences follow, stepped period by period from the start. */
+    private static List<LocalDate> steppedFromTheStart(
+            Recurrence recurrence, LocalDate start, LocalDate from, LocalDate to) {
+        Cadence cadence;
+        int interval;
+        long count;
+        LocalDate until;
+        switch (recurrence) {
+            case Recurrence.Times times -> {
+                cadence = times.cadence();
+                interval = times.interval();
+                count = times.count();
+                until = LocalDate.MAX;
+            }
+            case Recurrence.Until bounded -> {
+                cadence = bounded.cadence();
+                interval = bounded.interval();
+                count = Long.MAX_VALUE;
+                until = bounded.until();
+            }
+            case Recurrence.Once once -> throw new IllegalArgumentException("not a repeating schedule");
+        }
+        List<LocalDate> dates = new ArrayList<>();
+        for (long period = 0; period < count; period++) {
+            LocalDate date = cadence.advance(start, period * interval);
+            if (!date.isBefore(to) || !date.isBefore(until)) {
+                break;
+            }
+            if (!date.isBefore(from)) {
+                dates.add(date);
+            }
+        }
+        return dates;
+    }
 }

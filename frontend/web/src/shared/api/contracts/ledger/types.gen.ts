@@ -102,6 +102,9 @@ export type DefineBudgetRequest = {
 export type DefineScenarioRequest = {
     currency: 'ILS' | 'USD' | 'EUR' | 'GBP' | 'JPY';
     flows: Array<string>;
+    /**
+     * The growth of the invested balance over one projection step, as a fraction: 0.05 is 5% a step. Greater than -1 and at most 1, which doubles the balance, with at most 10 decimal places.
+     */
     growthRatePerStep: string;
     name: string;
 };
@@ -253,6 +256,9 @@ export type RecurrenceResponse = {
 export type ScenarioResponse = {
     currency: 'ILS' | 'USD' | 'EUR' | 'GBP' | 'JPY';
     flows: Array<string>;
+    /**
+     * The growth of the invested balance over one projection step, as a fraction: 0.05 is 5% a step. Greater than -1 and at most 1, which doubles the balance, with at most 10 decimal places.
+     */
     growthRatePerStep: string;
     id: string;
     name: string;
@@ -671,7 +677,7 @@ export type CompareScenariosData = {
          */
         from: string;
         /**
-         * The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted. It must fall a whole number of steps after from, and at most 100 years after it.
+         * The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted. It must fall a whole number of steps after from, and at most 100 years after it. A projection in which an opening balance, a planned flow's amount, or any point's cash, invested balance or total has more than 18 integer digits is refused 422 RULE_VIOLATED; a shorter horizon may avoid one that growth or flows carry past it (ADR-072).
          */
         to: string;
         /**
@@ -769,7 +775,7 @@ export type ProjectScenarioData = {
          */
         from: string;
         /**
-         * The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted. It must fall a whole number of steps after from, and at most 100 years after it.
+         * The horizon's end and the date of its last point. Exclusive for flows: one dated on it is not counted. It must fall a whole number of steps after from, and at most 100 years after it. A projection in which an opening balance, a planned flow's amount, or any point's cash, invested balance or total has more than 18 integer digits is refused 422 RULE_VIOLATED; a shorter horizon may avoid one that growth or flows carry past it (ADR-072).
          */
         to: string;
         /**

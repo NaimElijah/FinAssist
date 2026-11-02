@@ -23,7 +23,9 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -185,19 +187,19 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
 
     /**
      * {@code GrowthAssumption} normalises with {@code stripTrailingZeros}, and a record's generated
-     * equals compares {@code BigDecimal} by scale. A rate of 100 is held as {@code 1E+2}; stored as
-     * {@code numeric} it comes back at scale 0, and only the constructor re-normalising makes the two
-     * equal. This is the round trip most likely to break silently.
+     * equals compares {@code BigDecimal} by scale. {@code 0.00000010} is held as {@code 1E-7}, the
+     * one exponent form a rate within ADR-072's bounds can still take, and it must reach the store as
+     * the number it is and come back equal to the {@code 0.0000001} a caller would write.
      */
     @Test
-    void Given_a_growth_rate_whose_scale_is_normalised_When_read_back_Then_it_is_still_equal() {
-        Scenario aggressive = Scenario.baseline("Very aggressive", Currency.ILS, GrowthAssumption.perStep("100.000"));
+    void Given_a_growth_rate_whose_normal_form_takes_an_exponent_When_read_back_Then_it_is_still_equal() {
+        Scenario cautious = Scenario.baseline("Very cautious", Currency.ILS, GrowthAssumption.perStep("0.00000010"));
 
-        scenarios.save(aggressive);
+        scenarios.save(cautious);
 
-        assertThat(scenarios.findById(aggressive.id())).contains(aggressive);
-        assertThat(scenarios.findById(aggressive.id()).orElseThrow().growth())
-                .isEqualTo(GrowthAssumption.perStep("100"));
+        assertThat(scenarios.findById(cautious.id())).contains(cautious);
+        assertThat(scenarios.findById(cautious.id()).orElseThrow().growth())
+                .isEqualTo(GrowthAssumption.perStep("0.0000001"));
     }
 
     @Test
@@ -385,6 +387,37 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
     }
 
     /**
+     * {@code V3_3} holds the store to ADR-072's bounds, so no writer outside the adapter can leave a rate
+     * {@code GrowthAssumption} would refuse to read back. {@code NaN} and {@code Infinity} are {@code
+     * numeric}s that {@code V3_1}'s check passes, since PostgreSQL sorts both above every number;
+     * {@code min_scale} of either is null, which a check passes, so {@code V3_3}'s first check is the
+     * one that refuses them.
+     */
+    @ParameterizedTest
+    @CsvSource({
+        "1.0000000001, scenario_growth_at_most_one",
+        "1.5, scenario_growth_at_most_one",
+        "NaN, scenario_growth_at_most_one",
+        "Infinity, scenario_growth_at_most_one",
+        "-Infinity, scenario_growth_above_minus_one",
+        "0.00000000001, scenario_growth_at_most_ten_places",
+        "-0.00000000001, scenario_growth_at_most_ten_places"
+    })
+    void Given_a_growth_rate_beyond_the_bounds_written_directly_When_stored_Then_the_database_refuses_it(
+            String rate, String constraint) {
+        assertThatThrownBy(() -> rateStoredDirectly(rate)).hasMessageContaining(constraint);
+    }
+
+    /** Decimal places are counted as {@code GrowthAssumption} counts them, after trailing zeros. */
+    @ParameterizedTest
+    @ValueSource(strings = {"1", "0.10000000000", "0.0000000001", "-0.9999999999"})
+    void Given_a_growth_rate_at_the_bounds_written_directly_When_read_back_Then_it_is_the_rate_written(String rate) {
+        ScenarioId id = rateStoredDirectly(rate);
+
+        assertThat(scenarios.findById(id).orElseThrow().growth()).isEqualTo(GrowthAssumption.perStep(rate));
+    }
+
+    /**
      * {@code Scenario} still checks every rule as a stored row is read back, and the schema states one of
      * them less strictly: {@code btrim} strips spaces alone, so a name of a tab passes its check and not
      * {@code String.isBlank}. A stored scenario the aggregate refuses is a server fault naming the
@@ -463,6 +496,15 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
                 .param("id", id.value())
                 .param("name", name)
                 .param("currency", currency)
+                .update();
+        return id;
+    }
+
+    private ScenarioId rateStoredDirectly(String rate) {
+        ScenarioId id = ScenarioId.generate();
+        jdbc().sql("INSERT INTO planning.scenario VALUES (:id, 'Stored directly', 'ILS', CAST(:rate AS numeric))")
+                .param("id", id.value())
+                .param("rate", rate)
                 .update();
         return id;
     }

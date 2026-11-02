@@ -1,6 +1,9 @@
 package io.github.naimelijah.finassist.ledger.planning.adapter.in.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -98,11 +101,11 @@ class ScenarioControllerTest {
 
     /**
      * {@code GrowthAssumption} strips trailing zeros, which is exactly what makes {@code BigDecimal}'s
-     * {@code toString} reach for an exponent: {@code 1E-7} for a tiny rate and {@code 1E+1} for ten. The
-     * wire carries plain decimal text, which the request pattern would accept back.
+     * {@code toString} reach for an exponent: {@code 1E-7} for a tiny rate. The wire carries plain
+     * decimal text, which the request pattern would accept back.
      */
     @ParameterizedTest
-    @CsvSource({"0.005, 0.005", "0.00000010, 0.0000001", "10, 10", "-0.25, -0.25"})
+    @CsvSource({"0.005, 0.005", "0.00000010, 0.0000001", "-0.25, -0.25"})
     void Given_a_growth_rate_whose_normal_form_takes_an_exponent_When_listed_Then_it_is_plain_decimal_text(
             String rate, String rendered) throws Exception {
         when(lister.all())
@@ -230,6 +233,56 @@ class ScenarioControllerTest {
                 .andExpect(status().is(422))
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("RULE_VIOLATED"));
+
+        verifyNoInteractions(definer);
+    }
+
+    /**
+     * The bounds are inclusive where ADR-072 says so: a rate of exactly 1 and one of exactly ten
+     * decimal places are defined, and the rate comes back as written, less its trailing zeros.
+     */
+    @ParameterizedTest
+    @CsvSource({"1, 1", "1.000, 1", "0.0000000001, 0.0000000001", "-0.9999999999, -0.9999999999"})
+    void Given_a_growth_rate_at_its_bounds_When_defined_Then_it_is_answered_201_with_the_rate(
+            String rate, String rendered) throws Exception {
+        GrowthAssumption growth = GrowthAssumption.perStep(rate);
+        when(definer.define(new DefineScenarioCommand("At the edge", Currency.ILS, List.of(), growth)))
+                .thenReturn(Scenario.baseline("At the edge", Currency.ILS, growth));
+
+        mvc.perform(post(SCENARIOS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(defineRequest("At the edge", "[]", rate)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.growthRatePerStep").value(rendered));
+    }
+
+    /**
+     * No annotation reads a {@code BigDecimal}, so the contract's description writes the bound out;
+     * this holds it to the constant the domain enforces.
+     */
+    @Test
+    void Given_the_growth_rate_description_When_read_Then_it_states_the_bounds_the_domain_enforces() {
+        assertThat(DefineScenarioRequest.GROWTH_RATE)
+                .contains("at most " + GrowthAssumption.MAXIMUM_RATE.toPlainString() + ",")
+                .contains("at most " + GrowthAssumption.MAXIMUM_DECIMAL_PLACES + " decimal places");
+    }
+
+    /**
+     * A rate above 1 a step, or with more than ten decimal places, is refused as a rule (ADR-072): a
+     * "12" typed to mean 12% would otherwise compound a projection into figures nobody could hold.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"1.5", "12", "0.00000000001"})
+    void Given_a_growth_rate_beyond_its_upper_bounds_When_defined_Then_it_is_a_422_rule_violated_problem(String rate)
+            throws Exception {
+        mvc.perform(post(SCENARIOS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(defineRequest("Buy the car", "[]", rate)))
+                .andExpect(status().is(422))
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("RULE_VIOLATED"))
+                .andExpect(jsonPath("$.detail").value(containsString("at most")))
+                .andExpect(jsonPath("$.detail").value(not(containsString(rate))));
 
         verifyNoInteractions(definer);
     }

@@ -24,7 +24,9 @@ public sealed interface Recurrence {
      * order.
      *
      * <p>Occurrences are always measured from {@code start}, never from the previous one; see
-     * {@link Cadence#advance} for why that matters at month ends.
+     * {@link Cadence#advance} for why that matters at month ends. So only the periods that can reach
+     * the range are computed, and a recurrence costs what falls in the range, however long before it
+     * the recurrence began.
      *
      * @param start the date the first occurrence falls on
      * @param fromInclusive the first date of the range
@@ -74,7 +76,9 @@ public sealed interface Recurrence {
             }
             long lastStep = lastStepBefore(cadence, start, toExclusive);
             List<LocalDate> dates = new ArrayList<>();
-            for (long period = 0; period * interval <= lastStep; period++) {
+            for (long period = firstPeriodReaching(cadence, interval, start, fromInclusive);
+                    period * interval <= lastStep;
+                    period++) {
                 LocalDate date = cadence.advance(start, period * interval);
                 if (!date.isBefore(until) || !date.isBefore(toExclusive)) {
                     return dates;
@@ -109,7 +113,9 @@ public sealed interface Recurrence {
             requireRange(start, fromInclusive, toExclusive);
             long lastStep = lastStepBefore(cadence, start, toExclusive);
             List<LocalDate> dates = new ArrayList<>();
-            for (long period = 0; period < count && period * interval <= lastStep; period++) {
+            for (long period = firstPeriodReaching(cadence, interval, start, fromInclusive);
+                    period < count && period * interval <= lastStep;
+                    period++) {
                 LocalDate date = cadence.advance(start, period * interval);
                 if (!date.isBefore(toExclusive)) {
                     return dates;
@@ -141,6 +147,20 @@ public sealed interface Recurrence {
      */
     private static long lastStepBefore(Cadence cadence, LocalDate start, LocalDate toExclusive) {
         return cadence.between(start, toExclusive);
+    }
+
+    /**
+     * A lower bound on the periods from {@code start} that can land on or after {@code fromInclusive};
+     * every earlier one lands before it, so none is computed.
+     *
+     * <p>{@link Cadence#between} counts complete periods, so {@code start} advanced by that many lands
+     * on or before {@code fromInclusive}, and by fewer strictly before it, since advancing only moves
+     * forward. One period of margin more keeps the bound clear of a month end that {@link
+     * Cadence#advance} clamps. The period index stays the one counted from {@code start}, so {@link
+     * Times}'s count is unchanged.
+     */
+    private static long firstPeriodReaching(Cadence cadence, int interval, LocalDate start, LocalDate fromInclusive) {
+        return Math.max(0, (cadence.between(start, fromInclusive) - 1) / interval);
     }
 
     private static void requireRange(LocalDate start, LocalDate fromInclusive, LocalDate toExclusive) {

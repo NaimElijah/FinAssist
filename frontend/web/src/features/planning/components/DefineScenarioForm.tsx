@@ -40,8 +40,8 @@ const DEFAULT_CURRENCY: Currency = 'ILS';
 const DEFAULT_GROWTH_RATE = '0';
 
 /**
- * The growth rate's hint: how to write the decimal, and that it is a fraction, since typing 5 for
- * 5% would define 500% growth per step.
+ * The growth rate's hint: how to write the decimal, and that it is a fraction, since 5 typed for 5%
+ * means 500% a step, which the ledger refuses: a rate is at most 1 a step (ADR-072).
  */
 const GROWTH_RATE_HINT = `${DECIMAL_HINT}; a fraction per step, for example 0.005 for 0.5%`;
 

@@ -52,8 +52,9 @@ ledger applies every migration its volume has not yet run the moment it starts, 
 `spring.flyway.out-of-order` lets one numbered below a version already applied still run
 ([ADR-035](../ADRs/ADR-035-flyway-runs-out-of-order.md)). `LedgerUpgradeIT` rehearses the
 upgrade from the oldest history a volume can hold, `1.1`, `2.1` and `3.1`, and Flyway validates
-before it migrates, so nothing is expected to go wrong — a backup is cheap insurance, not a
-warning:
+before it migrates, so no migration is expected to refuse a row but `V3_3`, which can refuse a
+strategy's growth rate (below). Look for such a rate first; for everything else a backup is cheap
+insurance, not a warning:
 
 ```bash
 git rev-parse --short HEAD   # run BEFORE you pull: the release you are leaving. Write it down
@@ -87,10 +88,40 @@ would refuse, so both are expected to apply cleanly. If one does refuse, Postgre
 migration back whole, the ledger does not start, and its log names the constraint:
 `budget_limit_in_budget_currency` or `scenario_flow_in_scenario_currency`.
 
+**`V3_3` can refuse a rate the ledger used to accept.** It holds each strategy's growth rate to at
+most 1 a step and at most ten decimal places
+([ADR-072](../ADRs/ADR-072-a-projection-bounds-its-growth-rate-and-its-amounts.md)), and checks
+every stored strategy. Before this release the ledger accepted any rate above -1, so a `5` typed to
+mean 5% may still be stored. Look for one before the upgrade, once `db` is up:
+
+```bash
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT id, name, growth_per_step FROM planning.scenario WHERE growth_per_step > 1 OR min_scale(growth_per_step) > 10"'
+```
+
+An empty answer means `V3_3` applies cleanly. The query also lists a rate of `NaN` or
+`Infinity`, which `numeric` admits and which no ledger wrote; a row written by hand could hold one.
+If `V3_3` refuses, its log names `scenario_growth_at_most_one` or
+`scenario_growth_at_most_ten_places` and no value. Each migration commits on its own, so
+everything before it stays applied and only `V3_3` runs again (`ScenarioGrowthMigrationIT`).
+
 **If a migration refuses,** either correct the mismatched row and start the ledger again, or go
-back to where you were. `budgeting.budget_limit` and `planning.scenario_flow` are ordinary mutable
-tables, so a limit in another currency than its budget, or a link to a plan in another currency
-than its strategy, can be corrected or deleted in place. To go back instead,
+back to where you were. `budgeting.budget_limit`, `planning.scenario_flow` and `planning.scenario`
+are ordinary mutable tables, so a limit in another currency than its budget, a link to a plan in
+another currency than its strategy, or a strategy's rate can be corrected or deleted in place. For
+a strategy's rate:
+
+- **Typed as a whole percentage:** `UPDATE planning.scenario SET growth_per_step = 0.05 WHERE id =
+  '<id>'` turns `5` into the 5% it meant.
+- **Past ten decimal places**, such as a weekly rate pasted at full precision: `UPDATE
+  planning.scenario SET growth_per_step = trunc(growth_per_step, 10) WHERE id = '<id>'`. `trunc`,
+  never `round`: rounding `-0.99999999999` gives `-1`, which `V3_1`'s
+  `scenario_growth_above_minus_one` refuses.
+- **`NaN` or `Infinity`:** set the rate the strategy was meant to have, as above.
+- **To delete the strategy instead,** its links go first, in one transaction, since
+  `scenario_flow` refers to it: `DELETE FROM planning.scenario_flow WHERE scenario_id = '<id>'`,
+  then `DELETE FROM planning.scenario WHERE id = '<id>'`.
+
+To go back instead,
 [restore](#backing-up-and-restoring) the backup you just took. A migration that succeeded and is
 then regretted is a different case: see
 [Rolling back the ledger after an upgrade](#rolling-back-the-ledger-after-an-upgrade).
@@ -124,8 +155,8 @@ migrations, from a commit dated 2026-10-13 or later but before `8aaf518` (2026-1
 landed.* The recipe needs the previous commit to carry `ops/backup/backup.py`, which arrived on
 2026-10-13, because steps 2 and 5 run that commit's copy. The previous ledger carries four
 migrations, `1.1`, `1.2`, `2.1` and `3.1`. The upgraded history also holds `1.3` to `1.7` and
-`2.2`, each below `3.1`, so the previous ledger refuses to start. `3.2` sits above the newest one
-it knows, so it alone would not stop it.
+`2.2`, each below `3.1`, so the previous ledger refuses to start. `3.2` and `3.3` sit above the
+newest one it knows, so they alone would not stop it.
 
 **Skip the restore and the symptom is a ledger that restarts.** `docker compose ps` shows `ledger`
 as `Restarting`, because `restart: unless-stopped` starts it again after each refusal, and
@@ -299,7 +330,7 @@ Run the steps in order, from the repository root:
    The two lists must name the same versions: a file `V1_3__…` is version `1.3`. A version in the
    history that the commit does not carry means the restore did not bring back the books you meant.
    In the worked example, the history lists `1.1`, `1.2`, `2.1` and `3.1`, and none of `1.3` to
-   `1.7`, `2.2` or `3.2`.
+   `1.7`, `2.2`, `3.2` or `3.3`.
 
 Every write made after the backup is gone, journal rows included; the backup you took before step 1
 still holds them. Unless you restored Keycloak's database as well, the identity store is untouched

@@ -13,6 +13,8 @@ import io.github.naimelijah.finassist.ledger.shared.Money;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** A projection is derived from a scenario; every figure here follows from the plans behind it. */
 class ProjectionTest {
@@ -23,6 +25,14 @@ class ProjectionTest {
     private static final LocalDate APRIL = LocalDate.of(2026, 4, 1);
 
     private static final Horizon QUARTER = new Horizon(JANUARY, APRIL);
+
+    /** The largest amount ADR-072 lets a projection hold: eighteen integer digits. */
+    private static final String LARGEST = "999999999999999999.99";
+
+    /** 10^18, the first amount past the bound, in the digits a refusal must never repeat. */
+    private static final String PAST_THE_BOUND = "1000000000000000000.00";
+
+    private static final String BOUND_REFUSAL = "more than 18 integer digits";
 
     private static Money ils(String amount) {
         return Money.of(amount, Currency.ILS);
@@ -314,6 +324,20 @@ class ProjectionTest {
                 .hasMessageContaining("must open on");
     }
 
+    /** The bound is the type's, not only {@code of}'s: a series built by hand is held to it too. */
+    @Test
+    void Given_a_point_past_the_maximum_integer_digits_When_a_projection_is_built_from_points_Then_it_is_refused() {
+        BalancePoint january = new BalancePoint(JANUARY, ils("1000.00"), Money.zero(Currency.ILS));
+        BalancePoint february = new BalancePoint(FEBRUARY, ils(PAST_THE_BOUND), Money.zero(Currency.ILS));
+        BalancePoint march = new BalancePoint(MARCH, ils("1000.00"), Money.zero(Currency.ILS));
+        BalancePoint april = new BalancePoint(APRIL, ils("1000.00"), Money.zero(Currency.ILS));
+
+        assertThatThrownBy(() -> new Projection(QUARTER, Cadence.MONTHLY, List.of(january, february, march, april)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(BOUND_REFUSAL)
+                .hasMessageContaining("cash on " + FEBRUARY);
+    }
+
     @Test
     void Given_points_in_two_currencies_When_a_projection_is_built_Then_it_is_refused() {
         BalancePoint january = new BalancePoint(JANUARY, ils("1000.00"), Money.zero(Currency.ILS));
@@ -342,5 +366,151 @@ class ProjectionTest {
         assertThat(projection.points())
                 .extracting(BalancePoint::cash)
                 .containsExactly(ils("1000.00"), ils("1000.00"), ils("1000.00"), ils("900.00"));
+    }
+
+    @Test
+    void Given_an_opening_amount_of_exactly_the_maximum_integer_digits_When_projected_Then_it_is_allowed() {
+        Scenario baseline = Scenario.baseline("Hold", Currency.ILS, GrowthAssumption.none());
+
+        Projection projection =
+                Projection.of(baseline, QUARTER, Cadence.MONTHLY, ils(LARGEST), Money.zero(Currency.ILS));
+
+        assertThat(projection.endState().total()).isEqualTo(ils(LARGEST));
+    }
+
+    /** A currency with no minor units holds the same eighteen integer digits, and no more. */
+    @Test
+    void Given_yen_of_exactly_the_maximum_integer_digits_When_projected_Then_it_is_allowed() {
+        Scenario yen = Scenario.baseline("Hold", Currency.JPY, GrowthAssumption.none());
+        Money largest = Money.of("999999999999999999", Currency.JPY);
+
+        Projection projection = Projection.of(yen, QUARTER, Cadence.MONTHLY, Money.zero(Currency.JPY), largest);
+
+        assertThat(projection.endState().invested()).isEqualTo(largest);
+    }
+
+    @Test
+    void Given_a_planned_flow_of_exactly_the_maximum_integer_digits_When_projected_Then_it_is_allowed() {
+        PlannedFlow windfall =
+                PlannedFlow.plan("Windfall", ils(LARGEST), Direction.INFLOW, FEBRUARY, new Recurrence.Once());
+        Scenario scenario = Scenario.of("Dream", Currency.ILS, List.of(windfall), GrowthAssumption.none());
+
+        Projection projection =
+                Projection.of(scenario, QUARTER, Cadence.MONTHLY, Money.zero(Currency.ILS), Money.zero(Currency.ILS));
+
+        assertThat(projection.endState().cash()).isEqualTo(ils(LARGEST));
+    }
+
+    /** Each input is checked before a step is counted, and the refusal names it, never its digits. */
+    @ParameterizedTest
+    @ValueSource(strings = {"1000000000000000000.00", "-1000000000000000000.00"})
+    void Given_opening_cash_past_the_maximum_integer_digits_When_projected_Then_it_is_refused_without_the_amount(
+            String cash) {
+        Scenario baseline = Scenario.baseline("Hold", Currency.ILS, GrowthAssumption.none());
+
+        assertThatThrownBy(() -> Projection.of(baseline, QUARTER, Cadence.MONTHLY, ils(cash), Money.zero(Currency.ILS)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(BOUND_REFUSAL)
+                .hasMessageContaining("opening cash")
+                .satisfies(refusal -> assertThat(refusal.getMessage()).doesNotContain("1000000000000000000"));
+    }
+
+    @Test
+    void Given_opening_investments_past_the_maximum_integer_digits_When_projected_Then_it_is_refused() {
+        Scenario yen = Scenario.baseline("Hold", Currency.JPY, GrowthAssumption.none());
+
+        assertThatThrownBy(() -> Projection.of(
+                        yen,
+                        QUARTER,
+                        Cadence.MONTHLY,
+                        Money.zero(Currency.JPY),
+                        Money.of("1000000000000000000", Currency.JPY)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(BOUND_REFUSAL)
+                .hasMessageContaining("opening investments");
+    }
+
+    /** A flow's amount is checked before its recurrence is expanded, wherever its dates fall. */
+    @Test
+    void Given_a_planned_flow_past_the_maximum_integer_digits_When_projected_Then_it_is_refused() {
+        PlannedFlow windfall = PlannedFlow.plan(
+                "Windfall", ils(PAST_THE_BOUND), Direction.INFLOW, LocalDate.of(2030, 1, 1), new Recurrence.Once());
+        Scenario scenario = Scenario.of("Dream", Currency.ILS, List.of(windfall), GrowthAssumption.none());
+
+        assertThatThrownBy(() -> Projection.of(
+                        scenario, QUARTER, Cadence.MONTHLY, Money.zero(Currency.ILS), Money.zero(Currency.ILS)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(BOUND_REFUSAL)
+                .hasMessageContaining("planned flow " + windfall.id().value())
+                .satisfies(refusal -> assertThat(refusal.getMessage()).doesNotContain("1000000000000000000"));
+    }
+
+    /**
+     * Only the flows a projection counts are checked: a cancelled or realised one moves no balance, so
+     * its amount, however large, is no part of what the projection computes.
+     */
+    @Test
+    void Given_a_cancelled_flow_past_the_maximum_integer_digits_When_projected_Then_it_is_ignored() {
+        PlannedFlow cancelled = PlannedFlow.plan(
+                        "Windfall", ils(PAST_THE_BOUND), Direction.INFLOW, FEBRUARY, new Recurrence.Once())
+                .cancel(FEBRUARY, "never coming");
+        Scenario scenario = Scenario.of("Dream", Currency.ILS, List.of(cancelled), GrowthAssumption.none());
+
+        Projection projection =
+                Projection.of(scenario, QUARTER, Cadence.MONTHLY, ils("1000.00"), Money.zero(Currency.ILS));
+
+        assertThat(projection.endState().cash()).isEqualTo(ils("1000.00"));
+    }
+
+    @Test
+    void
+            Given_growth_that_carries_the_invested_balance_past_the_maximum_When_projected_Then_it_is_refused_at_that_step() {
+        Scenario doubling = Scenario.baseline("Double", Currency.ILS, GrowthAssumption.perStep("1"));
+
+        assertThatThrownBy(() -> Projection.of(
+                        doubling, QUARTER, Cadence.MONTHLY, Money.zero(Currency.ILS), ils("500000000000000000.00")))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(BOUND_REFUSAL)
+                .hasMessageContaining("invested balance on " + FEBRUARY);
+    }
+
+    /**
+     * The worst a scenario can now ask for: the highest rate, compounded weekly across the longest
+     * horizon. It doubles past the bound within about sixty steps, and the work stops there rather than
+     * running the remaining five thousand.
+     */
+    @Test
+    void Given_the_highest_rate_weekly_across_the_maximum_span_When_projected_Then_it_is_refused() {
+        Scenario doubling = Scenario.baseline("Double", Currency.ILS, GrowthAssumption.perStep("1"));
+        Horizon century = new Horizon(JANUARY, JANUARY.plusWeeks(5_200));
+
+        assertThatThrownBy(
+                        () -> Projection.of(doubling, century, Cadence.WEEKLY, Money.zero(Currency.ILS), ils("1.00")))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(BOUND_REFUSAL)
+                .hasMessageContaining("invested balance on 2027-");
+    }
+
+    /** Cash and investments may each hold the bound while their sum does not. */
+    @Test
+    void Given_a_total_past_the_maximum_When_projected_Then_it_is_refused_at_that_point() {
+        Scenario baseline = Scenario.baseline("Hold", Currency.ILS, GrowthAssumption.none());
+
+        assertThatThrownBy(() -> Projection.of(baseline, QUARTER, Cadence.MONTHLY, ils(LARGEST), ils("1.00")))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(BOUND_REFUSAL)
+                .hasMessageContaining("total on " + JANUARY);
+    }
+
+    @Test
+    void Given_cash_falling_past_the_maximum_below_zero_When_projected_Then_it_is_refused_at_that_step() {
+        Scenario rent = Scenario.of(
+                "Rent", Currency.ILS, List.of(monthly("1.00", Direction.OUTFLOW, 3)), GrowthAssumption.none());
+
+        assertThatThrownBy(() ->
+                        Projection.of(rent, QUARTER, Cadence.MONTHLY, ils("-" + LARGEST), Money.zero(Currency.ILS)))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(BOUND_REFUSAL)
+                .hasMessageContaining("cash on " + FEBRUARY);
     }
 }

@@ -1,6 +1,7 @@
 # ADR-058: Each service bounds what one request can cost
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-072](ADR-072-a-projection-bounds-its-growth-rate-and-its-amounts.md)
 - **Date:** 2026-10-30
 
 Extends [ADR-028](ADR-028-http-wire-conventions.md), which fixes the wire's shapes and its

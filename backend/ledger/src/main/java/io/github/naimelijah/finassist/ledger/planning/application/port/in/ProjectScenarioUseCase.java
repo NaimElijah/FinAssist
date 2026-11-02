@@ -14,9 +14,11 @@ public interface ProjectScenarioUseCase {
      *
      * @throws ScenarioNotFoundException if no such scenario exists
      * @throws PlanNotFoundException if the scenario names a flow that no longer resolves
-     * @throws IllegalArgumentException when the horizon is not a whole number of steps, or an
-     *     account reference is refused as {@code OpeningPositionProvider} describes: not an
-     *     account, unknown, or held in another currency than the scenario's
+     * @throws IllegalArgumentException when the horizon is not a whole number of steps, an account
+     *     reference is refused as {@code OpeningPositionProvider} describes: not an account,
+     *     unknown, or held in another currency than the scenario's, or an amount the projection
+     *     reads or computes has more than {@code Projection.MAXIMUM_INTEGER_DIGITS} integer digits
+     *     (ADR-072)
      */
     Projection project(ProjectScenarioCommand command);
 }
