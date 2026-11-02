@@ -58,6 +58,7 @@ from starlette.status import WS_1008_POLICY_VIOLATION
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.websockets import WebSocketClose
 
+from finassist_assistant.adapters.observability import HEALTH_PATH, READY_PATH
 from finassist_assistant.adapters.problems import (
     AUTHENTICATION_UNAVAILABLE,
     UNAUTHENTICATED,
@@ -547,7 +548,7 @@ Namespaced, as ASGI asks of anything an application adds to a scope - the same c
 dependency reads it back through :class:`RequirePermission`; nothing else may write it.
 """
 
-PUBLIC_PATHS: Final[frozenset[str]] = frozenset({"/health", "/ready", "/openapi.json"})
+PUBLIC_PATHS: Final[frozenset[str]] = frozenset({HEALTH_PATH, READY_PATH, "/openapi.json"})
 """Every path served with no bearer token at all (ADR-030).
 
 Deliberately short: the two probes, for whatever runs the process, and the committed contract's

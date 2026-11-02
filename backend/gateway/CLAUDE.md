@@ -97,6 +97,11 @@ From `backend/gateway`:
   and tests `HttpConnectTimeoutException` first because it extends `HttpTimeoutException`, the type
   spring-web's `JdkClientHttpRequest` raises at the read budget. `GatewayRelayTimeoutIT` and
   `GatewayRelayProblemsTest` fail the build if either is lost.
+- **`spring.lifecycle.timeout-per-shutdown-phase` stays 20 s, below Compose's 30 s
+  `stop_grace_period`** (ADR-070): above the 10 s relay read timeout, so a request in flight
+  finishes, and below the grace, so Compose's `SIGKILL` is the last resort.
+  `GatewayShippedConfigurationTest` pins it from `application.yml`, and `make check-compose`
+  refuses an environment override of it.
 - **Every call to Keycloak is built from Boot's own HTTP builders**, in `KeycloakRegistration`: the
   authorization-code client and the `refresh_token` client from `RestClient.Builder`, and the ID
   token's `JwtDecoderFactory` from `RestTemplateBuilder`. Spring Security's defaults for all three

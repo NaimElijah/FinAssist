@@ -152,9 +152,9 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 
 ### Compose (`docker-compose.yml`)
 
-- **Long-running services take exactly the `x-` blocks' restart and logging, one-shots neither;
-  the four healthchecks probe readiness**: `/actuator/health/readiness` (ledger, gateway), `/ready`
-  (assistant), `/health/ready` on Keycloak's management port (ADR-039, ADR-019, #142).
+- **Long-running services take exactly the `x-` blocks' restart, stop grace and logging, one-shots
+  none; the four healthchecks probe readiness**: `/actuator/health/readiness` (ledger, gateway),
+  `/ready` (assistant), Keycloak's management `/health/ready` (ADR-039, ADR-019, ADR-070, #142).
 - **All but `db` and `keycloak-db` take `<<: *hardened`, all but those and Keycloak `read_only`**;
   none takes a host privilege `ops/CLAUDE.md` names; `network_mode` is only `secret-check`'s. `db`
   shares `books` with the ledger alone, `keycloak-db` `identity` with Keycloak alone (ADR-063).

@@ -13,20 +13,32 @@ One directory per tool, none of them a deployable service of this repository's (
 - `ops/backup/backup.py` — a standard-library operator CLI, run on the host with `uv run`; its PEP
   723 block declares Python 3.13 and no dependency. It backs up and restores each database on its
   own, and proves a backup restores (ADR-038). Its tests are in `ops/backup/tests/`.
-- `ops/secret_check/secret_check.py` — a standard-library check, one file with no dependency,
-  that refuses a secret that any file git does not ignore holds (#302), in UTF-8 or UTF-16, or one
-  shorter than its `MIN_SECRET_LENGTH`, 32 characters. It names a variable, never a value, its
-  length or a file.
-  It runs as the one-shot `secret-check` service that both databases and Grafana wait on
-  (ADR-044). Its tests are in `ops/secret_check/tests/`.
+- `ops/secret_check/secret_check.py` — a standard-library check, one file with no dependency, that
+  refuses a secret that any file git does not ignore holds (#302), in UTF-8 or UTF-16, or one
+  shorter than its `MIN_SECRET_LENGTH`, 32 characters, and a `LEDGER_DB_PASSWORD` that differs from
+  `POSTGRES_PASSWORD` while `LEDGER_DB_USERNAME` and `POSTGRES_USER` name one role, which `db` would
+  accept and the ledger then fail on (ADR-071); Compose hands it the two usernames, which are not
+  secrets, with `db`'s and the ledger's own defaults. It names a variable, never a value, its
+  length, how two values differ, or a file. On a mismatch, and only when neither of the pair is
+  published or short, it tells the owner to keep the value both passwords held when the ledger last
+  started successfully: undo whichever of the two changed, or rotate the role in place first. Its
+  pass line says `LEDGER_DB_PASSWORD` equals `POSTGRES_PASSWORD`, since it compares two `.env`
+  strings and cannot read the role. It runs as the one-shot `secret-check` service that both
+  databases and Grafana wait on (ADR-044); a mismatch therefore blocks every service behind the
+  gate, `make run-identity` included. CI's compose job gives a fresh pair one value and runs the
+  service on a mismatched pair too, requiring the refusal. Its tests are in
+  `ops/secret_check/tests/`.
 - `ops/compose_check/compose_check.py` — a standard-library check, run on the host with
   `uv run`, of the resolved Compose file it reads on stdin: each long-running service's restart
   and log bound, as the `x-restart-policy` and `x-logging` blocks set them, those blocks pinned to
-  ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shots' lack of either, four
-  readiness probes, each one that runs `curl` running it directly in exec form (`["CMD", "curl",
-  …]`) and passing `-f`, `--fail` or `--fail-with-body`, never `--no-fail` (#142, ADR-039), every
-  published port's `host_ip` exactly `127.0.0.1` and no port on `keycloak-db` (ADR-030),
-  `auth-smoke` behind exactly `profiles: [smoke]` and `secret-check` behind none, and `db`,
+  ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shots' lack of either;
+  each long-running service's `stop_grace_period` as the `x-stop-grace-period` block sets it, that
+  block pinned to `30s`, and none on a one-shot (#349, ADR-070); no `stop_signal` on any
+  service, so the PostgreSQL images' own `SIGINT` stays in force; four readiness probes, each one
+  that runs `curl` running it directly in exec form (`["CMD", "curl", …]`) and passing `-f`,
+  `--fail` or `--fail-with-body`, never `--no-fail` (#142, ADR-039), every published port's
+  `host_ip` exactly `127.0.0.1` and no port on `keycloak-db` (ADR-030), `auth-smoke` behind
+  exactly `profiles: [smoke]` and `secret-check` behind none, and `db`,
   `keycloak-db` and `grafana` each depending on `secret-check` with `condition:
   service_completed_successfully` (ADR-034, ADR-044); the `x-hardened` block's `cap_drop: [ALL]` and
   `no-new-privileges:true` on every service but the two databases, and `read_only: true` on every
@@ -46,7 +58,12 @@ One directory per tool, none of them a deployable service of this repository's (
   ledger's or the gateway's environment, and no `command` or `entrypoint` on either, nor `volumes`,
   `volumes_from`, `configs`, `secrets` or `working_dir`, which could put an `application.*` in its
   working directory or that directory's `config/`, where Spring reads one, each of which would
-  reopen the Actuator exposure their code pins and their tests cannot see; nor a `LOGGING_LEVEL_*`,
+  reopen the Actuator exposure their code pins and their tests cannot see; nor, in either's
+  environment and in any spelling, `SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE`, `SERVER_SHUTDOWN`,
+  `SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT` or `SPRING_HTTP_CLIENTS_READ_TIMEOUT`, which would
+  override the shutdown, connection-wait and relay read-timeout bounds that
+  `*ShippedConfigurationTest` and the gateway's `GatewayApplicationIT` pin from `application.yml`
+  alone (ADR-070); nor a `LOGGING_LEVEL_*`,
   `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key, in any spelling, on the gateway,
   whose Spring Web and Security loggers write credentials below INFO. It names a service, a key or a
   member, never a value. `placeholders.env` beside it holds a throwaway value for each `:?`
