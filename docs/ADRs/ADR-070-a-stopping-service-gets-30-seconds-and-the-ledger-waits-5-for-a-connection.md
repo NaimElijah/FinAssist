@@ -16,14 +16,17 @@ later.
 unrelated to the bounds around them: how long a service has to stop, and how long the ledger waits
 for a database connection.
 
-**Compose's default grace is shorter than a ledger needs to finish a request.** No service set
-`stop_grace_period`, and on this machine Docker Compose v5.6.1 sends `SIGKILL` about 3 seconds
+**Compose's default grace is shorter than a request the gateway is still waiting on.** No service
+set `stop_grace_period`, and on this machine Docker Compose v5.6.1 sends `SIGKILL` about 3 seconds
 after `SIGTERM` when none is set.
 
 - **A process that ignores `SIGTERM`** was killed at 3.9 s, with exit code 137.
-- **The ledger.** Spring Boot's graceful shutdown lets a request in flight finish, but with one
-  request in flight the ledger needed 27.7 s to drain, and Compose killed it at 3 s. A request
-  that had started was cut off by an ordinary stop (`make stop`, Ctrl+C on `make run`, a recreate).
+- **The ledger.** Spring Boot's graceful shutdown lets a request in flight finish, and the gateway
+  waits up to 10 s for a relayed request, so a request that had started could be legitimately
+  running for that long. Compose killed the ledger at 3 s, so an ordinary stop (`make stop`,
+  Ctrl+C on `make run`, a recreate) cut it off. In the measured case the one request in flight
+  was waiting for a database connection under Hikari's 30 s wait, and the ledger needed 27.7 s to
+  drain; the connection bound below removes that wait.
 - **`db`.** PostgreSQL writes a checkpoint when it shuts down. It had the same 3 s.
 
 **The ledger waited for a connection longer than the gateway waited for the ledger.** Hikari's
@@ -44,12 +47,19 @@ has a connection nothing ends it. Bounding it needs a figure from the performanc
 **Every long-running Compose service stops with a 30 s `stop_grace_period`, stated once in the
 `x-stop-grace-period` block.** Each takes the block by YAML alias, as it takes ADR-039's restart
 and logging blocks. The one-shots take none. `make check-compose` fails a long-running service
-whose grace differs, and a one-shot that has one.
+whose grace differs, and a one-shot that has one. It also refuses what could move one figure
+without the others: a `stop_signal` on any service (the PostgreSQL images' own `SIGINT` stays in
+force), which could replace the signal a graceful shutdown waits for, and
+`SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE`, `SERVER_SHUTDOWN` and
+`SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT`, in any spelling, in the ledger's or the gateway's
+environment.
 
 **The ledger and the gateway end their own shutdown at 20 s**, with
-`spring.lifecycle.timeout-per-shutdown-phase: 20s`. The JVM stops waiting on a request in flight
-and exits well inside the 30 s that Compose allows, so Compose's `SIGKILL` is the last resort and
-not the usual end.
+`spring.lifecycle.timeout-per-shutdown-phase: 20s`. A stopping service must be allowed to finish a
+request the gateway is still waiting on, which can take the gateway's whole 10 s relay budget, so
+the shutdown phase must exceed 10 s. The grace must in turn exceed the phase plus the JVM's exit
+work. At 20 s the JVM stops waiting on a request in flight and exits well inside the 30 s that
+Compose allows, so Compose's `SIGKILL` is the last resort and not the usual end.
 
 **The ledger waits 5 s for a database connection**, with
 `spring.datasource.hikari.connection-timeout: 5000`, in milliseconds: Hikari's setter takes a
@@ -65,7 +75,7 @@ and a request that does get one has the rest of the budget to run.
 **Makes easy**
 
 - **A stop lets a request in flight finish.** A write that started before `make stop` commits or
-  rolls back whole, rather than being cut off at 3 s.
+  rolls back whole within the 20 s shutdown phase, rather than being cut off at 3 s.
 - **`db` has time for its shutdown checkpoint**, which 3 s did not always allow.
 - **A 504 holds more often.** A write the ledger could not give a connection to inside the gateway's
   budget is refused by the ledger, not committed after the fact.
@@ -78,8 +88,11 @@ and a request that does get one has the rest of the budget to run.
 - **A request can fail where it used to wait.** When no connection frees up inside 5 s, the ledger
   now gives up on the request where it used to wait up to 30 s.
 - **The figures belong together.** 5 s to a connection, 10 s to the gateway's answer, 20 s to end
-  shutdown and 30 s to be killed are only safe in that order. Raising one without the others breaks
-  the property it was set for, and `make check-compose` pins the 30 s alone.
+  shutdown and 30 s to be killed are only safe in that order: the phase must exceed the relay
+  budget, and the grace must exceed the phase plus the JVM's exit work. Raising one without the
+  others breaks the property it was set for. `make check-compose` pins the 30 s and refuses an
+  environment override of the other Spring figures, and `LedgerShippedConfigurationTest` and
+  `GatewayShippedConfigurationTest` pin the 20 s and the 5 s from `application.yml`.
 
 **Accepted cost**
 
@@ -93,9 +106,11 @@ and a request that does get one has the rest of the budget to run.
 
 - **Keep the defaults.** Rejected: the ledger was measured killed at 3 s with a request in flight,
   and its 30 s wait for a connection outlasts the gateway's 10 s, which leaves a late commit after
-  a 504 possible.
-- **10 s, Docker's usual default.** Rejected: the ledger needed 27.7 s to drain in the measured
-  case, so 10 s would still kill it while it finished a request.
+  a 504 possible. The 3 s grace is shorter than the 10 s the gateway may still be waiting.
+- **10 s, Docker's usual default.** Rejected: a stopping service must be allowed to finish a
+  request the gateway is still waiting on, which can take the gateway's whole 10 s relay budget.
+  The shutdown phase must therefore exceed 10 s, and the grace must exceed the phase plus the
+  JVM's exit work, so a 10 s grace leaves no room for either.
 - **A grace on the Spring services only.** Rejected: `db` is the service whose shutdown writes the
   books' checkpoint and also had the 3 s, and a value set per service is one more thing a new
   service can forget. One block is held by a check; scattered values are not.
@@ -124,7 +139,8 @@ and a request that does get one has the rest of the budget to run.
   - The ledger's and the gateway's `application.yml`: `timeout-per-shutdown-phase: 20s`.
   - The ledger's `application.yml`: `hikari.connection-timeout: 5000`.
 - **The check.** `ops/compose_check/compose_check.py` pins the grace on every long-running service
-  and its absence from the one-shots, and `make check-compose` runs it.
+  and its absence from the one-shots, refuses a `stop_signal` and the three Spring keys named
+  above, and `make check-compose` runs it.
 - **Documentation.**
   - ADR-039 and ADR-067 read `extended by … ADR-070`, as do their rows in `docs/ADRs/README.md`,
     with a row and a note for this record.

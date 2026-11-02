@@ -49,7 +49,7 @@ append-only history: to change course, add a new record and mark the old one
 | [041](ADR-041-consume-fifo-orders-its-own-lots.md) | `consume_fifo` orders its own lots, oldest first | Accepted |
 | [042](ADR-042-agent-instructions-per-codebase.md) | Agent instructions split per codebase, one `CLAUDE.md` beside each | Accepted |
 | [043](ADR-043-github-secret-scanning-and-dependabot-alerts.md) | GitHub's own secret scanning, push protection and Dependabot alerts; no scanner in CI | Accepted, extended by 044 |
-| [044](ADR-044-compose-refuses-a-published-secret.md) | Compose refuses to start on a secret that a file in the repository holds | Accepted, extended by 061 |
+| [044](ADR-044-compose-refuses-a-published-secret.md) | Compose refuses to start on a secret that a file in the repository holds | Accepted, extended by 061 and 071 |
 | [045](ADR-045-dependabot-triage-and-toolchain-holds.md) | Dependabot's updates are triaged weekly, the Java pair moves together, and the toolchain lines move only by ADR | Accepted, extended by 047, 062 and 064 |
 | [046](ADR-046-architecture-rules-read-the-code-never-load-it.md) | Architecture rules read the code and never load it | Accepted |
 | [047](ADR-047-accepted-records-reconciled-with-the-system-as-built.md) | Twelve passages of Accepted records reconciled with the system as built | Accepted |
@@ -76,6 +76,7 @@ append-only history: to change course, add a new record and mark the old one
 | [068](ADR-068-every-problem-carries-what-its-contract-requires.md) | Every problem carries what its contract requires | Accepted |
 | [069](ADR-069-the-web-client-targets-wcag-2-2-aa-and-holds-it-with-tests.md) | The web client targets WCAG 2.2 AA and holds it with tests | Accepted |
 | [070](ADR-070-a-stopping-service-gets-30-seconds-and-the-ledger-waits-5-for-a-connection.md) | A stopping service gets 30 seconds, and the ledger waits 5 seconds for a connection | Accepted |
+| [071](ADR-071-secret-check-refuses-a-ledger-password-its-role-does-not-hold.md) | `secret-check` refuses a ledger password that differs from its database role's | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -387,11 +388,22 @@ and #412, #413 and a manual screen-reader pass are known gaps
 ([#345](https://github.com/NaimElijah/FinAssist/issues/345)).
 
 070 extends 039 and 067 on 2026-11-02. Scan 12 measured Compose killing every service about 3
-seconds after `SIGTERM`, the ledger needing 27.7 seconds to drain one request in flight, and the
-ledger waiting up to 30 seconds for a database connection after the gateway had already answered
-504 "outcome unknown". Every long-running service now has a 30 second `stop_grace_period` from one
-`x-` block, which `make check-compose` pins; the ledger and the gateway end their own shutdown at
-20 seconds; and the ledger waits 5 seconds for a connection, below the gateway's 10 second read
-timeout. A running statement stays unbounded until
+seconds after `SIGTERM`, although the gateway may still be waiting up to 10 seconds on a request
+the ledger is finishing, and the ledger waiting up to 30 seconds for a database connection after
+the gateway had already answered 504 "outcome unknown". Every long-running service now has a 30
+second `stop_grace_period` from one `x-` block, which `make check-compose` pins, with the
+`stop_signal` and the Spring keys that would move a figure on their own refused; the ledger and the
+gateway end their own shutdown at 20 seconds, above the relay's 10; and the ledger waits 5 seconds
+for a connection, below it. A running statement stays unbounded until
 [#430](https://github.com/NaimElijah/FinAssist/issues/430) sizes `statement_timeout`
+([#349](https://github.com/NaimElijah/FinAssist/issues/349)).
+
+071 extends 044 on 2026-11-02. The ledger signs in as the role `db` creates, with a password of its
+own, and nothing refused two different values: `db` started, the database refused every sign-in
+the ledger made, and the ledger restarted in a loop. `secret-check` now also refuses a
+`LEDGER_DB_PASSWORD` that differs from `POSTGRES_PASSWORD` while the two usernames name one role,
+until [#34](https://github.com/NaimElijah/FinAssist/issues/34) gives the ledger a role of its own.
+It is a consistency rule, not a publication rule, and it blocks every service behind the gate,
+`keycloak-db` and Grafana included, so `make run-identity` is refused on a mismatch too; one
+all-or-nothing gate is simpler than one per service, and that is the accepted cost
 ([#349](https://github.com/NaimElijah/FinAssist/issues/349)).
