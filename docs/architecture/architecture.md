@@ -810,13 +810,13 @@ No service writes a log file (ADR-019). Every long-running Compose service share
 block, Docker's `json-file` driver capped at three 10 MB files per container, and one
 `x-restart-policy`, `unless-stopped`. Both are applied by YAML alias. The three one-shots,
 `auth-smoke`, `secret-check` and `keycloak-master`, carry neither. The same services, and again no
-one-shot, take
-one `x-stop-grace-period` of `30s` by alias as `stop_grace_period`: the time between SIGTERM and
-SIGKILL, which unset was about 3 s here, too short for the ledger and the gateway to drain a request
-or for `db` to write its shutdown checkpoint (ADR-070, #349). Inside it, the ledger and the gateway
-each shut their web server down gracefully, Boot's default, and bound every shutdown phase to 20 s
-(`spring.lifecycle.timeout-per-shutdown-phase`), so an in-flight request drains and the JVM normally
-exits before Compose would kill it; ADR-070 records a worst case 3 s inside the grace.
+one-shot, take one `x-stop-grace-period` of `30s` by alias as `stop_grace_period`: the time between
+SIGTERM and SIGKILL, which unset was about 3 s here, too short for the ledger and the gateway to
+drain a request or for `db` to write its shutdown checkpoint (ADR-070, #349). Inside it, the ledger
+and the gateway each shut their web server down gracefully, Boot's default, and bound every shutdown
+phase to 20 s (`spring.lifecycle.timeout-per-shutdown-phase`), so an in-flight request drains and
+the JVM normally exits before Compose would kill it; ADR-070 records a worst case 3 s inside the
+grace.
 
 **Under Compose every container holds only the privilege it uses** (ADR-063). Every service but
 `db` and `keycloak-db` merges the `x-hardened` block, `cap_drop: [ALL]` and

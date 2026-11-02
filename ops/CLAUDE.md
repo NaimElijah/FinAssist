@@ -30,47 +30,47 @@ One directory per tool, none of them a deployable service of this repository's (
   gate, `make run-identity` included. CI's compose job gives a fresh pair one value and runs the
   service on a mismatched pair too, requiring the refusal. Its tests are in
   `ops/secret_check/tests/`.
-- `ops/compose_check/compose_check.py` — a standard-library check, run on the host with
-  `uv run`, of the resolved Compose file it reads on stdin: each long-running service's restart
-  and log bound, as the `x-restart-policy` and `x-logging` blocks set them, those blocks pinned to
-  ADR-039's `unless-stopped` and three 10 MB `json-file` files, the one-shots' lack of either;
-  each long-running service's `stop_grace_period` as the `x-stop-grace-period` block sets it, that
-  block pinned to `30s`, and none on a one-shot (#349, ADR-070); no `stop_signal` on any
-  service, so the PostgreSQL images' own `SIGINT` stays in force; four readiness probes, each one
-  that runs `curl` running it directly in exec form (`["CMD", "curl", …]`) and passing `-f`,
-  `--fail` or `--fail-with-body`, never `--no-fail` (#142, ADR-039), every published port's
-  `host_ip` exactly `127.0.0.1` and no port on `keycloak-db` (ADR-030), `auth-smoke` behind
-  exactly `profiles: [smoke]` and `secret-check` and `keycloak-master` behind none, `db`,
-  `keycloak-db` and `grafana` each depending on `secret-check`, and `gateway` on `keycloak-master`,
-  with `condition: service_completed_successfully` (ADR-034, ADR-044, ADR-074); the `x-hardened` block's `cap_drop: [ALL]` and
-  `no-new-privileges:true` on every service but the two databases, and `read_only: true` on every
-  one but those and Keycloak, the script naming the exemptions so that a new service is held to
-  both; on no service, the databases included, `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`,
-  `uts`, `devices`, a root `user` or a bind of a file named `docker.sock` (the other routes to the
-  host are #389); `db` and `keycloak-db` each on a network of its own shared with its one client
-  alone, `books` with the ledger and `identity` with Keycloak, compared by the Docker network each
-  key resolves to, so no other key may resolve to either, neither one `external`, and `identity`
-  `internal` (ADR-063) — which keeps every other container from resolving or reaching either over a
-  Compose network, though on Docker Desktop any container with a route off its networks still
-  reaches `db`'s loopback-published port through `host.docker.internal`, behind its password alone;
-  no `network_mode` on any service but `secret-check`, whose is exactly `none`; exactly one
-  `--web.cors.origin=` in Prometheus's `command`, the empty regex, and no `entrypoint` on it
-  (ADR-057); and no `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or `SPRING_APPLICATION_JSON`
-  key, in any spelling, nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS`, in the
-  ledger's or the gateway's environment, and no `command` or `entrypoint` on either, nor `volumes`,
-  `volumes_from`, `configs`, `secrets` or `working_dir`, which could put an `application.*` in its
-  working directory or that directory's `config/`, where Spring reads one, each of which would
-  reopen the Actuator exposure their code pins and their tests cannot see; nor, in either's
-  environment and in any spelling, `SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE`, `SERVER_SHUTDOWN`,
-  `SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT` or `SPRING_HTTP_CLIENTS_READ_TIMEOUT`, which would
-  override the shutdown, connection-wait and relay read-timeout bounds that
-  `*ShippedConfigurationTest` and the gateway's `GatewayApplicationIT` pin from `application.yml`
-  alone (ADR-070); nor a `LOGGING_LEVEL_*`,
-  `LOGGING_GROUP_*`, `LOGGING_CONFIG`, `DEBUG` or `TRACE` key, in any spelling, on the gateway,
-  whose Spring Web and Security loggers write credentials below INFO. It names a service, a key or a
-  member, never a value. `placeholders.env` beside it holds a throwaway value for each `:?`
-  variable, which `make check-compose` exports, so the file resolves without `.env` or the shell's
-  secrets (ADR-049). Its tests are in `ops/compose_check/tests/`.
+- `ops/compose_check/compose_check.py` — a standard-library check, run on the host with `uv run`, of
+  the resolved Compose file it reads on stdin: each long-running service's restart and log bound, as
+  the `x-restart-policy` and `x-logging` blocks set them, those blocks pinned to ADR-039's
+  `unless-stopped` and three 10 MB `json-file` files, the one-shots' lack of either; each
+  long-running service's `stop_grace_period` as the `x-stop-grace-period` block sets it, that block
+  pinned to `30s`, and none on a one-shot (#349, ADR-070); no `stop_signal` on any service, so the
+  PostgreSQL images' own `SIGINT` stays in force; four readiness probes, each one that runs `curl`
+  running it directly in exec form (`["CMD", "curl", …]`) and passing `-f`, `--fail` or
+  `--fail-with-body`, never `--no-fail` (#142, ADR-039), every published port's `host_ip` exactly
+  `127.0.0.1` and no port on `keycloak-db` (ADR-030), `auth-smoke` behind exactly `profiles:
+  [smoke]` and `secret-check` and `keycloak-master` behind none, `db`, `keycloak-db` and `grafana`
+  each depending on `secret-check`, and `gateway` on `keycloak-master`, with `condition:
+  service_completed_successfully` (ADR-034, ADR-044, ADR-074); the `x-hardened` block's `cap_drop:
+  [ALL]` and `no-new-privileges:true` on every service but the two databases, and `read_only: true`
+  on every one but those and Keycloak, the script naming the exemptions so that a new service is
+  held to both; on no service, the databases included, `cap_add`, `privileged`, `pid`, `ipc`,
+  `userns_mode`, `uts`, `devices`, a root `user` or a bind of a file named `docker.sock` (the other
+  routes to the host are #389); `db` and `keycloak-db` each on a network of its own shared with its
+  one client alone, `books` with the ledger and `identity` with Keycloak, compared by the Docker
+  network each key resolves to, so no other key may resolve to either, neither one `external`, and
+  `identity` `internal` (ADR-063) — which keeps every other container from resolving or reaching
+  either over a Compose network, though on Docker Desktop any container with a route off its
+  networks still reaches `db`'s loopback-published port through `host.docker.internal`, behind its
+  password alone; no `network_mode` on any service but `secret-check`, whose is exactly `none`;
+  exactly one `--web.cors.origin=` in Prometheus's `command`, the empty regex, and no `entrypoint`
+  on it (ADR-057); and no `MANAGEMENT_ENDPOINTS_WEB_*`, `SPRING_CONFIG_*` or
+  `SPRING_APPLICATION_JSON` key, in any spelling, nor `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS` or
+  `_JAVA_OPTIONS`, in the ledger's or the gateway's environment, and no `command` or `entrypoint` on
+  either, nor `volumes`, `volumes_from`, `configs`, `secrets` or `working_dir`, which could put an
+  `application.*` in its working directory or that directory's `config/`, where Spring reads one,
+  each of which would reopen the Actuator exposure their code pins and their tests cannot see; nor,
+  in either's environment and in any spelling, `SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE`,
+  `SERVER_SHUTDOWN`, `SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT` or
+  `SPRING_HTTP_CLIENTS_READ_TIMEOUT`, which would override the shutdown, connection-wait and relay
+  read-timeout bounds that `*ShippedConfigurationTest` and the gateway's `GatewayApplicationIT` pin
+  from `application.yml` alone (ADR-070); nor a `LOGGING_LEVEL_*`, `LOGGING_GROUP_*`,
+  `LOGGING_CONFIG`, `DEBUG` or `TRACE` key, in any spelling, on the gateway, whose Spring Web and
+  Security loggers write credentials below INFO. It names a service, a key or a member, never a
+  value. `placeholders.env` beside it holds a throwaway value for each `:?` variable, which `make
+  check-compose` exports, so the file resolves without `.env` or the shell's secrets (ADR-049). Its
+  tests are in `ops/compose_check/tests/`.
 - `ops/smoke/auth_smoke.py` — the only file behind the `smoke` Compose profile (ADR-034).
 - The collector, Prometheus and Grafana provisioning that the `monitoring` Compose profile mounts.
 
@@ -173,9 +173,10 @@ From the repository root unless stated:
   never by recreating `keycloak-db-data`.
 - **`KEYCLOAK_ADMIN_PASSWORD` must equal the administrator's live password** (ADR-074). The
   `keycloak-master` one-shot signs in with it on every `up`, and the gateway waits on that, so a
-  password changed anywhere but `.env` first keeps `up` from starting the gateway, as a lockout of the
-  administrator does, after five wrong passwords or two within a second (ADR-073). `master`'s policy holds every password set for it to 32
-  characters, a temporary one from `kc.sh bootstrap-admin` included.
+  password changed anywhere but `.env` first keeps `up` from starting the gateway, as a lockout of
+  the administrator does, after five wrong passwords or two within a second (ADR-073). `master`'s
+  policy holds every password set for it to 32 characters, a temporary one from `kc.sh
+  bootstrap-admin` included.
 - **Every secret and credential in the realm is a `${VAR}` placeholder**, pinned by
   `KeycloakRealmTest`. `KeycloakRealmIT` imports the file into a real Keycloak and reads back the
   sign-in protection, the owner's id and required actions, and each client's scope and audience;
