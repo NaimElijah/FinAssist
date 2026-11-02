@@ -58,8 +58,10 @@ environment.
 `spring.lifecycle.timeout-per-shutdown-phase: 20s`. A stopping service must be allowed to finish a
 request the gateway is still waiting on, which can take the gateway's whole 10 s relay budget, so
 the shutdown phase must exceed 10 s. The grace must in turn exceed the phase plus the JVM's exit
-work. At 20 s the JVM stops waiting on a request in flight and exits well inside the 30 s that
-Compose allows, so Compose's `SIGKILL` is the last resort and not the usual end.
+work. At 20 s the JVM stops waiting on a request in flight and exits inside the 30 s that Compose
+allows, so Compose's `SIGKILL` is the last resort and not the usual end. The exit work was
+measured: with a statement held on a lock past the phase, the ledger stopped in 26.7 s, and in
+27.2 s with OTLP export on and the collector unreachable, both exiting 143.
 
 **The ledger waits 5 s for a database connection**, with
 `spring.datasource.hikari.connection-timeout: 5000`, in milliseconds: Hikari's setter takes a
@@ -101,6 +103,11 @@ and a request that does get one has the rest of the budget to run.
   ADR-067's 504 is still a 504 "outcome unknown", and its duplicate risk stands until #430.
 - **A request still running at 20 s of a shutdown is abandoned**, and its caller sees a failed
   call.
+- **The worst case leaves about 3 s of the grace.** After the 20 s phase, the JVM spends about 7 s
+  more closing a pool whose connection the abandoned statement still holds. A slower machine could
+  reach the `SIGKILL`, which then cuts only that exit work, after the request was already
+  abandoned; PostgreSQL rolls back the open transaction. The case needs a statement blocked past
+  20 s, which #430's statement bound removes.
 
 ## Alternatives considered
 
@@ -123,6 +130,8 @@ and a request that does get one has the rest of the budget to run.
 
 ## Revisit when
 
+- **A stop with a request held past the phase takes more than about 27 s.** That is the measured
+  worst case here; past it, the 30 s grace no longer covers the JVM's exit work.
 - **A deployment target other than Compose runs the stack**
   ([#179](https://github.com/NaimElijah/FinAssist/issues/179)). An orchestrator sets its own
   termination grace, and the 30 s here is the Compose stack's.
