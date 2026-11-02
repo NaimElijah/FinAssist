@@ -748,7 +748,7 @@ def Given_a_spring_service_reopening_actuator_in_bracketed_form_When_checked_The
     assert lines == [f"{service}: its environment must not set {key}"]
 
 
-# --- The shutdown and connection-wait bounds application.yml sets, never moved by Compose ---------
+# --- The time bounds application.yml sets, never moved by Compose ---------------------------------
 
 
 @pytest.mark.parametrize(
@@ -796,6 +796,30 @@ def Given_a_spring_service_changing_its_shutdown_mode_When_checked_Then_the_key_
 )
 @pytest.mark.parametrize("service", ["ledger", "gateway"])
 def Given_a_spring_service_moving_its_connection_wait_When_checked_Then_the_key_is_named(
+    service: str, key: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    resolved = _conforming()
+    resolved["services"][service]["environment"][key] = SECRET
+
+    status, lines = _check(resolved, capsys)
+
+    assert status == compose_check.EXIT_FAILED
+    assert lines == [f"{service}: its environment must not set {key}"]
+
+
+# ADR-070 sizes the 5 s connection wait and the 20 s shutdown phase against the gateway's 10 s
+# relay budget, and the 30 s grace against the phase: so a longer budget breaks that order.
+@pytest.mark.parametrize(
+    "key",
+    [
+        "SPRING_HTTP_CLIENTS_READ_TIMEOUT",
+        "spring.http.clients.read-timeout",
+        "spring.http.clients.readTimeout",
+        "SPRING_HTTP_CLIENTS_READTIMEOUT",
+    ],
+)
+@pytest.mark.parametrize("service", ["ledger", "gateway"])
+def Given_a_spring_service_moving_its_relay_read_timeout_When_checked_Then_the_key_is_named(
     service: str, key: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     resolved = _conforming()

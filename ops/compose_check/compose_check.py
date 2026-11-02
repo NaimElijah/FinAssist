@@ -15,23 +15,22 @@ doing so in exec form with `-f`, so that a 503 fails it (#142, ADR-039). Every p
 bind `127.0.0.1` and `keycloak-db` must publish none (ADR-030, ADR-031); `auth-smoke` must sit
 behind exactly the `smoke` profile and `secret-check` behind none, and `db`, `keycloak-db` and
 `grafana` must each depend on `secret-check` with `condition: service_completed_successfully`
-(ADR-034, ADR-044). Every service
-but the two databases must take the `x-hardened` block's `cap_drop` and `security_opt`, and every
-one but those and Keycloak must set `read_only`; no service, a database included, may set `cap_add`,
-`privileged`, `pid`, `ipc`, `userns_mode`, `uts` or `devices`, run as root by `user`, or bind-mount
-a file named `docker.sock`; and each database must attach to one network alone, shared with its one
-client and nothing else, judged by the Docker network each key resolves to, so that no other key may
-resolve to it, neither database network may be `external`, and `identity` must be `internal`
-(ADR-063). No service may set `network_mode` but `secret-check`, whose must be exactly `none`, and
-Prometheus's `command` must carry exactly `--web.cors.origin=`, the empty regex, which grants no
-origin, with no `entrypoint` to run it otherwise (ADR-057). Neither the ledger nor the gateway may
-set, in its environment, a key that reopens the Actuator exposure their code pins, or that moves
-the shutdown or connection-wait bound their `application.yml` sets (ADR-070), nor a `command` or
-`entrypoint`, whose arguments would reach Spring as properties, nor a volume, `volumes_from`, a
-config, a secret or a `working_dir`, which could put a configuration file in the working directory
-or its `config/`, where Spring reads one; nor may the gateway set a log level, a log group, a
-logging configuration or Spring Boot's `debug` or `trace` switch, since below INFO it logs
-credentials.
+(ADR-034, ADR-044). Every service but the two databases must take the `x-hardened` block's
+`cap_drop` and `security_opt`, and every one but those and Keycloak must set `read_only`; no
+service, a database included, may set `cap_add`, `privileged`, `pid`, `ipc`, `userns_mode`, `uts` or
+`devices`, run as root by `user`, or bind-mount a file named `docker.sock`; and each database must
+attach to one network alone, shared with its one client and nothing else, judged by the Docker
+network each key resolves to, so that no other key may resolve to it, neither database network may
+be `external`, and `identity` must be `internal` (ADR-063). No service may set `network_mode` but
+`secret-check`, whose must be exactly `none`, and Prometheus's `command` must carry exactly
+`--web.cors.origin=`, the empty regex, which grants no origin, with no `entrypoint` to run it
+otherwise (ADR-057). Neither the ledger nor the gateway may set, in its environment, a key that
+reopens the Actuator exposure their code pins, or that moves the shutdown, connection-wait or relay
+read-timeout bound their `application.yml` sets (ADR-070), nor a `command` or `entrypoint`, whose
+arguments would reach Spring as properties, nor a volume, `volumes_from`, a config, a secret or a
+`working_dir`, which could put a configuration file in the working directory or its `config/`, where
+Spring reads one; nor may the gateway set a log level, a log group, a logging configuration or
+Spring Boot's `debug` or `trace` switch, since below INFO it logs credentials.
 
 It reads the resolved file, not its text, so an alias that stops resolving fails as surely as a
 service that never took one, and a block copied in with other values fails too.
@@ -255,14 +254,17 @@ SPRING_CONFIG_PREFIX: Final = "SPRING_CONFIG_"
 # Both images run `java -jar` and pass their arguments to SpringApplication.run, so a -D the JVM
 # reads from one of these, or an argument a Compose command appends, outranks application.yml too.
 JVM_OPTION_VARIABLES: Final = frozenset({"JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS"})
-# Each application.yml sizes these to STOP_GRACE_PERIOD, and the ledger's connection wait to the
-# gateway's relay timeout (#349, ADR-070). A Compose key would outrank either where no test of
-# theirs looks, so a 60 s shutdown phase would pass while Compose kills the JVM at 30 s.
-SHUTDOWN_BOUND_PROPERTIES: Final = frozenset(
+# Each application.yml sizes its shutdown to STOP_GRACE_PERIOD, and the ledger's connection wait
+# and both shutdown phases to the gateway's 10 s relay read timeout (#349, ADR-070), so the four
+# figures hold only together. A Compose key would outrank any of them where no test of theirs
+# looks: a 60 s shutdown phase would pass while Compose kills the JVM at 30 s, and a 60 s relay
+# timeout would outlast both the ledger's shutdown phase and the grace.
+TIME_BOUND_PROPERTIES: Final = frozenset(
     {
         "SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE",
         "SERVER_SHUTDOWN",
         "SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT",
+        "SPRING_HTTP_CLIENTS_READ_TIMEOUT",
     }
 )
 COMMAND_LINE_MEMBERS: Final = ("command", "entrypoint")
@@ -413,7 +415,7 @@ def problems(resolved: Mapping[str, object]) -> list[str]:
                 f"{name}: its environment must not set {key}"
                 for key in sorted(environment)
                 if _reopens_actuator(key)
-                or _moves_shutdown_bound(key)
+                or _moves_time_bound(key)
                 or (name in LEVEL_PINNED_SERVICES and _lowers_log_level(key))
             )
             found.extend(
@@ -683,8 +685,8 @@ def _reopens_actuator(key: str) -> bool:
     ) or (canonical == _canonical(SPRING_APPLICATION_JSON) or key in JVM_OPTION_VARIABLES)
 
 
-def _moves_shutdown_bound(key: str) -> bool:
-    return _canonical(key) in {_canonical(name) for name in SHUTDOWN_BOUND_PROPERTIES}
+def _moves_time_bound(key: str) -> bool:
+    return _canonical(key) in {_canonical(name) for name in TIME_BOUND_PROPERTIES}
 
 
 def _lowers_log_level(key: str) -> bool:
