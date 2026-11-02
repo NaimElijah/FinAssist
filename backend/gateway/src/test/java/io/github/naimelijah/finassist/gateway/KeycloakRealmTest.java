@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +48,22 @@ class KeycloakRealmTest {
     private static final String REPO_DIR_PROPERTY = "finassist.repo.dir";
 
     private static final String REALM_FILE = "finassist-realm.json";
+
+    /** The settings the keycloak-master one-shot merges into Keycloak's own realm (ADR-074). */
+    private static final String MASTER_REALM_FILE = "master-realm.json";
+
+    /** Every member of ADR-073's lockout policy, which each configured realm states in full. */
+    private static final List<String> BRUTE_FORCE_MEMBERS = List.of(
+            "bruteForceProtected",
+            "bruteForceStrategy",
+            "permanentLockout",
+            "maxTemporaryLockouts",
+            "failureFactor",
+            "waitIncrementSeconds",
+            "quickLoginCheckMilliSeconds",
+            "minimumQuickLoginWaitSeconds",
+            "maxFailureWaitSeconds",
+            "maxDeltaTimeSeconds");
 
     private static final String COMPOSE_FILE = "docker-compose.yml";
 
@@ -93,19 +110,31 @@ class KeycloakRealmTest {
         return JSON.readTree(rawText());
     }
 
+    private static JsonNode masterRealm() {
+        return JSON.readTree(rawText(MASTER_REALM_FILE));
+    }
+
     /** The realm file, located through {@value #OPS_DIR_PROPERTY}, failing loudly when it is unset. */
     private static Path realmFile() {
+        return keycloakFile(REALM_FILE);
+    }
+
+    private static Path keycloakFile(String name) {
         String directory = System.getProperty(OPS_DIR_PROPERTY);
         if (directory == null) {
             throw new IllegalStateException(OPS_DIR_PROPERTY
                     + " is not set. Failsafe and surefire set it in pom.xml; run this test through Maven, or"
                     + " pass -D" + OPS_DIR_PROPERTY + "=<repository>/ops.");
         }
-        return Path.of(directory, "keycloak", REALM_FILE).toAbsolutePath().normalize();
+        return Path.of(directory, "keycloak", name).toAbsolutePath().normalize();
     }
 
     private static String rawText() {
-        Path file = realmFile();
+        return rawText(REALM_FILE);
+    }
+
+    private static String rawText(String name) {
+        Path file = keycloakFile(name);
         try {
             return Files.readString(file);
         } catch (Exception e) {
@@ -159,6 +188,8 @@ class KeycloakRealmTest {
         JsonNode realm = realm();
 
         assertMember(realm, "bruteForceProtected", BooleanNode.TRUE);
+        // Keycloak's own default, stated so that an upgrade which moves the default moves nothing.
+        assertMember(realm, "bruteForceStrategy", StringNode.valueOf("MULTIPLE"));
         // Off, because the realm has one owner: a permanent lockout after five wrong guesses would
         // lock that owner out until someone with the admin password intervened (ADR-073).
         assertMember(realm, "permanentLockout", BooleanNode.FALSE);
@@ -169,6 +200,58 @@ class KeycloakRealmTest {
         assertMember(realm, "failureFactor", IntNode.valueOf(5));
         assertMember(realm, "waitIncrementSeconds", IntNode.valueOf(60));
         assertMember(realm, "maxFailureWaitSeconds", IntNode.valueOf(900));
+    }
+
+    /**
+     * master's file is merged into a realm Keycloak created, so every member it holds overrides a
+     * default, and a member it drops keeps its last value: the set is pinned whole (ADR-074).
+     */
+    @Test
+    void Given_the_master_realm_file_When_read_Then_it_names_master_and_exactly_the_settings_adr_074_lists() {
+        JsonNode master = masterRealm();
+        List<String> expected = new ArrayList<>(List.of("realm", "passwordPolicy", "eventsListeners"));
+        expected.addAll(BRUTE_FORCE_MEMBERS);
+
+        assertThat(master.propertyNames()).containsExactlyInAnyOrderElementsOf(expected);
+        assertMember(master, "realm", StringNode.valueOf("master"));
+    }
+
+    /** One lockout policy for every realm the repository configures (ADR-073). */
+    @Test
+    void Given_both_realm_files_When_their_lockout_policies_are_compared_Then_they_are_the_same() {
+        JsonNode finassist = realm();
+        JsonNode master = masterRealm();
+
+        for (String member : BRUTE_FORCE_MEMBERS) {
+            assertThat(master.path(member))
+                    .as("%s in master-realm.json", member)
+                    .isEqualTo(finassist.path(member));
+        }
+    }
+
+    /**
+     * The administrator's password is held to the length {@code secret-check} holds {@code
+     * KEYCLOAK_ADMIN_PASSWORD} to, so one set in the console cannot fall below it. No history: the
+     * recovery runbook sets it back to the value in {@code .env} (ADR-074).
+     */
+    @Test
+    void Given_the_master_realm_file_When_read_Then_the_password_policy_holds_the_secret_checks_minimum() {
+        assertMember(masterRealm(), "passwordPolicy", StringNode.valueOf("length(32) and notUsername"));
+    }
+
+    /** As in finassist: no listener writes a sign-in, or a password typed as a username, to the log. */
+    @Test
+    void Given_the_master_realm_file_When_read_Then_no_event_listener_writes_sign_ins_to_the_log() {
+        assertMember(masterRealm(), "eventsListeners", JSON.createArrayNode());
+    }
+
+    /** Nothing in it is resolved at run time, and nothing in it is secret: it is published as it stands. */
+    @Test
+    void Given_the_master_realm_file_When_read_Then_it_holds_no_placeholder_and_no_secret() {
+        assertThat(rawText(MASTER_REALM_FILE)).doesNotContain("${");
+        assertThat(masterRealm().propertyNames())
+                .filteredOn(name -> SECRET_KEY.matcher(name).matches())
+                .allMatch(KEYS_THAT_HOLD_NO_SECRET::contains);
     }
 
     @Test

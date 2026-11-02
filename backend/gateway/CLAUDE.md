@@ -42,8 +42,11 @@ It holds no bounded context: everything is in its `composition/` root. The parts
   `"type": "object"`, and every `operationId` clear of the names the web client's generator
   derives from a schema — hence `signOut`, not `logout`, beside `LogoutResponse`.
 
-The realm file, `ops/keycloak/finassist-realm.json`, is pinned by `KeycloakRealmTest` and
-`KeycloakRealmIT` in this module; its rules are in `ops/CLAUDE.md`.
+The realm file, `ops/keycloak/finassist-realm.json`, and `master`'s settings,
+`ops/keycloak/master-realm.json` (ADR-074), are pinned by `KeycloakRealmTest` and `KeycloakRealmIT`
+in this module; their rules are in `ops/CLAUDE.md`. `KeycloakRealmIT` runs the image's
+`apply-master-realm.sh` as the `keycloak-master` one-shot runs it, and never fails a sign-in as its
+own administrator, whom `master`'s lockout would then hold (ADR-073).
 
 ## Commands
 

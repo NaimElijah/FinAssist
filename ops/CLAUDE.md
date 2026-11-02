@@ -8,8 +8,10 @@ here too, including its rules for `docker-compose.yml`; this file adds what bind
 One directory per tool, none of them a deployable service of this repository's (ADR-052).
 
 - `ops/keycloak/` — `Dockerfile`, which builds the optimized Keycloak image that
-  `docker-compose.yml` runs, and `finassist-realm.json`, the `finassist` realm imported at
-  start-up.
+  `docker-compose.yml` runs; `finassist-realm.json`, the `finassist` realm imported at start-up;
+  and `master-realm.json` with `apply-master-realm.sh`, the settings Keycloak's own `master` realm
+  takes and the script that merges them into it, which the image carries under `/opt/finassist/`
+  (ADR-074).
 - `ops/backup/backup.py` — a standard-library operator CLI, run on the host with `uv run`; its PEP
   723 block declares Python 3.13 and no dependency. It backs up and restores each database on its
   own, and proves a backup restores (ADR-038). Its tests are in `ops/backup/tests/`.
@@ -185,6 +187,14 @@ From the repository root unless stated:
   permits the password grant, is not the one in force. It caps offline sessions at 36,000 s
   (`offlineSessionMaxLifespanEnabled`, equal to `ssoSessionMaxLifespan`), so none outlives a
   browser session.
+- **`master` is configured from `master-realm.json`, merged in place, never imported** (ADR-074).
+  Keycloak creates `master` before it imports anything, so `--import-realm` would never read a
+  `master` file, and the file stays out of `data/import`. `apply-master-realm.sh` runs `kcadm.sh
+  update realms/master --file … --merge`, which changes only what the file names and keeps every
+  user, signed in for that one call with `--no-config` and the password from `KC_CLI_PASSWORD`,
+  never an argument. The file holds ADR-073's lockout policy, which `KeycloakRealmTest` holds equal
+  to `finassist`'s, the password policy `length(32) and notUsername`, and no event listener. A
+  setting removed from the file keeps its last value in `master`; set it explicitly instead.
 - **Keycloak logs JSON, and builds without its deprecated features.** `docker-compose.yml` sets
   `KC_LOG_CONSOLE_OUTPUT=json`, as every other service writes JSON (ADR-019), pinned by
   `KeycloakRealmTest`. `ops/keycloak/Dockerfile` sets `KC_FEATURES_DISABLED`
