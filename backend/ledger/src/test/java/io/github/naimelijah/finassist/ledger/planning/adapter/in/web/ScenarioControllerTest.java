@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.planning.adapter.in.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
@@ -253,6 +254,17 @@ class ScenarioControllerTest {
                         .content(defineRequest("At the edge", "[]", rate)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.growthRatePerStep").value(rendered));
+    }
+
+    /**
+     * No annotation reads a {@code BigDecimal}, so the contract's description writes the bound out;
+     * this holds it to the constant the domain enforces.
+     */
+    @Test
+    void Given_the_growth_rate_description_When_read_Then_it_states_the_bounds_the_domain_enforces() {
+        assertThat(DefineScenarioRequest.GROWTH_RATE)
+                .contains("at most " + GrowthAssumption.MAXIMUM_RATE.toPlainString() + ",")
+                .contains("at most " + GrowthAssumption.MAXIMUM_DECIMAL_PLACES + " decimal places");
     }
 
     /**

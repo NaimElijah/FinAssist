@@ -92,8 +92,8 @@ can be as long as the request that carried it. **The figures are the owner's dec
 - **A divergence can hold one digit more than the amounts it compares,** so a wire-wide digit bound
   has to say what it allows on derived figures.
 - **The rate's upper bound is written twice.** `GrowthAssumption.MAXIMUM_RATE` is a `BigDecimal`,
-  which no annotation can read, so `DefineScenarioRequest.GROWTH_RATE` states it in words; the
-  ledger's `CLAUDE.md` says to keep the two in step.
+  which no annotation can read, so `DefineScenarioRequest.GROWTH_RATE` states it in words, and
+  `ScenarioControllerTest` holds the words to the constant.
 
 ## Alternatives considered
 

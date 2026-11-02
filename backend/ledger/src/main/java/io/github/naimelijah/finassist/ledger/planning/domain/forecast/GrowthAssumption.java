@@ -49,8 +49,9 @@ public record GrowthAssumption(BigDecimal ratePerStep) {
                     "A growth rate must be greater than -1; at or below it, it would destroy or invert the balance");
         }
         if (ratePerStep.compareTo(MAXIMUM_RATE) > 0) {
-            throw new IllegalArgumentException("A growth rate is at most 1 a step, which doubles the invested"
-                    + " balance; a rate of 5 means 500% a step, so write 5% as 0.05");
+            throw new IllegalArgumentException(
+                    "A growth rate is at most " + MAXIMUM_RATE.toPlainString()
+                            + " a step, which doubles the invested balance; a rate of 5 means 500% a step, so write 5% as 0.05");
         }
         ratePerStep = normalised(ratePerStep);
     }
