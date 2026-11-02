@@ -206,6 +206,15 @@ Run the steps in order, from the repository root:
    books, and the `<post-upgrade folder>` backup you took before step 1 holds them as a dump.
    Switch back to the branch you left (`git switch -`) and find the cause before you try again.
 
+   One failure has a known cause and lets the normal path go on. It fails at "the ledger serves
+   every account the books hold" with "Keycloak refused the assistant's client credentials", after
+   every check before it passed. In that case the books restored, their digest matched and the
+   previous ledger became ready on them. What failed is the token: `ASSISTANT_CLIENT_SECRET` in
+   `.env` was rotated after the backup, so the restored Keycloak does not hold it
+   ([below](#backing-up-and-restoring)). The normal path keeps today's Keycloak, so go on to step
+   3. The Keycloak-restore alternative in step 3 rotates that secret again before anything signs
+   in. Never put the old value back into `.env` to make the check pass.
+
 3. **Stop the ledger.** Nothing else needs to stop: `make restore` refuses only while the ledger
    is running, restarting or paused. Calls the gateway relays to the ledger fail meanwhile.
 
