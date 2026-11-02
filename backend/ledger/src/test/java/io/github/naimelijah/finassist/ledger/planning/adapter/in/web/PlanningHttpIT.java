@@ -75,6 +75,12 @@ class PlanningHttpIT extends PostgresFixture {
              "recurrence": {"kind": "UNTIL", "cadence": "YEARLY", "interval": 1000000000, "until": "2030-01-01"}}
             """;
 
+    /** 600 quadrillion ILS on 1 January 2026: within the bound alone, and past it twice over. */
+    private static final String VAST_INFLOW = """
+            {"description": "Windfall", "amount": {"amount": "600000000000000000.00", "currency": "ILS"},
+             "direction": "INFLOW", "startsOn": "2026-01-01", "recurrence": {"kind": "ONCE"}}
+            """;
+
     /** One client for the class, closed afterwards, for the reason {@code LedgerApplicationIT} gives. */
     private static final HttpClient CLIENT = HttpClient.newHttpClient();
 
@@ -272,6 +278,24 @@ class PlanningHttpIT extends PostgresFixture {
                         .valueStream()
                         .map(scenario -> scenario.path("name").asString()))
                 .doesNotContain("Typed as a percentage", "Too precise");
+    }
+
+    /**
+     * Two flows that each hold the bound carry the cash past 18 integer digits in the first step, so
+     * the running ledger refuses both the projection and a comparison that includes it (ADR-072).
+     */
+    @Test
+    void Given_flows_that_carry_cash_past_the_maximum_integer_digits_When_projected_and_compared_Then_each_is_a_422()
+            throws Exception {
+        String dream = define("Dream", "0", plan(VAST_INFLOW), plan(VAST_INFLOW));
+        String doNothing = define("Do nothing", "0");
+
+        assertProblem(get(SCENARIOS + "/" + dream + "/projection?" + YEAR_2026), 422, "RULE_VIOLATED");
+        assertProblem(
+                get(COMPARISONS + "?scenario=" + doNothing + "&scenario=" + dream + "&baseline=" + doNothing + "&"
+                        + YEAR_2026),
+                422,
+                "RULE_VIOLATED");
     }
 
     /** One unknown scenario, two statuses: 404 named in a projection's path, 422 named in a comparison's query. */

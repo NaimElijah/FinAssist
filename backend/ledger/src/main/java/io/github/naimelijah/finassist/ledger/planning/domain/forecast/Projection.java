@@ -37,6 +37,15 @@ import java.util.Optional;
 public record Projection(Horizon horizon, Cadence step, List<BalancePoint> points) {
 
     /**
+     * The most integer digits any amount in a projection may have (ADR-072): an amount at or beyond
+     * 10^18 either side of zero is refused, an input before a single step is counted and a point as
+     * soon as it is computed.
+     */
+    public static final int MAXIMUM_INTEGER_DIGITS = 18;
+
+    private static final BigDecimal FIRST_AMOUNT_PAST_THE_BOUND = BigDecimal.TEN.pow(MAXIMUM_INTEGER_DIGITS);
+
+    /**
      * Holds a series of points that already sits on the horizon's step boundaries.
      *
      * @throws NullPointerException if any argument is null
@@ -95,8 +104,14 @@ public record Projection(Horizon horizon, Cadence step, List<BalancePoint> point
      * leave a final part-step whose flows belong to no point, and dropping them silently is the kind
      * of quiet wrongness a forecast cannot recover from; refusing is the honest alternative.
      *
-     * @throws IllegalArgumentException if any amount is in a currency other than the scenario's, or
-     *     if the horizon is not a whole number of steps
+     * <p>Every amount it reads or computes holds at most {@link #MAXIMUM_INTEGER_DIGITS} integer
+     * digits (ADR-072). The inputs are checked before a recurrence is expanded, and each point as it
+     * is computed, so the work stops at the first amount past the bound, whatever the inputs.
+     *
+     * @throws IllegalArgumentException if any amount is in a currency other than the scenario's, if
+     *     the horizon is not a whole number of steps, or if an opening amount, a flow's amount, or a
+     *     point's cash, invested balance or total has more than {@link #MAXIMUM_INTEGER_DIGITS}
+     *     integer digits
      */
     public static Projection of(
             Scenario scenario, Horizon horizon, Cadence step, Money openingCash, Money openingInvested) {
@@ -108,6 +123,11 @@ public record Projection(Horizon horizon, Cadence step, List<BalancePoint> point
 
         requireScenarioCurrency(openingCash, scenario.currency(), "opening cash");
         requireScenarioCurrency(openingInvested, scenario.currency(), "opening investments");
+        requireWithinBound(openingCash, "the opening cash");
+        requireWithinBound(openingInvested, "the opening investments");
+        for (PlannedFlow flow : scenario.forecastableFlows()) {
+            requireWithinBound(flow.amount(), "a planned flow's amount");
+        }
 
         int steps = Math.toIntExact(stepsAcross(horizon, step));
         List<LocalDate> boundaries = new ArrayList<>(steps + 1);
@@ -155,13 +175,13 @@ public record Projection(Horizon horizon, Cadence step, List<BalancePoint> point
         List<BalancePoint> points = new ArrayList<>(steps + 1);
         Money cash = openingCash;
         Money invested = openingInvested;
-        points.add(new BalancePoint(horizon.from(), cash, invested));
+        points.add(withinBound(new BalancePoint(horizon.from(), cash, invested)));
 
         for (int period = 0; period < steps; period++) {
             invested = scenario.growth().applyTo(invested);
             cash = cash.plus(cashDelta[period]);
             invested = invested.plus(investedDelta[period]);
-            points.add(new BalancePoint(boundaries.get(period + 1), cash, invested));
+            points.add(withinBound(new BalancePoint(boundaries.get(period + 1), cash, invested)));
         }
         return new Projection(horizon, step, points);
     }
@@ -193,6 +213,21 @@ public record Projection(Horizon horizon, Cadence step, List<BalancePoint> point
                 .filter(point -> point.cash().isNegative())
                 .map(BalancePoint::date)
                 .findFirst();
+    }
+
+    private static BalancePoint withinBound(BalancePoint point) {
+        requireWithinBound(point.cash(), "the cash on " + point.date());
+        requireWithinBound(point.invested(), "the invested balance on " + point.date());
+        requireWithinBound(point.total(), "the total on " + point.date());
+        return point;
+    }
+
+    /** Names the amount refused, never its digits: an input can be as long as the request that carried it. */
+    private static void requireWithinBound(Money amount, String what) {
+        if (amount.amount().abs().compareTo(FIRST_AMOUNT_PAST_THE_BOUND) >= 0) {
+            throw new IllegalArgumentException("A projection holds no amount of more than " + MAXIMUM_INTEGER_DIGITS
+                    + " integer digits, but " + what + " has more");
+        }
     }
 
     private static void requireScenarioCurrency(Money amount, Currency currency, String what) {
