@@ -368,7 +368,7 @@ def uncached_request_logger(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.parametrize("path", ["/health", "/ready"])
-def Given_a_probe_that_succeeds_When_answered_Then_no_info_request_line_is_written(
+def Given_a_probe_that_succeeds_When_answered_at_info_Then_no_line_is_written(
     client: TestClient, capsys: pytest.CaptureFixture[str], path: str
 ) -> None:
     """Compose probes readiness every five seconds; at INFO that history would be all probes."""
@@ -376,9 +376,8 @@ def Given_a_probe_that_succeeds_When_answered_Then_no_info_request_line_is_writt
 
     response = client.get(path)
 
-    lines = _request_lines(capsys.readouterr().out)
     assert response.status_code == 200
-    assert [line for line in lines if line["level"] == "info"] == []
+    assert capsys.readouterr().out.splitlines() == []
 
 
 @pytest.mark.usefixtures("uncached_request_logger")
@@ -400,6 +399,27 @@ def Given_debug_logging_When_a_probe_succeeds_Then_one_debug_request_line_is_wri
     assert [
         (line["path"], line["status"], line["level"], line.get("correlation_id")) for line in lines
     ] == [(path, 200, "debug", VALID_TRACE_ID)]
+
+
+@pytest.mark.usefixtures("uncached_request_logger")
+@pytest.mark.parametrize(
+    ("path", "status"),
+    [("/ready", 204), ("/health", 299)],
+    ids=["no-content", "last-2xx"],
+)
+def Given_debug_logging_When_a_probe_is_answered_any_2xx_Then_its_request_line_is_debug(
+    debug_settings: Settings, capsys: pytest.CaptureFixture[str], path: str, status: int
+) -> None:
+    """Every 2xx is a success, not 200 alone, up to and including the last of the range."""
+    configure_logging(debug_settings)
+    capsys.readouterr()
+
+    log_request({"type": "http", "method": "GET", "path": path}, status, time.perf_counter())
+
+    lines = _request_lines(capsys.readouterr().out)
+    assert [(line["path"], line["status"], line["level"]) for line in lines] == [
+        (path, status, "debug")
+    ]
 
 
 def Given_an_api_request_that_succeeds_When_answered_Then_its_request_line_is_info(
@@ -424,8 +444,8 @@ def Given_an_api_request_that_succeeds_When_answered_Then_its_request_line_is_in
 
 @pytest.mark.parametrize(
     ("path", "status"),
-    [("/ready", 503), ("/health", 500), ("/ready", 302)],
-    ids=["not-ready", "health-fails", "not-a-success"],
+    [("/ready", 503), ("/health", 500), ("/ready", 302), ("/ready", 300)],
+    ids=["not-ready", "health-fails", "not-a-success", "first-past-2xx"],
 )
 def Given_a_probe_that_does_not_succeed_When_logged_Then_its_request_line_stays_info(
     settings: Settings, capsys: pytest.CaptureFixture[str], path: str, status: int
