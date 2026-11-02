@@ -398,12 +398,13 @@ for a connection, below it. A running statement stays unbounded until
 [#430](https://github.com/NaimElijah/FinAssist/issues/430) sizes `statement_timeout`
 ([#349](https://github.com/NaimElijah/FinAssist/issues/349)).
 
-071 extends 044 on 2026-11-02. The ledger signs in as the role `db` creates, with a password of its
-own, and nothing refused two different values: `db` started, the database refused every sign-in
-the ledger made, and the ledger restarted in a loop. `secret-check` now also refuses a
-`LEDGER_DB_PASSWORD` that differs from `POSTGRES_PASSWORD` while the two usernames name one role,
-until [#34](https://github.com/NaimElijah/FinAssist/issues/34) gives the ledger a role of its own.
-It is a consistency rule, not a publication rule, and it blocks every service behind the gate,
-`keycloak-db` and Grafana included, so `make run-identity` is refused on a mismatch too; one
+071 extends 044 alone, and builds on 061's length check, on 2026-11-02. The ledger signs in as the
+role `db` creates, with a password of its own, and nothing refused two different values: `db`
+started, the database refused every sign-in the ledger made, and the ledger restarted in a loop.
+`secret-check` now also refuses a `LEDGER_DB_PASSWORD` that differs from `POSTGRES_PASSWORD` while
+the two usernames name one role, until [#34](https://github.com/NaimElijah/FinAssist/issues/34)
+gives the ledger a role of its own. It is a consistency rule, not a publication rule, and it blocks
+every service behind the gate, `keycloak-db` and Grafana included, so `make run-identity` is refused
+on a mismatch too, though `otel-collector` and `prometheus`, which wait on nothing, still start; one
 all-or-nothing gate is simpler than one per service, and that is the accepted cost
 ([#349](https://github.com/NaimElijah/FinAssist/issues/349)).

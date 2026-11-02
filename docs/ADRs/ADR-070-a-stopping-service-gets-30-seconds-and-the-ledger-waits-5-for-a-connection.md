@@ -50,9 +50,9 @@ and logging blocks. The one-shots take none. `make check-compose` fails a long-r
 whose grace differs, and a one-shot that has one. It also refuses what could move one figure
 without the others: a `stop_signal` on any service (the PostgreSQL images' own `SIGINT` stays in
 force), which could replace the signal a graceful shutdown waits for, and
-`SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE`, `SERVER_SHUTDOWN` and
-`SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT`, in any spelling, in the ledger's or the gateway's
-environment.
+`SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE`, `SERVER_SHUTDOWN`,
+`SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT` and `SPRING_HTTP_CLIENTS_READ_TIMEOUT` (the gateway's
+10 s relay read timeout), in any spelling, in the ledger's or the gateway's environment.
 
 **The ledger and the gateway end their own shutdown at 20 s**, with
 `spring.lifecycle.timeout-per-shutdown-phase: 20s`. A stopping service must be allowed to finish a
@@ -93,8 +93,11 @@ and a request that does get one has the rest of the budget to run.
   shutdown and 30 s to be killed are only safe in that order: the phase must exceed the relay
   budget, and the grace must exceed the phase plus the JVM's exit work. Raising one without the
   others breaks the property it was set for. `make check-compose` pins the 30 s and refuses an
-  environment override of the other Spring figures, and `LedgerShippedConfigurationTest` and
-  `GatewayShippedConfigurationTest` pin the 20 s and the 5 s from `application.yml`.
+  environment override of the four Spring keys named in the Decision, in the ledger's or the
+  gateway's environment: `SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE`, `SERVER_SHUTDOWN`,
+  `SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT` and `SPRING_HTTP_CLIENTS_READ_TIMEOUT`.
+  `LedgerShippedConfigurationTest` and `GatewayShippedConfigurationTest` pin the 20 s and the 5 s
+  from `application.yml`.
 
 **Accepted cost**
 
@@ -103,11 +106,14 @@ and a request that does get one has the rest of the budget to run.
   ADR-067's 504 is still a 504 "outcome unknown", and its duplicate risk stands until #430.
 - **A request still running at 20 s of a shutdown is abandoned**, and its caller sees a failed
   call.
-- **The worst case leaves about 3 s of the grace.** After the 20 s phase, the JVM spends about 7 s
-  more closing a pool whose connection the abandoned statement still holds. A slower machine could
-  reach the `SIGKILL`, which then cuts only that exit work, after the request was already
-  abandoned; PostgreSQL rolls back the open transaction. The case needs a statement blocked past
-  20 s, which #430's statement bound removes.
+- **The worst case leaves about 3 s of the grace.** The ledger's logs from the measured run give the
+  order: graceful shutdown aborted at exactly 20.0 s, Hikari's "Shutdown initiated" came 5.0 s
+  later, and the pool closed in 0.02 s. The time after the 20 s phase is therefore not spent closing
+  the pool: the web server waits about 5 s for the abandoned request's thread before the context
+  closes, and the JVM needs about 1 s more to exit, which makes the measured 26.7 s and 27.2 s
+  totals. A slower machine could reach the `SIGKILL`, which then cuts only that wait and exit, after
+  the request was already abandoned; PostgreSQL rolls back the open transaction. The case needs a
+  statement blocked past 20 s, which #430's statement bound removes.
 
 ## Alternatives considered
 
@@ -148,7 +154,7 @@ and a request that does get one has the rest of the budget to run.
   - The ledger's and the gateway's `application.yml`: `timeout-per-shutdown-phase: 20s`.
   - The ledger's `application.yml`: `hikari.connection-timeout: 5000`.
 - **The check.** `ops/compose_check/compose_check.py` pins the grace on every long-running service
-  and its absence from the one-shots, refuses a `stop_signal` and the three Spring keys named
+  and its absence from the one-shots, refuses a `stop_signal` and the four Spring keys named
   above, and `make check-compose` runs it.
 - **Documentation.**
   - ADR-039 and ADR-067 read `extended by … ADR-070`, as do their rows in `docs/ADRs/README.md`,
