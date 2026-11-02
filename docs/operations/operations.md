@@ -466,15 +466,16 @@ Sign the admin CLI in, as in [Signing in the admin CLI](#signing-in-the-admin-cl
 three settings, read them back, and remove the CLI's stored tokens:
 
 ```bash
-docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; k update realms/finassist -s "eventsListeners=[]" -s offlineSessionMaxLifespanEnabled=true -s offlineSessionMaxLifespan=36000 && id=$(k get clients -r finassist -q clientId=admin-cli --fields id --format csv --noquotes) && k update "clients/$id" -r finassist -s directAccessGrantsEnabled=false -s standardFlowEnabled=false -s implicitFlowEnabled=false -s serviceAccountsEnabled=false -s fullScopeAllowed=false'
-docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; k get realms/finassist --fields eventsListeners,offlineSessionMaxLifespanEnabled,offlineSessionMaxLifespan && k get clients -r finassist -q clientId=admin-cli --fields clientId,directAccessGrantsEnabled,standardFlowEnabled,implicitFlowEnabled,serviceAccountsEnabled,fullScopeAllowed'
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; k update realms/finassist -s "eventsListeners=[]" -s offlineSessionMaxLifespanEnabled=true -s offlineSessionMaxLifespan=36000 -s bruteForceStrategy=MULTIPLE && id=$(k get clients -r finassist -q clientId=admin-cli --fields id --format csv --noquotes) && k update "clients/$id" -r finassist -s directAccessGrantsEnabled=false -s standardFlowEnabled=false -s implicitFlowEnabled=false -s serviceAccountsEnabled=false -s fullScopeAllowed=false'
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; k get realms/finassist --fields eventsListeners,offlineSessionMaxLifespanEnabled,offlineSessionMaxLifespan,bruteForceStrategy && k get clients -r finassist -q clientId=admin-cli --fields clientId,directAccessGrantsEnabled,standardFlowEnabled,implicitFlowEnabled,serviceAccountsEnabled,fullScopeAllowed'
 docker compose exec -T keycloak rm /tmp/kcadm.config
 ```
 
 Each `-s` sets one member and leaves the rest as they are. `36000` is the realm's
 `ssoSessionMaxLifespan`, ten hours, so no offline session outlives a browser session. The read-back
 shows `"eventsListeners" : [ ]`, `"offlineSessionMaxLifespanEnabled" : true`,
-`"offlineSessionMaxLifespan" : 36000`, and `false` for each of `admin-cli`'s
+`"offlineSessionMaxLifespan" : 36000`, `"bruteForceStrategy" : "MULTIPLE"` (Keycloak's own default,
+stated so an upgrade cannot move it, ADR-073), and `false` for each of `admin-cli`'s
 `directAccessGrantsEnabled`, `standardFlowEnabled`, `implicitFlowEnabled`, `serviceAccountsEnabled`
 and `fullScopeAllowed`, as the realm file sets them. These commands change the `finassist` realm
 only, never `master`.
