@@ -257,8 +257,8 @@ describe('ScenariosPage define-scenario form', () => {
     });
 
     it('Given_the_define_form_When_it_renders_Then_the_growth_rate_states_its_decimal_format_and_that_it_is_a_fraction', async () => {
-        // Typing 5 for 5% would define 500% growth per step, so the hint says the rate is a
-        // fraction as well as how to write a decimal.
+        // 5 typed for 5% means 500% a step, which the ledger refuses, so the hint says the rate is
+        // a fraction as well as how to write a decimal.
         fakeFetch(ledger([], []));
         renderScenarios();
         await screen.findByRole('heading', { level: 2, name: 'Define a scenario' });
