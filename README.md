@@ -421,7 +421,8 @@ the ledger, and for the gateway `GATEWAY_CLIENT_SECRET`, holding the same value 
 what Keycloak imported:
 
 ```bash
-docker compose up -d db keycloak-db keycloak
+docker compose up -d --wait db keycloak-db keycloak
+docker compose run --rm keycloak-master   # master's settings (ADR-074); a full up runs it for you
 # then each service in a terminal of its own, from the repository root:
 cd backend/ledger && ./mvnw spring-boot:run
 cd backend/assistant && uv run python -m finassist_assistant.adapters
@@ -452,7 +453,7 @@ make audit     # pip-audit and npm audit --audit-level=high
 | Run with monitoring | `make run-monitoring` | `docker compose --profile monitoring up --build` |
 | Stop the stack | `make stop` | `docker compose down`, keeping volumes |
 | Stop the monitoring profile too | `make stop-monitoring` | `docker compose --profile monitoring down`, keeping volumes |
-| Run identity only | `make run-identity` | `docker compose up -d keycloak-db keycloak` — for signing in or testing against Keycloak without the rest of the stack |
+| Run identity only | `make run-identity` | `docker compose up -d --wait keycloak-db keycloak`, then `docker compose run --rm keycloak-master`, which applies `master`'s settings and fails if it cannot — for signing in or testing against Keycloak without the rest of the stack |
 | Back up both databases | `make backup` | `uv run ops/backup/backup.py backup`, with `db` and `keycloak-db` running — see [Backing up and restoring](docs/operations/operations.md#backing-up-and-restoring) |
 | Prove a backup restores | `make restore-check BACKUP=<folder>` | `uv run ops/backup/backup.py check <folder>` — only ever as the Compose project `finassist-restore-check` |
 | Restore a backup | `make restore BACKUP=<folder> [DATABASE=ledger\|keycloak]` | `uv run ops/backup/backup.py restore <folder> [--database ledger\|keycloak]`, into empty databases with `ledger` and `keycloak` stopped |

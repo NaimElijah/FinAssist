@@ -55,8 +55,9 @@ run: ## Start the stack
 run-monitoring: ## Start the stack plus the collector, Prometheus and Grafana
 	docker compose --profile monitoring up --build
 
-run-identity: ## Start only Keycloak, its database and master's settings, for signing in without the rest
-	docker compose up -d keycloak-db keycloak keycloak-master
+run-identity: ## Start only Keycloak and its database, and apply master's settings, failing if they cannot be
+	docker compose up -d --wait keycloak-db keycloak
+	docker compose run --rm keycloak-master
 
 # Run cold, `compose run` starts the services the check depends on and waits for them, but from
 # whatever images already exist; `make run` is what builds them.

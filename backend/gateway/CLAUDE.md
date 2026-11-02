@@ -53,7 +53,8 @@ own administrator, whom `master`'s lockout would then hold (ADR-073).
 From `backend/gateway`:
 
 - **Run** — `./mvnw spring-boot:run`, after Keycloak is up: `make run-identity`, which is
-  `docker compose up -d keycloak-db keycloak`.
+  `docker compose up -d --wait keycloak-db keycloak` and then `docker compose run --rm
+  keycloak-master`, applying `master`'s settings (ADR-074).
 - **Test** — `make test-gateway`: `./mvnw -B verify`. **Docker must be running**:
   `KeycloakRealmIT` builds `ops/keycloak/Dockerfile` and runs it against a real PostgreSQL, and
   fails rather than skips without Docker (ADR-025).

@@ -78,9 +78,10 @@ One directory per tool, none of them a deployable service of this repository's (
 
 From the repository root unless stated:
 
-- **Run identity only** — `make run-identity`: `docker compose up -d keycloak-db keycloak
-  keycloak-master`, for signing in or testing against Keycloak without the rest of the stack, with
-  `master`'s settings applied as a full `up` applies them.
+- **Run identity only** — `make run-identity`: `docker compose up -d --wait keycloak-db keycloak`,
+  then `docker compose run --rm keycloak-master`, which returns the one-shot's exit code, so the
+  target fails when `master`'s settings could not be applied. For signing in or testing against
+  Keycloak without the rest of the stack.
 - **Back up** — `make backup`: `uv run ops/backup/backup.py backup`, with `db` and `keycloak-db`
   already running (it never starts a container). It writes a custom-format `pg_dump` of each, read
   back in full, plus a manifest of SHA-256s and a digest of the books' rows (never an amount),
