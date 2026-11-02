@@ -74,6 +74,10 @@ import tools.jackson.databind.node.StringNode;
  *       registrationAllowed} that default is off, so a lost key would be harmless; for {@code
  *       bruteForceProtected} it is off too, where the realm asks for on, so a lost key would
  *       silently remove the protection.
+ *   <li>Keycloak's own {@code master} realm takes the settings in {@code master-realm.json}, merged
+ *       in by the image's {@code apply-master-realm.sh} run as the {@code keycloak-master} one-shot
+ *       runs it, and keeps a setting the file does not name; a failed sign-in to {@code master}
+ *       leaves its username out of the log too (ADR-073, ADR-074).
  * </ul>
  *
  * <p>Every realm placeholder is supplied here as a container environment variable, because the
@@ -164,8 +168,8 @@ class KeycloakRealmIT {
     private static final String TRANSACTION_LOG = KEYCLOAK_HOME + "/data/transaction-logs";
 
     /**
-     * Keycloak's code, its configuration, the directories holding them and the realm it imports.
-     * Each must exist, so a path a later Keycloak renames fails the probe rather than passing it.
+     * Keycloak's code, its configuration, the directories holding them, the realm it imports, and
+     * {@code master}'s settings with the script that merges them (ADR-074). Each must exist, so a path a later Keycloak renames fails the probe rather than passing it.
      */
     private static final List<String> READ_ONLY_PATHS = List.of(
             KEYCLOAK_HOME,
@@ -360,6 +364,19 @@ class KeycloakRealmIT {
         return JSON.readTree(response.body()).path("access_token").asString();
     }
 
+    private static void adminPut(String path, Map<String, Object> body) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl() + path))
+                .timeout(HTTP_TIMEOUT)
+                .header("Authorization", "Bearer " + adminToken())
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
+                .build();
+        HttpResponse<String> response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode())
+                .as("PUT %s -> %s", path, response.body())
+                .isEqualTo(204);
+    }
+
     private static JsonNode adminGet(String path) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl() + path))
                 .timeout(HTTP_TIMEOUT)
@@ -551,6 +568,7 @@ class KeycloakRealmIT {
     void Given_a_failed_sign_in_through_the_login_form_When_the_log_is_read_Then_the_username_is_absent()
             throws Exception {
         String marker = "it-marker-username-7qz41";
+        String masterMarker = "it-master-marker-username-2hd63";
         String control = "it-control-username-3vk82";
         WaitingConsumer log = new WaitingConsumer();
         keycloak.followOutput(log);
@@ -558,12 +576,13 @@ class KeycloakRealmIT {
         String controlRealm = realmWithKeycloaksDefaults();
 
         HttpResponse<String> answer = failedFormSignIn(marker);
+        failedPasswordGrant("master", masterMarker);
         failedPasswordGrant(controlRealm, control);
         log.waitUntil(frame -> frame.getUtf8String().contains(control), CONTROL_LINE_WAIT_SECONDS, TimeUnit.SECONDS);
 
         assertThat(answer.statusCode()).as("the login form's answer").isEqualTo(200);
         assertThat(answer.body()).contains(INVALID_CREDENTIALS_MESSAGE);
-        assertThat(keycloak.getLogs()).doesNotContain(marker);
+        assertThat(keycloak.getLogs()).doesNotContain(marker).doesNotContain(masterMarker);
     }
 
     /**
@@ -909,12 +928,13 @@ class KeycloakRealmIT {
 
     /**
      * The one-shot runs on every {@code up}, so a second run against a configured realm must
-     * succeed and change nothing the file does not name, its administrator above all.
+     * succeed and change nothing the file does not name: a setting the owner changed in the console
+     * is kept, not reset to Keycloak's default.
      */
     @Test
-    void Given_the_one_shot_run_again_When_master_is_read_Then_it_still_holds_the_settings_and_its_administrator()
-            throws Exception {
-        String displayNameBefore = masterAsHeld().path("displayName").asString();
+    void Given_a_setting_the_file_does_not_name_When_the_one_shot_runs_again_Then_it_is_kept() throws Exception {
+        String changedInTheConsole = "it-display-name-set-by-hand-8wq3";
+        adminPut("/admin/realms/master", Map.of("displayName", changedInTheConsole));
 
         applyMasterRealm();
 
@@ -923,11 +943,7 @@ class KeycloakRealmIT {
         for (String member : file.propertyNames()) {
             assertMember(held, member, file.path(member));
         }
-        assertThat(held.path("displayName").asString()).isEqualTo(displayNameBefore);
-        assertThat(adminGet("/admin/realms/master/users?exact=true&username=" + ADMIN_USERNAME)
-                        .size())
-                .as("administrators named %s", ADMIN_USERNAME)
-                .isEqualTo(1);
+        assertMember(held, "displayName", StringNode.valueOf(changedInTheConsole));
     }
 
     /**
@@ -949,10 +965,27 @@ class KeycloakRealmIT {
                 .build());
 
         assertThat(run.getExitCode()).as("the script's exit code").isNotZero();
-        assertThat(run.getStdout() + run.getStderr()).doesNotContain(password);
+        assertThat(run.getStdout() + run.getStderr())
+                .contains("Invalid user credentials")
+                .doesNotContain(password);
     }
 
-    /** Every kcadm.sh runbook signs in this way, so ADR-074 keeps it (ADR-074). */
+    /** The script refuses to run without the variables it signs in with, naming the one missing. */
+    @Test
+    void Given_no_administrator_password_When_the_script_runs_Then_it_fails_naming_kc_cli_password() throws Exception {
+        ExecResult run = keycloak.execInContainer(ExecConfig.builder()
+                .envVars(Map.of("KEYCLOAK_ADMIN_USERNAME", ADMIN_USERNAME, "KEYCLOAK_URL", "http://localhost:8080"))
+                .command(new String[] {"sh", APPLY_MASTER_REALM})
+                .build());
+
+        assertThat(run.getExitCode()).as("the script's exit code").isNotZero();
+        assertThat(run.getStderr()).contains("KC_CLI_PASSWORD");
+    }
+
+    /**
+     * Every {@code kcadm.sh} runbook signs in to {@code master} through {@code admin-cli}'s password
+     * grant, so ADR-074 keeps it, and this names the decision where the other tests only rely on it.
+     */
     @Test
     void Given_master_after_the_one_shot_When_its_administrator_signs_in_with_a_password_Then_a_token_is_issued()
             throws Exception {
