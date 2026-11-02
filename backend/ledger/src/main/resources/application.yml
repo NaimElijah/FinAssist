@@ -57,7 +57,8 @@ spring:
     # How long each shutdown phase may take, the web server's graceful drain of in-flight requests
     # among them; Boot shuts the server down gracefully by default (`server.shutdown`). Boot's
     # default of 30 s would use up the whole of the 30 s stop_grace_period docker-compose.yml gives
-    # this service, leaving the JVM no time to exit before SIGKILL; 20 s finishes inside it (#349).
+    # this service, leaving the JVM no time to exit before SIGKILL; 20 s finishes inside it (#349,
+    # ADR-070).
     timeout-per-shutdown-phase: 20s
 
   datasource:
@@ -76,7 +77,7 @@ spring:
       # relay read timeout, past which the gateway has already answered 504 "outcome unknown"
       # (ADR-067): a write still waiting on the database could then commit after its caller was
       # told the outcome is unknown. 5 s fails it first. A statement already running is not bounded
-      # here (#400).
+      # here: #430 owns that bound, sized from #400.
       connection-timeout: 5000
       data-source-properties:
         # pgjdbc appends the server's Detail line to an exception's message by default, and for a
