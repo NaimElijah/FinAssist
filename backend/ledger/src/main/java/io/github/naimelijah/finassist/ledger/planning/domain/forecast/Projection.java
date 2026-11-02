@@ -218,18 +218,32 @@ public record Projection(Horizon horizon, Cadence step, List<BalancePoint> point
     }
 
     private static BalancePoint withinBound(BalancePoint point) {
-        requireWithinBound(point.cash(), "the cash on " + point.date());
-        requireWithinBound(point.invested(), "the invested balance on " + point.date());
-        requireWithinBound(point.total(), "the total on " + point.date());
+        if (pastTheBound(point.cash())) {
+            throw refusedPastTheBound("the cash on " + point.date());
+        }
+        if (pastTheBound(point.invested())) {
+            throw refusedPastTheBound("the invested balance on " + point.date());
+        }
+        if (pastTheBound(point.total())) {
+            throw refusedPastTheBound("the total on " + point.date());
+        }
         return point;
     }
 
-    /** Names the amount refused, never its digits: an input can be as long as the request that carried it. */
     private static void requireWithinBound(Money amount, String what) {
-        if (amount.amount().abs().compareTo(FIRST_AMOUNT_PAST_THE_BOUND) >= 0) {
-            throw new IllegalArgumentException("A projection holds no amount of more than " + MAXIMUM_INTEGER_DIGITS
-                    + " integer digits, but " + what + " has more");
+        if (pastTheBound(amount)) {
+            throw refusedPastTheBound(what);
         }
+    }
+
+    private static boolean pastTheBound(Money amount) {
+        return amount.amount().abs().compareTo(FIRST_AMOUNT_PAST_THE_BOUND) >= 0;
+    }
+
+    /** Names what broke the bound, never its digits: an input can be as long as the request that carried it. */
+    private static IllegalArgumentException refusedPastTheBound(String what) {
+        return new IllegalArgumentException("A projection holds no amount of more than " + MAXIMUM_INTEGER_DIGITS
+                + " integer digits, but " + what + " has more");
     }
 
     private static void requireScenarioCurrency(Money amount, Currency currency, String what) {
