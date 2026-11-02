@@ -77,6 +77,34 @@ class GrowthAssumptionTest {
                 .satisfies(refusal -> assertThat(refusal.getMessage()).hasSizeLessThan(MESSAGE_BOUND));
     }
 
+    /**
+     * Trailing zeros to the length of a request body are dropped, and the rate is the one they pad.
+     * Their number is what the order of the checks makes cheap: the rate is cut to ten places, exactly
+     * or not at all, before any zero is stripped.
+     */
+    @Test
+    void Given_a_rate_padded_with_tens_of_thousands_of_trailing_zeros_When_built_Then_it_is_the_rate_they_pad() {
+        assertThat(GrowthAssumption.perStep("0.1" + "0".repeat(60_000)).ratePerStep())
+                .isEqualTo(new BigDecimal("0.1"));
+    }
+
+    @Test
+    void Given_a_rate_whose_tens_of_thousands_of_places_end_in_a_digit_When_built_Then_it_is_refused_briefly() {
+        String rate = "0.1" + "0".repeat(60_000) + "1";
+
+        assertThatThrownBy(() -> GrowthAssumption.perStep(rate))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at most 10 decimal places")
+                .satisfies(refusal -> assertThat(refusal.getMessage()).hasSizeLessThan(MESSAGE_BOUND));
+    }
+
+    /** Zero at any scale is zero: the places a zero is written to say nothing of its precision. */
+    @ParameterizedTest
+    @ValueSource(strings = {"0E-2147483647", "0.00000000000000000000", "-0.000"})
+    void Given_zero_written_at_any_scale_When_built_Then_it_is_no_growth(String rate) {
+        assertThat(GrowthAssumption.perStep(rate)).isEqualTo(GrowthAssumption.none());
+    }
+
     /** Decimal places are counted once trailing zeros are dropped: 0.10000000000 is 0.1. */
     @Test
     void Given_a_rate_whose_extra_decimal_places_are_trailing_zeros_When_an_assumption_is_built_Then_it_is_allowed() {
