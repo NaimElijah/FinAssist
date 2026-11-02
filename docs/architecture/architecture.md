@@ -358,6 +358,9 @@ Compose file into (ADR-049). One directory per tool, none of them a service
   container, so no shell on the host handles a dump (ADR-038).
 - **The smoke check to the running stack** — HTTP, by Compose service name, from inside the Compose
   network (ADR-034).
+- **`keycloak-master` to Keycloak** — HTTP to the admin REST API at `http://keycloak:8080`, on the
+  `default` network, once per `up`, signed in for that one call as `master`'s administrator with
+  `KEYCLOAK_ADMIN_USERNAME` and `KEYCLOAK_ADMIN_PASSWORD` ([ADR-074](../ADRs/ADR-074-the-master-realm-is-configured-from-the-repository.md)).
 
 The ledger never calls the assistant, and the assistant never calls the web client.
 
