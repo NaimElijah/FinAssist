@@ -51,6 +51,13 @@ COPY --from=builder --chown=0:0 /opt/keycloak/ /opt/keycloak/
 # Copied as root, like the tree around it: the runtime user reads it and cannot change it.
 COPY finassist-realm.json /opt/keycloak/data/import/finassist-realm.json
 
+# master's settings and the script that merges them into the running realm, which the
+# keycloak-master one-shot runs on every `up` (ADR-074). Outside data/import on purpose:
+# --import-realm skips a realm that already exists, and Keycloak creates master before it imports
+# anything, so a master file there would never be read. Copied as root, like the realm above, and
+# run with `sh`, so the script needs no execute bit from a checkout that may not keep one.
+COPY master-realm.json apply-master-realm.sh /opt/finassist/
+
 # Two ownership changes COPY cannot make, done once as root and touching no file's content, so
 # the layer is metadata alone. COPY re-owns what it copies but never a destination directory
 # that already exists, so /opt/keycloak itself would stay uid 1000's, free to rename `bin` or

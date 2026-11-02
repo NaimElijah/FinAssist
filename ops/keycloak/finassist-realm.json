@@ -5,6 +5,7 @@
   "resetPasswordAllowed": false,
   "rememberMe": false,
   "bruteForceProtected": true,
+  "bruteForceStrategy": "MULTIPLE",
   "permanentLockout": false,
   "maxTemporaryLockouts": 0,
   "failureFactor": 5,

@@ -39,7 +39,7 @@ NOBODY = "65534:65534"
 NO_CORS_GRANT = "--web.cors.origin="
 # Each list below is written out rather than read from the check, so a name dropped from the
 # check's own, or added to an exemption, fails here instead of taking its cases with it.
-ONE_SHOT_SERVICES = ["auth-smoke", "secret-check"]
+ONE_SHOT_SERVICES = ["auth-smoke", "keycloak-master", "secret-check"]
 READINESS_PROBES = [
     ("assistant", "/ready"),
     ("gateway", "/actuator/health/readiness"),
@@ -52,6 +52,7 @@ HARDENED_SERVICES = [
     "gateway",
     "grafana",
     "keycloak",
+    "keycloak-master",
     "ledger",
     "otel-collector",
     "prometheus",
@@ -63,6 +64,7 @@ READ_ONLY_SERVICES = [
     "auth-smoke",
     "gateway",
     "grafana",
+    "keycloak-master",
     "ledger",
     "otel-collector",
     "prometheus",
@@ -74,6 +76,10 @@ DATABASE_NETWORKS = [("db", "books"), ("keycloak-db", "identity")]
 GATED_SERVICES = ["db", "grafana", "keycloak-db"]
 GATED_BY_SECRET_CHECK = {
     "secret-check": {"condition": "service_completed_successfully", "required": True}
+}
+# The service that waits on the master-realm one-shot (ADR-074).
+GATED_BY_KEYCLOAK_MASTER = {
+    "keycloak-master": {"condition": "service_completed_successfully", "required": True}
 }
 PROMETHEUS_COMMAND = [
     "--config.file=/etc/prometheus/prometheus.yml",
@@ -152,6 +158,10 @@ def _conforming() -> dict[str, Any]:
                     read_only=True,
                     tmpfs=["/tmp"],
                     networks={"default": None},
+                    depends_on={
+                        "keycloak": {"condition": "service_healthy", "required": True},
+                        **copy.deepcopy(GATED_BY_KEYCLOAK_MASTER),
+                    },
                 )
             ),
             "assistant": _hardened(
@@ -215,6 +225,16 @@ def _conforming() -> dict[str, Any]:
                     "read_only": True,
                     "user": NOBODY,
                     "volumes": [_bind("/repo", "/repo")],
+                }
+            ),
+            "keycloak-master": _hardened(
+                {
+                    "environment": {"KC_CLI_PASSWORD": SECRET},
+                    "user": NOBODY,
+                    "read_only": True,
+                    "tmpfs": ["/tmp"],
+                    "networks": {"default": None},
+                    "entrypoint": ["sh", "/opt/finassist/apply-master-realm.sh"],
                 }
             ),
             "auth-smoke": _hardened(
@@ -1165,44 +1185,59 @@ def Given_auth_smoke_missing_from_the_file_When_checked_Then_its_profile_is_repo
     assert lines == ["auth-smoke: its profiles must be exactly [smoke]"]
 
 
+@pytest.mark.parametrize("one_shot", ["keycloak-master", "secret-check"])
 @pytest.mark.parametrize("profiles", [["smoke"], ["monitoring"]], ids=["smoke", "monitoring"])
-def Given_secret_check_behind_a_profile_When_checked_Then_it_fails(
-    profiles: list[str], capsys: pytest.CaptureFixture[str]
+def Given_a_gating_one_shot_behind_a_profile_When_checked_Then_it_fails(
+    one_shot: str, profiles: list[str], capsys: pytest.CaptureFixture[str]
 ) -> None:
     resolved = _conforming()
-    resolved["services"]["secret-check"]["profiles"] = profiles
+    resolved["services"][one_shot]["profiles"] = profiles
 
     status, lines = _check(resolved, capsys)
 
     assert status == compose_check.EXIT_FAILED
-    assert lines == ["secret-check: must take no profiles"]
+    assert lines == [f"{one_shot}: must take no profiles"]
 
 
-@pytest.mark.parametrize(
-    "depends_on",
-    [
+def _gate_variants(gate: str) -> list[dict[str, Any] | None]:
+    """Every way a `depends_on` can fail to wait for `gate` to pass."""
+    return [
         None,
         {},
         {"prometheus": {"condition": "service_started", "required": True}},
-        {"secret-check": {"condition": "service_started", "required": True}},
-        {"secret-check": {"condition": "service_healthy", "required": True}},
-        {"secret-check": {"condition": "service_completed_successfully", "required": False}},
-        {"secret-check": {"required": True}},
-    ],
-    ids=["none", "empty", "another-service", "started", "healthy", "not-required", "no-condition"],
-)
-@pytest.mark.parametrize("service", GATED_SERVICES)
-def Given_a_gated_service_not_waiting_for_the_secret_check_to_pass_When_checked_Then_it_is_named(
-    service: str, depends_on: dict[str, Any] | None, capsys: pytest.CaptureFixture[str]
+        {gate: {"condition": "service_started", "required": True}},
+        {gate: {"condition": "service_healthy", "required": True}},
+        {gate: {"condition": "service_completed_successfully", "required": False}},
+        {gate: {"required": True}},
+    ]
+
+
+GATE_VARIANT_IDS = [
+    "none",
+    "empty",
+    "another-service",
+    "started",
+    "healthy",
+    "not-required",
+    "no-condition",
+]
+# Each gating one-shot and a service that must wait for it to pass (ADR-044, ADR-074).
+GATES = [("secret-check", service) for service in GATED_SERVICES] + [("keycloak-master", "gateway")]
+
+
+@pytest.mark.parametrize("variant", range(len(GATE_VARIANT_IDS)), ids=GATE_VARIANT_IDS)
+@pytest.mark.parametrize(("gate", "service"), GATES, ids=[f"{s}-on-{g}" for g, s in GATES])
+def Given_a_gated_service_not_waiting_for_its_gate_to_pass_When_checked_Then_it_is_named(
+    gate: str, service: str, variant: int, capsys: pytest.CaptureFixture[str]
 ) -> None:
     resolved = _conforming()
-    resolved["services"][service]["depends_on"] = depends_on
+    resolved["services"][service]["depends_on"] = _gate_variants(gate)[variant]
 
     status, lines = _check(resolved, capsys)
 
     assert status == compose_check.EXIT_FAILED
     assert lines == [
-        f"{service}: must depend on secret-check with condition service_completed_successfully"
+        f"{service}: must depend on {gate} with condition service_completed_successfully"
     ]
 
 
@@ -1501,6 +1536,7 @@ def Given_books_resolving_to_the_default_networks_name_When_checked_Then_each_jo
         "gateway: must not attach to the books network",
         "grafana: must not attach to the books network",
         "keycloak: must not attach to the books network",
+        "keycloak-master: must not attach to the books network",
         "otel-collector: must not attach to the books network",
         "prometheus: must not attach to the books network",
     ]

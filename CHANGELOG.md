@@ -793,6 +793,19 @@ process, decides whether generating this file from the
 
 ### Security
 
+- **Keycloak's own `master` realm now takes the repository's settings, on every start.** Keycloak
+  creates `master` itself, so no import reaches it. A new one-shot, `keycloak-master`, merges
+  `ops/keycloak/master-realm.json` into it with `kcadm.sh` on every `docker compose up`, keeping
+  every user. It gives `master` the same lockout policy as `finassist`, a 32-character password
+  policy and no event listener, and the gateway waits on it. **`KEYCLOAK_ADMIN_PASSWORD` must now
+  stay equal to the admin's live password**, and `KEYCLOAK_ADMIN_USERNAME` name the admin: one
+  changed in Keycloak alone makes the next `up` fail, without starting the gateway, until `.env`
+  matches. A temporary admin from `kc.sh bootstrap-admin` also needs 32
+  characters. The lockout thresholds are now a recorded decision
+  ([ADR-073](docs/ADRs/ADR-073-every-realm-locks-out-a-guessed-sign-in-for-a-while-never-for-good.md),
+  [ADR-074](docs/ADRs/ADR-074-the-master-realm-is-configured-from-the-repository.md),
+  [#368](https://github.com/NaimElijah/FinAssist/issues/368),
+  [#351](https://github.com/NaimElijah/FinAssist/issues/351)).
 - **One projection can no longer cost seconds of CPU and hundreds of megabytes of response.** A
   strategy's growth rate is now at most 1 a step (100%) with at most ten decimal places, refused
   422 `RULE_VIOLATED` when the strategy is defined, so a `5` typed to mean 5% is caught there. A

@@ -55,8 +55,9 @@ run: ## Start the stack
 run-monitoring: ## Start the stack plus the collector, Prometheus and Grafana
 	docker compose --profile monitoring up --build
 
-run-identity: ## Start only Keycloak and its database, for signing in or testing without the rest
-	docker compose up -d keycloak-db keycloak
+run-identity: ## Start only Keycloak and its database, and apply master's settings, failing if they cannot be
+	docker compose up -d --wait keycloak-db keycloak
+	docker compose run --rm keycloak-master
 
 # Run cold, `compose run` starts the services the check depends on and waits for them, but from
 # whatever images already exist; `make run` is what builds them.
@@ -170,7 +171,7 @@ check-web-api: ## Fail if regenerating the web client's contract types changes a
 # starts no container, so this never touches a Compose project (ADR-049). The script's PEP 723
 # `requires-python` is a minimum, so `--python` pins the assistant's .python-version: otherwise uv
 # may pick, or on CI download, a newer CPython than the one lint-compose-check's mypy targets.
-check-compose: ## Validate docker-compose.yml under every profile, then its restart, log, stop-grace, stop-signal, readiness, port, profile, secret-check gate, hardening, host-privilege, network and CORS conventions and the Spring services' environment (Actuator, JVM-options, shutdown and timeout keys), command line and configuration-file members (volumes, volumes_from, configs, secrets, working_dir); never reads .env, and every `:?` secret is a placeholder even if exported
+check-compose: ## Validate docker-compose.yml under every profile, then its restart, log, stop-grace, stop-signal, readiness, port, profile, one-shot gates (secret-check, keycloak-master), hardening, host-privilege, network and CORS conventions and the Spring services' environment (Actuator, JVM-options, shutdown and timeout keys), command line and configuration-file members (volumes, volumes_from, configs, secrets, working_dir); never reads .env, and every `:?` secret is a placeholder even if exported
 	$(COMPOSE_CONFIG) --profile monitoring config --quiet
 	$(COMPOSE_CONFIG) --profile smoke config --quiet
 	$(COMPOSE_CONFIG) --profile monitoring --profile smoke config --quiet

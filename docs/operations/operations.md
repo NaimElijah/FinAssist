@@ -408,7 +408,7 @@ because the realm pins the owner's id, so every journal row the owner wrote stil
 account:
 
 ```bash
-docker compose build keycloak      # the realm file is copied into the image at build time
+docker compose build keycloak keycloak-master   # both carry the realm's files, copied in at build time
 docker compose stop keycloak       # Keycloak requires every node stopped before an override import
 docker compose run --rm keycloak import --optimized --file /opt/keycloak/data/import/finassist-realm.json --override true
 docker compose up -d keycloak gateway   # recreates each whose image or configuration changed
@@ -425,7 +425,7 @@ included, which it creates again from `KEYCLOAK_ADMIN_USERNAME` and `KEYCLOAK_AD
 ```bash
 docker compose rm --stop --force keycloak keycloak-db   # these two containers only
 docker volume rm finassist_keycloak-db-data             # Keycloak's volume only, never finassist_db-data
-docker compose build keycloak
+docker compose build keycloak keycloak-master   # both carry the realm's files
 docker compose up -d keycloak gateway                   # imports the realm into the new, empty volume
 ```
 
@@ -444,6 +444,13 @@ value, not a missing one.
 
 ### Applying a realm setting in place
 
+**`master`'s settings need no command.** The `keycloak-master` one-shot merges
+`ops/keycloak/master-realm.json` into the running `master` realm on every `docker compose up`, and
+keeps every user, so `docker compose up -d --build --wait` applies a changed file to an existing
+volume ([ADR-074](../ADRs/ADR-074-the-master-realm-is-configured-from-the-repository.md)). A
+setting taken out of the file keeps its last value; set it explicitly instead. The rest of this
+section is about the `finassist` realm.
+
 A setting `kcadm.sh` can change needs no re-import, and keeps every user. A realm imported
 before the realm file configured no event listener, capped offline sessions and turned off
 `admin-cli`'s password grant still holds Keycloak's defaults for all three. Keycloak's JSON
@@ -459,15 +466,16 @@ Sign the admin CLI in, as in [Signing in the admin CLI](#signing-in-the-admin-cl
 three settings, read them back, and remove the CLI's stored tokens:
 
 ```bash
-docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; k update realms/finassist -s "eventsListeners=[]" -s offlineSessionMaxLifespanEnabled=true -s offlineSessionMaxLifespan=36000 && id=$(k get clients -r finassist -q clientId=admin-cli --fields id --format csv --noquotes) && k update "clients/$id" -r finassist -s directAccessGrantsEnabled=false -s standardFlowEnabled=false -s implicitFlowEnabled=false -s serviceAccountsEnabled=false -s fullScopeAllowed=false'
-docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; k get realms/finassist --fields eventsListeners,offlineSessionMaxLifespanEnabled,offlineSessionMaxLifespan && k get clients -r finassist -q clientId=admin-cli --fields clientId,directAccessGrantsEnabled,standardFlowEnabled,implicitFlowEnabled,serviceAccountsEnabled,fullScopeAllowed'
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; k update realms/finassist -s "eventsListeners=[]" -s offlineSessionMaxLifespanEnabled=true -s offlineSessionMaxLifespan=36000 -s bruteForceStrategy=MULTIPLE && id=$(k get clients -r finassist -q clientId=admin-cli --fields id --format csv --noquotes) && k update "clients/$id" -r finassist -s directAccessGrantsEnabled=false -s standardFlowEnabled=false -s implicitFlowEnabled=false -s serviceAccountsEnabled=false -s fullScopeAllowed=false'
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; k get realms/finassist --fields eventsListeners,offlineSessionMaxLifespanEnabled,offlineSessionMaxLifespan,bruteForceStrategy && k get clients -r finassist -q clientId=admin-cli --fields clientId,directAccessGrantsEnabled,standardFlowEnabled,implicitFlowEnabled,serviceAccountsEnabled,fullScopeAllowed'
 docker compose exec -T keycloak rm /tmp/kcadm.config
 ```
 
 Each `-s` sets one member and leaves the rest as they are. `36000` is the realm's
 `ssoSessionMaxLifespan`, ten hours, so no offline session outlives a browser session. The read-back
 shows `"eventsListeners" : [ ]`, `"offlineSessionMaxLifespanEnabled" : true`,
-`"offlineSessionMaxLifespan" : 36000`, and `false` for each of `admin-cli`'s
+`"offlineSessionMaxLifespan" : 36000`, `"bruteForceStrategy" : "MULTIPLE"` (Keycloak's own default,
+stated so an upgrade cannot move it, ADR-073), and `false` for each of `admin-cli`'s
 `directAccessGrantsEnabled`, `standardFlowEnabled`, `implicitFlowEnabled`, `serviceAccountsEnabled`
 and `fullScopeAllowed`, as the realm file sets them. These commands change the `finassist` realm
 only, never `master`.
@@ -486,7 +494,8 @@ into its store once:
 - Grafana sets its admin's password only on its first start.
 
 After that, editing `.env` alone changes nothing in the store. A service that reads the value on
-every start — the ledger, Keycloak or the gateway — then can no longer sign in to it. A re-import
+every start — the ledger, Keycloak, the gateway, or `keycloak-master`, which signs in as
+Keycloak's admin on every `up` (ADR-074) — then can no longer sign in to it. A re-import
 would apply the client secrets, but it deletes every user in the realm
 ([above](#changing-the-realm-or-its-secrets)). Each recipe below changes the value in place
 instead, so the books, the owner's password, their TOTP enrolment and their `sub` all survive.
@@ -583,7 +592,8 @@ docker compose exec -T keycloak sh -c 'KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASS
 ```
 
 When the two differ, give the current password from your terminal instead. That happens while the
-admin's own password is being rotated, or after it was changed in the console.
+admin's own password is being rotated, or while the admin is being recovered. A password changed
+in the console must be written into `.env` too, or the next `up` fails at `keycloak-master`.
 
 ```bash
 read -rs KC_CLI_PASSWORD && export KC_CLI_PASSWORD   # the admin's current password; nothing is echoed
@@ -599,8 +609,14 @@ variable. If the admin's password is lost altogether, see
 ### Keycloak's admin password
 
 Keycloak reads `KEYCLOAK_ADMIN_PASSWORD`, as `KC_BOOTSTRAP_ADMIN_PASSWORD`, only when it first
-creates its `master` realm, and ignores it afterwards. Note the current value first: a later step
-signs in with it, after `.env` has stopped holding it. Then set the new value in `.env`, and run:
+creates its `master` realm. **But the `keycloak-master` one-shot signs in with it on every `up`, and
+the gateway waits on that** (ADR-074), so `.env` must hold the administrator's live password: one
+changed in Keycloak alone makes the next `up` start no gateway, with `keycloak-master` exiting 1 on
+`Invalid user credentials`, until `.env` matches again. **The same holds for
+`KEYCLOAK_ADMIN_USERNAME`:** it must name the live admin. Keycloak's console calls the account
+"temporary" and suggests replacing it; under ADR-074 it stays, and if an admin is ever replaced,
+`.env` changes first. Note the current value first: a later step signs in with it, after `.env` has
+stopped holding it. Then set the new value in `.env`, and run:
 
 ```bash
 docker compose up -d --wait keycloak   # now carries the new value; the admin still has the old one
@@ -608,10 +624,18 @@ docker compose up -d --wait keycloak   # now carries the new value; the admin st
 
 Sign the admin CLI in with the current password from your terminal, as
 [above](#signing-in-the-admin-cli). Then set the new one, which `set-password` reads from
-`KC_CLI_PASSWORD` when no `--new-password` is given:
+`KC_CLI_PASSWORD` when no `--new-password` is given. `master` refuses a password shorter than 32
+characters (ADR-074), as `secret-check` refuses one in `.env`:
 
 ```bash
 docker compose exec -T keycloak sh -c 'KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" /opt/keycloak/bin/kcadm.sh set-password -r master --username "$KC_BOOTSTRAP_ADMIN_USERNAME" --config /tmp/kcadm.config'
+```
+
+A new password does not end the admin's existing sessions, offline ones included, so end them,
+the CLI's own last:
+
+```bash
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; id=$(k get users -r master -q exact=true -q "username=$KC_BOOTSTRAP_ADMIN_USERNAME" --fields id --format csv --noquotes) && k create "users/$id/logout" -r master && rm /tmp/kcadm.config'
 ```
 
 You can use the admin console instead:
@@ -619,7 +643,10 @@ You can use the admin console instead:
 1. Sign in at `http://localhost:8081/admin` with the current password.
 2. Choose the `master` realm under "Manage realms".
 3. Open Users → `admin` → Credentials → "Reset password".
-4. Enter the new value, with "Temporary" switched off.
+4. Enter the new value, of at least 32 characters, with "Temporary" switched off.
+5. Open the admin's Sessions tab and sign every session out.
+
+Then `docker compose up -d --wait`, which runs `keycloak-master` with the new value.
 
 ### A client secret
 
@@ -760,6 +787,23 @@ still at hand needs steps 1 and 2 only.
 
 ## Recovering Keycloak's admin account
 
+**A locked-out admin waits, or is let in by a temporary admin.** `master` locks the admin out
+after five wrong passwords, or two less than a second apart, for a minute that grows to fifteen
+([ADR-073](../ADRs/ADR-073-every-realm-locks-out-a-guessed-sign-in-for-a-while-never-for-good.md)),
+and the lock survives a restart of Keycloak. While it lasts `keycloak-master` cannot sign in, so
+`docker compose up` fails and the gateway does not start, and the one-shot prints the same
+`Invalid user credentials` as for a drifted `.env`. To tell the two apart, sign the CLI in as a
+temporary admin (below) and read the admin's lock:
+
+```bash
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; id=$(k get users -r master -q exact=true -q "username=$KC_BOOTSTRAP_ADMIN_USERNAME" --fields id --format csv --noquotes) && k get "attack-detection/brute-force/users/$id" -r master'
+```
+
+`"disabled" : true` with a `numFailures` is a lockout, and `lastIPFailure` names where the last
+wrong password came from; anything else points at `.env`. A lockout that keeps coming back means
+something keeps guessing: find it before anything else. Otherwise wait it out and run
+`docker compose up -d --wait` again, or let the recovery below clear it.
+
 **A lost admin password is recovered with a temporary admin, and `keycloak-db-data` is never
 touched.** Recreating that volume would bring the admin back from `.env`, but it would delete the
 realm's users with it ([above](#changing-the-realm-or-its-secrets)). Instead, Keycloak's
@@ -769,7 +813,7 @@ temporary admin to the existing database. Every Keycloak node must be stopped wh
 ```bash
 docker compose stop keycloak
 export TEMP_ADMIN=temp-admin                                 # any username the master realm does not hold
-read -rs TEMP_ADMIN_PASSWORD && export TEMP_ADMIN_PASSWORD   # a password for the temporary admin
+read -rs TEMP_ADMIN_PASSWORD && export TEMP_ADMIN_PASSWORD   # at least 32 characters: master's policy
 docker compose run --rm -e TEMP_ADMIN_PASSWORD keycloak bootstrap-admin user --optimized --username "$TEMP_ADMIN" --password:env TEMP_ADMIN_PASSWORD --no-prompt
 docker compose up -d --wait keycloak
 ```
@@ -777,21 +821,30 @@ docker compose up -d --wait keycloak
 `docker compose run` keeps the image's `kc.sh` entrypoint and the service's own database settings,
 as the realm re-import above does.
 
+**A temporary password shorter than 32 characters fails.** `master`'s password policy holds it too,
+and `bootstrap-admin` then exits 1 with only `Failed to start server in (nonserver) mode`, naming no
+reason (observed on Keycloak 26.8.1). Choose a longer one and run it again.
+
 **Check its output for `Created temporary admin user with username` and your name.** If an account
 of that name is left from an earlier recovery, Keycloak logs `user with username exists` and still
 exits 0. In that case, `export TEMP_ADMIN` with another name and run `docker compose run` again:
 every command below reads the name from `TEMP_ADMIN`.
 
 Then, as the temporary admin, set the real admin's password to `KEYCLOAK_ADMIN_PASSWORD` from
-`.env`. Sign in as the real admin, and delete the temporary one:
+`.env` and clear any lock on it, since a locked admin cannot sign in. Sign in as the real admin,
+delete the temporary one, and check that it is gone:
 
 ```bash
 export KC_CLI_PASSWORD="$TEMP_ADMIN_PASSWORD"
 docker compose exec -T -e KC_CLI_PASSWORD -e TEMP_ADMIN keycloak sh -c '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user "$TEMP_ADMIN" --config /tmp/kcadm.config'
 unset KC_CLI_PASSWORD TEMP_ADMIN_PASSWORD
 docker compose exec -T keycloak sh -c 'KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" /opt/keycloak/bin/kcadm.sh set-password -r master --username "$KC_BOOTSTRAP_ADMIN_USERNAME" --config /tmp/kcadm.config'
-docker compose exec -T -e TEMP_ADMIN keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" k config credentials --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" && id=$(k get users -r master -q exact=true -q "username=$TEMP_ADMIN" --fields id --format csv --noquotes) && k delete "users/$id" -r master'
+docker compose exec -T keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; aid=$(k get users -r master -q exact=true -q "username=$KC_BOOTSTRAP_ADMIN_USERNAME" --fields id --format csv --noquotes) && k delete "attack-detection/brute-force/users/$aid" -r master'
+docker compose exec -T -e TEMP_ADMIN keycloak sh -c 'k() { /opt/keycloak/bin/kcadm.sh "$@" --config /tmp/kcadm.config; }; KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" k config credentials --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" && id=$(k get users -r master -q exact=true -q "username=$TEMP_ADMIN" --fields id --format csv --noquotes) && k delete "users/$id" -r master && k get users -r master -q exact=true -q "username=$TEMP_ADMIN" && rm /tmp/kcadm.config'
+docker compose up -d --wait   # keycloak-master signs in with .env's admin again
 ```
+
+The check prints `[ ]` once the temporary admin is gone.
 
 An account left by an earlier recovery is deleted the same way, with `TEMP_ADMIN` set to its name.
 To give the admin a new password rather than the one `.env` holds, write it into `.env` before you
@@ -936,9 +989,11 @@ and only once `make restore-check` has passed for the backup you are about to re
 Never use `docker compose down -v`.
 
 **A restored Keycloak keeps the dump's own admin account and client secrets, not `.env`'s.** If
-`KEYCLOAK_ADMIN_PASSWORD`, `GATEWAY_CLIENT_SECRET` or `ASSISTANT_CLIENT_SECRET` changed in `.env`
-since the backup, change Keycloak to match `.env`, as [Rotating a secret](#rotating-a-secret) does,
-or the gateway cannot sign anyone in. Never change `.env` back to the old value: it is the one
+`KEYCLOAK_ADMIN_USERNAME`, `KEYCLOAK_ADMIN_PASSWORD`, `GATEWAY_CLIENT_SECRET` or
+`ASSISTANT_CLIENT_SECRET` changed in `.env` since the backup, change Keycloak to match `.env`, as
+[Rotating a secret](#rotating-a-secret) does. Until then `keycloak-master` cannot sign in with an
+admin password that differs, so the restore's `docker compose up` fails and the gateway does not
+start, and with a client secret that differs the gateway cannot sign anyone in. Never change `.env` back to the old value: it is the one
 the backup holds, and the one you replaced.
 
 **Undoing a realm re-import** means restoring Keycloak's database alone. A re-import deletes the

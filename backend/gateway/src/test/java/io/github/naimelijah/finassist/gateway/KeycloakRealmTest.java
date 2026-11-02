@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +35,10 @@ import tools.jackson.databind.node.StringNode;
  * and which nothing else makes: {@link KeycloakRealmIT} supplies every placeholder itself as
  * container environment, and the assertions below check only that each is bare.
  *
+ * <p>It reads {@code ops/keycloak/master-realm.json} the same way: the settings Keycloak's own
+ * {@code master} realm takes (ADR-074), its lockout policy held equal to the realm's (ADR-073),
+ * and the wiring of the {@code keycloak-master} one-shot that merges it in.
+ *
  * <p>{@link KeycloakRealmIT} is this file's other half: it proves Keycloak actually reads the
  * realm the way these assertions assume. This test cannot catch a wrong assumption about
  * Keycloak's own behaviour, only a wrong or drifted realm file.
@@ -48,10 +53,29 @@ class KeycloakRealmTest {
 
     private static final String REALM_FILE = "finassist-realm.json";
 
+    /** The settings the keycloak-master one-shot merges into Keycloak's own realm (ADR-074). */
+    private static final String MASTER_REALM_FILE = "master-realm.json";
+
+    /** Every member of ADR-073's lockout policy, which each configured realm states in full. */
+    private static final List<String> BRUTE_FORCE_MEMBERS = List.of(
+            "bruteForceProtected",
+            "bruteForceStrategy",
+            "permanentLockout",
+            "maxTemporaryLockouts",
+            "failureFactor",
+            "waitIncrementSeconds",
+            "quickLoginCheckMilliSeconds",
+            "minimumQuickLoginWaitSeconds",
+            "maxFailureWaitSeconds",
+            "maxDeltaTimeSeconds");
+
     private static final String COMPOSE_FILE = "docker-compose.yml";
 
     /** The service whose environment resolves the realm's placeholders at import. */
     private static final String KEYCLOAK_SERVICE = "keycloak";
+
+    /** The one-shot that merges master-realm.json into the running realm (ADR-074). */
+    private static final String MASTER_REALM_SERVICE = "keycloak-master";
 
     /**
      * A key naming a secret wherever it sits in the realm: Keycloak's own {@code secret} on a
@@ -93,19 +117,27 @@ class KeycloakRealmTest {
         return JSON.readTree(rawText());
     }
 
-    /** The realm file, located through {@value #OPS_DIR_PROPERTY}, failing loudly when it is unset. */
-    private static Path realmFile() {
+    private static JsonNode masterRealm() {
+        return JSON.readTree(rawText(MASTER_REALM_FILE));
+    }
+
+    /** A file in {@code ops/keycloak}, located through {@value #OPS_DIR_PROPERTY}, failing loudly when it is unset. */
+    private static Path keycloakFile(String name) {
         String directory = System.getProperty(OPS_DIR_PROPERTY);
         if (directory == null) {
             throw new IllegalStateException(OPS_DIR_PROPERTY
                     + " is not set. Failsafe and surefire set it in pom.xml; run this test through Maven, or"
                     + " pass -D" + OPS_DIR_PROPERTY + "=<repository>/ops.");
         }
-        return Path.of(directory, "keycloak", REALM_FILE).toAbsolutePath().normalize();
+        return Path.of(directory, "keycloak", name).toAbsolutePath().normalize();
     }
 
     private static String rawText() {
-        Path file = realmFile();
+        return rawText(REALM_FILE);
+    }
+
+    private static String rawText(String name) {
+        Path file = keycloakFile(name);
         try {
             return Files.readString(file);
         } catch (Exception e) {
@@ -153,13 +185,16 @@ class KeycloakRealmTest {
         assertMember(realm, "rememberMe", BooleanNode.FALSE);
     }
 
+    /** The thresholds ADR-073 records, which every realm the repository configures takes. */
     @Test
     void Given_the_realm_file_When_read_Then_brute_force_protection_is_on_with_the_agreed_thresholds() {
         JsonNode realm = realm();
 
         assertMember(realm, "bruteForceProtected", BooleanNode.TRUE);
+        // Keycloak's own default, stated so that an upgrade which moves the default moves nothing.
+        assertMember(realm, "bruteForceStrategy", StringNode.valueOf("MULTIPLE"));
         // Off, because the realm has one owner: a permanent lockout after five wrong guesses would
-        // lock that owner out until someone with the admin password intervened.
+        // lock that owner out until someone with the admin password intervened (ADR-073).
         assertMember(realm, "permanentLockout", BooleanNode.FALSE);
         assertMember(realm, "maxTemporaryLockouts", IntNode.valueOf(0));
         assertMember(realm, "quickLoginCheckMilliSeconds", IntNode.valueOf(1000));
@@ -168,6 +203,91 @@ class KeycloakRealmTest {
         assertMember(realm, "failureFactor", IntNode.valueOf(5));
         assertMember(realm, "waitIncrementSeconds", IntNode.valueOf(60));
         assertMember(realm, "maxFailureWaitSeconds", IntNode.valueOf(900));
+    }
+
+    /**
+     * master's file is merged into a realm Keycloak created, so every member it holds overrides a
+     * default, and a member it drops keeps its last value: the set is pinned whole (ADR-074).
+     */
+    @Test
+    void Given_the_master_realm_file_When_read_Then_it_names_master_and_exactly_the_settings_adr_074_lists() {
+        JsonNode master = masterRealm();
+        List<String> expected = new ArrayList<>(List.of("realm", "passwordPolicy", "eventsListeners"));
+        expected.addAll(BRUTE_FORCE_MEMBERS);
+
+        assertThat(master.propertyNames()).containsExactlyInAnyOrderElementsOf(expected);
+        assertMember(master, "realm", StringNode.valueOf("master"));
+    }
+
+    /** One lockout policy for every realm the repository configures (ADR-073). */
+    @Test
+    void Given_both_realm_files_When_their_lockout_policies_are_compared_Then_they_are_the_same() {
+        JsonNode finassist = realm();
+        JsonNode master = masterRealm();
+
+        for (String member : BRUTE_FORCE_MEMBERS) {
+            assertThat(master.path(member))
+                    .as("%s in master-realm.json", member)
+                    .isEqualTo(finassist.path(member));
+        }
+    }
+
+    /**
+     * The administrator's password is held to the length {@code secret-check} holds {@code
+     * KEYCLOAK_ADMIN_PASSWORD} to, so one set in the console cannot fall below it. No history: the
+     * recovery runbook sets it back to the value in {@code .env} (ADR-074).
+     */
+    @Test
+    void Given_the_master_realm_file_When_read_Then_the_password_policy_holds_the_secret_checks_minimum() {
+        assertMember(masterRealm(), "passwordPolicy", StringNode.valueOf("length(32) and notUsername"));
+    }
+
+    /** As in finassist: no listener writes a sign-in, or a password typed as a username, to the log. */
+    @Test
+    void Given_the_master_realm_file_When_read_Then_no_event_listener_writes_sign_ins_to_the_log() {
+        assertMember(masterRealm(), "eventsListeners", JSON.createArrayNode());
+    }
+
+    /** Nothing in it is resolved at run time, and nothing in it is secret: it is published as it stands. */
+    @Test
+    void Given_the_master_realm_file_When_read_Then_it_holds_no_placeholder_and_no_secret() {
+        assertThat(rawText(MASTER_REALM_FILE)).doesNotContain("${");
+        assertThat(masterRealm().propertyNames())
+                .filteredOn(name -> SECRET_KEY.matcher(name).matches())
+                .allMatch(KEYS_THAT_HOLD_NO_SECRET::contains);
+    }
+
+    /**
+     * The one-shot runs the script from the very image Keycloak runs, built from one context, as
+     * {@code nobody}, once Keycloak is ready. Two contexts would let it merge a file Keycloak's own
+     * image no longer holds (ADR-074).
+     */
+    @Test
+    void
+            Given_the_compose_file_When_the_master_realm_one_shot_is_read_Then_it_runs_the_script_from_keycloaks_build_as_nobody() {
+        Map<String, Object> oneShot = composeService(MASTER_REALM_SERVICE);
+
+        assertThat(oneShot.get("build"))
+                .isEqualTo(composeService(KEYCLOAK_SERVICE).get("build"));
+        assertThat(oneShot.get("entrypoint")).isEqualTo(List.of("sh", "/opt/finassist/apply-master-realm.sh"));
+        assertThat(oneShot.get("user")).isEqualTo("65534:65534");
+        assertThat(asMap(asMap(oneShot.get("depends_on"), "depends_on").get(KEYCLOAK_SERVICE), "keycloak"))
+                .containsEntry("condition", "service_healthy");
+    }
+
+    /**
+     * The one-shot signs in as the administrator Keycloak was bootstrapped with, so each of its two
+     * variables must be spelt as the {@code keycloak} service spells it: a default that differed
+     * would sign in as another user, and a password that differed would never sign in (ADR-074).
+     */
+    @Test
+    void Given_the_compose_file_When_the_master_realm_one_shot_is_read_Then_it_signs_in_as_keycloaks_administrator() {
+        Map<String, Object> environment =
+                asMap(composeService(MASTER_REALM_SERVICE).get("environment"), MASTER_REALM_SERVICE + ".environment");
+        Map<String, Object> keycloak = keycloakServiceEnvironment();
+
+        assertThat(environment.get("KEYCLOAK_ADMIN_USERNAME")).isEqualTo(keycloak.get("KC_BOOTSTRAP_ADMIN_USERNAME"));
+        assertThat(environment.get("KC_CLI_PASSWORD")).isEqualTo(keycloak.get("KC_BOOTSTRAP_ADMIN_PASSWORD"));
     }
 
     @Test
@@ -717,6 +837,11 @@ class KeycloakRealmTest {
 
     /** The {@code keycloak} service's environment, each value as Compose's file spells it, unresolved. */
     private static Map<String, Object> keycloakServiceEnvironment() {
+        return asMap(composeService(KEYCLOAK_SERVICE).get("environment"), KEYCLOAK_SERVICE + ".environment");
+    }
+
+    /** One service of {@code docker-compose.yml}, as its file spells it, unresolved. */
+    private static Map<String, Object> composeService(String name) {
         String directory = System.getProperty(REPO_DIR_PROPERTY);
         if (directory == null) {
             throw new IllegalStateException(REPO_DIR_PROPERTY
@@ -727,8 +852,7 @@ class KeycloakRealmTest {
         try (Reader reader = Files.newBufferedReader(file)) {
             Map<String, Object> compose = new Yaml().load(reader);
             Map<String, Object> services = asMap(compose.get("services"), "services");
-            Map<String, Object> keycloak = asMap(services.get(KEYCLOAK_SERVICE), KEYCLOAK_SERVICE);
-            return asMap(keycloak.get("environment"), KEYCLOAK_SERVICE + ".environment");
+            return asMap(services.get(name), name);
         } catch (Exception e) {
             throw new IllegalStateException("could not read " + file, e);
         }

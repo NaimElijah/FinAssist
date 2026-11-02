@@ -158,10 +158,10 @@ Enforced by the build unless marked otherwise: breaking one fails CI.
 - **All but `db` and `keycloak-db` take `<<: *hardened`, all but those and Keycloak `read_only`**;
   none takes a host privilege `ops/CLAUDE.md` names; `network_mode` is only `secret-check`'s. `db`
   shares `books` with the ledger alone, `keycloak-db` `identity` with Keycloak alone (ADR-063).
-- **`auth-smoke` stays behind exactly `profiles: [smoke]`**: CI validates it but never runs it,
-  nor `make restore-check` (ADR-034, ADR-038). **`secret-check` has no profile**: both databases
-  and Grafana wait on it, and CI runs it on a published value (ADR-044). `make check-compose` holds
-  the first two rules, both profiles and the ports under **Run**; `ops/CLAUDE.md` lists the rest.
+- **`auth-smoke` stays behind exactly `profiles: [smoke]`**: CI never runs it, nor `make
+  restore-check` (ADR-034, ADR-038). **`secret-check` and `keycloak-master` take no profile**: the
+  databases and Grafana wait on the first, which CI runs on a published value, and the gateway on
+  the second (ADR-044, ADR-074). `make check-compose` holds them and the ports; see `ops/CLAUDE.md`.
 
 ### Tests
 

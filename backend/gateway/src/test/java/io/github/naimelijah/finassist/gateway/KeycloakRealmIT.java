@@ -2,18 +2,21 @@ package io.github.naimelijah.finassist.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.github.dockerjava.api.model.Capability;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -25,6 +28,7 @@ import org.testcontainers.containers.ExecConfig;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.output.WaitingConsumer;
+import org.testcontainers.containers.startupcheck.OneShotStartupCheckStrategy;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.utility.DockerImageName;
@@ -70,6 +74,10 @@ import tools.jackson.databind.node.StringNode;
  *       registrationAllowed} that default is off, so a lost key would be harmless; for {@code
  *       bruteForceProtected} it is off too, where the realm asks for on, so a lost key would
  *       silently remove the protection.
+ *   <li>Keycloak's own {@code master} realm takes the settings in {@code master-realm.json}, merged
+ *       in by the image's {@code apply-master-realm.sh} run as the {@code keycloak-master} one-shot
+ *       runs it, and keeps a setting the file does not name; a failed sign-in to {@code master}
+ *       leaves its username out of the log too (ADR-073, ADR-074).
  * </ul>
  *
  * <p>Every realm placeholder is supplied here as a container environment variable, because the
@@ -106,6 +114,22 @@ class KeycloakRealmIT {
     private static final String OWNER_USER_ID = "6c4a4be0-7c38-4145-845f-f4311ef64202";
 
     private static final String OWNER_INITIAL_PASSWORD = "it-owner-initial-pw-12chars";
+
+    private static final String ADMIN_USERNAME = "it-admin";
+
+    /** At least the 32 characters secret-check holds KEYCLOAK_ADMIN_PASSWORD to (ADR-061). */
+    private static final String ADMIN_PASSWORD = "it-admin-password-of-thirty-two-chars";
+
+    /** The Compose service name the keycloak-master one-shot reaches Keycloak by (ADR-074). */
+    private static final String KEYCLOAK_ALIAS = "keycloak";
+
+    /** Where the image puts master's settings and the script that applies them (ADR-074). */
+    private static final String MASTER_REALM_IN_IMAGE = "/opt/finassist/master-realm.json";
+
+    private static final String APPLY_MASTER_REALM = "/opt/finassist/apply-master-realm.sh";
+
+    /** How long the one-shot may take: a JVM start and two admin calls. */
+    private static final Duration ONE_SHOT_TIMEOUT = Duration.ofMinutes(2);
 
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(15);
 
@@ -144,8 +168,8 @@ class KeycloakRealmIT {
     private static final String TRANSACTION_LOG = KEYCLOAK_HOME + "/data/transaction-logs";
 
     /**
-     * Keycloak's code, its configuration, the directories holding them and the realm it imports.
-     * Each must exist, so a path a later Keycloak renames fails the probe rather than passing it.
+     * Keycloak's code, its configuration, the directories holding them, the realm it imports, and
+     * {@code master}'s settings with the script that merges them (ADR-074). Each must exist, so a path a later Keycloak renames fails the probe rather than passing it.
      */
     private static final List<String> READ_ONLY_PATHS = List.of(
             KEYCLOAK_HOME,
@@ -160,7 +184,10 @@ class KeycloakRealmIT {
             KEYCLOAK_HOME + "/themes",
             KEYCLOAK_HOME + "/data",
             KEYCLOAK_HOME + "/data/import",
-            KEYCLOAK_HOME + "/data/import/finassist-realm.json");
+            KEYCLOAK_HOME + "/data/import/finassist-realm.json",
+            "/opt/finassist",
+            MASTER_REALM_IN_IMAGE,
+            APPLY_MASTER_REALM);
 
     /**
      * Prints who ran it, then one line per argument: missing, writable or read-only to that user.
@@ -182,6 +209,7 @@ class KeycloakRealmIT {
     private static Network network;
     private static GenericContainer<?> db;
     private static GenericContainer<?> keycloak;
+    private static ImageFromDockerfile image;
 
     @BeforeAll
     static void startKeycloakAgainstItsOwnRealm() {
@@ -202,10 +230,11 @@ class KeycloakRealmIT {
         db.start();
 
         Path opsKeycloakDir = Path.of(opsDir(), "keycloak").toAbsolutePath().normalize();
-        ImageFromDockerfile image = new ImageFromDockerfile().withFileFromPath(".", opsKeycloakDir);
+        image = new ImageFromDockerfile().withFileFromPath(".", opsKeycloakDir);
 
         keycloak = new GenericContainer<>(image)
                 .withNetwork(network)
+                .withNetworkAliases(KEYCLOAK_ALIAS)
                 .withExposedPorts(8080, 9000)
                 .withEnv("KC_HOSTNAME", PUBLIC_URL)
                 .withEnv("KC_HOSTNAME_BACKCHANNEL_DYNAMIC", "true")
@@ -214,8 +243,8 @@ class KeycloakRealmIT {
                 .withEnv("KC_DB_URL", "jdbc:postgresql://keycloak-db:5432/keycloak")
                 .withEnv("KC_DB_USERNAME", "keycloak")
                 .withEnv("KC_DB_PASSWORD", "it-db-password")
-                .withEnv("KC_BOOTSTRAP_ADMIN_USERNAME", "it-admin")
-                .withEnv("KC_BOOTSTRAP_ADMIN_PASSWORD", "it-admin-password")
+                .withEnv("KC_BOOTSTRAP_ADMIN_USERNAME", ADMIN_USERNAME)
+                .withEnv("KC_BOOTSTRAP_ADMIN_PASSWORD", ADMIN_PASSWORD)
                 .withEnv("GATEWAY_CLIENT_SECRET", GATEWAY_CLIENT_SECRET)
                 .withEnv("ASSISTANT_CLIENT_SECRET", ASSISTANT_CLIENT_SECRET)
                 .withEnv("GATEWAY_PUBLIC_URL", "http://localhost:5173")
@@ -226,6 +255,32 @@ class KeycloakRealmIT {
                         .forStatusCode(200)
                         .withStartupTimeout(Duration.ofMinutes(3)));
         keycloak.start();
+
+        applyMasterRealm();
+    }
+
+    /**
+     * Runs the keycloak-master one-shot as docker-compose.yml runs it: the built image, its script,
+     * as {@code nobody}, every capability dropped, no new privileges, a read-only root and only
+     * {@code /tmp} writable, reaching Keycloak by its service name. A start that exits other than
+     * 0 fails the start, and so the class.
+     */
+    private static void applyMasterRealm() {
+        try (GenericContainer<?> oneShot = new GenericContainer<>(image)
+                .withNetwork(network)
+                .withEnv("KEYCLOAK_ADMIN_USERNAME", ADMIN_USERNAME)
+                .withEnv("KC_CLI_PASSWORD", ADMIN_PASSWORD)
+                .withCreateContainerCmdModifier(command -> {
+                    command.withEntrypoint("sh").withCmd(APPLY_MASTER_REALM).withUser("65534:65534");
+                    command.getHostConfig()
+                            .withReadonlyRootfs(true)
+                            .withTmpFs(Map.of("/tmp", ""))
+                            .withCapDrop(Capability.ALL)
+                            .withSecurityOpts(List.of("no-new-privileges:true"));
+                })
+                .withStartupCheckStrategy(new OneShotStartupCheckStrategy().withTimeout(ONE_SHOT_TIMEOUT))) {
+            oneShot.start();
+        }
     }
 
     @AfterAll
@@ -296,7 +351,8 @@ class KeycloakRealmIT {
 
     /** A bootstrap-admin token from the master realm, for the admin API calls above. */
     private static String adminToken() throws Exception {
-        String body = "grant_type=password&client_id=admin-cli&username=it-admin&password=it-admin-password";
+        String body =
+                "grant_type=password&client_id=admin-cli&username=" + ADMIN_USERNAME + "&password=" + ADMIN_PASSWORD;
         HttpRequest request = HttpRequest.newBuilder(
                         URI.create(baseUrl() + "/realms/master/protocol/openid-connect/token"))
                 .timeout(HTTP_TIMEOUT)
@@ -306,6 +362,19 @@ class KeycloakRealmIT {
         HttpResponse<String> response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).as("admin token response").isEqualTo(200);
         return JSON.readTree(response.body()).path("access_token").asString();
+    }
+
+    private static void adminPut(String path, Map<String, Object> body) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl() + path))
+                .timeout(HTTP_TIMEOUT)
+                .header("Authorization", "Bearer " + adminToken())
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
+                .build();
+        HttpResponse<String> response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode())
+                .as("PUT %s -> %s", path, response.body())
+                .isEqualTo(204);
     }
 
     private static JsonNode adminGet(String path) throws Exception {
@@ -489,34 +558,59 @@ class KeycloakRealmIT {
      * error message proves the attempt reached the credential check, so the absence is not for
      * want of a sign-in.
      *
-     * <p>The log is read only once a later control line has reached it: a failed sign-in to {@code
-     * master}, which keeps Keycloak's default listener. Keycloak writes the two in order, so a line
-     * from the first attempt cannot still be on its way when the second has arrived. Should {@code
-     * master} ever log no sign-in event either, the wait fails rather than the check passing.
+     * <p>The log is read only once a later control line has reached it: a failed sign-in to a realm
+     * this test creates, which takes Keycloak's default listener as a new realm does. Not {@code
+     * master}, whose listener ADR-074 removes as well. Keycloak writes the two in order, so a line
+     * from the first attempt cannot still be on its way when the second has arrived. Should the
+     * control realm ever log no sign-in event either, the wait fails rather than the check passing.
      */
     @Test
     void Given_a_failed_sign_in_through_the_login_form_When_the_log_is_read_Then_the_username_is_absent()
             throws Exception {
         String marker = "it-marker-username-7qz41";
+        String masterMarker = "it-master-marker-username-2hd63";
         String control = "it-control-username-3vk82";
         WaitingConsumer log = new WaitingConsumer();
         keycloak.followOutput(log);
 
+        String controlRealm = realmWithKeycloaksDefaults();
+
         HttpResponse<String> answer = failedFormSignIn(marker);
-        failedMasterPasswordGrant(control);
+        failedPasswordGrant("master", masterMarker);
+        failedPasswordGrant(controlRealm, control);
         log.waitUntil(frame -> frame.getUtf8String().contains(control), CONTROL_LINE_WAIT_SECONDS, TimeUnit.SECONDS);
 
         assertThat(answer.statusCode()).as("the login form's answer").isEqualTo(200);
         assertThat(answer.body()).contains(INVALID_CREDENTIALS_MESSAGE);
-        assertThat(keycloak.getLogs()).doesNotContain(marker);
+        assertThat(keycloak.getLogs()).doesNotContain(marker).doesNotContain(masterMarker);
     }
 
-    /** A password grant to {@code master} for a user that does not exist, refused as such. */
-    private static void failedMasterPasswordGrant(String username) throws Exception {
+    /**
+     * A realm created for one test, under a name no other test uses, holding only what Keycloak
+     * gives a new realm: the {@code jboss-logging} listener and an {@code admin-cli} that allows the
+     * password grant.
+     */
+    private static String realmWithKeycloaksDefaults() throws Exception {
+        String name = "it-control-" + UUID.randomUUID();
+        HttpResponse<String> response = CLIENT.send(
+                HttpRequest.newBuilder(URI.create(baseUrl() + "/admin/realms"))
+                        .timeout(HTTP_TIMEOUT)
+                        .header("Authorization", "Bearer " + adminToken())
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(
+                                JSON.writeValueAsString(Map.of("realm", name, "enabled", true))))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).as("creating the control realm").isEqualTo(201);
+        return name;
+    }
+
+    /** A password grant to {@code realm} for a user that does not exist, refused as such. */
+    private static void failedPasswordGrant(String realm, String username) throws Exception {
         String body = "grant_type=password&client_id=admin-cli&username="
                 + URLEncoder.encode(username, StandardCharsets.UTF_8) + "&password=it-wrong-password-for-the-control";
         HttpResponse<String> response = CLIENT.send(
-                HttpRequest.newBuilder(URI.create(baseUrl() + "/realms/master/protocol/openid-connect/token"))
+                HttpRequest.newBuilder(URI.create(baseUrl() + "/realms/" + realm + "/protocol/openid-connect/token"))
                         .timeout(HTTP_TIMEOUT)
                         .header("Content-Type", "application/x-www-form-urlencoded")
                         .POST(HttpRequest.BodyPublishers.ofString(body))
@@ -566,9 +660,10 @@ class KeycloakRealmIT {
     }
 
     /**
-     * Brute-force protection as the running server applies it. {@code permanentLockout} is pinned
-     * off with the rest because the realm has a single owner: a permanent lockout after five wrong
-     * guesses would lock that owner out until someone with the admin password intervened.
+     * Brute-force protection as the running server applies it, at the thresholds ADR-073 records.
+     * {@code permanentLockout} is pinned off with the rest because the realm has a single owner: a
+     * permanent lockout after five wrong guesses would lock that owner out until someone with the
+     * admin password intervened.
      */
     @Test
     void Given_the_realm_as_imported_When_its_brute_force_settings_are_read_Then_they_hold_the_agreed_thresholds()
@@ -576,6 +671,7 @@ class KeycloakRealmIT {
         JsonNode realm = importedRealm();
 
         assertMember(realm, "bruteForceProtected", BooleanNode.TRUE);
+        assertMember(realm, "bruteForceStrategy", StringNode.valueOf("MULTIPLE"));
         assertMember(realm, "permanentLockout", BooleanNode.FALSE);
         assertMember(realm, "maxTemporaryLockouts", IntNode.valueOf(0));
         assertMember(realm, "failureFactor", IntNode.valueOf(5));
@@ -804,5 +900,106 @@ class KeycloakRealmIT {
     private static List<String> audience(JsonNode payload) {
         JsonNode aud = payload.path("aud");
         return aud.isArray() ? aud.valueStream().map(JsonNode::asString).toList() : List.of(aud.asString());
+    }
+
+    /** {@code master} as Keycloak holds it now, after the one-shot the class started with. */
+    private static JsonNode masterAsHeld() throws Exception {
+        return adminGet("/admin/realms/master");
+    }
+
+    private static JsonNode masterRealmFile() throws Exception {
+        return JSON.readTree(Files.readString(Path.of(opsDir(), "keycloak", "master-realm.json")));
+    }
+
+    /**
+     * Every member the file names, read back from the running {@code master}: a member Keycloak
+     * ignored or renamed would leave {@link KeycloakRealmTest} green and the realm at its default,
+     * which for {@code bruteForceProtected} is off (ADR-074).
+     */
+    @Test
+    void Given_master_after_the_one_shot_When_read_Then_it_holds_every_setting_the_file_names() throws Exception {
+        JsonNode file = masterRealmFile();
+        JsonNode held = masterAsHeld();
+
+        for (String member : file.propertyNames()) {
+            assertMember(held, member, file.path(member));
+        }
+    }
+
+    /**
+     * The one-shot runs on every {@code up}, so a second run against a configured realm must
+     * succeed and change nothing the file does not name: a setting the owner changed in the console
+     * is kept, not reset to Keycloak's default.
+     */
+    @Test
+    void Given_a_setting_the_file_does_not_name_When_the_one_shot_runs_again_Then_it_is_kept() throws Exception {
+        String changedInTheConsole = "it-display-name-set-by-hand-8wq3";
+        adminPut("/admin/realms/master", Map.of("displayName", changedInTheConsole));
+
+        applyMasterRealm();
+
+        JsonNode held = masterAsHeld();
+        JsonNode file = masterRealmFile();
+        for (String member : file.propertyNames()) {
+            assertMember(held, member, file.path(member));
+        }
+        assertMember(held, "displayName", StringNode.valueOf(changedInTheConsole));
+    }
+
+    /**
+     * A sign-in the script cannot make fails it, so the gateway that waits on it does not start, and
+     * neither the password it was given nor anything else it read is printed. An unknown user, so
+     * the class's own administrator is never counted towards a lockout.
+     */
+    @Test
+    void Given_an_administrator_that_does_not_exist_When_the_script_runs_Then_it_fails_without_printing_the_password()
+            throws Exception {
+        String password = "it-marker-password-not-to-be-printed-5mx2";
+
+        ExecResult run = keycloak.execInContainer(ExecConfig.builder()
+                .envVars(Map.of(
+                        "KEYCLOAK_ADMIN_USERNAME", "it-nobody",
+                        "KC_CLI_PASSWORD", password,
+                        "KEYCLOAK_URL", "http://localhost:8080"))
+                .command(new String[] {"sh", APPLY_MASTER_REALM})
+                .build());
+
+        assertThat(run.getExitCode()).as("the script's exit code").isNotZero();
+        assertThat(run.getStdout() + run.getStderr())
+                .contains("Invalid user credentials")
+                .doesNotContain(password);
+    }
+
+    /** The script refuses to run without the variables it signs in with, naming the one missing. */
+    @Test
+    void Given_no_administrator_password_When_the_script_runs_Then_it_fails_naming_kc_cli_password() throws Exception {
+        ExecResult run = keycloak.execInContainer(ExecConfig.builder()
+                .envVars(Map.of("KEYCLOAK_ADMIN_USERNAME", ADMIN_USERNAME, "KEYCLOAK_URL", "http://localhost:8080"))
+                .command(new String[] {"sh", APPLY_MASTER_REALM})
+                .build());
+
+        assertThat(run.getExitCode()).as("the script's exit code").isNotZero();
+        assertThat(run.getStderr()).contains("KC_CLI_PASSWORD");
+    }
+
+    /**
+     * Every {@code kcadm.sh} runbook signs in to {@code master} through {@code admin-cli}'s password
+     * grant, so ADR-074 keeps it, and this names the decision where the other tests only rely on it.
+     */
+    @Test
+    void Given_master_after_the_one_shot_When_its_administrator_signs_in_with_a_password_Then_a_token_is_issued()
+            throws Exception {
+        assertThat(adminToken()).isNotBlank();
+    }
+
+    /** --import-realm never reads master's file, so the image keeps it out of the directory it reads. */
+    @Test
+    void Given_the_built_image_When_its_import_directory_is_read_Then_master_realm_json_is_not_in_it()
+            throws Exception {
+        ExecResult probe = keycloak.execInContainer(
+                "bash", "-c", WRITABILITY_PROBE, "bash", KEYCLOAK_HOME + "/data/import/master-realm.json");
+
+        assertThat(probe.getStdout().lines().toList())
+                .containsExactly(IMAGE_IDENTITY, "missing " + KEYCLOAK_HOME + "/data/import/master-realm.json");
     }
 }
