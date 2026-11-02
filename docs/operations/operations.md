@@ -172,15 +172,15 @@ docker compose up -d --wait db keycloak-db
 make backup   # raw: uv run ops/backup/backup.py backup
 ```
 
-**If it fails, stop:** step 4 deletes the only other copy of the writes since the upgrade. Write its
-folder down as `<post-upgrade folder>`, beside `<pre-upgrade folder>`, and prove it restores, still
-on the newer code and before step 1:
+**If it fails, stop:** step 4, or step 3's alternative, deletes the only other copy of the writes
+since the upgrade. Write its folder down as `<post-upgrade folder>`, beside `<pre-upgrade folder>`,
+and prove it restores, still on the newer code and before step 1:
 
 ```bash
 make restore-check BACKUP=backups/<post-upgrade folder>   # raw: uv run ops/backup/backup.py check backups/<post-upgrade folder>
 ```
 
-After step 4 it is the only copy of the writes since the upgrade. It is the newest folder in
+After step 4, or step 3's alternative, it is the only copy of the writes since the upgrade. It is the newest folder in
 `backups/`, and not the one that step 2, step 3's alternative and step 5 name: restoring it there
 would bring back the migrated books and the newer Keycloak.
 
