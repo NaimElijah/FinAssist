@@ -2,8 +2,9 @@
 
 - **Status:** Accepted, extended by [ADR-030](ADR-030-oidc-authentication-through-a-bff-gateway.md),
   [ADR-056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md),
-  [ADR-058](ADR-058-each-service-bounds-what-one-request-can-cost.md) and
-  [ADR-068](ADR-068-every-problem-carries-what-its-contract-requires.md)
+  [ADR-058](ADR-058-each-service-bounds-what-one-request-can-cost.md),
+  [ADR-068](ADR-068-every-problem-carries-what-its-contract-requires.md) and
+  [ADR-075](ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md)
 - **Date:** 2026-09-14
 
 ## Context

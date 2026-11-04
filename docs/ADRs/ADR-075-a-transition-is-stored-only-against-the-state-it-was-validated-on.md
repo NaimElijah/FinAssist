@@ -1,12 +1,18 @@
 # ADR-075: A transition is stored only against the state it was validated on
 
-- **Status:** Accepted, extends [ADR-024](ADR-024-jdbc-persistence-and-append-only-schema.md) and
-  [ADR-066](ADR-066-the-store-holds-every-rule-the-domain-holds-across-rows.md)
+- **Status:** Accepted
 - **Date:** 2026-11-05
 
-Extends ADR-024, whose `(transaction_id, sequence)` primary key was meant to double as optimistic
-concurrency, and ADR-066, whose `V1_4` trigger checks each state row against the state stored now
-and left a stale move whose target is legal to land, "still #370's".
+Extends [ADR-024](ADR-024-jdbc-persistence-and-append-only-schema.md), whose `(transaction_id,
+sequence)` primary key was meant to double as optimistic concurrency;
+[ADR-066](ADR-066-the-store-holds-every-rule-the-domain-holds-across-rows.md), whose `V1_4` trigger
+checks each state row against the state stored now and left a stale move whose target is legal to
+land, "still #370's"; [ADR-028](ADR-028-http-wire-conventions.md), whose 409 for an illegal lifecycle
+transition now also covers a move that lost a race, which the new state may allow;
+[ADR-056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md), which says a 409
+stays in conflict, so a repeat would only meet it again; and
+[ADR-033](ADR-033-the-journal-records-who.md), whose later `save` calls that append a state are now
+`saveTransition`, still writing each row's own actor.
 
 ## Context
 
@@ -77,7 +83,9 @@ record, accounting's and planning's.
 - **`save` records a new transaction only.** A changed state on a stored identity throws
   `IllegalStateException`, so no caller can append a state without the comparison.
 - **The 409 reuses `ILLEGAL_TRANSITION`.** The client's next step is the same as for a forbidden
-  move, to read the transaction again and decide; only the detail differs.
+  move, to read the transaction again and decide; only the detail differs. A void can now answer it
+  with Void still legal on the row, so a repeat could succeed. That is for the person to reconsider:
+  the web client still never repeats a write (ADR-056).
 
 **Planning (`planning`):**
 
@@ -95,7 +103,9 @@ record, accounting's and planning's.
   therefore has no `@Transactional` and sets no isolation level, deliberately.
 - **`save` becomes a plain `INSERT`,** for the same reason as the journal's: a state change has one
   door. A re-save of a stored identity raises `DuplicateKeyException`, which nothing catches and
-  which answers 500; no use case does it.
+  which answers 500; no use case does it. The journal's `save` keeps a re-save of an unchanged
+  transaction as a no-op, because `JournalIsAppendOnlyIT` pins it and an append-only store has more
+  reason to answer that gently. Planning has no such pin, and needs no second path.
 
 **This record replaces `V1_4`'s header comment, lines 19 to 25.** They describe the old `save`:
 that it "re-reads the current state and appends at the next sequence", that a legal stale move
@@ -111,7 +121,9 @@ edited. Read them as history.
   are now true** for overlapping transitions, and neither is edited.
 - **No migration,** so the owner's backup ([#405](https://github.com/NaimElijah/FinAssist/issues/405))
   and [#440](https://github.com/NaimElijah/FinAssist/issues/440) are unaffected.
-- **No web change:** both hooks already refetch on `ILLEGAL_TRANSITION`.
+- **No change in the web client's behaviour:** both hooks already refetch on `ILLEGAL_TRANSITION`.
+  Only comments change, plus tests for the newly reachable case: a void or a cancel refused with
+  the action still on offer.
 - **The contract is unchanged.** It has no 409, and `code` is a bare string, so `LedgerContractIT`
   passes untouched. #370 expected a contract change; there is none.
 - **A rival's commit is a 409 problem, not a 500,** and a refused move publishes no event.
@@ -135,8 +147,10 @@ edited. Read them as history.
 - **`V1_4`'s header lines 19 to 25 are untrue and cannot be fixed in place.** This record is where
   the correction lives.
 - **Not closed: the window between a page's read and its `POST`.** The request body carries no
-  expected state, so a person who opened a transaction, waited, and then voids it voids whatever it
-  has become. Only the interval inside the server is closed.
+  expected state, so a stale page's move is validated against whatever the row has become. This
+  needs no second person: refetch on focus is off, so one owner with two tabs reaches it today, and
+  the journal keeps the result. Only the interval inside the server is closed; [#443](https://github.com/NaimElijah/FinAssist/issues/443)
+  tracks the rest.
 
 ## Alternatives considered
 
@@ -158,9 +172,9 @@ edited. Read them as history.
   value semantics, and comparing states is enough.
 - **A new problem code.** Rejected: nothing branches differently. **Revisit when** a client must act
   differently on a stale move than on a forbidden one.
-- **`If-Match` or an expected state on the wire.** Rejected for now: it closes the interval between
-  a page's read and its `POST`, and matters only once a second human writer exists. **Revisit when**
-  that writer arrives (M6 or M7).
+- **`If-Match` or an expected state on the wire, in this change.** Not done here: it closes the
+  interval between a page's read and its `POST`, a contract change with its own decisions, and the
+  race inside the server stands on its own. [#443](https://github.com/NaimElijah/FinAssist/issues/443) tracks it.
 
 ## Revisit when
 
@@ -168,9 +182,13 @@ edited. Read them as history.
   ([#35](https://github.com/NaimElijah/FinAssist/issues/35)) or a tenancy setting
   ([#205](https://github.com/NaimElijah/FinAssist/issues/205)): it picks a level for each context,
   as above.
-- **A transaction-pooling proxy appears (M5),** because pgjdbc sets the isolation level per session,
-  and a proxy that shares a session between transactions would not honour it.
+- **A transaction-pooling proxy appears,** such as RDS Proxy in front of
+  [#176](https://github.com/NaimElijah/FinAssist/issues/176)'s database, though none is planned.
+  pgjdbc sets the isolation level with a session-wide `SET SESSION CHARACTERISTICS`, so the level
+  lands on one backend and stays there: the journal's move may run at `READ COMMITTED`, and an
+  unrelated client on that backend at `REPEATABLE READ`, where planning's waiting `UPDATE` would fail.
 - **The lifecycle gains a cycle,** such as reopening a reconciled transaction: a state would recur,
   and comparing states would no longer detect that something moved in between.
-- **A second human writer exists (M6 or M7).** Carry the expected state on the wire.
+- **A second human writer exists (M6 or M7),** at the latest. [#443](https://github.com/NaimElijah/FinAssist/issues/443) carries the expected state on
+  the wire.
 - **A client must act differently on a stale move than on a forbidden one.** Add a code.

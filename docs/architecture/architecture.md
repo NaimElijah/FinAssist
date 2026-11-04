@@ -1144,8 +1144,10 @@ accounting lifecycle change is stored by `saveTransition`, which takes the aggre
 state and the state it was validated against, and appends only if that is still the stored one
 ([ADR-075](../ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md));
 a planning one by `PlannedFlowRepository.saveTransition`, one `UPDATE` of the state columns whose
-`WHERE` holds the state it was validated against, while `save` only inserts. ADR-020's append-only
-obligation is therefore honoured as a port contract, and the durable adapter inherits it;
+`WHERE` holds the state it was validated against, while `save` only inserts, so a plan's current
+state is overwritten in place and only a delete is ruled out, because a plan is intent rather than
+the record of what happened (ADR-015). ADR-020's append-only obligation binds the journal, is
+honoured there as a port contract, and the durable adapter inherits it;
 [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md) then put
 the journal's half of it in the database too, where a trigger refuses an `UPDATE` or a `DELETE`,
 and another an entry added to a transaction already recorded.

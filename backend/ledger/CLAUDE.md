@@ -84,8 +84,10 @@ From `backend/ledger`:
 - **Repository ports expose no delete.** An accounting lifecycle change is stored by
   `TransactionRepository.saveTransition`, which takes the aggregate in its new state and the state
   it was validated against (ADR-075); a planning one by `PlannedFlowRepository.saveTransition`,
-  likewise, and `save` only records a new flow. Both are ADR-020's append-only obligation as a
-  port shape, which the durable adapter inherits (ADR-021).
+  likewise, and `save` only records a new flow. The journal's is ADR-020's append-only obligation
+  as a port shape, which the durable adapter inherits (ADR-021); a plan's current state is overwritten
+  in place, because ADR-020 binds the journal alone (ADR-015, ADR-024), so there only a delete is
+  ruled out.
 - **Domain events are raised by the application service.** The aggregates are records whose value
   semantics the suites rely on, so they carry no pending-events list. Only `accounting` and
   `planning` raise events — a `Budget` has no lifecycle. Nothing subscribes yet, deliberately

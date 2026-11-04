@@ -45,9 +45,10 @@ public interface PlannedFlowRepository {
      * <p>Only the state is written, whatever else {@code next} carries: a flow's other fields never change
      * through a transition, and the domain cannot produce a {@code next} that differs.
      *
-     * <p>Precondition: the flow is stored. One that never was is refused exactly as a stale move is, and
-     * the two are not told apart, because the port has no delete and the only caller has just read the
-     * flow.
+     * <p>Preconditions: {@code next} is one move {@link PlannedFlow} allows from {@code validatedAgainst},
+     * since no trigger stands behind this as one does behind the journal, so the store admits whatever it
+     * is given; and the flow is stored. One that never was is refused exactly as a stale move is, and the
+     * two are not told apart, because the port has no delete and the only caller has just read the flow.
      *
      * @param validatedAgainst the state the move was decided on
      * @param next the flow in its new state
