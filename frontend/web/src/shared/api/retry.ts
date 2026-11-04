@@ -21,8 +21,9 @@ const SERVICE_UNAVAILABLE_STATUS = 503;
  * That means a network failure, which `fetch` reports as a `TypeError` and `requestJson` rethrows,
  * or a 5xx `ApiError` other than a 503. A backend restarting refuses the connection, which reaches
  * here as a `TypeError`, or through the dev proxy as a 502. A 4xx is the server's considered
- * answer - a 404 stays missing and a 409 stays in conflict - so a second attempt would only repeat
- * it, and a 503 is considered too: see `SERVICE_UNAVAILABLE_STATUS`. Anything else, such as an
+ * answer, for a person to act on rather than a machine to repeat - a 404 stays missing, and a 409
+ * asks them to reconsider in the light of what changed (ADR-075) - and a 503 is considered too: see
+ * `SERVICE_UNAVAILABLE_STATUS`. Anything else, such as an
  * `ApiBodyError`, is a defect a second attempt would repeat. A `TypeError` thrown by a defect in
  * the code handling a response counts as retryable as well; from here the two cannot be told apart.
  *
