@@ -29,7 +29,7 @@ append-only history: to change course, add a new record and mark the old one
 | [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted, extended by 041 and 055 |
 | [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted, extended by 051, with a bounded exception in 028 |
 | [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted, extended by 048, which supersedes its in-memory-log sentence |
-| [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033, 035 and 066 |
+| [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033, 035, 066 and 075 |
 | [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted, extended by 047 |
 | [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted, extended by 030 |
 | [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
@@ -71,7 +71,7 @@ append-only history: to change course, add a new record and mark the old one
 | [063](ADR-063-every-container-holds-only-the-privilege-it-uses.md) | Under Compose, every container holds only the privilege it uses, and `make check-compose` holds it there | Accepted |
 | [064](ADR-064-what-the-build-fetches-is-pinned-by-content.md) | What the build fetches is pinned by content where the tool allows it, and Dependabot moves every pin | Accepted |
 | [065](ADR-065-javac-lint-is-the-java-lint-gate.md) | javac's own lint, every category, is the Java services' lint gate | Accepted |
-| [066](ADR-066-the-store-holds-every-rule-the-domain-holds-across-rows.md) | The ledger's store holds every rule the domain holds across rows | Accepted |
+| [066](ADR-066-the-store-holds-every-rule-the-domain-holds-across-rows.md) | The ledger's store holds every rule the domain holds across rows | Accepted, extended by 075 |
 | [067](ADR-067-a-relay-that-times-out-answers-504-outcome-unknown.md) | A relay that times out answers 504, outcome unknown | Accepted, extended by 070 |
 | [068](ADR-068-every-problem-carries-what-its-contract-requires.md) | Every problem carries what its contract requires | Accepted |
 | [069](ADR-069-the-web-client-targets-wcag-2-2-aa-and-holds-it-with-tests.md) | The web client targets WCAG 2.2 AA and holds it with tests | Accepted |
@@ -80,6 +80,7 @@ append-only history: to change course, add a new record and mark the old one
 | [072](ADR-072-a-projection-bounds-its-growth-rate-and-its-amounts.md) | A projection bounds its growth rate and its amounts | Accepted |
 | [073](ADR-073-every-realm-locks-out-a-guessed-sign-in-for-a-while-never-for-good.md) | Every realm locks out a guessed sign-in for a while, never for good | Accepted |
 | [074](ADR-074-the-master-realm-is-configured-from-the-repository.md) | The `master` realm is configured from the repository | Accepted |
+| [075](ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md) | A transition is stored only against the state it was validated on | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -438,3 +439,15 @@ into the running realm with `kcadm.sh` on every `up`, keeping every user, and th
 it. The owner kept one administrator signing in with a password until Keycloak is reachable beyond
 loopback, so `KEYCLOAK_ADMIN_PASSWORD` must now stay equal to the live password
 ([#368](https://github.com/NaimElijah/FinAssist/issues/368)).
+
+075 extends 024 and 066 on 2026-11-05. 024 said the journal's primary key doubles as optimistic
+concurrency, which did not hold, and 066 left a stale move whose target is legal to land. A move was
+validated against one read and written after another, so a void decided on a `PENDING` transaction
+landed on a `CLEARED` one, and every other stale move answered 500, from `V1_4`'s trigger or from
+the key. The journal now stores a move through `saveTransition`, at `REPEATABLE READ`, only if the
+stored state is still the one it was validated against, and a lost race is a 409
+`ILLEGAL_TRANSITION`. Planning's upsert, which had no trigger behind it, becomes a conditional
+`UPDATE`. No migration, no contract change and no new problem code; `V1_4`'s header lines 19 to 25 now
+describe the old `save`, and 075 replaces them. The interval between a page's read and its `POST`
+stays open until a second human writer exists
+([#370](https://github.com/NaimElijah/FinAssist/issues/370)).

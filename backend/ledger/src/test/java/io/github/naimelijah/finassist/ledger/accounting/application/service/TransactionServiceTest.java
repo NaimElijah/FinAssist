@@ -3,6 +3,7 @@ package io.github.naimelijah.finassist.ledger.accounting.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -11,6 +12,7 @@ import static org.mockito.Mockito.when;
 import io.github.naimelijah.finassist.ledger.accounting.adapter.out.event.InMemoryAccountingEvents;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.AccountNotFoundException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.ConcurrentTransitionException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.EntryCurrencyMismatchException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.RecordTransactionCommand;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.TransactionNotFoundException;
@@ -134,7 +136,7 @@ class TransactionServiceTest {
         Transaction cleared = service.clear(recorded.id(), MARCH_3, RECORDER);
 
         assertThat(cleared.state()).isEqualTo(new TransactionState.Cleared(MARCH_3));
-        verify(transactions).save(cleared, RECORDER);
+        verify(transactions).saveTransition(recorded.state(), cleared, RECORDER);
     }
 
     @Test
@@ -220,8 +222,8 @@ class TransactionServiceTest {
         Transaction reconciled = service.reconcile(cleared.id(), MARCH_5, reconciler);
 
         verify(transactions).save(recorded, recorder);
-        verify(transactions).save(cleared, clearer);
-        verify(transactions).save(reconciled, reconciler);
+        verify(transactions).saveTransition(recorded.state(), cleared, clearer);
+        verify(transactions).saveTransition(cleared.state(), reconciled, reconciler);
     }
 
     /** Voiding is a transition like the others: the store is told whoever voided it, not whoever recorded it. */
@@ -233,7 +235,43 @@ class TransactionServiceTest {
 
         Transaction voided = service.markVoided(recorded.id(), MARCH_3, "duplicate", voider);
 
-        verify(transactions).save(voided, voider);
+        verify(transactions).saveTransition(recorded.state(), voided, voider);
+    }
+
+    /**
+     * A stale move was not stored, so an event saying it happened would tell every subscriber something
+     * false. The refusal itself reaches the caller untouched: only the caller can decide again.
+     */
+    @Test
+    void Given_a_store_refusing_a_stale_move_When_cleared_Then_the_refusal_propagates_and_no_event_is_published() {
+        Transaction pending = stored(unrecordedPurchase());
+        ConcurrentTransitionException stale = storeRefusesEveryMove(pending);
+
+        assertThatThrownBy(() -> service.clear(pending.id(), MARCH_3, RECORDER)).isSameAs(stale);
+
+        assertThat(events.published()).isEmpty();
+    }
+
+    @Test
+    void Given_a_store_refusing_a_stale_move_When_reconciled_Then_the_refusal_propagates_and_no_event_is_published() {
+        Transaction cleared = stored(unrecordedPurchase().clear(MARCH_3));
+        ConcurrentTransitionException stale = storeRefusesEveryMove(cleared);
+
+        assertThatThrownBy(() -> service.reconcile(cleared.id(), MARCH_5, RECORDER))
+                .isSameAs(stale);
+
+        assertThat(events.published()).isEmpty();
+    }
+
+    @Test
+    void Given_a_store_refusing_a_stale_move_When_voided_Then_the_refusal_propagates_and_no_event_is_published() {
+        Transaction pending = stored(unrecordedPurchase());
+        ConcurrentTransitionException stale = storeRefusesEveryMove(pending);
+
+        assertThatThrownBy(() -> service.markVoided(pending.id(), MARCH_3, "duplicate", RECORDER))
+                .isSameAs(stale);
+
+        assertThat(events.published()).isEmpty();
     }
 
     /**
@@ -287,6 +325,17 @@ class TransactionServiceTest {
     private Transaction stored(Transaction transaction) {
         when(transactions.findById(transaction.id())).thenReturn(Optional.of(transaction));
         return transaction;
+    }
+
+    /** Built without the service, so the event log starts empty and "no event" means none at all. */
+    private Transaction unrecordedPurchase() {
+        return Transaction.record(MARCH_1, "Groceries", groceryPurchase("12.50").entries());
+    }
+
+    private ConcurrentTransitionException storeRefusesEveryMove(Transaction transaction) {
+        ConcurrentTransitionException stale = new ConcurrentTransitionException(transaction.id());
+        doThrow(stale).when(transactions).saveTransition(any(), any(), any());
+        return stale;
     }
 
     private static Money ils(String amount) {

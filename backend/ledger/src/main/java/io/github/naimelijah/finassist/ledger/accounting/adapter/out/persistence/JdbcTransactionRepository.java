@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger.accounting.adapter.out.persistence;
 
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.ConcurrentTransitionException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.out.TransactionRepository;
 import io.github.naimelijah.finassist.ledger.accounting.domain.account.AccountId;
 import io.github.naimelijah.finassist.ledger.accounting.domain.entry.Entry;
@@ -17,7 +18,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -25,10 +28,13 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><strong>There is no {@code UPDATE} and no {@code DELETE} in this file.</strong> That is the
  * point of writing the SQL by hand rather than generating it: the guarantee is one a reader can
- * check. Recording a transaction inserts it, its entries and its first state; every later
- * transition inserts one more state row, and the current state is the highest {@code sequence}.
- * Voiding keeps the entries and stops them counting, which {@code Transaction.countsTowardsBalance}
- * decides, not this class.
+ * check. Recording a transaction ({@link #save}) inserts it, its entries and its first state; every
+ * later transition ({@link #saveTransition}) inserts one more state row, and the current state is the
+ * highest {@code sequence}. Voiding keeps the entries and stops them counting, which {@code
+ * Transaction.countsTowardsBalance} decides, not this class.
+ *
+ * <p>A transition is stored only if the state it was validated against is still the stored one, so
+ * two moves decided on one read cannot both land (ADR-075).
  *
  * <p>The database enforces the same thing independently: triggers on all three tables refuse an
  * update or a delete outright, so a statement added here in future fails rather than quietly
@@ -153,19 +159,19 @@ public class JdbcTransactionRepository implements TransactionRepository {
     /**
      * {@inheritDoc}
      *
-     * <p>First sight of an identity writes the transaction, its entries and its opening state.
-     * Every later call writes at most one state row. Transactional because those are several
-     * statements describing one fact: a half-written transaction would be an unbalanced one, which
-     * the deferred constraint refuses at commit anyway.
+     * <p>First sight of an identity writes the transaction, its entries and its opening state; a
+     * later call writes nothing. Transactional because those are several statements describing one
+     * fact: a half-written transaction would be an unbalanced one, which the deferred constraint
+     * refuses at commit anyway.
      *
-     * <p>{@code recordedBy} lands on the transaction row only when this call is the one that inserts
-     * it; a later call — a transition — writes it only onto the new state row that call appends, so
-     * {@code journal_transaction.recorded_by} never changes after the first insert while each {@code
-     * journal_transaction_state} row keeps naming whoever wrote it (ADR-033).
+     * <p>{@code recordedBy} lands on the transaction row and its opening state, so {@code
+     * journal_transaction.recorded_by} never changes after the first insert (ADR-033).
      *
-     * @throws IllegalStateException if the entries differ from those already recorded. Rewriting a
-     *     posted entry is what ADR-020 forbids, and failing loudly is the only honest answer -
-     *     ignoring the difference would leave the caller believing a correction had been stored.
+     * @throws IllegalStateException if the identity is already recorded with other entries or in
+     *     another state. Rewriting a posted entry is what ADR-020 forbids, and failing loudly is the
+     *     only honest answer - ignoring the difference would leave the caller believing a correction
+     *     had been stored. Appending the other state would store a move with no check on what it was
+     *     validated against, which is {@link #saveTransition}'s whole job.
      */
     @Override
     @Transactional
@@ -178,7 +184,60 @@ public class JdbcTransactionRepository implements TransactionRepository {
             return;
         }
         refuseChangedEntries(transaction);
-        appendStateIfChanged(transaction, current.get(), recordedBy);
+        if (!StoredState.of(transaction.state()).equals(current.get().state())) {
+            throw new IllegalStateException("Transaction " + transaction.id()
+                    + " is already recorded in another state; a lifecycle change goes through saveTransition");
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>{@code REPEATABLE READ}, so the state read here and the one {@code V1_4}'s {@code BEFORE
+     * INSERT} trigger reads come from one snapshot. A rival that commits after the read is invisible
+     * to both, and so can surface only as a collision on the primary key, which is the one thing
+     * caught. At {@code READ COMMITTED} the trigger would see the rival's row and raise its own error
+     * instead. That error is deliberately not caught: under this isolation it means a real defect,
+     * such as a caller storing two moves at once, and it stays a 500 (ADR-075).
+     *
+     * <p>Two conditions hold this up:
+     *
+     * <ul>
+     *   <li>This method must be the outermost transaction. Spring ignores the isolation of one that
+     *       joins another, so a {@code @Transactional} caller would quietly run it at the caller's
+     *       level, and the trigger's error would come back as the answer to a race.
+     *   <li>Comparing states is enough only because the lifecycle has no cycle ({@code V1_4}): no state
+     *       recurs, so a stored state equal to the validated one means nothing has moved since, and no
+     *       version number is needed.
+     * </ul>
+     *
+     * <p>The state is read before the entries, and {@code JournalTransitionRaceIT} holds a worker
+     * between the two to prove the narrowest window; swapping them would leave that test green and
+     * proving nothing. A {@code next} in the state already stored has no branch here: {@code V1_4}
+     * refuses a state repeating itself.
+     *
+     * @throws IllegalStateException if nothing is stored for the identity, or {@code next} carries
+     *     other entries. The first cannot be a race, because the journal never deletes: it is a
+     *     corrupt store or a misuse.
+     */
+    @Override
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
+    public void saveTransition(TransactionState validatedAgainst, Transaction next, Actor recordedBy) {
+        Objects.requireNonNull(validatedAgainst, "validatedAgainst");
+        Objects.requireNonNull(next, "next");
+        Objects.requireNonNull(recordedBy, "recordedBy");
+        Sequenced current = currentState(next.id())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Transaction " + next.id() + " has no recorded state, so it has no lifecycle to move along"));
+        if (!StoredState.of(validatedAgainst).equals(current.state())) {
+            throw new ConcurrentTransitionException(next.id());
+        }
+        refuseChangedEntries(next);
+        try {
+            insertState(next.id(), current.sequence() + 1, StoredState.of(next.state()), recordedBy);
+        } catch (DuplicateKeyException lostToARival) {
+            throw new ConcurrentTransitionException(next.id());
+        }
     }
 
     private void insert(Transaction transaction, Actor recordedBy) {
@@ -222,13 +281,6 @@ public class JdbcTransactionRepository implements TransactionRepository {
             throw new IllegalStateException("Transaction " + transaction.id()
                     + " is already recorded and its entries cannot be rewritten; a correction is a"
                     + " new transaction, and a mistake is voided with a reason (ADR-020)");
-        }
-    }
-
-    private void appendStateIfChanged(Transaction transaction, Sequenced current, Actor recordedBy) {
-        StoredState wanted = StoredState.of(transaction.state());
-        if (!wanted.equals(current.state())) {
-            insertState(transaction.id(), current.sequence() + 1, wanted, recordedBy);
         }
     }
 
@@ -338,8 +390,9 @@ public class JdbcTransactionRepository implements TransactionRepository {
      * optional reason, and nothing else.
      *
      * <p>Deliberately says nothing about position. Two rows are the same <em>state</em> when they
-     * say the same thing, which is what decides whether a transition happened, so the record's
-     * generated equality is exactly right and {@link Sequenced} carries the ordering separately.
+     * say the same thing, which is what decides whether the state a move was validated against is
+     * still the stored one, so the record's generated equality is exactly right and {@link Sequenced}
+     * carries the ordering separately.
      */
     private record StoredState(String state, LocalDate effectiveOn, String reason) {
 

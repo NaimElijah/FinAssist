@@ -393,7 +393,11 @@ hand rather than by a Jackson polymorphism annotation (ADR-028): HTTP → `HostA
 **A failure becomes a problem.** A well-formed request a domain or adapter rule refuses raises
 `IllegalArgumentException` and is answered 422; an illegal lifecycle transition raises
 `IllegalTransitionException` (accounting) or `IllegalPlanTransitionException` (planning) and is
-answered 409, each by its own context's advice, which runs at the highest precedence. Spring
+answered 409, as is accounting's `ConcurrentTransitionException`, raised when the transaction moved
+on between the read a move was validated against and the write that would have stored it, under
+the same `ILLEGAL_TRANSITION` code
+([ADR-075](../ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md));
+each is mapped by its own context's advice, which runs at the highest precedence. Spring
 MVC's own failures — an unknown route, a non-JSON body, a malformed decimal or UUID — keep their
 own statuses (404, 415, 400) through the composition root's fallback, `LedgerProblemHandler`, at
 the lowest precedence, which answers everything no context's advice claimed. **A 400 for a JSON body,
@@ -541,11 +545,22 @@ transactional outbox waits for the first consumer
 **Clearing it.** `TransactionController` builds a fresh `Actor` from the clearing request's own
 principal — it may name someone other than whoever recorded the transaction →
 `TransactionService.clear` loads the transaction, the aggregate returns a new value in the
-`Cleared` state, and `save` **appends** a row to `accounting.journal_transaction_state`, carrying
-that actor's subject as its own `recorded_by`; the transaction row's `recorded_by`, written once
-at insert, never changes. A trigger admits that row only at the next `sequence`, along a move the
+`Cleared` state, and `TransactionRepository.saveTransition`, given the state the service read and
+the new value, **appends** a row to `accounting.journal_transaction_state`, carrying that actor's
+subject as its own `recorded_by`; the transaction row's `recorded_by`, written once at insert,
+never changes. `saveTransition` is the outermost database transaction and runs at `REPEATABLE
+READ`. It reads the stored state and refuses, with `ConcurrentTransitionException`, unless that is
+still the state the move was validated against; otherwise it inserts at the next `sequence`. A
+rival that commits after that read is invisible to it and to the trigger below, so it can surface
+only as a collision on the `(transaction_id, sequence)` key, which becomes the same exception. The
+service lets it through untouched: the client is answered 409 `ILLEGAL_TRANSITION`, nothing is
+stored and no event is published. The state compared is the one the service read, not the one a
+browser last showed. A trigger admits the row only at the next `sequence`, along a move the
 aggregate allows, and dated no earlier than the transaction or the state before it, so the
-history the database holds is one `Transaction` could have produced. Nothing is overwritten and nothing is deleted; the earlier states stay
+history the database holds is one `Transaction` could have produced; because it shares the
+snapshot, its own refusal is not a race, and stays a 500
+([ADR-075](../ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md)).
+Nothing is overwritten and nothing is deleted; the earlier states stay
 readable, which is what makes the journal the audit record, naming who wrote each row
 ([ADR-020](../ADRs/ADR-020-audit-trail-follows-persistence.md),
 [ADR-033](../ADRs/ADR-033-the-journal-records-who.md)).
@@ -953,6 +968,7 @@ the classes and tests that enforce them in
 | **No foreign key crosses a schema**, so context isolation holds in the database too | `SchemaBoundariesIT` |
 | **A currency stored twice is tied by a composite foreign key**: a journal entry's currency to its account's, by `journal_entry_in_account_currency` (`V1_6`, `NOT VALID`, so entries stored before it are never scanned), a budget limit's currency to its budget's, by `budget_limit_in_budget_currency` (`V2_2`), and a strategy's flows to the strategy's, by a currency on each `scenario_flow` row that `scenario_flow_in_scenario_currency` and `scenario_flow_in_plan_currency` tie to both ends (`V3_2`), so the store refuses a row its aggregate would refuse to read back. One pair is the exception: a transaction's entries are held to their header's `currency` by `V1_7`'s deferred `refuse_unbalanced_transaction()`, which refuses them at commit, not by a key | `JdbcTransactionRepositoryIT`; `JdbcAccountRepositoryIT`; `JdbcBudgetingRepositoriesIT`; `JdbcPlanningRepositoriesIT`; `LedgerUpgradeIT` |
 | **The journal is append-only**: no `UPDATE` or `DELETE` on a transaction, its entries or its states, and no new entry for a transaction already recorded | `V1_1__accounting_schema.sql` and `V1_3__journal_entries_close_once_recorded.sql` triggers; `JournalIsAppendOnlyIT` |
+| **An accounting lifecycle change is stored only against the state it was validated on**: `saveTransition` compares the stored state at `REPEATABLE READ`, as the outermost transaction, and `save` refuses a state other than the one stored | `JournalTransitionRaceIT`; `JournalIsAppendOnlyIT`; `JournalStateHistoryIT`; `AccountingHttpIT` |
 | **Nothing outside the ledger's composition root depends on it** | `LedgerArchitectureTest.no_context_depends_on_the_composition_root` |
 | **A ledger translation reaches its upstream context only through its in-ports**: a `composition` class that implements a consumer's out-port names no `application.service` class, no adapter, and no out-port interface it does not implement | `LedgerArchitectureTest.translations_reach_the_upstream_context_only_through_its_in_ports` |
 | **No `composition` class calls, or takes a reference to, a method of an out-port interface, an `application.service` class or an adapter**, so a lambda `@Bean` or a helper class cannot be a translation that skips the rule above; `LedgerConfiguration` constructs them and never calls them | `LedgerArchitectureTest.composition_calls_no_out_port_service_or_adapter` |
@@ -1053,6 +1069,10 @@ stops:
   `config/`, which reach the list only through a document they do not read. The ledger and the
   gateway ship no profile file. Compose's environment, and any file Compose could put in the
   working directory or its `config/`, are the Compose check's to hold.
+- **The journal's outermost transaction.** Spring ignores the isolation of a transaction that joins
+  another, so a `@Transactional` caller of `saveTransition` would run it at the caller's level and
+  bring back the trigger's `P0001` as a 500. No test fails such a caller; the adapter's Javadoc
+  states the rule ([ADR-075](../ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md)).
 - **Money in the browser.** Nothing fails a second `Number(amount)` beside `scalePoints`.
 
 **Anti-corruption layers are per context, by design.** If `portfolio` and `assistance` both
@@ -1122,8 +1142,11 @@ consumes them, and production discards each one (`DiscardingAccountingEvents` an
 transactional outbox waits for the first consumer
 ([ADR-023](../ADRs/ADR-023-domain-events-in-the-ledger.md), [ADR-048](../ADRs/ADR-048-domain-events-stay-in-process-until-a-consumer-exists.md)).
 
-**The repository ports cannot express a destructive write.** None exposes a delete, and every
-lifecycle change is stored by saving the aggregate in its new state. ADR-020's append-only
+**The repository ports cannot express a destructive write.** None exposes a delete. An
+accounting lifecycle change is stored by `saveTransition`, which takes the aggregate in its new
+state and the state it was validated against, and appends only if that is still the stored one
+([ADR-075](../ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md));
+a planning one is stored by saving the aggregate in its new state. ADR-020's append-only
 obligation is therefore honoured as a port contract, and the durable adapter inherits it;
 [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md) then put
 the journal's half of it in the database too, where a trigger refuses an `UPDATE` or a `DELETE`,

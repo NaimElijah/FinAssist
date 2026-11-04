@@ -3,6 +3,7 @@ package io.github.naimelijah.finassist.ledger.accounting.adapter.in.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
+import io.github.naimelijah.finassist.ledger.RivalWriter;
 import io.github.naimelijah.finassist.ledger.TestTokens;
 import java.io.IOException;
 import java.net.URI;
@@ -11,6 +12,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -41,6 +44,9 @@ class AccountingHttpIT extends PostgresFixture {
     private static final String ACCOUNTS = "/api/v1/accounts";
     private static final String TRANSACTIONS = "/api/v1/transactions";
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
+
+    /** Outlasts {@link #TIMEOUT}, so a request that never returns fails as the client's timeout says. */
+    private static final Duration WORKER_BOUND = Duration.ofSeconds(15);
 
     /** The subject {@link TestTokens#owner()} signs into its token; every request here carries it. */
     private static final String OWNER_SUBJECT = "owner-user";
@@ -231,6 +237,47 @@ class AccountingHttpIT extends PostgresFixture {
     }
 
     /**
+     * What #370 promises a client, through everything between it and the store: a void decided on a state
+     * that moved on while it waited is answered a problem, not the 500 a raw key collision would be, and
+     * it is not stored. The void is sent asynchronously because the rival's commit is what lets it finish.
+     */
+    @Test
+    void
+            Given_a_rivals_uncommitted_move_When_it_commits_under_a_waiting_void_Then_it_is_a_409_and_the_void_is_not_stored()
+                    throws Exception {
+        String cash = open("Cash", "ASSET");
+        String groceries = open("Groceries", "EXPENSE");
+        String id = record("2026-03-03", "Groceries", groceries, "12.50", cash, "-12.50");
+
+        HttpResponse<String> response;
+        try (RivalWriter rival = rivalWriter()) {
+            rival.jdbc()
+                    .sql("""
+                            INSERT INTO accounting.journal_transaction_state
+                                   (transaction_id, sequence, state, effective_on, reason, recorded_by)
+                            VALUES (:id, 1, 'CLEARED', CAST(:on AS date), NULL, 'rival-writer')
+                            """)
+                    .param("id", UUID.fromString(id))
+                    .param("on", "2026-03-05")
+                    .update();
+            CompletableFuture<HttpResponse<String>> voiding =
+                    postInTheBackground(TRANSACTIONS + "/" + id + "/void", voidRequest("2026-03-06", "entered twice"));
+            rival.awaitBlockingAnotherBackend();
+
+            rival.commit();
+            response = voiding.get(WORKER_BOUND.toSeconds(), TimeUnit.SECONDS);
+        }
+
+        assertProblem(response, 409, "ILLEGAL_TRANSITION");
+        assertThat(jdbc().sql("SELECT state FROM accounting.journal_transaction_state"
+                                + " WHERE transaction_id = :id ORDER BY sequence")
+                        .param("id", UUID.fromString(id))
+                        .query(String.class)
+                        .list())
+                .containsExactly("PENDING", "CLEARED");
+    }
+
+    /**
      * Each entry is in its own account's currency, so the service's per-entry check passes, and the amounts
      * net to zero as numbers. The transaction itself then refuses to combine the two currencies (ADR-012),
      * and the fallback answers. Its detail is asserted because it tells that mapping apart from the
@@ -403,17 +450,28 @@ class AccountingHttpIT extends PostgresFixture {
     }
 
     private HttpResponse<String> post(String path, String body) throws IOException, InterruptedException {
-        return send(HttpRequest.newBuilder(uri(path))
+        return send(jsonPost(path, body));
+    }
+
+    /** Bounded by {@link #TIMEOUT} like every other request, so the future always ends. */
+    private CompletableFuture<HttpResponse<String>> postInTheBackground(String path, String body) {
+        return CLIENT.sendAsync(signed(jsonPost(path, body)), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpRequest.Builder jsonPost(String path, String body) {
+        return HttpRequest.newBuilder(uri(path))
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .POST(HttpRequest.BodyPublishers.ofString(body)));
+                .POST(HttpRequest.BodyPublishers.ofString(body));
     }
 
     private HttpResponse<String> send(HttpRequest.Builder request) throws IOException, InterruptedException {
-        return CLIENT.send(
-                request.header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
-                        .timeout(TIMEOUT)
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
+        return CLIENT.send(signed(request), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private static HttpRequest signed(HttpRequest.Builder request) {
+        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
+                .timeout(TIMEOUT)
+                .build();
     }
 
     private URI uri(String path) {

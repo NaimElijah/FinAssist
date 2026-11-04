@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger.accounting.adapter.in.web;
 
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.AccountNotFoundException;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.ConcurrentTransitionException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.DuplicateAccountNameException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.EntryCurrencyMismatchException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.TransactionNotFoundException;
@@ -53,6 +54,17 @@ public class AccountingProblemAdvice {
     /** A conflict with current state rather than a malformed request: the same call was legal earlier. */
     @ExceptionHandler(IllegalTransitionException.class)
     ProblemDetail illegalTransition(IllegalTransitionException exception) {
+        return AccountingProblems.problem(
+                HttpStatus.CONFLICT, AccountingProblems.ILLEGAL_TRANSITION, exception.getMessage());
+    }
+
+    /**
+     * The transaction moved on while the change was being made, which can be a change the new state
+     * would allow. It shares {@code ILLEGAL_TRANSITION} because the client's next step is the same, to
+     * read the transaction again and decide; only the detail differs (ADR-075).
+     */
+    @ExceptionHandler(ConcurrentTransitionException.class)
+    ProblemDetail concurrentTransition(ConcurrentTransitionException exception) {
         return AccountingProblems.problem(
                 HttpStatus.CONFLICT, AccountingProblems.ILLEGAL_TRANSITION, exception.getMessage());
     }

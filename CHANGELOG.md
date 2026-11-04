@@ -352,6 +352,18 @@ process, decides whether generating this file from the
 
 ### Fixed
 
+- **A clear, a reconcile or a void of a transaction that has since moved on is refused, not
+  stored and not a 500.** Two moves decided on one read of a transaction could both reach the
+  journal: a clear and a void stored `PENDING, CLEARED, VOIDED`, though whoever voided it never saw
+  it cleared, and the append-only journal keeps that for good. Every other pairing answered 500, from `V1_4`'s trigger
+  or from the primary key, and a clear repeated on the same date answered 200 and published a second
+  event. The journal now stores a move only if the transaction is still in the state it was
+  validated against, and the ledger answers 409 `ILLEGAL_TRANSITION` with nothing stored and no
+  event published. No migration and no contract change, and the web client already refetches on
+  that code. The interval between a page's read and its `POST` stays open until a
+  second person can write
+  ([ADR-075](docs/ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md),
+  [#370](https://github.com/NaimElijah/FinAssist/issues/370)).
 - **A stop, a database outage and a rollback no longer catch the owner's stack unprepared.** Scan
   12 of 12 in M0 ([#349](https://github.com/NaimElijah/FinAssist/issues/349)) ran
   `production-readiness-reviewer` at `20922c1`, against an isolated copy of the stack it could

@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import io.github.naimelijah.finassist.ledger.WebSliceSecurity;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.AccountNotFoundException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.Actor;
+import io.github.naimelijah.finassist.ledger.accounting.application.port.in.ConcurrentTransitionException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.EntryCurrencyMismatchException;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.RecordTransactionCommand;
 import io.github.naimelijah.finassist.ledger.accounting.application.port.in.RecordTransactionUseCase;
@@ -438,6 +439,29 @@ class TransactionControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.detail").value(illegal.getMessage()))
+                .andExpect(jsonPath("$.code").value("ILLEGAL_TRANSITION"))
+                .andExpect(requiredProblemMembers());
+    }
+
+    /**
+     * The same answer as a state that forbids the move: the client's next step is the same, to read the
+     * transaction again and decide, so it takes no new code in the contract. Only the detail differs.
+     */
+    @ParameterizedTest
+    @MethodSource("lifecycleCommands")
+    void
+            Given_a_transaction_that_moved_on_after_the_read_When_a_lifecycle_command_is_sent_Then_it_is_a_409_illegal_transition_problem(
+                    String command, String body) throws Exception {
+        TransactionId moved = TransactionId.generate();
+        ConcurrentTransitionException stale = new ConcurrentTransitionException(moved);
+        everyTransitionThrows(stale);
+
+        mvc.perform(post(TRANSACTIONS + "/" + moved + "/" + command)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value(stale.getMessage()))
                 .andExpect(jsonPath("$.code").value("ILLEGAL_TRANSITION"))
                 .andExpect(requiredProblemMembers());
     }

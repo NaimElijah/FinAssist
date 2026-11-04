@@ -1,6 +1,7 @@
 # ADR-066: The ledger's store holds every rule the domain holds across rows
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-075](ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md)
 - **Date:** 2026-10-31
 
 Extends [ADR-024](ADR-024-jdbc-persistence-and-append-only-schema.md), whose schema made the
