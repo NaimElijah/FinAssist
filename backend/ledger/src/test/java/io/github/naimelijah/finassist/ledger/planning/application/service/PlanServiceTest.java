@@ -256,7 +256,7 @@ class PlanServiceTest {
     }
 
     private ConcurrentPlanTransitionException storeRefusesEveryMove(PlannedFlow flow) {
-        ConcurrentPlanTransitionException stale = new ConcurrentPlanTransitionException(flow.id());
+        ConcurrentPlanTransitionException stale = new ConcurrentPlanTransitionException();
         doThrow(stale).when(flows).saveTransition(any(), any());
         return stale;
     }

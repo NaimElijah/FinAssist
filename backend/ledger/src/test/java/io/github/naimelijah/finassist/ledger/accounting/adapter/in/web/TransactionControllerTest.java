@@ -453,7 +453,7 @@ class TransactionControllerTest {
             Given_a_transaction_that_moved_on_after_the_read_When_a_lifecycle_command_is_sent_Then_it_is_a_409_illegal_transition_problem(
                     String command, String body) throws Exception {
         TransactionId moved = TransactionId.generate();
-        ConcurrentTransitionException stale = new ConcurrentTransitionException(moved);
+        ConcurrentTransitionException stale = new ConcurrentTransitionException();
         everyTransitionThrows(stale);
 
         mvc.perform(post(TRANSACTIONS + "/" + moved + "/" + command)

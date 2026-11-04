@@ -1,7 +1,5 @@
 package io.github.naimelijah.finassist.ledger.accounting.application.port.in;
 
-import io.github.naimelijah.finassist.ledger.accounting.domain.entry.TransactionId;
-
 /**
  * The transaction moved on between the read a lifecycle change was validated against and the write
  * that would have stored it, so the change was not stored.
@@ -15,8 +13,13 @@ public class ConcurrentTransitionException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;
 
-    public ConcurrentTransitionException(TransactionId transaction) {
-        super("Transaction " + transaction + " changed while this change was being made, so it was not stored;"
-                + " read the transaction again and decide");
+    /**
+     * The message becomes the problem's {@code detail}, which the web client shows the owner as it stands,
+     * on a page that names a row by its description and date, so it carries no identifier: the
+     * problem's {@code instance} already says which transaction this was.
+     */
+    public ConcurrentTransitionException() {
+        super("This transaction changed while your change was being saved, so your change was not stored."
+                + " Check its current state and decide again.");
     }
 }

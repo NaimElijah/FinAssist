@@ -333,7 +333,7 @@ class TransactionServiceTest {
     }
 
     private ConcurrentTransitionException storeRefusesEveryMove(Transaction transaction) {
-        ConcurrentTransitionException stale = new ConcurrentTransitionException(transaction.id());
+        ConcurrentTransitionException stale = new ConcurrentTransitionException();
         doThrow(stale).when(transactions).saveTransition(any(), any(), any());
         return stale;
     }

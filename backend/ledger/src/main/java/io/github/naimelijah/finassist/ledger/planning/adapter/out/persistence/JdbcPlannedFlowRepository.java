@@ -146,7 +146,7 @@ public class JdbcPlannedFlowRepository implements PlannedFlowRepository {
                         PlanningRows.StoredPlanState.of(validatedAgainst).state())
                 .update();
         if (updated == 0) {
-            throw new ConcurrentPlanTransitionException(next.id());
+            throw new ConcurrentPlanTransitionException();
         }
     }
 

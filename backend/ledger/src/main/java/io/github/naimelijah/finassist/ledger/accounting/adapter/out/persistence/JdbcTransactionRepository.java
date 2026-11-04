@@ -231,13 +231,13 @@ public class JdbcTransactionRepository implements TransactionRepository {
                 .orElseThrow(() -> new IllegalStateException(
                         "Transaction " + next.id() + " has no recorded state, so it has no lifecycle to move along"));
         if (!StoredState.of(validatedAgainst).equals(current.state())) {
-            throw new ConcurrentTransitionException(next.id());
+            throw new ConcurrentTransitionException();
         }
         refuseChangedEntries(next);
         try {
             insertState(next.id(), current.sequence() + 1, StoredState.of(next.state()), recordedBy);
         } catch (DuplicateKeyException lostToARival) {
-            throw new ConcurrentTransitionException(next.id());
+            throw new ConcurrentTransitionException();
         }
     }
 

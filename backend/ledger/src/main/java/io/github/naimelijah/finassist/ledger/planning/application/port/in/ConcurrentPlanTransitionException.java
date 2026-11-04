@@ -1,7 +1,5 @@
 package io.github.naimelijah.finassist.ledger.planning.application.port.in;
 
-import io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanId;
-
 /**
  * The planned flow moved on between the read a lifecycle change was validated against and the write
  * that would have stored it, so the change was not stored.
@@ -15,8 +13,12 @@ public class ConcurrentPlanTransitionException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;
 
-    public ConcurrentPlanTransitionException(PlanId plan) {
-        super("Planned flow " + plan + " changed while this change was being made, so it was not stored;"
-                + " read the flow again and decide");
+    /**
+     * The message becomes the problem's {@code detail}, which the web client shows the owner as it stands,
+     * so it carries no identifier: the problem's {@code instance} already says which flow this was.
+     */
+    public ConcurrentPlanTransitionException() {
+        super("This planned flow changed while your change was being saved, so your change was not stored."
+                + " Check its current state and decide again.");
     }
 }
