@@ -118,13 +118,18 @@ edited. Read them as history.
 
 **Makes hard**
 
-- **The journal's `saveTransition` must be the outermost transaction.** Spring ignores the isolation of a
-  transaction that joins another, so a `@Transactional` caller would run it at the caller's level
-  and bring back the `P0001` 500. This is documented on the port and the adapter, not enforced. A
-  decorator in `composition` that opens a transaction around a transition use case breaks it
-  (`backend/ledger/CLAUDE.md` says where a boundary moves to).
-- **Planning's `saveTransition` must not be wrapped in a transaction at `REPEATABLE READ` or
-  stronger,** for the reason above. Documented on the adapter, not enforced.
+- **A transaction around the journal's `saveTransition` must itself be at `REPEATABLE READ`,**
+  because Spring would otherwise run it at the outer level, silently, and bring back the `P0001`
+  500 with every test green. The next wrapper is already planned: ADR-048's outbox
+  ([#35](https://github.com/NaimElijah/FinAssist/issues/35)) writes in the aggregate's transaction,
+  and ADR-024 sends such a boundary to a decorator in `composition`. So the transaction manager
+  validates a join (`setValidateExistingTransaction`, in `LedgerConfiguration`): one at another
+  level fails on its first call with `IllegalTransactionStateException`, and a wrapper has to
+  choose its level. `JournalTransitionRaceIT` holds both outcomes.
+- **A transaction around planning's `saveTransition` must not be above `READ COMMITTED`,** for the
+  reason above. The guard cannot see this, because planning names no level, but `PlanningHttpIT`
+  goes through any wrapper on the use case and would answer 500. So one decorator cannot serve both
+  contexts' transitions at one level.
 - **`JournalTransitionRaceIT`'s window test relies on the adapter reading the state before the
   entries.** Swapped, it would stay green and prove nothing about that window.
 - **`V1_4`'s header lines 19 to 25 are untrue and cannot be fixed in place.** This record is where
@@ -159,9 +164,10 @@ edited. Read them as history.
 
 ## Revisit when
 
-- **A transaction boundary moves outside the adapter,** such as a `@Transactional` decorator in
-  `composition`: the journal's `saveTransition` would no longer run at `REPEATABLE READ`, and
-  planning's would meet whatever isolation that transaction chose.
+- **A transaction boundary moves outside the adapter,** such as ADR-048's outbox
+  ([#35](https://github.com/NaimElijah/FinAssist/issues/35)) or a tenancy setting
+  ([#205](https://github.com/NaimElijah/FinAssist/issues/205)): it picks a level for each context,
+  as above.
 - **A transaction-pooling proxy appears (M5),** because pgjdbc sets the isolation level per session,
   and a proxy that shares a session between transactions would not honour it.
 - **The lifecycle gains a cycle,** such as reopening a reconciled transaction: a state would recur,

@@ -203,9 +203,10 @@ public class JdbcTransactionRepository implements TransactionRepository {
      * <p>Two conditions hold this up:
      *
      * <ul>
-     *   <li>This method must be the outermost transaction. Spring ignores the isolation of one that
-     *       joins another, so a {@code @Transactional} caller would quietly run it at the caller's
-     *       level, and the trigger's error would come back as the answer to a race.
+     *   <li>Any transaction around this method must itself be at {@code REPEATABLE READ}. At another
+     *       level the trigger's error would come back as the answer to a race, so {@code
+     *       LedgerConfiguration} makes such a join fail on its first call rather than quietly run at
+     *       the caller's level.
      *   <li>Comparing states is enough only because the lifecycle has no cycle ({@code V1_4}): no state
      *       recurs, so a stored state equal to the validated one means nothing has moved since, and no
      *       version number is needed.

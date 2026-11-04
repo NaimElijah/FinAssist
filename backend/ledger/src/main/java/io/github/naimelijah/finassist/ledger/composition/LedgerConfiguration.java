@@ -29,11 +29,13 @@ import io.github.naimelijah.finassist.ledger.planning.application.service.Scenar
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.servlet.filter.OrderedFormContentFilter;
+import org.springframework.boot.transaction.autoconfigure.TransactionManagerCustomizer;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 
 /**
  * Assembles the ledger: every adapter, every service, and the two translations between contexts.
@@ -101,6 +103,20 @@ public class LedgerConfiguration {
     @Bean
     SupportedDates supportedDates() {
         return new SupportedDates();
+    }
+
+    // ---- persistence ------------------------------------------------------------------------
+
+    /**
+     * Refuses a transaction joining another at a different isolation level, where Spring would otherwise
+     * run it at the outer level without a word. The journal's {@code saveTransition} depends on its
+     * {@code REPEATABLE READ}: a wrapper at the default level, the shape an outbox first reaches for,
+     * would bring a narrow race's 500 back with every test still green (ADR-075). Only a method that
+     * names a level is compared, so a plain {@code @Transactional} joins as before.
+     */
+    @Bean
+    TransactionManagerCustomizer<AbstractPlatformTransactionManager> transactionsRefuseAnotherIsolation() {
+        return manager -> manager.setValidateExistingTransaction(true);
     }
 
     // ---- accounting -------------------------------------------------------------------------

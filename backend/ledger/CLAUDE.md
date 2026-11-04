@@ -131,17 +131,18 @@ bounded context (ADR-006, ADR-024).
   refused, as is a first save in any state but `Pending` (`JournalStateHistoryIT`), and `save`
   refuses an identity already stored in another state (`JournalIsAppendOnlyIT`).
 - **A move is stored only against the state it was validated on** (ADR-075).
-  `saveTransition` runs at `REPEATABLE READ` and must be the outermost transaction: Spring ignores
-  the isolation of a joined one, so a `@Transactional` caller, a `composition` decorator included,
-  brings `V1_4`'s `P0001` back as a 500. It catches the key collision and never `P0001`, which
+  `saveTransition` runs at `REPEATABLE READ`, and any transaction around it must be at that level
+  too: Spring would otherwise run it at the outer level, bringing `V1_4`'s `P0001` back as a 500, so
+  `LedgerConfiguration` sets `setValidateExistingTransaction` and such a join fails on its first
+  call (`JournalTransitionRaceIT`). A `composition` decorator names its level. It catches the key collision and never `P0001`, which
   under that isolation means a defect. It compares states because the lifecycle has no cycle; the
   day one appears, carry a version instead. It reads the state before the entries, which the window
   test in `JournalTransitionRaceIT` relies on. `V1_4`'s header lines 19 to 25 describe the old
   `save` and are untrue, but the script is pinned by `ReleasedMigrationsTest` and Flyway's
   checksum: leave it, and read ADR-075. Planning's `saveTransition` is one `UPDATE … WHERE id AND
-  state` that writes the state columns only, and **deliberately has neither `@Transactional` nor
-  an isolation level**: a waiting `UPDATE` re-checks its `WHERE` at `READ COMMITTED`, whereas
-  `REPEATABLE READ` would turn that wait into a serialization failure nothing maps. Zero rows is
+  state` that writes the state columns only, and **stays at `READ COMMITTED`**, in a transaction or
+  not: a waiting `UPDATE` re-checks its `WHERE` there, whereas `REPEATABLE READ` would turn that wait
+  into a serialization failure nothing maps (`PlanningHttpIT` would answer 500). Zero rows is
   the refusal, a flow never stored included. Its `save` only inserts, so a re-save is an uncaught
   `DuplicateKeyException` and a 500 (`JdbcPlanningRepositoriesIT`); `PlanTransitionRaceIT` forces the races.
 - **Every journal insert names `recorded_by`; never validate the constraints.** `V1_2` added a

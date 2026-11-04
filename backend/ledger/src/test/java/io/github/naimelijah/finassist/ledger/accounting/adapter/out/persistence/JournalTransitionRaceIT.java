@@ -1,6 +1,7 @@
 package io.github.naimelijah.finassist.ledger.accounting.adapter.out.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.SoftAssertions.assertSoftly;
 
@@ -39,6 +40,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * A lifecycle move is stored only against the state it was validated on (#370).
@@ -86,6 +91,9 @@ class JournalTransitionRaceIT extends PostgresFixture {
 
     @Autowired
     private DataSource dataSource;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
 
@@ -264,6 +272,41 @@ class JournalTransitionRaceIT extends PostgresFixture {
         }
 
         assertRefusedLeaving(outcome, read.id(), RECORDED_THEN_RIVAL_CLEARED);
+    }
+
+    /**
+     * A transaction around the adapter would quietly run it at the outer level: the state read and the
+     * trigger stop sharing a snapshot, and a rival landing between the read and the insert answers 500
+     * again, with every other test here still green because they call the adapter directly. A wrapper
+     * must choose the level, so one that has not is refused on its first call, not on a narrow race
+     * in production (ADR-075).
+     */
+    @Test
+    void Given_a_surrounding_transaction_at_the_default_level_When_a_move_joins_it_Then_it_is_refused_and_not_stored() {
+        Transaction read = recorded();
+
+        assertThatThrownBy(() -> new TransactionTemplate(transactionManager)
+                        .executeWithoutResult(
+                                status -> transactions.saveTransition(read.state(), read.clear(MARCH_3), RECORDER)))
+                .isInstanceOf(IllegalTransactionStateException.class);
+
+        assertThat(history(read.id())).containsExactly("0:PENDING");
+    }
+
+    /**
+     * The shape a wrapper that needs one transaction around the move and something else takes, such as
+     * ADR-048's outbox: at the same level, the guard above lets it through and the snapshot still holds.
+     */
+    @Test
+    void Given_a_surrounding_transaction_at_repeatable_read_When_a_move_joins_it_Then_it_is_stored() {
+        Transaction read = recorded();
+        TransactionTemplate surrounding = new TransactionTemplate(transactionManager);
+        surrounding.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+
+        surrounding.executeWithoutResult(
+                status -> transactions.saveTransition(read.state(), read.clear(MARCH_3), RECORDER));
+
+        assertThat(history(read.id())).containsExactly("0:PENDING", "1:CLEARED");
     }
 
     /**

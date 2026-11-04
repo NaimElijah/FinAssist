@@ -123,13 +123,13 @@ public class JdbcPlannedFlowRepository implements PlannedFlowRepository {
     /**
      * {@inheritDoc}
      *
-     * <p>No {@code @Transactional} and no isolation level, unlike the journal's {@code saveTransition}
-     * (ADR-075). There is no read to keep on one snapshot with a trigger: the comparison is this
-     * statement's own {@code WHERE}, so no rival can land between the check and the write. An {@code
-     * UPDATE} that waits on a rival's uncommitted row re-checks that {@code WHERE} against the row the
-     * rival committed, and updates nothing if the state moved. That is {@code READ COMMITTED}, the
-     * default; at {@code REPEATABLE READ} the same wait would raise a serialization failure instead,
-     * which nothing here maps.
+     * <p>Nothing above {@code READ COMMITTED}, unlike the journal's {@code saveTransition} (ADR-075). There
+     * is no read to keep on one snapshot with a trigger: the comparison is this statement's own {@code
+     * WHERE}, so no rival can land between the check and the write. An {@code UPDATE} that waits on a
+     * rival's uncommitted row re-checks that {@code WHERE} against the row the rival committed, and
+     * updates nothing if the state moved. That is {@code READ COMMITTED}; at {@code REPEATABLE READ} the
+     * same wait would raise a serialization failure instead, which nothing here maps. So it needs no
+     * {@code @Transactional} today, and a transaction around it is fine as long as it stays at that level.
      */
     @Override
     public void saveTransition(PlanState validatedAgainst, PlannedFlow next) {
