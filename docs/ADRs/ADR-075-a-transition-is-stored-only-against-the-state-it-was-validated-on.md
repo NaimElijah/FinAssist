@@ -41,16 +41,25 @@ Three forces follow from the table:
 - **The journal is append-only (ADR-020).** A row stored on a stale decision is permanent: the
   history `PENDING, CLEARED, VOIDED` cannot be corrected, only read.
 
-**Planning is worse off.** `JdbcPlannedFlowRepository`'s upsert has no trigger behind it. A stale
-commit landing after a cancel returns a cancelled plan to projections
-(`PlannedFlow.countsTowardsProjection`) and leaves no history, because `planning` is an ordinary
-mutable table (ADR-015, ADR-020).
+**Planning is worse off.** `JdbcPlannedFlowRepository`'s upsert has no trigger behind it, and
+`planning.planned_flow` holds only the current state, because `planning` is an ordinary mutable table
+(ADR-015, ADR-020). Measured the same way, on the code before the fix:
+
+- A cancel and a commit decided on one read of a `Planned` flow, the commit written last, left the
+  flow `Committed`, so `PlannedFlow.countsTowardsProjection` was true for a plan that had been
+  cancelled, and nothing recorded the cancel.
+- Over HTTP, a commit waiting on a rival's uncommitted cancel answered 200 and overwrote `CANCELLED`
+  with `COMMITTED`.
+
+And on the conditional `UPDATE` this record adopts, with the isolation forced to `REPEATABLE READ`,
+the same wait raised `CannotAcquireLockException` ("could not serialize access due to concurrent
+update"), which nothing maps.
 
 ## Decision
 
 **The ledger stores a lifecycle move only if the state it was validated against is still the stored
 one, and answers 409 `ILLEGAL_TRANSITION` when it is not.** Both halves of the decision are in this
-record: accounting here, and planning in the same pull request.
+record, accounting's and planning's.
 
 **The journal (`accounting`):**
 
@@ -72,13 +81,21 @@ record: accounting here, and planning in the same pull request.
 
 **Planning (`planning`):**
 
-- **`PlannedFlowRepository.saveTransition(validatedAgainst, next)`** is an `UPDATE … WHERE id = :id
-  AND state = :validatedAgainst`. Zero rows throws `ConcurrentPlanTransitionException`, answered
-  409 `ILLEGAL_TRANSITION` by `PlanningProblemAdvice`.
+- **`PlannedFlowRepository.saveTransition(validatedAgainst, next)`** is one `UPDATE … WHERE id = :id
+  AND state = :validatedAgainst`, and it writes the state columns only. Zero rows throws
+  `ConcurrentPlanTransitionException`, answered 409 `ILLEGAL_TRANSITION` by `PlanningProblemAdvice`.
+  The comparison is on the state's name alone: the lifecycle has no cycle, and a state's date and
+  reason change only along with it. A flow that was never stored also updates zero rows and is
+  refused the same way, because the port has no delete and its one caller has just read the flow.
 - **A waiting `UPDATE` re-checks its `WHERE` against the row the rival committed,** so planning
-  needs no isolation change.
+  needs no isolation change and no transaction. The comparison is the statement's own `WHERE`, so
+  there is no gap between a read and a write for a rival to land in.
+- **`REPEATABLE READ` would be wrong here.** The same wait would raise a serialization failure
+  (`CannotAcquireLockException`) instead of updating zero rows, and nothing maps it. The adapter
+  therefore has no `@Transactional` and sets no isolation level, deliberately.
 - **`save` becomes a plain `INSERT`,** for the same reason as the journal's: a state change has one
-  door.
+  door. A re-save of a stored identity raises `DuplicateKeyException`, which nothing catches and
+  which answers 500; no use case does it.
 
 **This record replaces `V1_4`'s header comment, lines 19 to 25.** They describe the old `save`:
 that it "re-reads the current state and appends at the next sequence", that a legal stale move
@@ -101,11 +118,13 @@ edited. Read them as history.
 
 **Makes hard**
 
-- **`saveTransition` must be the outermost transaction.** Spring ignores the isolation of a
+- **The journal's `saveTransition` must be the outermost transaction.** Spring ignores the isolation of a
   transaction that joins another, so a `@Transactional` caller would run it at the caller's level
   and bring back the `P0001` 500. This is documented on the port and the adapter, not enforced. A
   decorator in `composition` that opens a transaction around a transition use case breaks it
   (`backend/ledger/CLAUDE.md` says where a boundary moves to).
+- **Planning's `saveTransition` must not be wrapped in a transaction at `REPEATABLE READ` or
+  stronger,** for the reason above. Documented on the adapter, not enforced.
 - **`JournalTransitionRaceIT`'s window test relies on the adapter reading the state before the
   entries.** Swapped, it would stay green and prove nothing about that window.
 - **`V1_4`'s header lines 19 to 25 are untrue and cannot be fixed in place.** This record is where
@@ -123,6 +142,9 @@ edited. Read them as history.
   still reaches `P0001`.
 - **`SERIALIZABLE`.** Rejected: it adds serialization failures (`40001`) for no gain over
   `REPEATABLE READ` here.
+- **`REPEATABLE READ` for planning too.** Rejected: measured above, the wait on a rival's update
+  becomes a serialization failure that nothing maps, where a plain `UPDATE … WHERE` at `READ
+  COMMITTED` already answers correctly.
 - **A conditional `INSERT … SELECT`.** Rejected: the trigger's own snapshot, at `READ COMMITTED`,
   still raises `P0001` for a rival that commits mid-statement.
 - **A trigger SQLSTATE in a new `V1_8`.** Rejected: an owner-run migration for what the isolation
@@ -138,7 +160,8 @@ edited. Read them as history.
 ## Revisit when
 
 - **A transaction boundary moves outside the adapter,** such as a `@Transactional` decorator in
-  `composition`: `saveTransition` would no longer run at `REPEATABLE READ`.
+  `composition`: the journal's `saveTransition` would no longer run at `REPEATABLE READ`, and
+  planning's would meet whatever isolation that transaction chose.
 - **A transaction-pooling proxy appears (M5),** because pgjdbc sets the isolation level per session,
   and a proxy that shares a session between transactions would not honour it.
 - **The lifecycle gains a cycle,** such as reopening a reconciled transaction: a state would recur,

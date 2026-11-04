@@ -364,6 +364,17 @@ process, decides whether generating this file from the
   second person can write
   ([ADR-075](docs/ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md),
   [#370](https://github.com/NaimElijah/FinAssist/issues/370)).
+- **A commit, a realisation or a cancellation of a plan that has since moved on is refused, not
+  written over the change that beat it.** Planning stores a plan's current state in place, with no
+  history, so two moves decided on one read of a plan could both be written and the later one left
+  no trace of the earlier. A commit landing after a cancel returned the cancelled plan to every
+  projection, and over HTTP a commit waiting on another request's cancel answered 200 and replaced
+  `CANCELLED` with `COMMITTED`. A plan's move is now one `UPDATE` that applies only while the plan
+  is in the state it was decided on, and the ledger answers 409 `ILLEGAL_TRANSITION` with the
+  other change kept and no event published. Saving an already-stored plan again, which no use
+  case does, is now an error and no longer a silent overwrite. No migration, no contract change
+  ([ADR-075](docs/ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md),
+  [#370](https://github.com/NaimElijah/FinAssist/issues/370)).
 - **A stop, a database outage and a rollback no longer catch the owner's stack unprepared.** Scan
   12 of 12 in M0 ([#349](https://github.com/NaimElijah/FinAssist/issues/349)) ran
   `production-readiness-reviewer` at `20922c1`, against an isolated copy of the stack it could

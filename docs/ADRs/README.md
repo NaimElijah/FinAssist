@@ -446,8 +446,10 @@ validated against one read and written after another, so a void decided on a `PE
 landed on a `CLEARED` one, and every other stale move answered 500, from `V1_4`'s trigger or from
 the key. The journal now stores a move through `saveTransition`, at `REPEATABLE READ`, only if the
 stored state is still the one it was validated against, and a lost race is a 409
-`ILLEGAL_TRANSITION`. Planning's upsert, which had no trigger behind it, becomes a conditional
-`UPDATE`. No migration, no contract change and no new problem code; `V1_4`'s header lines 19 to 25 now
+`ILLEGAL_TRANSITION`. Planning's upsert, which had no trigger behind it and let a stale commit
+overwrite a cancel, becomes one conditional `UPDATE` at the default isolation, because `REPEATABLE
+READ` would turn its wait into a serialization failure nothing maps; its `save` only inserts. No
+migration, no contract change and no new problem code; `V1_4`'s header lines 19 to 25 now
 describe the old `save`, and 075 replaces them. The interval between a page's read and its `POST`
 stays open until a second human writer exists
 ([#370](https://github.com/NaimElijah/FinAssist/issues/370)).

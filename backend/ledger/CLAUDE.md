@@ -83,9 +83,9 @@ From `backend/ledger`:
   opposite of `Entry`, which is signed because double entry must balance (ADR-015).
 - **Repository ports expose no delete.** An accounting lifecycle change is stored by
   `TransactionRepository.saveTransition`, which takes the aggregate in its new state and the state
-  it was validated against (ADR-075); a planning one by saving the aggregate in its new state.
-  Both are ADR-020's append-only obligation as a port shape, which the durable adapter inherits
-  (ADR-021).
+  it was validated against (ADR-075); a planning one by `PlannedFlowRepository.saveTransition`,
+  likewise, and `save` only records a new flow. Both are ADR-020's append-only obligation as a
+  port shape, which the durable adapter inherits (ADR-021).
 - **Domain events are raised by the application service.** The aggregates are records whose value
   semantics the suites rely on, so they carry no pending-events list. Only `accounting` and
   `planning` raise events — a `Budget` has no lifecycle. Nothing subscribes yet, deliberately
@@ -138,7 +138,12 @@ bounded context (ADR-006, ADR-024).
   day one appears, carry a version instead. It reads the state before the entries, which the window
   test in `JournalTransitionRaceIT` relies on. `V1_4`'s header lines 19 to 25 describe the old
   `save` and are untrue, but the script is pinned by `ReleasedMigrationsTest` and Flyway's
-  checksum: leave it, and read ADR-075.
+  checksum: leave it, and read ADR-075. Planning's `saveTransition` is one `UPDATE … WHERE id AND
+  state` that writes the state columns only, and **deliberately has neither `@Transactional` nor
+  an isolation level**: a waiting `UPDATE` re-checks its `WHERE` at `READ COMMITTED`, whereas
+  `REPEATABLE READ` would turn that wait into a serialization failure nothing maps. Zero rows is
+  the refusal, a flow never stored included. Its `save` only inserts, so a re-save is an uncaught
+  `DuplicateKeyException` and a 500 (`JdbcPlanningRepositoriesIT`); `PlanTransitionRaceIT` forces the races.
 - **Every journal insert names `recorded_by`; never validate the constraints.** `V1_2` added a
   nullable `recorded_by` and a `CHECK (...) NOT VALID` on `journal_transaction` and
   `journal_transaction_state`, so a row written before it honestly stays `NULL` while every new one

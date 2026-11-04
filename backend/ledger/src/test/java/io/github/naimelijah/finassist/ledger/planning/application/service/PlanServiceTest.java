@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.naimelijah.finassist.ledger.planning.adapter.out.event.InMemoryPlanningEvents;
+import io.github.naimelijah.finassist.ledger.planning.application.port.in.ConcurrentPlanTransitionException;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanFlowCommand;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanNotFoundException;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.PlannedFlowRepository;
@@ -73,7 +75,7 @@ class PlanServiceTest {
         PlannedFlow committed = service.commit(planned.id(), FEB_10);
 
         assertThat(committed.state()).isEqualTo(new PlanState.Committed(FEB_10));
-        verify(flows).save(committed);
+        verify(flows).saveTransition(planned.state(), committed);
         assertThat(committed.countsTowardsProjection()).isTrue();
     }
 
@@ -97,7 +99,7 @@ class PlanServiceTest {
         assertThatThrownBy(() -> service.realise(planned.id(), MARCH_1))
                 .isInstanceOf(IllegalPlanTransitionException.class);
 
-        verify(flows, never()).save(any());
+        verify(flows, never()).saveTransition(any(), any());
         assertThat(events.published()).isEqualTo(beforeTheRefusal);
     }
 
@@ -110,7 +112,7 @@ class PlanServiceTest {
         assertThat(cancelled.state()).isEqualTo(new PlanState.Cancelled(FEB_10, "too expensive"));
         assertThat(cancelled.countsTowardsProjection()).isFalse();
         // Kept, not removed: the port has no delete, and cancelling stores a new state.
-        verify(flows).save(cancelled);
+        verify(flows).saveTransition(planned.state(), cancelled);
     }
 
     @Test
@@ -122,7 +124,7 @@ class PlanServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("requires a reason");
 
-        verify(flows, never()).save(any());
+        verify(flows, never()).saveTransition(any(), any());
         assertThat(events.published()).isEqualTo(beforeTheRefusal);
     }
 
@@ -158,6 +160,61 @@ class PlanServiceTest {
         assertThat(events.published()).contains(new PlanningEvent.PlanCancelled(planned.id(), FEB_10, "too expensive"));
     }
 
+    /** The store is told the state the move was decided on, so it can tell whether that is still so. */
+    @Test
+    void Given_a_committed_flow_When_realised_Then_it_is_stored_against_the_committed_state_it_read() {
+        PlannedFlow committed = stored(unpublishedCar().commit(FEB_10));
+
+        PlannedFlow realised = service.realise(committed.id(), MARCH_1);
+
+        verify(flows).saveTransition(committed.state(), realised);
+    }
+
+    /** Cancelling has two legal origins, and the store must hear the one that was really read. */
+    @Test
+    void Given_a_committed_flow_When_cancelled_Then_it_is_stored_against_the_committed_state_it_read() {
+        PlannedFlow committed = stored(unpublishedCar().commit(FEB_10));
+
+        PlannedFlow cancelled = service.cancel(committed.id(), MARCH_1, "too expensive");
+
+        verify(flows).saveTransition(committed.state(), cancelled);
+    }
+
+    /**
+     * A stale move was not stored, so an event saying it happened would tell every subscriber something
+     * false. The refusal itself reaches the caller untouched: only the caller can decide again.
+     */
+    @Test
+    void Given_a_store_refusing_a_stale_move_When_committed_Then_the_refusal_propagates_and_no_event_is_published() {
+        PlannedFlow planned = stored(unpublishedCar());
+        ConcurrentPlanTransitionException stale = storeRefusesEveryMove(planned);
+
+        assertThatThrownBy(() -> service.commit(planned.id(), FEB_10)).isSameAs(stale);
+
+        assertThat(events.published()).isEmpty();
+    }
+
+    @Test
+    void Given_a_store_refusing_a_stale_move_When_realised_Then_the_refusal_propagates_and_no_event_is_published() {
+        PlannedFlow committed = stored(unpublishedCar().commit(FEB_10));
+        ConcurrentPlanTransitionException stale = storeRefusesEveryMove(committed);
+
+        assertThatThrownBy(() -> service.realise(committed.id(), MARCH_1)).isSameAs(stale);
+
+        assertThat(events.published()).isEmpty();
+    }
+
+    @Test
+    void Given_a_store_refusing_a_stale_move_When_cancelled_Then_the_refusal_propagates_and_no_event_is_published() {
+        PlannedFlow planned = stored(unpublishedCar());
+        ConcurrentPlanTransitionException stale = storeRefusesEveryMove(planned);
+
+        assertThatThrownBy(() -> service.cancel(planned.id(), FEB_10, "too expensive"))
+                .isSameAs(stale);
+
+        assertThat(events.published()).isEmpty();
+    }
+
     /** Listing derives nothing of its own - ordering is the repository's job. */
     @Test
     void Given_flows_stored_When_listed_Then_they_come_back_in_the_repositorys_order() {
@@ -190,6 +247,18 @@ class PlanServiceTest {
     private List<PlanningEvent> afterArranging() {
         clearInvocations(flows);
         return events.published();
+    }
+
+    /** Built without the service, so the event log starts empty and "no event" means none at all. */
+    private static PlannedFlow unpublishedCar() {
+        return PlannedFlow.plan(
+                "New car", Money.of("40000.00", Currency.ILS), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+    }
+
+    private ConcurrentPlanTransitionException storeRefusesEveryMove(PlannedFlow flow) {
+        ConcurrentPlanTransitionException stale = new ConcurrentPlanTransitionException(flow.id());
+        doThrow(stale).when(flows).saveTransition(any(), any());
+        return stale;
     }
 
     private static PlanFlowCommand newCar() {

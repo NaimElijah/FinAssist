@@ -38,9 +38,11 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>Every plan id this controller sees is in the path, so {@link PlanningProblemAdvice} maps the
  * failures: an unknown plan is 404 {@code PLAN_NOT_FOUND}, and a change the current state does not allow
- * is 409 {@code ILLEGAL_TRANSITION}. A rule the domain refuses — a non-positive amount, a recurrence
- * ending before it starts, a realisation dated before its commitment — is the domain's {@link
- * IllegalArgumentException}, which the composition fallback answers 422 {@code RULE_VIOLATED}.
+ * is 409 {@code ILLEGAL_TRANSITION}. So is a change refused because the flow moved on while it was being
+ * made, which can be one the new state would allow (ADR-075). A rule the domain refuses — a non-positive
+ * amount, a recurrence ending before it starts, a realisation dated before its commitment — is the
+ * domain's {@link IllegalArgumentException}, which the composition fallback answers 422 {@code
+ * RULE_VIOLATED}.
  *
  * <p>Handler names are unique across the ledger, not only within this class, for the reason {@code
  * AccountController} gives.

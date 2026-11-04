@@ -393,9 +393,10 @@ hand rather than by a Jackson polymorphism annotation (ADR-028): HTTP → `HostA
 **A failure becomes a problem.** A well-formed request a domain or adapter rule refuses raises
 `IllegalArgumentException` and is answered 422; an illegal lifecycle transition raises
 `IllegalTransitionException` (accounting) or `IllegalPlanTransitionException` (planning) and is
-answered 409, as is accounting's `ConcurrentTransitionException`, raised when the transaction moved
-on between the read a move was validated against and the write that would have stored it, under
-the same `ILLEGAL_TRANSITION` code
+answered 409, as are accounting's `ConcurrentTransitionException` and planning's
+`ConcurrentPlanTransitionException`, raised when the transaction or plan moved on between the read
+a move was validated against and the write that would have stored it, under the same
+`ILLEGAL_TRANSITION` code
 ([ADR-075](../ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md));
 each is mapped by its own context's advice, which runs at the highest precedence. Spring
 MVC's own failures — an unknown route, a non-JSON body, a malformed decimal or UUID — keep their
@@ -968,7 +969,7 @@ the classes and tests that enforce them in
 | **No foreign key crosses a schema**, so context isolation holds in the database too | `SchemaBoundariesIT` |
 | **A currency stored twice is tied by a composite foreign key**: a journal entry's currency to its account's, by `journal_entry_in_account_currency` (`V1_6`, `NOT VALID`, so entries stored before it are never scanned), a budget limit's currency to its budget's, by `budget_limit_in_budget_currency` (`V2_2`), and a strategy's flows to the strategy's, by a currency on each `scenario_flow` row that `scenario_flow_in_scenario_currency` and `scenario_flow_in_plan_currency` tie to both ends (`V3_2`), so the store refuses a row its aggregate would refuse to read back. One pair is the exception: a transaction's entries are held to their header's `currency` by `V1_7`'s deferred `refuse_unbalanced_transaction()`, which refuses them at commit, not by a key | `JdbcTransactionRepositoryIT`; `JdbcAccountRepositoryIT`; `JdbcBudgetingRepositoriesIT`; `JdbcPlanningRepositoriesIT`; `LedgerUpgradeIT` |
 | **The journal is append-only**: no `UPDATE` or `DELETE` on a transaction, its entries or its states, and no new entry for a transaction already recorded | `V1_1__accounting_schema.sql` and `V1_3__journal_entries_close_once_recorded.sql` triggers; `JournalIsAppendOnlyIT` |
-| **An accounting lifecycle change is stored only against the state it was validated on**: `saveTransition` compares the stored state at `REPEATABLE READ`, as the outermost transaction, and `save` refuses a state other than the one stored | `JournalTransitionRaceIT`; `JournalIsAppendOnlyIT`; `JournalStateHistoryIT`; `AccountingHttpIT` |
+| **A lifecycle change is stored only against the state it was validated on**: accounting's `saveTransition` compares the stored state at `REPEATABLE READ`, as the outermost transaction, and its `save` refuses a state other than the one stored; planning's is one `UPDATE` whose `WHERE` holds that state, in no transaction of its own and at no isolation level of its own, and its `save` only inserts | `JournalTransitionRaceIT`; `JournalIsAppendOnlyIT`; `JournalStateHistoryIT`; `AccountingHttpIT`; `PlanTransitionRaceIT`; `JdbcPlanningRepositoriesIT`; `PlanningHttpIT` |
 | **Nothing outside the ledger's composition root depends on it** | `LedgerArchitectureTest.no_context_depends_on_the_composition_root` |
 | **A ledger translation reaches its upstream context only through its in-ports**: a `composition` class that implements a consumer's out-port names no `application.service` class, no adapter, and no out-port interface it does not implement | `LedgerArchitectureTest.translations_reach_the_upstream_context_only_through_its_in_ports` |
 | **No `composition` class calls, or takes a reference to, a method of an out-port interface, an `application.service` class or an adapter**, so a lambda `@Bean` or a helper class cannot be a translation that skips the rule above; `LedgerConfiguration` constructs them and never calls them | `LedgerArchitectureTest.composition_calls_no_out_port_service_or_adapter` |
@@ -1069,10 +1070,12 @@ stops:
   `config/`, which reach the list only through a document they do not read. The ledger and the
   gateway ship no profile file. Compose's environment, and any file Compose could put in the
   working directory or its `config/`, are the Compose check's to hold.
-- **The journal's outermost transaction.** Spring ignores the isolation of a transaction that joins
-  another, so a `@Transactional` caller of `saveTransition` would run it at the caller's level and
-  bring back the trigger's `P0001` as a 500. No test fails such a caller; the adapter's Javadoc
-  states the rule ([ADR-075](../ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md)).
+- **The transaction around a transition.** Spring ignores the isolation of a transaction that joins
+  another, so a `@Transactional` caller of the journal's `saveTransition` would run it at the
+  caller's level and bring back the trigger's `P0001` as a 500. Planning's has the opposite rule:
+  inside a transaction at `REPEATABLE READ`, an `UPDATE` that waits on a rival's commit fails as a
+  serialization failure nothing maps. No test fails either caller; the adapters' Javadoc states the
+  rule ([ADR-075](../ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md)).
 - **Money in the browser.** Nothing fails a second `Number(amount)` beside `scalePoints`.
 
 **Anti-corruption layers are per context, by design.** If `portfolio` and `assistance` both
@@ -1146,7 +1149,8 @@ transactional outbox waits for the first consumer
 accounting lifecycle change is stored by `saveTransition`, which takes the aggregate in its new
 state and the state it was validated against, and appends only if that is still the stored one
 ([ADR-075](../ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md));
-a planning one is stored by saving the aggregate in its new state. ADR-020's append-only
+a planning one by `PlannedFlowRepository.saveTransition`, one `UPDATE` of the state columns whose
+`WHERE` holds the state it was validated against, while `save` only inserts. ADR-020's append-only
 obligation is therefore honoured as a port contract, and the durable adapter inherits it;
 [ADR-024](../ADRs/ADR-024-jdbc-persistence-and-append-only-schema.md) then put
 the journal's half of it in the database too, where a trigger refuses an `UPDATE` or a `DELETE`,

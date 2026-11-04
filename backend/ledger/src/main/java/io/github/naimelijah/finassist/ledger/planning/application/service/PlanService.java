@@ -46,24 +46,27 @@ public class PlanService implements PlanFlowUseCase, TransitionPlanUseCase, List
 
     @Override
     public PlannedFlow commit(PlanId plan, LocalDate committedOn) {
-        PlannedFlow committed = require(plan).commit(committedOn);
-        flows.save(committed);
+        PlannedFlow read = require(plan);
+        PlannedFlow committed = read.commit(committedOn);
+        flows.saveTransition(read.state(), committed);
         events.publish(new PlanningEvent.PlanCommitted(committed.id(), committedOn));
         return committed;
     }
 
     @Override
     public PlannedFlow realise(PlanId plan, LocalDate realisedOn) {
-        PlannedFlow realised = require(plan).realise(realisedOn);
-        flows.save(realised);
+        PlannedFlow read = require(plan);
+        PlannedFlow realised = read.realise(realisedOn);
+        flows.saveTransition(read.state(), realised);
         events.publish(new PlanningEvent.PlanRealised(realised.id(), realisedOn));
         return realised;
     }
 
     @Override
     public PlannedFlow cancel(PlanId plan, LocalDate cancelledOn, String reason) {
-        PlannedFlow cancelled = require(plan).cancel(cancelledOn, reason);
-        flows.save(cancelled);
+        PlannedFlow read = require(plan);
+        PlannedFlow cancelled = read.cancel(cancelledOn, reason);
+        flows.saveTransition(read.state(), cancelled);
         // Read off the aggregate rather than re-derived from the input, for the reason
         // TransactionService.markVoided gives at length.
         PlanState.Cancelled state = (PlanState.Cancelled) cancelled.state();
