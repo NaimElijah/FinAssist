@@ -201,7 +201,8 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
         Transaction recorded = record("12.50");
 
         assertThatThrownBy(() -> transactions.save(recorded.clear(MARCH_3), RECORDER))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("saveTransition");
 
         assertThat(states(recorded)).isEqualTo(1);
     }

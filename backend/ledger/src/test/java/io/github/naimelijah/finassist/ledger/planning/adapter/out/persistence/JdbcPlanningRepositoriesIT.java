@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
+import io.github.naimelijah.finassist.ledger.planning.application.port.in.ConcurrentPlanTransitionException;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.PlannedFlowRepository;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.ScenarioRepository;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.GrowthAssumption;
@@ -165,6 +166,21 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
         flows.saveTransition(planned.state(), renamed);
 
         assertThat(flows.findById(planned.id())).contains(committed);
+    }
+
+    /**
+     * A transition only ever updates. Were it to become an upsert, a move on a flow nobody stored would
+     * create one, out of a {@code next} that never existed, and every other test here would still pass.
+     */
+    @Test
+    void Given_a_flow_never_stored_When_a_transition_is_saved_Then_it_is_refused_and_nothing_is_stored() {
+        PlannedFlow neverStored =
+                PlannedFlow.plan("New car", ils("40000.00"), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+
+        assertThatThrownBy(() -> flows.saveTransition(neverStored.state(), neverStored.commit(FEB_10)))
+                .isInstanceOf(ConcurrentPlanTransitionException.class);
+
+        assertThat(flows.findById(neverStored.id())).isEmpty();
     }
 
     /**

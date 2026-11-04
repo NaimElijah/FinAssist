@@ -201,6 +201,9 @@ class PlanningHttpIT extends PostgresFixture {
                 .as("the stored state, after the commit was answered %d", response.statusCode())
                 .isEqualTo("CANCELLED");
         assertProblem(response, 409, "ILLEGAL_TRANSITION");
+        assertThat(json(response).path("instance").asString())
+                .as("the refusal names no identifier in its detail, so this is what says which one it was")
+                .isEqualTo(PLANNED_FLOWS + "/" + car + "/commit");
     }
 
     @Test

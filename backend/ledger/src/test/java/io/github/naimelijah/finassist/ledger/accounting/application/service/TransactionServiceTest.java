@@ -322,6 +322,16 @@ class TransactionServiceTest {
      * what the first one left behind. Stating it is the point: with a stateful fake this coupling was
      * real and invisible, and the second transition passed because of a side effect nobody wrote down.
      */
+    /** Voiding has two legal origins, and only the state it read says which one this was. */
+    @Test
+    void Given_a_cleared_transaction_When_voided_Then_it_is_stored_against_the_cleared_state_it_read() {
+        Transaction cleared = stored(unrecordedPurchase().clear(MARCH_3));
+
+        Transaction voided = service.markVoided(cleared.id(), MARCH_5, "duplicate", RECORDER);
+
+        verify(transactions).saveTransition(cleared.state(), voided, RECORDER);
+    }
+
     private Transaction stored(Transaction transaction) {
         when(transactions.findById(transaction.id())).thenReturn(Optional.of(transaction));
         return transaction;

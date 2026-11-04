@@ -269,6 +269,9 @@ class AccountingHttpIT extends PostgresFixture {
         }
 
         assertProblem(response, 409, "ILLEGAL_TRANSITION");
+        assertThat(json(response).path("instance").asString())
+                .as("the refusal names no identifier in its detail, so this is what says which one it was")
+                .isEqualTo(TRANSACTIONS + "/" + id + "/void");
         assertThat(jdbc().sql("SELECT state FROM accounting.journal_transaction_state"
                                 + " WHERE transaction_id = :id ORDER BY sequence")
                         .param("id", UUID.fromString(id))

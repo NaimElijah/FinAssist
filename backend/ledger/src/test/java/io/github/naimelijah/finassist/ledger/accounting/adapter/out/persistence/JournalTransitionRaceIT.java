@@ -265,7 +265,7 @@ class JournalTransitionRaceIT extends PostgresFixture {
                     .update();
             rivalClears(rival, read.id());
             Future<?> voiding = voidInTheBackground(read);
-            rival.awaitBlockingAnotherBackend();
+            rival.awaitBlockingAnotherBackendOnATableLock();
 
             rival.commit();
             outcome = outcomeOf(voiding);
@@ -321,6 +321,27 @@ class JournalTransitionRaceIT extends PostgresFixture {
 
         transactions.saveTransition(read.state(), read.clear(MARCH_3), RECORDER);
 
+        assertThat(isolationOfEveryPooledConnection()).containsOnly("read committed");
+    }
+
+    /** The race's own way out: a transaction aborted by the key collision and rolled back, not committed. */
+    @Test
+    void
+            Given_a_transition_refused_by_the_key_When_every_pooled_connection_is_asked_Then_each_is_back_at_read_committed()
+                    throws Exception {
+        Transaction read = recorded();
+
+        Throwable outcome;
+        try (RivalWriter rival = rivalWriter()) {
+            rivalClears(rival, read.id());
+            Future<?> voiding = voidInTheBackground(read);
+            rival.awaitBlockingAnotherBackend();
+
+            rival.commit();
+            outcome = outcomeOf(voiding);
+        }
+
+        assertThat(outcome).isInstanceOf(ConcurrentTransitionException.class);
         assertThat(isolationOfEveryPooledConnection()).containsOnly("read committed");
     }
 

@@ -32,6 +32,15 @@ public final class RivalWriter implements AutoCloseable {
             SELECT count(*) FROM pg_stat_activity WHERE :rival = ANY(pg_blocking_pids(pid))
             """;
 
+    /**
+     * PostgreSQL reports what a blocked backend waits for: {@code relation} for a table's lock, as
+     * against {@code transactionid} for a key another transaction may yet commit.
+     */
+    private static final String BACKENDS_BLOCKED_ON_A_TABLE_LOCK_BY = """
+            SELECT count(*) FROM pg_stat_activity
+             WHERE :rival = ANY(pg_blocking_pids(pid)) AND wait_event_type = 'Lock' AND wait_event = 'relation'
+            """;
+
     private final Connection connection;
     private final JdbcClient jdbc;
     private final JdbcClient observer;
@@ -66,11 +75,6 @@ public final class RivalWriter implements AutoCloseable {
     /** Runs on the rival's connection, so what it writes stays invisible until {@link #commit}. */
     public JdbcClient jdbc() {
         return jdbc;
-    }
-
-    /** The server process behind the rival's connection, which is how PostgreSQL names who blocks whom. */
-    public int backendPid() {
-        return backendPid;
     }
 
     /**
@@ -110,16 +114,31 @@ public final class RivalWriter implements AutoCloseable {
      *     which means the worker finished or failed instead of reaching this rival
      */
     public void awaitBlockingAnotherBackend() {
+        awaitBlocked(BACKENDS_BLOCKED_BY, "another backend blocked by rival ");
+    }
+
+    /**
+     * As {@link #awaitBlockingAnotherBackend}, and only once the backend is queued on a table this rival
+     * locked, for a test whose race happens at that point and would otherwise pass unnoticed with the
+     * worker queued somewhere else behind the same rival.
+     *
+     * @throws org.awaitility.core.ConditionTimeoutException if nothing waits on a table within the bound
+     */
+    public void awaitBlockingAnotherBackendOnATableLock() {
+        awaitBlocked(BACKENDS_BLOCKED_ON_A_TABLE_LOCK_BY, "another backend waiting on a table locked by rival ");
+    }
+
+    private void awaitBlocked(String query, String description) {
         // Awaitility otherwise hands any uncaught exception, on any thread of the JVM, to this wait.
-        Awaitility.await("another backend blocked by rival " + backendPid)
+        Awaitility.await(description + backendPid)
                 .dontCatchUncaughtExceptions()
                 .atMost(BLOCKED_WITHIN)
                 .pollInterval(POLL_INTERVAL)
-                .until(() -> backendsBlocked() > 0);
+                .until(() -> backendsBlocked(query) > 0);
     }
 
-    private int backendsBlocked() {
-        return observer.sql(BACKENDS_BLOCKED_BY)
+    private int backendsBlocked(String query) {
+        return observer.sql(query)
                 .param("rival", backendPid)
                 .query(Integer.class)
                 .single();
