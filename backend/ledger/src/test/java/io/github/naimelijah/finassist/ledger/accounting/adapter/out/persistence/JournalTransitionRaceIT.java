@@ -295,7 +295,7 @@ class JournalTransitionRaceIT extends PostgresFixture {
 
     /**
      * The shape a wrapper that needs one transaction around the move and something else takes, such as
-     * ADR-048's outbox: at the same level, the guard above lets it through and the snapshot still holds.
+     * ADR-048's outbox: at the same level, the guard above lets it through.
      */
     @Test
     void Given_a_surrounding_transaction_at_repeatable_read_When_a_move_joins_it_Then_it_is_stored() {
