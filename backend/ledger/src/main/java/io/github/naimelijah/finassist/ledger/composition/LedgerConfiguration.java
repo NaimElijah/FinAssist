@@ -112,7 +112,8 @@ public class LedgerConfiguration {
      * run it at the outer level without a word. The journal's {@code saveTransition} depends on its
      * {@code REPEATABLE READ}: a wrapper at the default level, the shape an outbox first reaches for,
      * would bring a narrow race's 500 back with every test still green (ADR-075). Only a method that
-     * names a level is compared, so a plain {@code @Transactional} joins as before.
+     * names a level is compared, so a plain {@code @Transactional} joins as before. A read-write join
+     * on a read-only transaction is refused as well, though nothing in the ledger is read-only today.
      */
     @Bean
     TransactionManagerCustomizer<AbstractPlatformTransactionManager> transactionsRefuseAnotherIsolation() {
