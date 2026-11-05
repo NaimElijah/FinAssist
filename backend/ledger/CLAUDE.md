@@ -136,7 +136,7 @@ bounded context (ADR-006, ADR-024).
   `saveTransition` runs at `REPEATABLE READ`, and any transaction around it must be at that level
   too: Spring would otherwise run it at the outer level, bringing `V1_4`'s `P0001` back as a 500, so
   `LedgerConfiguration` sets `setValidateExistingTransaction` and such a join fails on its first
-  call (`JournalTransitionRaceIT`). A `composition` decorator names its level. It catches the key collision and never `P0001`, which
+  call (`JournalTransitionRaceIT`). A `composition` decorator names its level. `saveTransition` catches the key collision and never `P0001`, which
   under that isolation means a defect. It compares states because the lifecycle has no cycle; the
   day one appears, carry a version instead. It reads the state before the entries, which the window
   test in `JournalTransitionRaceIT` relies on. `V1_4`'s header lines 19 to 25 describe the old
