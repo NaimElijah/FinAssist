@@ -245,7 +245,7 @@ class TransactionServiceTest {
     @Test
     void Given_a_store_refusing_a_stale_move_When_cleared_Then_the_refusal_propagates_and_no_event_is_published() {
         Transaction pending = stored(unrecordedPurchase());
-        ConcurrentTransitionException stale = storeRefusesEveryMove(pending);
+        ConcurrentTransitionException stale = storeRefusesEveryMove();
 
         assertThatThrownBy(() -> service.clear(pending.id(), MARCH_3, RECORDER)).isSameAs(stale);
 
@@ -255,7 +255,7 @@ class TransactionServiceTest {
     @Test
     void Given_a_store_refusing_a_stale_move_When_reconciled_Then_the_refusal_propagates_and_no_event_is_published() {
         Transaction cleared = stored(unrecordedPurchase().clear(MARCH_3));
-        ConcurrentTransitionException stale = storeRefusesEveryMove(cleared);
+        ConcurrentTransitionException stale = storeRefusesEveryMove();
 
         assertThatThrownBy(() -> service.reconcile(cleared.id(), MARCH_5, RECORDER))
                 .isSameAs(stale);
@@ -266,7 +266,7 @@ class TransactionServiceTest {
     @Test
     void Given_a_store_refusing_a_stale_move_When_voided_Then_the_refusal_propagates_and_no_event_is_published() {
         Transaction pending = stored(unrecordedPurchase());
-        ConcurrentTransitionException stale = storeRefusesEveryMove(pending);
+        ConcurrentTransitionException stale = storeRefusesEveryMove();
 
         assertThatThrownBy(() -> service.markVoided(pending.id(), MARCH_3, "duplicate", RECORDER))
                 .isSameAs(stale);
@@ -342,7 +342,7 @@ class TransactionServiceTest {
         return Transaction.record(MARCH_1, "Groceries", groceryPurchase("12.50").entries());
     }
 
-    private ConcurrentTransitionException storeRefusesEveryMove(Transaction transaction) {
+    private ConcurrentTransitionException storeRefusesEveryMove() {
         ConcurrentTransitionException stale = new ConcurrentTransitionException();
         doThrow(stale).when(transactions).saveTransition(any(), any(), any());
         return stale;

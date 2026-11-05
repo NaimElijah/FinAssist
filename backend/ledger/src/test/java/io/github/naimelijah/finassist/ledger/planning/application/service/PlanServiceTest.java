@@ -187,7 +187,7 @@ class PlanServiceTest {
     @Test
     void Given_a_store_refusing_a_stale_move_When_committed_Then_the_refusal_propagates_and_no_event_is_published() {
         PlannedFlow planned = stored(unpublishedCar());
-        ConcurrentPlanTransitionException stale = storeRefusesEveryMove(planned);
+        ConcurrentPlanTransitionException stale = storeRefusesEveryMove();
 
         assertThatThrownBy(() -> service.commit(planned.id(), FEB_10)).isSameAs(stale);
 
@@ -197,7 +197,7 @@ class PlanServiceTest {
     @Test
     void Given_a_store_refusing_a_stale_move_When_realised_Then_the_refusal_propagates_and_no_event_is_published() {
         PlannedFlow committed = stored(unpublishedCar().commit(FEB_10));
-        ConcurrentPlanTransitionException stale = storeRefusesEveryMove(committed);
+        ConcurrentPlanTransitionException stale = storeRefusesEveryMove();
 
         assertThatThrownBy(() -> service.realise(committed.id(), MARCH_1)).isSameAs(stale);
 
@@ -207,7 +207,7 @@ class PlanServiceTest {
     @Test
     void Given_a_store_refusing_a_stale_move_When_cancelled_Then_the_refusal_propagates_and_no_event_is_published() {
         PlannedFlow planned = stored(unpublishedCar());
-        ConcurrentPlanTransitionException stale = storeRefusesEveryMove(planned);
+        ConcurrentPlanTransitionException stale = storeRefusesEveryMove();
 
         assertThatThrownBy(() -> service.cancel(planned.id(), FEB_10, "too expensive"))
                 .isSameAs(stale);
@@ -255,7 +255,7 @@ class PlanServiceTest {
                 "New car", Money.of("40000.00", Currency.ILS), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
     }
 
-    private ConcurrentPlanTransitionException storeRefusesEveryMove(PlannedFlow flow) {
+    private ConcurrentPlanTransitionException storeRefusesEveryMove() {
         ConcurrentPlanTransitionException stale = new ConcurrentPlanTransitionException();
         doThrow(stale).when(flows).saveTransition(any(), any());
         return stale;
