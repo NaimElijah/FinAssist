@@ -18,6 +18,8 @@ public interface TransitionPlanUseCase {
      * @throws PlanNotFoundException if no such plan exists
      * @throws io.github.naimelijah.finassist.ledger.planning.domain.plan.IllegalPlanTransitionException
      *     if the plan is not {@code Planned}
+     * @throws ConcurrentPlanTransitionException if the plan moved on between reading it and storing this
+     *     change, whether or not its new state would allow the change; nothing was stored
      */
     PlannedFlow commit(PlanId plan, LocalDate committedOn);
 
@@ -29,6 +31,8 @@ public interface TransitionPlanUseCase {
      *     if the plan is not {@code Committed}
      * @throws IllegalArgumentException from the domain if {@code realisedOn} is before the date the
      *     plan was committed
+     * @throws ConcurrentPlanTransitionException if the plan moved on between reading it and storing this
+     *     change, whether or not its new state would allow the change; nothing was stored
      */
     PlannedFlow realise(PlanId plan, LocalDate realisedOn);
 
@@ -38,6 +42,8 @@ public interface TransitionPlanUseCase {
      *     if the plan is already {@code Realised} or {@code Cancelled}
      * @throws IllegalArgumentException from the domain if {@code reason} is blank, or the plan is
      *     {@code Committed} and {@code cancelledOn} is before the date it was committed
+     * @throws ConcurrentPlanTransitionException if the plan moved on between reading it and storing this
+     *     change, whether or not its new state would allow the change; nothing was stored
      */
     PlannedFlow cancel(PlanId plan, LocalDate cancelledOn, String reason);
 }

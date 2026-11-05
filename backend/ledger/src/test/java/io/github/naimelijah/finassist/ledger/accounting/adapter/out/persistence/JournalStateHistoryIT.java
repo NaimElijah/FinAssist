@@ -40,9 +40,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>Most refused rows are written directly, as {@code JournalIsAppendOnlyIT} writes its own, because
  * the adapter cannot write them: it always appends at the stored sequence plus one, and an aggregate
- * {@link Transaction} refuses never reaches it. Two refusals are reachable through the repository,
+ * {@link Transaction} refuses never reaches it. Three refusals are reachable through the repository,
  * from aggregates {@link Transaction} allows, and are tested through it: a first save that is not
- * {@code Pending}, and a save two moves ahead of the state stored.
+ * {@code Pending}, a transition two moves ahead of the state stored, and a transition to the state
+ * already stored.
  */
 @SpringBootTest
 class JournalStateHistoryIT extends PostgresFixture {
@@ -186,8 +187,9 @@ class JournalStateHistoryIT extends PostgresFixture {
     void Given_a_recorded_transaction_When_cleared_and_reconciled_Then_every_state_is_stored() {
         Transaction recorded = record();
 
-        transactions.save(recorded.clear(MARCH_1), RECORDER);
-        transactions.save(recorded.clear(MARCH_1).reconcile(MARCH_1), RECORDER);
+        Transaction cleared = recorded.clear(MARCH_1);
+        transactions.saveTransition(recorded.state(), cleared, RECORDER);
+        transactions.saveTransition(cleared.state(), cleared.reconcile(MARCH_1), RECORDER);
 
         assertThat(history(recorded.id())).containsExactly("0:PENDING", "1:CLEARED", "2:RECONCILED");
     }
@@ -196,36 +198,73 @@ class JournalStateHistoryIT extends PostgresFixture {
     void Given_a_recorded_transaction_When_voided_Then_both_states_are_stored() {
         Transaction recorded = record();
 
-        transactions.save(recorded.markVoided(MARCH_1, VOID_REASON), RECORDER);
+        transactions.saveTransition(recorded.state(), recorded.markVoided(MARCH_1, VOID_REASON), RECORDER);
 
         assertThat(history(recorded.id())).containsExactly("0:PENDING", "1:VOIDED");
     }
 
     @Test
     void Given_a_cleared_transaction_When_voided_Then_every_state_is_stored() {
-        Transaction cleared = record().clear(MARCH_3);
-        transactions.save(cleared, RECORDER);
+        Transaction recorded = record();
+        Transaction cleared = recorded.clear(MARCH_3);
+        transactions.saveTransition(recorded.state(), cleared, RECORDER);
 
-        transactions.save(cleared.markVoided(MARCH_5, VOID_REASON), RECORDER);
+        transactions.saveTransition(cleared.state(), cleared.markVoided(MARCH_5, VOID_REASON), RECORDER);
 
         assertThat(history(cleared.id())).containsExactly("0:PENDING", "1:CLEARED", "2:VOIDED");
     }
 
     /**
-     * The port's save contract, held through the port: {@link Transaction} allows clearing and then
-     * reconciling in memory, but a save that stores both at once would record a clear nobody saved, so
-     * the history refuses it and stays as it was.
+     * The port's transition contract, held through the port: {@link Transaction} allows clearing and
+     * then reconciling in memory, but a transition that stores both at once would record a clear nobody
+     * saved, so the history refuses it and stays as it was.
      */
     @Test
     void Given_a_pending_transaction_When_saved_cleared_and_reconciled_at_once_Then_it_is_refused() {
         Transaction recorded = record();
         Transaction twoMovesAhead = recorded.clear(MARCH_3).reconcile(MARCH_5);
 
-        assertThatThrownBy(() -> transactions.save(twoMovesAhead, RECORDER))
+        assertThatThrownBy(() -> transactions.saveTransition(recorded.state(), twoMovesAhead, RECORDER))
                 .rootCause()
                 .hasMessageContaining(
                         "transaction " + recorded.id().value() + " cannot move from PENDING to RECONCILED");
         assertThat(history(recorded.id())).containsExactly("0:PENDING");
+    }
+
+    /**
+     * A transition to the state already stored is no move at all, and it reaches the database: the
+     * adapter deliberately has no branch for it, because the history already refuses a state repeating
+     * itself. It is not the no-op that saving an unchanged transaction is.
+     */
+    @Test
+    void Given_a_pending_transaction_When_a_transition_stays_pending_Then_it_is_refused_and_nothing_is_appended() {
+        Transaction recorded = record();
+
+        assertThatThrownBy(() -> transactions.saveTransition(recorded.state(), recorded, RECORDER))
+                .rootCause()
+                .hasMessageContaining("transaction " + recorded.id().value() + " cannot move from PENDING to PENDING");
+        assertThat(history(recorded.id())).containsExactly("0:PENDING");
+    }
+
+    /**
+     * The journal never deletes, so a transaction the service read cannot lose its state afterwards: no
+     * race ends here, and answering a conflict would send the caller to read something that is not
+     * there. It is a corrupt store or a misuse, and a transition records nothing new of a transaction
+     * except its state, so it must not fall back on recording the rest.
+     */
+    @Test
+    void Given_a_transaction_never_recorded_When_a_transition_is_saved_Then_it_is_refused_and_nothing_is_stored() {
+        Transaction neverRecorded = Transaction.record(
+                MARCH_1,
+                "Groceries",
+                List.of(new Entry(groceries.id(), ils("12.50")), new Entry(cash.id(), ils("-12.50"))));
+
+        assertThatThrownBy(() ->
+                        transactions.saveTransition(neverRecorded.state(), neverRecorded.clear(MARCH_3), RECORDER))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(neverRecorded.id().value().toString());
+        assertThat(rows(neverRecorded.id())).isZero();
+        assertThat(headers(neverRecorded.id())).isZero();
     }
 
     /**
@@ -253,20 +292,20 @@ class JournalStateHistoryIT extends PostgresFixture {
     private Transaction recordIn(String state) {
         Transaction current = record();
         if (state.equals("CLEARED") || state.equals("RECONCILED")) {
-            current = saved(current.clear(MARCH_3));
+            current = saved(current, current.clear(MARCH_3));
         }
         if (state.equals("RECONCILED")) {
-            current = saved(current.reconcile(MARCH_5));
+            current = saved(current, current.reconcile(MARCH_5));
         }
         if (state.equals("VOIDED")) {
-            current = saved(current.markVoided(MARCH_3, VOID_REASON));
+            current = saved(current, current.markVoided(MARCH_3, VOID_REASON));
         }
         return current;
     }
 
-    private Transaction saved(Transaction transaction) {
-        transactions.save(transaction, RECORDER);
-        return transaction;
+    private Transaction saved(Transaction previous, Transaction next) {
+        transactions.saveTransition(previous.state(), next, RECORDER);
+        return next;
     }
 
     private Transaction record() {

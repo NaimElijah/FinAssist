@@ -38,8 +38,10 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>{@link AccountingProblemAdvice} maps the lifecycle's failures: an unknown transaction in the path is
  * 404 {@code TRANSACTION_NOT_FOUND}, and a change the current state does not allow is 409 {@code
- * ILLEGAL_TRANSITION}. A date before the one it must follow is the domain's {@link
- * IllegalArgumentException}, which the composition fallback answers 422 {@code RULE_VIOLATED}.
+ * ILLEGAL_TRANSITION}. So is a change refused because the transaction moved on while it was being
+ * made, which can be one the new state would allow (ADR-075). A date before the one it must follow is
+ * the domain's {@link IllegalArgumentException}, which the composition fallback answers 422 {@code
+ * RULE_VIOLATED}.
  *
  * <p>An account named in a body is not the resource the request is about, so an unknown one is 422
  * {@code UNKNOWN_ACCOUNT}, not the 404 the advice gives an account named in a path (ADR-028). That

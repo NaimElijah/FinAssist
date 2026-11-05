@@ -1,5 +1,6 @@
 package io.github.naimelijah.finassist.ledger.planning.adapter.in.web;
 
+import io.github.naimelijah.finassist.ledger.planning.application.port.in.ConcurrentPlanTransitionException;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanNotFoundException;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.ScenarioNotFoundException;
 import io.github.naimelijah.finassist.ledger.planning.domain.plan.IllegalPlanTransitionException;
@@ -46,6 +47,17 @@ public class PlanningProblemAdvice {
     /** A conflict with current state rather than a malformed request: the same call was legal earlier. */
     @ExceptionHandler(IllegalPlanTransitionException.class)
     ProblemDetail illegalPlanTransition(IllegalPlanTransitionException exception) {
+        return PlanningProblems.problem(
+                HttpStatus.CONFLICT, PlanningProblems.ILLEGAL_TRANSITION, exception.getMessage());
+    }
+
+    /**
+     * The flow moved on while the change was being made, which can be a change the new state would allow.
+     * It shares {@code ILLEGAL_TRANSITION} because the client's next step is the same, to read the flow
+     * again and decide; only the detail differs (ADR-075).
+     */
+    @ExceptionHandler(ConcurrentPlanTransitionException.class)
+    ProblemDetail concurrentPlanTransition(ConcurrentPlanTransitionException exception) {
         return PlanningProblems.problem(
                 HttpStatus.CONFLICT, PlanningProblems.ILLEGAL_TRANSITION, exception.getMessage());
     }

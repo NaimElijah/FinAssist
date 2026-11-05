@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.github.naimelijah.finassist.ledger.WebSliceSecurity;
 import io.github.naimelijah.finassist.ledger.composition.StrictTextCoercion;
+import io.github.naimelijah.finassist.ledger.planning.application.port.in.ConcurrentPlanTransitionException;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.ListPlannedFlowsUseCase;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanFlowCommand;
 import io.github.naimelijah.finassist.ledger.planning.application.port.in.PlanFlowUseCase;
@@ -545,6 +546,29 @@ class PlannedFlowControllerTest {
                 .andExpect(content().contentType(PROBLEM_JSON))
                 .andExpect(jsonPath("$.type").value("about:blank"))
                 .andExpect(jsonPath("$.detail").value(illegal.getMessage()))
+                .andExpect(jsonPath("$.code").value("ILLEGAL_TRANSITION"))
+                .andExpect(requiredProblemMembers());
+    }
+
+    /**
+     * The same answer as a state that forbids the move: the client's next step is the same, to read the
+     * flow again and decide, so it takes no new code in the contract. Only the detail differs.
+     */
+    @ParameterizedTest
+    @MethodSource("lifecycleCommands")
+    void
+            Given_a_plan_that_moved_on_after_the_read_When_a_lifecycle_command_is_sent_Then_it_is_a_409_illegal_transition_problem(
+                    String command, String body) throws Exception {
+        PlanId moved = PlanId.generate();
+        ConcurrentPlanTransitionException stale = new ConcurrentPlanTransitionException();
+        everyTransitionThrows(stale);
+
+        mvc.perform(post(PLANNED_FLOWS + "/" + moved + "/" + command)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value(stale.getMessage()))
                 .andExpect(jsonPath("$.code").value("ILLEGAL_TRANSITION"))
                 .andExpect(requiredProblemMembers());
     }

@@ -29,16 +29,16 @@ append-only history: to change course, add a new record and mark the old one
 | [021](ADR-021-application-layer-shape.md) | The application layer: use-case ports, consumer-owned out-ports | Accepted, extended by 041 and 055 |
 | [022](ADR-022-ledger-composition-root.md) | A composition root package in the ledger | Accepted, extended by 051, with a bounded exception in 028 |
 | [023](ADR-023-domain-events-in-the-ledger.md) | Domain events in the ledger, raised by the application service | Accepted, extended by 048, which supersedes its in-memory-log sentence |
-| [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033, 035 and 066 |
+| [024](ADR-024-jdbc-persistence-and-append-only-schema.md) | Hand-written SQL over `JdbcClient`, and an append-only journal schema | Accepted, extended by 033, 035, 066 and 075 |
 | [025](ADR-025-integration-tests-on-testcontainers.md) | Integration tests against a real PostgreSQL, in Testcontainers | Accepted, extended by 047 |
 | [026](ADR-026-web-client-calls-both-services-through-one-origin.md) | The web client calls both services directly, through one origin | Accepted, extended by 030 |
 | [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
-| [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030, 056, 058 and 068 |
+| [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030, 056, 058, 068 and 075 |
 | [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056, 057, 062 and 069 |
 | [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, 053, 057, 058 and 067, corrected by 047 |
 | [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036, 060, 073 and 074, corrected by 047 and 064 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted, corrected by 047 |
-| [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035 |
+| [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035, extended by 075 |
 | [034](ADR-034-keep-the-compose-smoke-check-manual.md) | The Compose authentication smoke check stays manual, out of CI | Accepted, extended by 040 |
 | [035](ADR-035-flyway-runs-out-of-order.md) | Flyway runs out of order, because every context owns a major version | Accepted, corrected by 047 |
 | [036](ADR-036-least-privilege-keycloak-client-scoping.md) | Deny each Keycloak client the realm's full scope | Accepted |
@@ -61,7 +61,7 @@ append-only history: to change course, add a new record and mark the old one
 | [053](ADR-053-the-gateways-outbound-calls-speak-http-1-1-under-one-time-budget.md) | The gateway's outbound calls speak HTTP/1.1, under one time budget | Accepted, extended by 067, which supersedes its 502-on-timeout line |
 | [054](ADR-054-each-service-ships-as-a-two-stage-image-run-as-a-non-root-user.md) | Each service ships as a two-stage image, built from source and run as a non-root user | Accepted, extended by 063 and 064 |
 | [055](ADR-055-the-assistants-development-seed-lives-in-its-composition-root.md) | The assistant's development seed lives in its composition root, and is off by default | Accepted |
-| [056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md) | The web client retries a failed read once, and never a write | Accepted |
+| [056](ADR-056-the-web-client-retries-a-failed-read-once-and-never-a-write.md) | The web client retries a failed read once, and never a write | Accepted, extended by 075 |
 | [057](ADR-057-a-page-on-another-localhost-port-is-treated-as-hostile.md) | A page on another `localhost` port is treated as hostile | Accepted |
 | [058](ADR-058-each-service-bounds-what-one-request-can-cost.md) | Each service bounds what one request can cost | Accepted, extended by 072 |
 | [059](ADR-059-the-assistant-trusts-only-the-key-set-it-last-fetched.md) | The assistant trusts only the key set it last fetched | Accepted |
@@ -71,7 +71,7 @@ append-only history: to change course, add a new record and mark the old one
 | [063](ADR-063-every-container-holds-only-the-privilege-it-uses.md) | Under Compose, every container holds only the privilege it uses, and `make check-compose` holds it there | Accepted |
 | [064](ADR-064-what-the-build-fetches-is-pinned-by-content.md) | What the build fetches is pinned by content where the tool allows it, and Dependabot moves every pin | Accepted |
 | [065](ADR-065-javac-lint-is-the-java-lint-gate.md) | javac's own lint, every category, is the Java services' lint gate | Accepted |
-| [066](ADR-066-the-store-holds-every-rule-the-domain-holds-across-rows.md) | The ledger's store holds every rule the domain holds across rows | Accepted |
+| [066](ADR-066-the-store-holds-every-rule-the-domain-holds-across-rows.md) | The ledger's store holds every rule the domain holds across rows | Accepted, extended by 075 |
 | [067](ADR-067-a-relay-that-times-out-answers-504-outcome-unknown.md) | A relay that times out answers 504, outcome unknown | Accepted, extended by 070 |
 | [068](ADR-068-every-problem-carries-what-its-contract-requires.md) | Every problem carries what its contract requires | Accepted |
 | [069](ADR-069-the-web-client-targets-wcag-2-2-aa-and-holds-it-with-tests.md) | The web client targets WCAG 2.2 AA and holds it with tests | Accepted |
@@ -80,6 +80,7 @@ append-only history: to change course, add a new record and mark the old one
 | [072](ADR-072-a-projection-bounds-its-growth-rate-and-its-amounts.md) | A projection bounds its growth rate and its amounts | Accepted |
 | [073](ADR-073-every-realm-locks-out-a-guessed-sign-in-for-a-while-never-for-good.md) | Every realm locks out a guessed sign-in for a while, never for good | Accepted |
 | [074](ADR-074-the-master-realm-is-configured-from-the-repository.md) | The `master` realm is configured from the repository | Accepted |
+| [075](ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md) | A transition is stored only against the state it was validated on | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -438,3 +439,17 @@ into the running realm with `kcadm.sh` on every `up`, keeping every user, and th
 it. The owner kept one administrator signing in with a password until Keycloak is reachable beyond
 loopback, so `KEYCLOAK_ADMIN_PASSWORD` must now stay equal to the live password
 ([#368](https://github.com/NaimElijah/FinAssist/issues/368)).
+
+075 extends 024, 028, 033, 056 and 066 on 2026-11-05. 024 said the journal's primary key doubles as optimistic
+concurrency, which did not hold, and 066 left a stale move whose target is legal to land. A move was
+validated against one read and written after another, so a void decided on a `PENDING` transaction
+landed on a `CLEARED` one, and every other stale move answered 500, from `V1_4`'s trigger or from
+the key. The journal now stores a move through `saveTransition`, at `REPEATABLE READ`, only if the
+stored state is still the one it was validated against, and a lost race is a 409
+`ILLEGAL_TRANSITION`. Planning's upsert, which had no trigger behind it and let a stale commit
+overwrite a cancel, becomes one conditional `UPDATE` at the default isolation, because `REPEATABLE
+READ` would turn its wait into a serialization failure nothing maps; its `save` only inserts. No
+migration, no contract change and no new problem code; `V1_4`'s header lines 19 to 25 now
+describe the old `save`, and 075 replaces them. The interval between a page's read and its `POST`
+stays open, and one owner with two tabs can reach it, so [#443](https://github.com/NaimElijah/FinAssist/issues/443) tracks it
+([#370](https://github.com/NaimElijah/FinAssist/issues/370)).

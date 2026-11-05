@@ -42,7 +42,10 @@ import type {
 import { CADENCES, type Cadence, type Recurrence } from '../types/recurrence';
 import type { DefineScenarioInput, Scenario } from '../types/scenario';
 
-/** The ledger's code for a lifecycle action the flow's current state does not admit (409). */
+/**
+ * The ledger's code for a lifecycle action the flow's current state does not admit, or one that lost
+ * to a change made while it was being stored, which the new state may still allow (409).
+ */
 export const ILLEGAL_TRANSITION = 'ILLEGAL_TRANSITION';
 
 const PLANNED_FLOWS_URL = `${LEDGER_API}/planned-flows`;
@@ -452,7 +455,8 @@ export async function realiseFlow(flowId: string, on: string): Promise<PlannedFl
  * @param reason - why it is cancelled, kept on the record.
  * @returns the flow in its new, `CANCELLED` state.
  * @throws ApiError - on a non-2xx response: 404 `PLAN_NOT_FOUND`, 409 `ILLEGAL_TRANSITION` when
- *   the flow is already `REALISED` or `CANCELLED`, 422 `RULE_VIOLATED`.
+ *   the flow is already `REALISED` or `CANCELLED`, or moved on while this was being stored, even to
+ *   a state that would allow it, 422 `RULE_VIOLATED`.
  * @throws ApiBodyError - when the response carries no JSON body, or anything `listPlannedFlows`
  *   refuses.
  * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which

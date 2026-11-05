@@ -28,6 +28,8 @@ public interface TransitionTransactionUseCase {
      *     if the transaction is not {@code Pending}
      * @throws IllegalArgumentException if {@code clearedOn} is before the day the transaction
      *     occurred
+     * @throws ConcurrentTransitionException if the transaction moved on between reading it and storing
+     *     this change, whether or not its new state would allow the change; nothing was stored
      */
     Transaction clear(TransactionId transaction, LocalDate clearedOn, Actor recordedBy);
 
@@ -41,6 +43,8 @@ public interface TransitionTransactionUseCase {
      * @throws io.github.naimelijah.finassist.ledger.accounting.domain.entry.IllegalTransitionException
      *     if the transaction is not {@code Cleared}
      * @throws IllegalArgumentException if {@code reconciledOn} is before the day it cleared
+     * @throws ConcurrentTransitionException if the transaction moved on between reading it and storing
+     *     this change, whether or not its new state would allow the change; nothing was stored
      */
     Transaction reconcile(TransactionId transaction, LocalDate reconciledOn, Actor recordedBy);
 
@@ -56,6 +60,8 @@ public interface TransitionTransactionUseCase {
      *     if the transaction is already {@code Reconciled} or {@code Voided}
      * @throws IllegalArgumentException if {@code reason} is blank, or {@code voidedOn} is before
      *     the day the transaction occurred or, once cleared, before the day it cleared
+     * @throws ConcurrentTransitionException if the transaction moved on between reading it and storing
+     *     this change, whether or not its new state would allow the change; nothing was stored
      */
     Transaction markVoided(TransactionId transaction, LocalDate voidedOn, String reason, Actor recordedBy);
 }

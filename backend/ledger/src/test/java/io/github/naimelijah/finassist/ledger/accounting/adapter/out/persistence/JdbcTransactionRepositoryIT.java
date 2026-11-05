@@ -126,7 +126,7 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
     void Given_a_voided_transaction_When_read_back_Then_it_is_still_returned_with_its_reason() {
         Transaction recorded = record(MARCH_1, "Groceries", "12.50");
         Transaction voided = recorded.markVoided(MARCH_15, "entered twice");
-        transactions.save(voided, RECORDER);
+        transactions.saveTransition(recorded.state(), voided, RECORDER);
 
         assertThat(transactions.findByAccount(cash.id())).containsExactly(voided);
         assertThat(transactions.findById(recorded.id()).orElseThrow().state())
@@ -148,7 +148,7 @@ class JdbcTransactionRepositoryIT extends PostgresFixture {
                 List.of(new Entry(groceries.id(), ils("12.50")), new Entry(cash.id(), ils("-12.50"))));
         transactions.save(recorded, recorder);
 
-        transactions.save(recorded.clear(MARCH_15), clearer);
+        transactions.saveTransition(recorded.state(), recorded.clear(MARCH_15), clearer);
 
         assertThat(jdbc().sql("SELECT recorded_by FROM accounting.journal_transaction WHERE id = :id")
                         .param("id", recorded.id().value())

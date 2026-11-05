@@ -22,7 +22,11 @@ final class PlanningProblems {
     /** The scenario named in the path does not exist. */
     static final String SCENARIO_NOT_FOUND = "SCENARIO_NOT_FOUND";
 
-    /** The planned flow's current state does not allow the requested lifecycle change. */
+    /**
+     * The requested lifecycle change was not stored: the planned flow's current state does not allow it,
+     * or the flow moved on while it was being made, which can be a change the new state would allow.
+     * Either way the client reads the flow again and decides (ADR-075).
+     */
     static final String ILLEGAL_TRANSITION = "ILLEGAL_TRANSITION";
 
     /** A flow named in the request body does not exist, so the request is refused rather than not found. */

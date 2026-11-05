@@ -352,6 +352,29 @@ process, decides whether generating this file from the
 
 ### Fixed
 
+- **A clear, a reconcile or a void of a transaction that has since moved on is refused, not stored
+  and not a 500.** Two moves decided on one read of a transaction could both reach the journal: a
+  clear and a void stored `PENDING, CLEARED, VOIDED`, though whoever voided it never saw it cleared,
+  and the append-only journal keeps that for good. Most other pairings answered 500, from `V1_4`'s
+  trigger or from the primary key, and a clear repeated on the same date answered 200 and published
+  a second event. The journal now stores a move only if the transaction is still in the state it
+  was validated against, and the ledger answers 409 `ILLEGAL_TRANSITION` with nothing stored and no
+  event published. No migration and no contract change, and the web client already refetches on that
+  code. A page's read and its `POST` are still apart, so a stale tab can validate against whatever
+  the row has become, which [#443](https://github.com/NaimElijah/FinAssist/issues/443) tracks
+  ([ADR-075](docs/ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md),
+  [#370](https://github.com/NaimElijah/FinAssist/issues/370)).
+- **A commit, a realisation or a cancellation of a plan that has since moved on is refused, not
+  written over the change that beat it.** Planning stores a plan's current state in place, with no
+  history, so two moves decided on one read of a plan could both be written and the later one left
+  no trace of the earlier. A commit landing after a cancel returned the cancelled plan to every
+  projection, and over HTTP a commit waiting on another request's cancel answered 200 and replaced
+  `CANCELLED` with `COMMITTED`. A plan's move is now one `UPDATE` that applies only while the plan
+  is in the state it was decided on, and the ledger answers 409 `ILLEGAL_TRANSITION` with the
+  other change kept and no event published. Saving an already-stored plan again, which no use
+  case does, is now an error and no longer a silent overwrite. No migration, no contract change
+  ([ADR-075](docs/ADRs/ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md),
+  [#370](https://github.com/NaimElijah/FinAssist/issues/370)).
 - **A stop, a database outage and a rollback no longer catch the owner's stack unprepared.** Scan
   12 of 12 in M0 ([#349](https://github.com/NaimElijah/FinAssist/issues/349)) ran
   `production-readiness-reviewer` at `20922c1`, against an isolated copy of the stack it could

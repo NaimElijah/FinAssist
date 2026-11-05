@@ -81,9 +81,13 @@ From `backend/ledger`:
   currency, checked in the constructor, so an unbalanced one is never constructed (ADR-011).
 - **A `PlannedFlow` amount is always positive and its `Direction` carries the sign** — the
   opposite of `Entry`, which is signed because double entry must balance (ADR-015).
-- **Repository ports expose no delete.** A lifecycle change is stored by saving the aggregate in
-  its new state: ADR-020's append-only obligation as a port shape, which the durable adapter
-  inherits (ADR-021).
+- **Repository ports expose no delete.** An accounting lifecycle change is stored by
+  `TransactionRepository.saveTransition`, which takes the aggregate in its new state and the state
+  it was validated against (ADR-075); a planning one by `PlannedFlowRepository.saveTransition`,
+  likewise, and `save` only records a new flow. The journal's is ADR-020's append-only obligation
+  as a port shape, which the durable adapter inherits (ADR-021); a plan's current state is overwritten
+  in place, because ADR-020 binds the journal alone (ADR-015, ADR-024), so there only a delete is
+  ruled out.
 - **Domain events are raised by the application service.** The aggregates are records whose value
   semantics the suites rely on, so they carry no pending-events list. Only `accounting` and
   `planning` raise events — a `Budget` has no lifecycle. Nothing subscribes yet, deliberately
@@ -124,9 +128,25 @@ bounded context (ADR-006, ADR-024).
   binds the record of what happened, and ADR-015 puts intent in another context.
 - **The state history follows the domain's lifecycle.** `V1_4`'s trigger admits a
   `journal_transaction_state` row only at the next `sequence`, opening `PENDING` at 0, along a move
-  `Transaction` allows, and dated no earlier than the transaction or the state before it. Save each
-  transition as it happens: an aggregate saved two moves ahead of the stored one is refused, as is
-  a first save in any state but `Pending` (`JournalStateHistoryIT`).
+  `Transaction` allows, and dated no earlier than the transaction or the state before it. Store each
+  transition as it happens, with `saveTransition`: one two moves ahead of the stored state is
+  refused, as is a first save in any state but `Pending` (`JournalStateHistoryIT`), and `save`
+  refuses an identity already stored in another state (`JournalIsAppendOnlyIT`).
+- **A move is stored only against the state it was validated on** (ADR-075).
+  `saveTransition` runs at `REPEATABLE READ`, and any transaction around it must be at that level
+  too: Spring would otherwise run it at the outer level, bringing `V1_4`'s `P0001` back as a 500, so
+  `LedgerConfiguration` sets `setValidateExistingTransaction` and such a join fails on its first
+  call (`JournalTransitionRaceIT`). A `composition` decorator names its level. `saveTransition` catches the key collision and never `P0001`, which
+  under that isolation means a defect. It compares states because the lifecycle has no cycle; the
+  day one appears, carry a version instead. It reads the state before the entries, which the window
+  test in `JournalTransitionRaceIT` relies on. `V1_4`'s header lines 19 to 25 describe the old
+  `save` and are untrue, but the script is pinned by `ReleasedMigrationsTest` and Flyway's
+  checksum: leave it, and read ADR-075. Planning's `saveTransition` is one `UPDATE … WHERE id AND
+  state` that writes the state columns only, and **stays at `READ COMMITTED`**, in a transaction or
+  not: a waiting `UPDATE` re-checks its `WHERE` there, whereas `REPEATABLE READ` would turn that wait
+  into a serialization failure nothing maps (`PlanningHttpIT` would answer 500). Zero rows is
+  the refusal, a flow never stored included. Its `save` only inserts, so a re-save is an uncaught
+  `DuplicateKeyException` and a 500 (`JdbcPlanningRepositoriesIT`); `PlanTransitionRaceIT` forces the races.
 - **Every journal insert names `recorded_by`; never validate the constraints.** `V1_2` added a
   nullable `recorded_by` and a `CHECK (...) NOT VALID` on `journal_transaction` and
   `journal_transaction_state`, so a row written before it honestly stays `NULL` while every new one

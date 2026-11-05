@@ -652,6 +652,90 @@ describe('PlannedFlowsPage lifecycle actions', () => {
         });
     });
 
+    /**
+     * A ledger whose Rent was committed elsewhere the moment this page tries to cancel it: the
+     * first cancel loses that race with a 409 `ILLEGAL_TRANSITION`, and every later read shows it
+     * committed, a state that still admits a cancel, so the next cancel succeeds.
+     */
+    function cancelLostToACommitLedger(): FetchAnswer {
+        let flows: readonly unknown[] = [RENT];
+        let cancelAttempts = 0;
+        return lifecycleLedger(
+            () => flows,
+            (request) => {
+                if (request.url !== `${FLOWS_URL}/${RENT_ID}/cancel` || request.method !== 'POST') {
+                    return unexpectedRequest(request);
+                }
+                cancelAttempts += 1;
+                if (cancelAttempts === 1) {
+                    flows = [{ ...RENT, state: { status: 'COMMITTED', on: '2026-09-14' } }];
+                    return problemResponse({
+                        status: 409,
+                        code: 'ILLEGAL_TRANSITION',
+                        detail: 'The flow changed while it was being cancelled.',
+                    });
+                }
+                const cancelled = {
+                    ...RENT,
+                    state: { status: 'CANCELLED', on: TODAY, reason: 'No longer needed' },
+                };
+                flows = [cancelled];
+                return jsonResponse(cancelled);
+            },
+        );
+    }
+
+    it('Given_a_cancel_refused_409_after_losing_to_a_commit_When_the_refetched_Committed_row_still_offers_Cancel_and_it_is_submitted_again_Then_the_row_shows_Cancelled', async () => {
+        // A 409 no longer proves the row's state forbids the move: this one lost a race, and
+        // Committed still admits a cancel, so the refused action stays open for the owner to
+        // repeat.
+        const requests = fakeFetch(cancelLostToACommitLedger());
+        renderFlows();
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Planned flows' });
+        await user.click(
+            within(rowOf('Rent')).getByRole('button', { name: nameStartingWith('Cancel') }),
+        );
+        await user.type(screen.getByLabelText('Reason'), 'No longer needed');
+
+        await user.click(screen.getByRole('button', { name: 'Cancel flow' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert).getByText('The flow changed while it was being cancelled.'),
+        ).toBeDefined();
+        expect(await within(rowOf('Rent')).findByText('Committed')).toBeDefined();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(alert);
+        });
+        // The panel replaces the row's buttons while it is open, so its own submit is the offer,
+        // and the reason the owner typed survived the refetch.
+        const cancelAgain = within(rowOf('Rent')).getByRole('button', { name: 'Cancel flow' });
+        expect(cancelAgain).toHaveProperty('disabled', false);
+        expect(screen.getByLabelText('Reason')).toHaveProperty('value', 'No longer needed');
+
+        await user.click(cancelAgain);
+
+        expect(await within(rowOf('Rent')).findByText('Cancelled')).toBeDefined();
+        expect(within(rowOf('Rent')).getByText('No longer needed')).toBeDefined();
+        // Cancelled offers nothing, so the panel closes onto the row's state, and the refusal goes.
+        await waitFor(() => {
+            expect(document.activeElement?.id).toBe(`flow-state-${RENT_ID}`);
+        });
+        expect(screen.queryByRole('alert')).toBeNull();
+        expect(within(rowOf('Rent')).queryByRole('button')).toBeNull();
+        const cancelRequest = {
+            method: 'POST',
+            url: `${FLOWS_URL}/${RENT_ID}/cancel`,
+            body: { on: TODAY, reason: 'No longer needed' },
+        };
+        expect(
+            requests
+                .filter((request) => request.method === 'POST')
+                .map(({ method, url, body }) => ({ method, url, body })),
+        ).toEqual([cancelRequest, cancelRequest]);
+    });
+
     it('Given_a_refusal_other_than_409_When_an_action_is_submitted_Then_nothing_is_refetched', async () => {
         // Only a 409 says the row changed elsewhere; a 422 answers the request as sent, and a
         // mutation invalidates only the keys that can have changed. Counted at the fetch boundary,

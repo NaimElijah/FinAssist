@@ -865,6 +865,96 @@ describe('AccountDetailPage transaction lifecycle actions', () => {
         });
     });
 
+    /**
+     * A ledger whose Pending purchase was cleared elsewhere the moment this page tries to void it:
+     * the first void loses that race with a 409 `ILLEGAL_TRANSITION`, and every later read shows
+     * it cleared, a state that still admits a void, so the next void succeeds.
+     */
+    function voidLostToAClearLedger(): FetchAnswer {
+        let transactions: readonly unknown[] = [PENDING_TX];
+        let voidAttempts = 0;
+        return lifecycleLedger(
+            () => transactions,
+            (request) => {
+                if (
+                    request.url !== `${RECORD_URL}/${PENDING_TX.id}/void` ||
+                    request.method !== 'POST'
+                ) {
+                    return unexpectedRequest(request);
+                }
+                voidAttempts += 1;
+                if (voidAttempts === 1) {
+                    transactions = [
+                        { ...PENDING_TX, state: { status: 'CLEARED', on: '2026-09-14' } },
+                    ];
+                    return problemResponse({
+                        status: 409,
+                        code: 'ILLEGAL_TRANSITION',
+                        detail: 'The transaction changed while it was being voided.',
+                    });
+                }
+                const voided = {
+                    ...PENDING_TX,
+                    state: { status: 'VOIDED', on: TODAY, reason: 'Entered twice' },
+                };
+                transactions = [voided];
+                return jsonResponse(voided);
+            },
+        );
+    }
+
+    it('Given_a_void_refused_409_after_losing_to_a_clear_When_the_refetched_Cleared_row_still_offers_Void_and_it_is_submitted_again_Then_the_row_shows_Voided', async () => {
+        // A 409 no longer proves the row's state forbids the move: this one lost a race, and
+        // Cleared still admits a void, so the refused action stays open for the owner to repeat.
+        const requests = fakeFetch(voidLostToAClearLedger());
+        renderRoutes(accountingRoutes, `/accounts/${CHECKING.id}`);
+        const user = userEvent.setup({ delay: null });
+        await screen.findByRole('table', { name: 'Transactions' });
+        await user.click(
+            within(rowOf('Pending purchase')).getByRole('button', {
+                name: nameStartingWith('Void'),
+            }),
+        );
+        await user.type(screen.getByLabelText('Reason'), 'Entered twice');
+
+        await user.click(screen.getByRole('button', { name: 'Void' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(
+            within(alert).getByText('The transaction changed while it was being voided.'),
+        ).toBeDefined();
+        expect(await within(rowOf('Pending purchase')).findByText('Cleared')).toBeDefined();
+        await waitFor(() => {
+            expect(document.activeElement).toBe(alert);
+        });
+        // The panel replaces the row's buttons while it is open, so its own submit is the offer,
+        // and the reason the owner typed survived the refetch.
+        const voidAgain = within(rowOf('Pending purchase')).getByRole('button', { name: 'Void' });
+        expect(voidAgain).toHaveProperty('disabled', false);
+        expect(screen.getByLabelText('Reason')).toHaveProperty('value', 'Entered twice');
+
+        await user.click(voidAgain);
+
+        expect(await within(rowOf('Pending purchase')).findByText('Voided')).toBeDefined();
+        expect(within(rowOf('Pending purchase')).getByText('Entered twice')).toBeDefined();
+        // Voided offers nothing, so the panel closes onto the row's state, and the refusal goes.
+        await waitFor(() => {
+            expect(document.activeElement?.id).toBe(`transaction-state-${PENDING_TX.id}`);
+        });
+        expect(screen.queryByRole('alert')).toBeNull();
+        expect(within(rowOf('Pending purchase')).queryByRole('button')).toBeNull();
+        const voidRequest = {
+            method: 'POST',
+            url: `${RECORD_URL}/${PENDING_TX.id}/void`,
+            body: { on: TODAY, reason: 'Entered twice' },
+        };
+        expect(
+            requests
+                .filter((request) => request.method === 'POST')
+                .map(({ method, url, body }) => ({ method, url, body })),
+        ).toEqual([voidRequest, voidRequest]);
+    });
+
     it('Given_a_refusal_other_than_409_When_an_action_is_submitted_Then_nothing_is_refetched', async () => {
         // Only a 409 says the row changed elsewhere; a 422 answers the request as sent, and a
         // mutation invalidates only the keys that can have changed. Counted at the fetch boundary,
