@@ -125,8 +125,9 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
     @Test
     void Given_a_transaction_moved_through_its_lifecycle_When_the_rows_are_read_Then_every_state_is_still_there() {
         Transaction recorded = record("12.50");
-        transactions.save(recorded.clear(MARCH_3), RECORDER);
-        transactions.save(recorded.clear(MARCH_3).reconcile(MARCH_5), RECORDER);
+        Transaction cleared = recorded.clear(MARCH_3);
+        transactions.saveTransition(recorded.state(), cleared, RECORDER);
+        transactions.saveTransition(cleared.state(), cleared.reconcile(MARCH_5), RECORDER);
 
         List<String> history = jdbc().sql(
                         "SELECT state FROM accounting.journal_transaction_state WHERE transaction_id = :id"
@@ -154,7 +155,7 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
     /**
      * A correction is a new transaction and a mistake is voided with a reason. Silently accepting
      * different entries under an identity already recorded would be the rewrite ADR-020 forbids,
-     * arriving through the one door the port leaves open.
+     * arriving through a door the port leaves open.
      */
     @Test
     void Given_a_recorded_transaction_When_saved_with_different_entries_Then_it_is_refused() {
@@ -165,6 +166,45 @@ class JournalIsAppendOnlyIT extends PostgresFixture {
         assertThatThrownBy(() -> transactions.save(rewritten, RECORDER))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("cannot be rewritten");
+    }
+
+    /**
+     * The port's other door, and the same refusal. The move itself is legal and validated against the
+     * state stored, so only the comparison of entries stands between this call and a transaction that
+     * reads back one way and was recorded another; the state must not land either.
+     */
+    @Test
+    void
+            Given_a_recorded_transaction_When_a_transition_carries_different_entries_Then_it_is_refused_and_nothing_is_appended() {
+        Transaction recorded = record("12.50");
+        Transaction rewritten = new Transaction(
+                recorded.id(),
+                recorded.occurredOn(),
+                recorded.description(),
+                entries("99.99"),
+                new TransactionState.Cleared(MARCH_3));
+
+        assertThatThrownBy(() -> transactions.saveTransition(recorded.state(), rewritten, RECORDER))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot be rewritten");
+
+        assertThat(states(recorded)).isEqualTo(1);
+    }
+
+    /**
+     * A move is stored only by saying what it was validated against (#370). If {@code save} still
+     * appended the state it was handed, it would be a second door to the journal with none of that
+     * check behind it, and any caller using it would bring the race straight back.
+     */
+    @Test
+    void Given_a_stored_transaction_When_saved_in_a_different_state_Then_it_is_refused_and_nothing_is_appended() {
+        Transaction recorded = record("12.50");
+
+        assertThatThrownBy(() -> transactions.save(recorded.clear(MARCH_3), RECORDER))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("saveTransition");
+
+        assertThat(states(recorded)).isEqualTo(1);
     }
 
     /**

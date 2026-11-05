@@ -1,6 +1,7 @@
 # ADR-056: The web client retries a failed read once, and never a write
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by
+  [ADR-075](ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md)
 - **Date:** 2026-10-29
 
 Extends [ADR-029](ADR-029-web-client-stack.md), which chose TanStack Query for server state and

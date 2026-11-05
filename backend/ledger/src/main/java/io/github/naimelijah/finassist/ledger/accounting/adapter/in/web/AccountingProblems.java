@@ -24,7 +24,11 @@ final class AccountingProblems {
     /** An account of that name is already open; names are unique in the chart of accounts. */
     static final String DUPLICATE_ACCOUNT_NAME = "DUPLICATE_ACCOUNT_NAME";
 
-    /** The transaction's current state does not allow the requested lifecycle change. */
+    /**
+     * The requested lifecycle change was not stored: the transaction's current state does not allow it,
+     * or the transaction moved on while it was being made, which can be a change the new state would
+     * allow. Either way the client reads the transaction again and decides (ADR-075).
+     */
     static final String ILLEGAL_TRANSITION = "ILLEGAL_TRANSITION";
 
     /** An entry is in a currency its account does not hold, and the ledger never converts (ADR-012). */

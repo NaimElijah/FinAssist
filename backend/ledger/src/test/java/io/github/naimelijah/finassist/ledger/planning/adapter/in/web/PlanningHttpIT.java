@@ -3,6 +3,7 @@ package io.github.naimelijah.finassist.ledger.planning.adapter.in.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
+import io.github.naimelijah.finassist.ledger.RivalWriter;
 import io.github.naimelijah.finassist.ledger.TestTokens;
 import java.io.IOException;
 import java.net.URI;
@@ -12,6 +13,8 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -54,6 +57,9 @@ class PlanningHttpIT extends PostgresFixture {
     private static final String YEAR_2026 = "from=2026-01-01&to=2027-01-01&step=MONTHLY";
 
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
+
+    /** Outlasts {@link #TIMEOUT}, so a request that never returns fails as the client's timeout says. */
+    private static final Duration WORKER_BOUND = Duration.ofSeconds(15);
 
     /** A salary of 10000.00 ILS on the first of every month in 2026. */
     private static final String MONTHLY_SALARY = """
@@ -154,6 +160,50 @@ class PlanningHttpIT extends PostgresFixture {
         HttpResponse<String> response = post(PLANNED_FLOWS + "/" + car + "/realise", transitionRequest("2026-02-15"));
 
         assertProblem(response, 409, "ILLEGAL_TRANSITION");
+    }
+
+    /**
+     * What #370 promises a client, through everything between it and the store: a commit decided on a state
+     * that moved on while it waited is answered a problem, and the cancel it raced stays cancelled, so the
+     * plan does not come back into projections. The commit is sent asynchronously because the rival's commit
+     * is what lets it finish. The stored state is asserted first so that a failure shows it beside the status.
+     */
+    @Test
+    void
+            Given_a_rivals_uncommitted_cancel_When_it_commits_under_a_waiting_commit_Then_it_is_a_409_and_the_commit_is_not_stored()
+                    throws Exception {
+        String car = plan(CAR);
+
+        HttpResponse<String> response;
+        try (RivalWriter rival = rivalWriter()) {
+            rival.jdbc()
+                    .sql("""
+                            UPDATE planning.planned_flow
+                               SET state = 'CANCELLED', state_on = CAST(:on AS date), state_reason = :reason
+                             WHERE id = :id
+                            """)
+                    .param("id", UUID.fromString(car))
+                    .param("on", "2026-01-05")
+                    .param("reason", "bought second-hand instead")
+                    .update();
+            CompletableFuture<HttpResponse<String>> committing =
+                    postInTheBackground(PLANNED_FLOWS + "/" + car + "/commit", transitionRequest("2026-01-10"));
+            rival.awaitBlockingAnotherBackend();
+
+            rival.commit();
+            response = committing.get(WORKER_BOUND.toSeconds(), TimeUnit.SECONDS);
+        }
+
+        assertThat(jdbc().sql("SELECT state FROM planning.planned_flow WHERE id = :id")
+                        .param("id", UUID.fromString(car))
+                        .query(String.class)
+                        .single())
+                .as("the stored state, after the commit was answered %d", response.statusCode())
+                .isEqualTo("CANCELLED");
+        assertProblem(response, 409, "ILLEGAL_TRANSITION");
+        assertThat(json(response).path("instance").asString())
+                .as("the refusal names no identifier in its detail, so this is what says which one it was")
+                .isEqualTo(PLANNED_FLOWS + "/" + car + "/commit");
     }
 
     @Test
@@ -448,17 +498,28 @@ class PlanningHttpIT extends PostgresFixture {
     }
 
     private HttpResponse<String> post(String path, String body) throws IOException, InterruptedException {
-        return send(HttpRequest.newBuilder(uri(path))
+        return send(jsonPost(path, body));
+    }
+
+    /** Bounded by {@link #TIMEOUT} like every other request, so the future always ends. */
+    private CompletableFuture<HttpResponse<String>> postInTheBackground(String path, String body) {
+        return CLIENT.sendAsync(signed(jsonPost(path, body)), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpRequest.Builder jsonPost(String path, String body) {
+        return HttpRequest.newBuilder(uri(path))
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .POST(HttpRequest.BodyPublishers.ofString(body)));
+                .POST(HttpRequest.BodyPublishers.ofString(body));
     }
 
     private HttpResponse<String> send(HttpRequest.Builder request) throws IOException, InterruptedException {
-        return CLIENT.send(
-                request.header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
-                        .timeout(TIMEOUT)
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
+        return CLIENT.send(signed(request), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private static HttpRequest signed(HttpRequest.Builder request) {
+        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + TestTokens.owner())
+                .timeout(TIMEOUT)
+                .build();
     }
 
     private URI uri(String path) {

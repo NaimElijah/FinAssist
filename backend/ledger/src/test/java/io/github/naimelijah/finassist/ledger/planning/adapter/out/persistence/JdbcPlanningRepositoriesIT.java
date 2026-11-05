@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.naimelijah.finassist.ledger.PostgresFixture;
+import io.github.naimelijah.finassist.ledger.planning.application.port.in.ConcurrentPlanTransitionException;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.PlannedFlowRepository;
 import io.github.naimelijah.finassist.ledger.planning.application.port.out.ScenarioRepository;
 import io.github.naimelijah.finassist.ledger.planning.domain.forecast.GrowthAssumption;
@@ -28,6 +29,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
@@ -107,8 +109,8 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
     }
 
     /**
-     * A transition is stored by saving the aggregate in its new state, and the plan is kept rather
-     * than removed — the port has no delete, and a cancelled plan is history a projection excludes.
+     * A transition is stored in place, and the plan is kept rather than removed — the port has no
+     * delete, and a cancelled plan is history a projection excludes.
      */
     @Test
     void Given_a_cancelled_plan_When_it_is_read_back_Then_it_is_kept_with_its_reason() {
@@ -116,13 +118,69 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
                 PlannedFlow.plan("New car", ils("40000.00"), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
         flows.save(planned);
 
-        flows.save(planned.cancel(FEB_10, "too expensive"));
+        flows.saveTransition(planned.state(), planned.cancel(FEB_10, "too expensive"));
 
         PlannedFlow stored = flows.findById(planned.id()).orElseThrow();
         assertThat(stored.countsTowardsProjection()).isFalse();
         assertThat(stored.state())
                 .isEqualTo(new io.github.naimelijah.finassist.ledger.planning.domain.plan.PlanState.Cancelled(
                         FEB_10, "too expensive"));
+    }
+
+    /**
+     * A move is stored only by saying what it was validated against (#370). If {@code save} still wrote
+     * over a stored identity, it would be a second door to the row with none of that check behind it, and
+     * any caller using it would bring the race straight back.
+     */
+    @Test
+    void Given_a_stored_flow_When_saved_again_in_a_different_state_Then_it_is_refused_and_the_row_is_unchanged() {
+        PlannedFlow planned =
+                PlannedFlow.plan("New car", ils("40000.00"), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+        flows.save(planned);
+
+        assertThatThrownBy(() -> flows.save(planned.commit(FEB_10))).isInstanceOf(DuplicateKeyException.class);
+
+        assertThat(flows.findById(planned.id())).contains(planned);
+    }
+
+    /**
+     * A transition moves the state and nothing else, whatever {@code next} carries. The domain cannot
+     * produce a {@code next} that differs anywhere else, so only one built by hand can show that an
+     * {@code UPDATE} setting every column has crept in.
+     */
+    @Test
+    void Given_a_next_with_another_description_When_the_transition_is_saved_Then_only_the_state_columns_change() {
+        PlannedFlow planned =
+                PlannedFlow.plan("New car", ils("40000.00"), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+        flows.save(planned);
+        PlannedFlow committed = planned.commit(FEB_10);
+        PlannedFlow renamed = new PlannedFlow(
+                committed.id(),
+                "A different car",
+                committed.amount(),
+                committed.direction(),
+                committed.startsOn(),
+                committed.recurrence(),
+                committed.state());
+
+        flows.saveTransition(planned.state(), renamed);
+
+        assertThat(flows.findById(planned.id())).contains(committed);
+    }
+
+    /**
+     * A transition only ever updates. Were it to become an upsert, a move on a flow nobody stored would
+     * create one, out of a {@code next} that never existed, and every other test here would still pass.
+     */
+    @Test
+    void Given_a_flow_never_stored_When_a_transition_is_saved_Then_it_is_refused_and_nothing_is_stored() {
+        PlannedFlow neverStored =
+                PlannedFlow.plan("New car", ils("40000.00"), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
+
+        assertThatThrownBy(() -> flows.saveTransition(neverStored.state(), neverStored.commit(FEB_10)))
+                .isInstanceOf(ConcurrentPlanTransitionException.class);
+
+        assertThat(flows.findById(neverStored.id())).isEmpty();
     }
 
     /**
@@ -179,7 +237,7 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
         Scenario scenario = Scenario.of("Buy the car", Currency.ILS, List.of(car), GrowthAssumption.none());
         scenarios.save(scenario);
 
-        flows.save(car.cancel(FEB_10, "too expensive"));
+        flows.saveTransition(car.state(), car.cancel(FEB_10, "too expensive"));
 
         assertThat(scenarios.findById(scenario.id()).orElseThrow().forecastableFlows())
                 .isEmpty();
@@ -258,7 +316,7 @@ class JdbcPlanningRepositoriesIT extends PostgresFixture {
                 PlannedFlow.plan("New car", ils("40000.00"), Direction.OUTFLOW, FEB_1, new Recurrence.Once());
         flows.save(planned);
         PlannedFlow cancelled = planned.cancel(FEB_10, "too expensive");
-        flows.save(cancelled);
+        flows.saveTransition(planned.state(), cancelled);
 
         assertThat(flows.all()).containsExactly(cancelled);
     }

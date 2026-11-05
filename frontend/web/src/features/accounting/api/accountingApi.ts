@@ -45,7 +45,10 @@ export const DUPLICATE_ACCOUNT_NAME = 'DUPLICATE_ACCOUNT_NAME';
 /** The ledger's code for an account id in the path that names no account (ADR-028: 404). */
 export const ACCOUNT_NOT_FOUND = 'ACCOUNT_NOT_FOUND';
 
-/** The ledger's code for a lifecycle action the transaction's state does not admit (409). */
+/**
+ * The ledger's code for a lifecycle action the transaction's state does not admit, or one that lost
+ * to a change made while it was being stored, which the new state may still allow (409).
+ */
 export const ILLEGAL_TRANSITION = 'ILLEGAL_TRANSITION';
 
 const ACCOUNTS_URL = `${LEDGER_API}/accounts`;
@@ -319,7 +322,8 @@ export async function reconcileTransaction(
  * @param reason - why it is void, kept on the record.
  * @returns the transaction in its new, `VOIDED` state.
  * @throws ApiError - on a non-2xx response: 404, 409 `ILLEGAL_TRANSITION` when the transaction is
- *   already `RECONCILED` or `VOIDED`, 422 for a date before it occurred.
+ *   already `RECONCILED` or `VOIDED`, or moved on while this was being stored, even to a state that
+ *   would allow it, 422 for a date before it occurred.
  * @throws ApiBodyError - when the response carries no JSON body.
  * @throws RangeError - before anything is sent, when the id is empty, `.` or `..`, which
  *   would name another path (`pathSegment`).

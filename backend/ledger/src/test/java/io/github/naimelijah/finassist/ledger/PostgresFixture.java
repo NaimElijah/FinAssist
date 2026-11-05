@@ -169,10 +169,22 @@ public abstract class PostgresFixture {
      * wrote.
      */
     protected static JdbcClient freshConnection() {
+        return JdbcClient.create(unpooled());
+    }
+
+    /**
+     * A writer racing the code under test, on a connection and a transaction of its own, for a test
+     * that must choose when a competing write becomes visible. The caller closes it.
+     */
+    protected static RivalWriter rivalWriter() {
+        return RivalWriter.open(unpooled());
+    }
+
+    private static DriverManagerDataSource unpooled() {
         DriverManagerDataSource source =
                 new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         source.setDriverClassName(POSTGRES.getDriverClassName());
-        return JdbcClient.create(source);
+        return source;
     }
 
     /**

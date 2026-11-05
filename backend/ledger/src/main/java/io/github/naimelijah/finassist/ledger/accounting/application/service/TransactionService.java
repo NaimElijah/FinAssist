@@ -70,24 +70,27 @@ public class TransactionService implements RecordTransactionUseCase, TransitionT
 
     @Override
     public Transaction clear(TransactionId transaction, LocalDate clearedOn, Actor recordedBy) {
-        Transaction cleared = require(transaction).clear(clearedOn);
-        transactions.save(cleared, recordedBy);
+        Transaction read = require(transaction);
+        Transaction cleared = read.clear(clearedOn);
+        transactions.saveTransition(read.state(), cleared, recordedBy);
         events.publish(new AccountingEvent.TransactionCleared(cleared.id(), clearedOn));
         return cleared;
     }
 
     @Override
     public Transaction reconcile(TransactionId transaction, LocalDate reconciledOn, Actor recordedBy) {
-        Transaction reconciled = require(transaction).reconcile(reconciledOn);
-        transactions.save(reconciled, recordedBy);
+        Transaction read = require(transaction);
+        Transaction reconciled = read.reconcile(reconciledOn);
+        transactions.saveTransition(read.state(), reconciled, recordedBy);
         events.publish(new AccountingEvent.TransactionReconciled(reconciled.id(), reconciledOn));
         return reconciled;
     }
 
     @Override
     public Transaction markVoided(TransactionId transaction, LocalDate voidedOn, String reason, Actor recordedBy) {
-        Transaction voided = require(transaction).markVoided(voidedOn, reason);
-        transactions.save(voided, recordedBy);
+        Transaction read = require(transaction);
+        Transaction voided = read.markVoided(voidedOn, reason);
+        transactions.saveTransition(read.state(), voided, recordedBy);
         // Genuinely read off the aggregate now, not re-derived from the input. The two agree only
         // because Voided happens to normalise with strip() today; the day it collapses whitespace or
         // truncates, a re-derived event would carry a reason that was never stored, and no test would
