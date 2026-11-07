@@ -531,8 +531,8 @@ def Given_a_body_that_is_not_json_When_any_post_route_receives_it_Then_it_is_415
     for path in posts:
         response = client.post(path, content=body, headers=headers)
 
-        assert (path, response.status_code) == (path, 415)
-        assert response.json()["code"] == "UNSUPPORTED_MEDIA_TYPE"
+        assert response.status_code == 415, path
+        assert response.json()["code"] == "UNSUPPORTED_MEDIA_TYPE", path
 
 
 def Given_the_public_paths_When_compared_Then_they_are_exactly_health_ready_and_openapi() -> None:
