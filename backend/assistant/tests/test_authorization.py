@@ -478,7 +478,7 @@ def Given_a_websocket_route_and_a_plain_route_When_inspected_Then_both_are_found
     assert _unguarded(app) == [_STREAM_PATH, _PLAIN_PATH]
 
 
-_CROSS_SITE_BODIES = [
+_NON_JSON_BODIES = [
     pytest.param("application/x-www-form-urlencoded", b"quantity=1", id="form"),
     pytest.param(
         "multipart/form-data; boundary=finassist",
@@ -489,6 +489,7 @@ _CROSS_SITE_BODIES = [
     ),
     pytest.param("text/plain", b'{"quantity": "1"}', id="text-plain"),
     pytest.param(None, b'{"quantity": "1"}', id="no-content-type"),
+    pytest.param("application/xml", b"<quantity>1</quantity>", id="xml"),
 ]
 
 
@@ -505,14 +506,15 @@ def _posts(app: FastAPI) -> list[str]:
     ]
 
 
-@pytest.mark.parametrize(("content_type", "body"), _CROSS_SITE_BODIES)
-def Given_a_body_a_cross_site_page_can_send_When_any_post_route_receives_it_Then_it_is_415(
+@pytest.mark.parametrize(("content_type", "body"), _NON_JSON_BODIES)
+def Given_a_body_that_is_not_json_When_any_post_route_receives_it_Then_it_is_415(
     app: FastAPI, client: TestClient, content_type: str | None, body: bytes
 ) -> None:
     """Every write accepts ``application/json`` alone (ADR-030), whatever route a later change
-    adds. A page on another origin can send these three media types, or none at all, without a
-    CORS preflight, and no CORS configuration exists to approve any other, so each must be refused
-    415 before a handler runs. The ledger's mirror is ``LedgerAuthorizationIT``'s
+    adds. A page on another origin can send a form, multipart or ``text/plain`` body, or one with no
+    ``Content-Type`` at all, without a CORS preflight, and no CORS configuration exists to approve
+    any other; an XML body stands for every other type. Each must be refused 415 before a handler
+    runs. The ledger's mirror is ``LedgerAuthorizationIT``'s
     ``Given_the_running_ledger_When_its_post_mappings_are_read_Then_each_consumes_only_json``.
 
     Sent with the owner's token, so the permission dependency admits it and only the media type
