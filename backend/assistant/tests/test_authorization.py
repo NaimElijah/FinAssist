@@ -18,15 +18,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
+import uuid
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, Final
 
 import jwt
 import pytest
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.routing import APIRoute, RouteContext, iter_route_contexts
 from fastapi.testclient import TestClient
+from starlette.convertors import Convertor, FloatConvertor, IntegerConvertor, UUIDConvertor
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 from starlette.status import WS_1008_POLICY_VIOLATION
@@ -493,19 +494,37 @@ _NON_JSON_BODIES = [
 ]
 
 
+_PATH_PARAMETER_SAMPLES: dict[type[Convertor[Any]], Any] = {
+    IntegerConvertor: 1,
+    FloatConvertor: 1.0,
+    UUIDConvertor: uuid.UUID(int=1),
+}
+"""A value of the right type for each typed path parameter, so a request reaches the route it was
+built for rather than a 404 or another route; any other parameter takes :data:`_SAMPLE_SEGMENT`."""
+
+_SAMPLE_SEGMENT: Final = "VOO"
+
+
 def _posts(app: FastAPI) -> list[str]:
-    """The path of every route *app* serves that answers POST, each path parameter filled in.
+    """A URL for every route *app* serves that answers POST, each path parameter filled with a
+    value its convertor accepts.
 
     Public paths included: :func:`_routes` leaves them out because they need no permission, but a
     POST on ``/ready`` would take a body all the same, and with no token at all. A route of another
     type than ``APIRoute`` is already refused by the permission coverage check above, so only the
     methods a route declares are read here.
     """
-    return [
-        re.sub(r"\{[^}]*\}", "VOO", route.path)
-        for route in iter_route_contexts(app.routes)
-        if route.path is not None and "POST" in (route.methods or set())
-    ]
+    urls = []
+    for route in iter_route_contexts(app.routes):
+        if route.path_format is None or "POST" not in (route.methods or set()):
+            continue
+        convertors: dict[str, Convertor[Any]] = getattr(route, "param_convertors", {})
+        values = {
+            name: convertor.to_string(_PATH_PARAMETER_SAMPLES.get(type(convertor), _SAMPLE_SEGMENT))
+            for name, convertor in convertors.items()
+        }
+        urls.append(route.path_format.format(**values))
+    return urls
 
 
 @pytest.mark.parametrize(("content_type", "body"), _NON_JSON_BODIES)
