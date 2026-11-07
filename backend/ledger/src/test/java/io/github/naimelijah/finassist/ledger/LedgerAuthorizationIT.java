@@ -71,7 +71,6 @@ import tools.jackson.databind.json.JsonMapper;
 class LedgerAuthorizationIT extends PostgresFixture {
 
     private static final String RANDOM_ID = UUID.randomUUID().toString();
-    private static final String API_PREFIX = "/api/v1/";
     private static final String JSON_BODY = "{}";
 
     private static final String UNAUTHENTICATED = "UNAUTHENTICATED";
@@ -169,6 +168,16 @@ class LedgerAuthorizationIT extends PostgresFixture {
             new Endpoint(HttpMethod.GET, "/v3/api-docs.yaml"),
             new Endpoint(ANY_METHOD, "/error"));
 
+    /**
+     * The paths of the {@link #KNOWN_NON_BUSINESS_ENDPOINTS} that answer POST, which the JSON-only
+     * check leaves out: today only {@code /error}, a forward target a direct request is denied.
+     */
+    private static final Set<String> NON_BUSINESS_POST_PATHS = KNOWN_NON_BUSINESS_ENDPOINTS.stream()
+            .filter(endpoint ->
+                    endpoint.method().equals(ANY_METHOD) || endpoint.method().equals(HttpMethod.POST))
+            .map(Endpoint::path)
+            .collect(Collectors.toUnmodifiableSet());
+
     @Autowired
     private MockMvc mvc;
 
@@ -217,7 +226,9 @@ class LedgerAuthorizationIT extends PostgresFixture {
      * text/plain} post is refused 415 before a handler runs (ADR-030). Each controller test pins its
      * own 415; this reads the running server's mappings, so a POST added later without {@code
      * consumes} fails the build whether or not its author wrote that test. A mapping that names no
-     * method answers POST too, so it is held to the same rule.
+     * method answers POST too, so it is held to the same rule. Every path is read, not only those
+     * under {@code /api/v1}; only a known non-business mapping that answers POST, the container's
+     * {@code /error} forward, is left out, by name.
      *
      * <p>Each body must also be required. Spring matches {@code consumes} only against a request
      * that has a body, unless the body is required, so behind an optional {@code @RequestBody} an
@@ -230,10 +241,13 @@ class LedgerAuthorizationIT extends PostgresFixture {
     @Test
     void Given_the_running_ledger_When_its_post_mappings_are_read_Then_each_consumes_only_json() {
         List<RequestMappingInfo> writes = handlerMapping.getHandlerMethods().keySet().stream()
-                .filter(LedgerAuthorizationIT::answersPostUnderTheApi)
+                .filter(LedgerAuthorizationIT::answersPost)
+                .filter(info -> !NON_BUSINESS_POST_PATHS.containsAll(info.getPatternValues()))
                 .toList();
 
-        assertThat(writes).as("POST mappings under %s", API_PREFIX).hasSameSizeAs(WRITES);
+        assertThat(writes)
+                .as("POST mappings outside %s", NON_BUSINESS_POST_PATHS)
+                .hasSameSizeAs(WRITES);
         assertThat(writes).allSatisfy(info -> {
             ConsumesRequestCondition consumes = info.getConsumesCondition();
             assertThat(consumes.getExpressions())
@@ -248,10 +262,9 @@ class LedgerAuthorizationIT extends PostgresFixture {
         });
     }
 
-    private static boolean answersPostUnderTheApi(RequestMappingInfo info) {
+    private static boolean answersPost(RequestMappingInfo info) {
         Set<RequestMethod> methods = info.getMethodsCondition().getMethods();
-        boolean answersPost = methods.isEmpty() || methods.contains(RequestMethod.POST);
-        return answersPost && info.getPatternValues().stream().anyMatch(pattern -> pattern.startsWith(API_PREFIX));
+        return methods.isEmpty() || methods.contains(RequestMethod.POST);
     }
 
     @ParameterizedTest
