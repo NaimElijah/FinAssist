@@ -158,9 +158,11 @@ class LedgerJwksBodyTest {
 
     /**
      * A token signed with an algorithm the decoder never allows is refused before any key is looked
-     * up, so it can neither cost a JWKS fetch nor turn into an outage while the JWKS is down — the
-     * same answer it got before {@link EmptyKeySetIsAnOutage} existed. The set served here is empty,
-     * which is exactly when that wrapper would otherwise ask the source for every key.
+     * up, so it can neither cost a JWKS fetch nor turn into an outage while the JWKS is down. The set
+     * served here is empty, which is when {@link EmptyKeySetIsAnOutage} would ask the source for every
+     * key. The decoder as shipped refuses the token earlier, in {@link RefuseUnexpectedAlgorithm}
+     * (ADR-076), so this pins the whole decoder; {@code EmptyKeySetIsAnOutageTest} pins that the
+     * selector alone would not fetch for it either.
      */
     @Test
     void Given_a_token_with_a_disallowed_algorithm_When_decoded_Then_it_is_refused_without_a_fetch()
