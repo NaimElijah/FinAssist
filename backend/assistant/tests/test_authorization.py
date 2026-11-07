@@ -174,6 +174,42 @@ def Given_a_refused_token_When_answered_Then_a_correlation_id_is_carried_and_onl
     assert token not in captured
 
 
+@pytest.mark.parametrize(
+    ("header", "challenge", "reason"),
+    [
+        ("Bearer abc", _INVALID_TOKEN_CHALLENGE, "malformed"),
+        ("Bearer a b", _INVALID_TOKEN_CHALLENGE, "malformed"),
+        ("Bearer a,b", _INVALID_TOKEN_CHALLENGE, "malformed"),
+        ("Bearer", "Bearer", "missing"),
+        ("Bearer    ", "Bearer", "missing"),
+        ("Basic dXNlcjpwYXNz", "Bearer", "missing"),
+    ],
+    ids=["not-a-jwt", "two-words", "comma", "scheme-only", "blank-token", "basic-scheme"],
+)
+def Given_an_authorization_header_with_no_readable_bearer_token_When_refused_Then_it_is_categorised_as_the_ledger_does(  # noqa: E501 - the name is the specification
+    anonymous: TestClient,
+    capsys: pytest.CaptureFixture[str],
+    header: str,
+    challenge: str,
+    reason: str,
+) -> None:
+    """The mirror of the ledger's ``LedgerAuthorizationIT`` case of the same name (ADR-076): a
+    credential that is there but cannot be read is ``malformed``, and a header that carries no
+    bearer credential at all is ``missing``, with the bare challenge."""
+    capsys.readouterr()
+
+    response = anonymous.get(POSITION_URL, headers={"Authorization": header})
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == challenge
+    assert response.json()["code"] == "UNAUTHENTICATED"
+    records = [
+        json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")
+    ]
+    warnings = [record for record in records if record.get("level") == "warning"]
+    assert [warning["reason"] for warning in warnings] == [reason]
+
+
 def Given_an_unknown_route_When_requested_with_no_token_Then_it_is_401_not_404(
     anonymous: TestClient,
 ) -> None:
