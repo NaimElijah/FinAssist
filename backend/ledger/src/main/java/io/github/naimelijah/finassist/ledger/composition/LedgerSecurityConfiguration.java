@@ -149,10 +149,12 @@ public class LedgerSecurityConfiguration {
     /**
      * Verifies RS256 signatures against keys fetched over HTTP, with a bounded wait: a slow or dead
      * JWKS source must surface as {@code AUTHENTICATION_UNAVAILABLE} within seconds, never hang the
-     * request. {@code jwsAlgorithm(RS256)} means an HS256-signed token is refused before any key is
-     * even looked up — the classic algorithm-confusion attack finds no algorithm to be confused
-     * with. {@link EmptyKeySetIsAnOutage} wraps the key selector Spring builds, so a key set holding
-     * no key at all is that same outage rather than a refused token (ADR-037).
+     * request. {@code jwsAlgorithm(RS256)} means an HS256-signed token is never verified — the
+     * classic algorithm-confusion attack finds no algorithm to be confused with. {@link
+     * RefuseUnexpectedAlgorithm} wraps the decoder and refuses such a token first, from its header,
+     * so it is logged {@code malformed} as on the assistant rather than {@code unknown_key}
+     * (ADR-076). {@link EmptyKeySetIsAnOutage} wraps the key selector Spring builds, so a key set
+     * holding no key at all is that same outage rather than a refused token (ADR-037).
      *
      * @param jwkSetUri the internal JWKS URI ({@code finassist.security.jwks-uri}, from {@code
      *     LEDGER_OIDC_JWKS_URI}). Internal because it is fetched service-to-service; the token's own
@@ -182,7 +184,7 @@ public class LedgerSecurityConfiguration {
                         processor.setJWSKeySelector(EmptyKeySetIsAnOutage.around(processor.getJWSKeySelector())))
                 .build();
         decoder.setJwtValidator(tokenValidator(issuer, audience, clock));
-        return decoder;
+        return RefuseUnexpectedAlgorithm.around(decoder);
     }
 
     /**

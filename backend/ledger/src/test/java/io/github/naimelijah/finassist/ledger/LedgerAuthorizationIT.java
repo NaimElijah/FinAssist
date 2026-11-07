@@ -278,13 +278,12 @@ class LedgerAuthorizationIT extends PostgresFixture {
 
     /**
      * Each shape {@link #categorisedBadTokens()} lists is refused in exactly one log line, at WARN, whose
-     * {@code reason} is the category ADR-030 names for it. For those shapes it is also the category the
-     * assistant's {@code test_auth.py} expects, because a rule written against one service must read the
-     * other (root {@code CLAUDE.md}, "Security and operations"). Not every bad token is listed: an HS256
-     * token and a malformed {@code Bearer} header are categorised differently by the two services, which
-     * is #352, and neither is pinned here until it is settled. {@code unknown_key} and {@code malformed}
-     * are read from Nimbus's English messages by {@code ProblemAuthenticationEntryPoint.reasonFor}, so a
-     * library upgrade rewording one would fail here rather than quietly logging {@code rejected}.
+     * {@code reason} is the category ADR-030 names for it. It is also the category the assistant's
+     * {@code test_auth.py} and {@code test_authorization.py} expect for the same shape, because a rule
+     * written against one service must read the other (root {@code CLAUDE.md}, "Security and
+     * operations"; ADR-076). {@code unknown_key} and a malformed payload are still read from Nimbus's
+     * English messages by {@code ProblemAuthenticationEntryPoint.reasonFor}, so a library upgrade
+     * rewording one would fail here rather than quietly logging {@code rejected}.
      */
     @ParameterizedTest(name = "{0}")
     @MethodSource("categorisedBadTokens")
@@ -293,6 +292,37 @@ class LedgerAuthorizationIT extends PostgresFixture {
         mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
 
         assertTheOneRefusalLine(output, reason);
+    }
+
+    /**
+     * An {@code Authorization} header that is not one readable bearer token, refused as the assistant
+     * refuses it (ADR-076). A credential that is there but cannot be read is {@code malformed}, with
+     * {@code invalid_token}. A header that carries no bearer credential at all, whether {@code Bearer}
+     * with nothing after it or another scheme, is {@code missing}, with the bare challenge RFC 6750
+     * section 3 asks for when a request carries no authentication information.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("unreadableAuthorizationHeaders")
+    void
+            Given_an_authorization_header_with_no_readable_bearer_token_When_refused_Then_it_is_categorised_as_the_assistant_does(
+                    String header, String challenge, String reason, CapturedOutput output) throws Exception {
+        mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, header))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, challenge))
+                .andExpect(problem(UNAUTHENTICATED));
+
+        assertTheOneRefusalLine(output, reason);
+    }
+
+    private static Stream<Arguments> unreadableAuthorizationHeaders() {
+        String invalidToken = "Bearer error=\"invalid_token\"";
+        return Stream.of(
+                Arguments.of("Bearer abc", invalidToken, "malformed"),
+                Arguments.of("Bearer a b", invalidToken, "malformed"),
+                Arguments.of("Bearer a,b", invalidToken, "malformed"),
+                Arguments.of("Bearer", "Bearer", "missing"),
+                Arguments.of("Bearer    ", "Bearer", "missing"),
+                Arguments.of("Basic dXNlcjpwYXNz", "Bearer", "missing"));
     }
 
     @Test
@@ -456,16 +486,9 @@ class LedgerAuthorizationIT extends PostgresFixture {
         return bothLists().stream().map(Arguments::of);
     }
 
-    /**
-     * Every bad token, categorised or not. HS256 is refused 401, and its refusal is logged though the
-     * token never is, but its category is not asserted: the ledger logs it {@code unknown_key}, from Nimbus's "Another algorithm expected,
-     * or no matching key(s) found", where the assistant refuses the same shape {@code malformed}. That
-     * asymmetry is #352, and is not pinned here either way until it is settled.
-     */
+    /** Every bad token, each refused under the category {@link #categorisedBadTokens()} pairs it with. */
     private static Stream<Arguments> badTokens() {
-        return Stream.concat(
-                categorisedBadTokens().map(shape -> Arguments.of(shape.get()[1])),
-                Stream.of(Arguments.of(TestTokens.hmacConfused())));
+        return categorisedBadTokens().map(shape -> Arguments.of(shape.get()[1]));
     }
 
     /** Every shape of bad token, with the reason category it is logged under (ADR-030's vocabulary). */
@@ -480,6 +503,7 @@ class LedgerAuthorizationIT extends PostgresFixture {
                 Arguments.of("wrong issuer", TestTokens.wrongIssuer(), "issuer"),
                 Arguments.of("no sub", TestTokens.noSubject(), "subject"),
                 Arguments.of("alg none", TestTokens.unsigned(), "malformed"),
+                Arguments.of("HS256", TestTokens.hmacConfused(), "malformed"),
                 Arguments.of("unpublished key", TestTokens.foreignKey(), "unknown_key"),
                 Arguments.of("tampered payload", TestTokens.tamperedSignature(), "rejected"));
     }

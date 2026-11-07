@@ -622,8 +622,8 @@ def Given_a_token_signed_with_the_none_algorithm_When_the_real_client_reads_it_T
     """The real ``PyJWKClient`` looks a key up by the header's ``kid`` before anything else, and an
     ``alg: none`` token names none. Before #124 it was therefore refused ``unknown_key`` here, but
     ``malformed`` against the stand-in above, so the logged reason depended on which key source
-    was asked. The ledger logs it ``malformed`` too: Nimbus refuses an "Unsupported algorithm of
-    none" before it looks for a key."""
+    was asked. The ledger logs it ``malformed`` too: its ``RefuseUnexpectedAlgorithm`` reads the
+    header before it looks for a key (ADR-076)."""
     token = _unsigned(_valid_claims(fixed_clock()))
 
     with pytest.raises(TokenRefused) as refused:
@@ -663,7 +663,9 @@ def Given_a_token_signed_HS256_with_the_public_key_bytes_When_verified_Then_it_i
     producing a token). The algorithm allow-list is the defence that matters: the header names an
     algorithm the verifier never allowed, so this is refused ``malformed`` before any key is even
     looked up, and ``jwt.decode``'s own ``algorithms=["RS256"]`` would refuse it again - not
-    because *this* particular attack happens to be hard to build.
+    because *this* particular attack happens to be hard to build. The ledger refuses it
+    ``malformed`` the same way, from the header (``LedgerAuthorizationIT``'s ``HS256`` row,
+    ADR-076).
     """
     _, public_key = rsa_key_pair
     token = _hmac_confused(public_key, _valid_claims(fixed_clock()))
