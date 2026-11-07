@@ -675,6 +675,23 @@ def Given_a_token_signed_HS256_with_the_public_key_bytes_When_verified_Then_it_i
     assert refused.value.reason == REASON_MALFORMED
 
 
+def Given_a_token_signed_RS512_with_the_published_key_When_verified_Then_it_is_malformed(
+    rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
+    static_key_source: KeySource,
+    fixed_clock: Clock,
+) -> None:
+    """A genuine signature under an asymmetric algorithm this service does not accept is refused
+    ``malformed`` by the header check, as HS256 and ``none`` are - not only the algorithms an
+    attacker would reach for. The ledger's mirror is ``LedgerAuthorizationIT``'s ``RS512`` row
+    (ADR-076)."""
+    private_key, _ = rsa_key_pair
+    token = _encode(private_key, _valid_claims(fixed_clock()), algorithm="RS512")
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(static_key_source, fixed_clock)(token)
+    assert refused.value.reason == REASON_MALFORMED
+
+
 # --- signature: a genuine claim set, signed by the wrong key or edited after signing ----------
 
 

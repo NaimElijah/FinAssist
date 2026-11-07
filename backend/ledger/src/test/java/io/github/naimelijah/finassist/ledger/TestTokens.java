@@ -233,9 +233,22 @@ public final class TestTokens {
                 .claim("roles", roles);
     }
 
+    /**
+     * RS512, signed by the very key the JWKS publishes: a genuine signature under an asymmetric
+     * algorithm the ledger does not accept. Nimbus alone would report it as "no matching key(s)",
+     * which reads as {@code unknown_key}, where the assistant refuses it {@code malformed}.
+     */
+    public static String rs512() {
+        return signed(claims("owner-user", List.of("owner")).build(), JWSAlgorithm.RS512);
+    }
+
     private static String signed(JWTClaimsSet claimsSet) {
+        return signed(claimsSet, JWSAlgorithm.RS256);
+    }
+
+    private static String signed(JWTClaimsSet claimsSet, JWSAlgorithm algorithm) {
         RSAKey key = TestJwks.instance().signingKey();
-        JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.RS256)
+        JWSHeader header = new JWSHeader.Builder(algorithm)
                 .type(JOSEObjectType.JWT)
                 .keyID(key.getKeyID())
                 .build();
