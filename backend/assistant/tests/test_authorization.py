@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -475,6 +476,56 @@ def Given_a_websocket_route_and_a_plain_route_When_inspected_Then_both_are_found
     app.add_route(_PLAIN_PATH, plain)
 
     assert _unguarded(app) == [_STREAM_PATH, _PLAIN_PATH]
+
+
+_CROSS_SITE_BODIES = [
+    pytest.param("application/x-www-form-urlencoded", b"quantity=1", id="form"),
+    pytest.param(
+        "multipart/form-data; boundary=finassist",
+        b"--finassist\r\n"
+        b'Content-Disposition: form-data; name="quantity"\r\n\r\n'
+        b"1\r\n--finassist--\r\n",
+        id="multipart",
+    ),
+    pytest.param("text/plain", b'{"quantity": "1"}', id="text-plain"),
+]
+
+
+def _posts(app: FastAPI) -> list[str]:
+    """The path of every route in :func:`_routes` that answers POST, each path parameter filled in.
+
+    A route of another type than ``APIRoute`` is already refused by the permission coverage check
+    above, so only the methods a route declares are read here.
+    """
+    return [
+        re.sub(r"\{[^}]*\}", "VOO", route.path)
+        for route in _routes(app)
+        if route.path is not None and "POST" in (route.methods or set())
+    ]
+
+
+@pytest.mark.parametrize(("content_type", "body"), _CROSS_SITE_BODIES)
+def Given_a_body_a_cross_site_page_can_send_When_any_post_route_receives_it_Then_it_is_415(
+    app: FastAPI, client: TestClient, content_type: str, body: bytes
+) -> None:
+    """Every write accepts ``application/json`` alone (ADR-030), whatever route a later change
+    adds. A page on another origin can send these three media types without a CORS preflight, and
+    no CORS configuration exists to approve any other, so each must be refused 415 before a
+    handler runs. The ledger's mirror is ``LedgerAuthorizationIT``'s
+    ``Given_the_running_ledger_When_its_post_mappings_are_read_Then_each_consumes_only_json``.
+
+    Sent with the owner's token, so the permission dependency admits it and only the media type
+    can refuse it. Proven to fail: dropping ``Depends(_require_json)`` from the disposal route in
+    ``router.py`` turned this red, and it was restored.
+    """
+    posts = _posts(app)
+    assert posts, "no POST route to check, so this test would pass vacuously"
+
+    for path in posts:
+        response = client.post(path, content=body, headers={"Content-Type": content_type})
+
+        assert (path, response.status_code) == (path, 415)
+        assert response.json()["code"] == "UNSUPPORTED_MEDIA_TYPE"
 
 
 def Given_the_public_paths_When_compared_Then_they_are_exactly_health_ready_and_openapi() -> None:

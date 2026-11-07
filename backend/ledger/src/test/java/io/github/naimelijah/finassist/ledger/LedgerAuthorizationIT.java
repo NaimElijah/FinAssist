@@ -70,6 +70,7 @@ import tools.jackson.databind.json.JsonMapper;
 class LedgerAuthorizationIT extends PostgresFixture {
 
     private static final String RANDOM_ID = UUID.randomUUID().toString();
+    private static final String API_PREFIX = "/api/v1/";
     private static final String JSON_BODY = "{}";
 
     private static final String UNAUTHENTICATED = "UNAUTHENTICATED";
@@ -208,6 +209,38 @@ class LedgerAuthorizationIT extends PostgresFixture {
                         .toList();
         return info.getPatternValues().stream()
                 .flatMap(pattern -> inventoried.stream().map(method -> new Endpoint(method, pattern)));
+    }
+
+    /**
+     * Every write accepts {@code application/json} alone, so a cross-site form, multipart or {@code
+     * text/plain} post is refused 415 before a handler runs (ADR-030). Each controller test pins its
+     * own 415; this reads the running server's mappings, so a POST added later without {@code
+     * consumes} fails the build whether or not its author wrote that test. A mapping that names no
+     * method answers POST too, so it is held to the same rule. Proven to fail: dropping {@code
+     * consumes} from {@code PlannedFlowController}'s cancel mapping turned this red, and it was
+     * restored.
+     */
+    @Test
+    void Given_the_running_ledger_When_its_post_mappings_are_read_Then_each_consumes_only_json() {
+        List<RequestMappingInfo> writes = handlerMapping.getHandlerMethods().keySet().stream()
+                .filter(LedgerAuthorizationIT::answersPostUnderTheApi)
+                .toList();
+
+        assertThat(writes).as("POST mappings under %s", API_PREFIX).hasSameSizeAs(WRITES);
+        assertThat(writes)
+                .allSatisfy(info -> assertThat(info.getConsumesCondition().getExpressions())
+                        .as("consumes of %s", info.getPatternValues())
+                        .singleElement()
+                        .satisfies(
+                                expression -> assertThat(expression.isNegated()).isFalse(),
+                                expression ->
+                                        assertThat(expression.getMediaType()).isEqualTo(MediaType.APPLICATION_JSON)));
+    }
+
+    private static boolean answersPostUnderTheApi(RequestMappingInfo info) {
+        Set<RequestMethod> methods = info.getMethodsCondition().getMethods();
+        boolean answersPost = methods.isEmpty() || methods.contains(RequestMethod.POST);
+        return answersPost && info.getPatternValues().stream().anyMatch(pattern -> pattern.startsWith(API_PREFIX));
     }
 
     @ParameterizedTest

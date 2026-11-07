@@ -13,6 +13,16 @@ process, decides whether generating this file from the
 
 ### Added
 
+- **A POST that would accept a body other than JSON fails the build, on the ledger and the
+  assistant.** Every existing write was already JSON only, so a cross-site form post is refused
+  415 before a handler runs (ADR-030), but only each endpoint's own test said so.
+  - The ledger's `LedgerAuthorizationIT` now reads every POST mapping the running server answers
+    under `/api/v1` and requires `consumes` to be `application/json` alone.
+  - The assistant's `test_authorization.py` posts a form, a multipart and a `text/plain` body to
+    every POST route and requires 415.
+
+  Each check was shown to fail on a mapping or route without its guard
+  ([#426](https://github.com/NaimElijah/FinAssist/issues/426)).
 - **Two Make targets run what CI used to check inline.** `make check-web-api` regenerates the web
   client's contract types and fails on any diff, untracked files included. `make check-compose`
   validates `docker-compose.yml` under every profile and checks its restart, log and readiness
