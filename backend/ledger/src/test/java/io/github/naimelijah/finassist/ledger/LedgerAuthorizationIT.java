@@ -245,9 +245,10 @@ class LedgerAuthorizationIT extends PostgresFixture {
                 .filter(info -> !NON_BUSINESS_POST_PATHS.containsAll(info.getPatternValues()))
                 .toList();
 
-        assertThat(writes)
-                .as("POST mappings outside %s", NON_BUSINESS_POST_PATHS)
-                .hasSameSizeAs(WRITES);
+        assertThat(writes.stream().flatMap(info -> info.getPatternValues().stream()))
+                .as("paths of the POST mappings outside %s", NON_BUSINESS_POST_PATHS)
+                .containsExactlyInAnyOrderElementsOf(
+                        WRITES.stream().map(Endpoint::path).toList());
         assertThat(writes).allSatisfy(info -> {
             ConsumesRequestCondition consumes = info.getConsumesCondition();
             assertThat(consumes.getExpressions())
