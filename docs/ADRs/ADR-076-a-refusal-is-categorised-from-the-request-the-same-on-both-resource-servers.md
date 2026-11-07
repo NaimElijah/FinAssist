@@ -75,7 +75,9 @@ Pinned on the assistant by `test_auth.py`'s HS256 and `alg: none` cases and
   `LedgerAuthorizationIT` fails if an upgrade rewords them.
 - **The ledger's challenge changes for two headers.** A `Basic` header, or `Bearer` with no
   credential, was answered `Bearer error="invalid_token"` and is now answered with a bare `Bearer`.
-  Nothing in the repository reads the ledger's challenge: the gateway relays its 401 unread.
+  Only `ops/smoke/auth_smoke.py` reads the ledger's challenge, for a request with no
+  `Authorization` header, whose challenge is unchanged. The gateway relays the 401 unread, and the
+  web client never reads the header.
 - **An algorithm-confusion token costs no JWKS fetch and no Nimbus processing.** The header is
   parsed twice for an RS256 token, once here and once by the decoder. That is a few microseconds
   against a signature check.
