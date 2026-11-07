@@ -320,6 +320,7 @@ class LedgerAuthorizationIT extends PostgresFixture {
                 Arguments.of("Bearer abc", invalidToken, "malformed"),
                 Arguments.of("Bearer a b", invalidToken, "malformed"),
                 Arguments.of("Bearer a,b", invalidToken, "malformed"),
+                Arguments.of("bearer a b", invalidToken, "malformed"),
                 Arguments.of("Bearer", "Bearer", "missing"),
                 Arguments.of("Bearer    ", "Bearer", "missing"),
                 Arguments.of("Bearer \u00a0", "Bearer", "missing"),
