@@ -59,7 +59,11 @@ final class RefuseUnexpectedAlgorithm implements JwtDecoder {
         Algorithm algorithm;
         try {
             algorithm = JWTParser.parse(token).getHeader().getAlgorithm();
-        } catch (ParseException unreadable) {
+        } catch (ParseException | RuntimeException unreadable) {
+            // Nimbus does not report every unreadable header as a ParseException: a header that is
+            // JSON null throws a NullPointerException, a negative PBES2 count an
+            // IllegalArgumentException. NimbusJwtDecoder.parse catches Exception at this same call
+            // for that reason, and anything less would escape the security chain as a 500.
             // Not attached as the cause: Nimbus's parse messages can quote the header they could
             // not read, and nothing about a refusal may carry the token (ADR-030).
             throw malformed();

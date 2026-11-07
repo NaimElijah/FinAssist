@@ -675,6 +675,24 @@ def Given_a_token_signed_HS256_with_the_public_key_bytes_When_verified_Then_it_i
     assert refused.value.reason == REASON_MALFORMED
 
 
+@pytest.mark.parametrize(
+    "header",
+    ["null", '{"alg":"PBES2-HS256+A128KW","enc":"A128GCM","p2c":-1}'],
+    ids=["json-null", "negative-pbes2-count"],
+)
+def Given_a_header_the_ledgers_parser_throws_on_When_verified_Then_it_is_malformed(
+    header: str, static_key_source: KeySource, fixed_clock: Clock
+) -> None:
+    """Two headers Nimbus refuses with an unchecked exception rather than a ``ParseException``,
+    which the ledger's ``RefuseUnexpectedAlgorithm`` must still refuse ``malformed``. The mirror of
+    the ledger's rows of the same names in ``LedgerAuthorizationIT`` (ADR-076)."""
+    token = f"{_b64url(header.encode())}.e30.c2ln"
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(static_key_source, fixed_clock)(token)
+    assert refused.value.reason == REASON_MALFORMED
+
+
 def Given_a_token_signed_RS512_with_the_published_key_When_verified_Then_it_is_malformed(
     rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
     static_key_source: KeySource,

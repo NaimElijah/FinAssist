@@ -505,6 +505,8 @@ class LedgerAuthorizationIT extends PostgresFixture {
                 Arguments.of("alg none", TestTokens.unsigned(), "malformed"),
                 Arguments.of("HS256", TestTokens.hmacConfused(), "malformed"),
                 Arguments.of("RS512", TestTokens.rs512(), "malformed"),
+                Arguments.of("header that is JSON null", TestTokens.nullHeader(), "malformed"),
+                Arguments.of("negative PBES2 count", TestTokens.negativePbes2Count(), "malformed"),
                 Arguments.of("unpublished key", TestTokens.foreignKey(), "unknown_key"),
                 Arguments.of("tampered payload", TestTokens.tamperedSignature(), "rejected"));
     }
