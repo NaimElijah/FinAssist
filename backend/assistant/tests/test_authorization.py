@@ -16,6 +16,7 @@ committed, because a rule that has never failed is not evidence.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -28,6 +29,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 from starlette.status import WS_1008_POLICY_VIOLATION
+from starlette.types import Message
 from starlette.websockets import WebSocketDisconnect
 
 from finassist_assistant.adapters.app import CORRELATION_ID_HEADER, create_app
@@ -174,35 +176,84 @@ def Given_a_refused_token_When_answered_Then_a_correlation_id_is_carried_and_onl
     assert token not in captured
 
 
+def _answer(app: FastAPI, authorization: bytes) -> tuple[int, dict[bytes, bytes], bytes]:
+    """Sends one ``GET`` straight to *app*, its ``Authorization`` header exactly *authorization*.
+
+    Not through ``TestClient``, which encodes every header value as UTF-8 again, so a byte above
+    0x7F would arrive as two. A real h11 server passes the byte through as one, which only a scope
+    built by hand reproduces.
+
+    :returns: the status, the response headers and the body.
+    """
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": POSITION_URL,
+        "raw_path": POSITION_URL.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"host", b"testserver"), (b"authorization", authorization)],
+        "client": ("127.0.0.1", 50000),
+        "server": ("testserver", 80),
+    }
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    asyncio.run(app(scope, receive, send))
+    start = next(message for message in sent if message["type"] == "http.response.start")
+    body = b"".join(
+        message.get("body", b"") for message in sent if message["type"] == "http.response.body"
+    )
+    return start["status"], dict(start["headers"]), body
+
+
 @pytest.mark.parametrize(
     ("header", "challenge", "reason"),
     [
-        ("Bearer abc", _INVALID_TOKEN_CHALLENGE, "malformed"),
-        ("Bearer a b", _INVALID_TOKEN_CHALLENGE, "malformed"),
-        ("Bearer a,b", _INVALID_TOKEN_CHALLENGE, "malformed"),
-        ("Bearer", "Bearer", "missing"),
-        ("Bearer    ", "Bearer", "missing"),
-        ("Basic dXNlcjpwYXNz", "Bearer", "missing"),
+        (b"Bearer abc", _INVALID_TOKEN_CHALLENGE, "malformed"),
+        (b"Bearer a b", _INVALID_TOKEN_CHALLENGE, "malformed"),
+        (b"Bearer a,b", _INVALID_TOKEN_CHALLENGE, "malformed"),
+        (b"Bearer", "Bearer", "missing"),
+        (b"Bearer    ", "Bearer", "missing"),
+        (b"Bearer \xa0", "Bearer", "missing"),
+        (b"Basic dXNlcjpwYXNz", "Bearer", "missing"),
     ],
-    ids=["not-a-jwt", "two-words", "comma", "scheme-only", "blank-token", "basic-scheme"],
+    ids=[
+        "not-a-jwt",
+        "two-words",
+        "comma",
+        "scheme-only",
+        "blank-token",
+        "no-break-space",
+        "basic-scheme",
+    ],
 )
 def Given_an_authorization_header_with_no_readable_bearer_token_When_refused_Then_it_is_categorised_as_the_ledger_does(  # noqa: E501 - the name is the specification
-    anonymous: TestClient,
+    app: FastAPI,
     capsys: pytest.CaptureFixture[str],
-    header: str,
+    header: bytes,
     challenge: str,
     reason: str,
 ) -> None:
     """The mirror of the ledger's ``LedgerAuthorizationIT`` case of the same name (ADR-076): a
     credential that is there but cannot be read is ``malformed``, and a header that carries no
-    bearer credential at all is ``missing``, with the bare challenge."""
+    bearer credential at all is ``missing``, with the bare challenge. Byte 0xA0 counts as no
+    credential, because ``str.strip`` removes it; the ledger strips it too."""
     capsys.readouterr()
 
-    response = anonymous.get(POSITION_URL, headers={"Authorization": header})
+    status, headers, body = _answer(app, header)
 
-    assert response.status_code == 401
-    assert response.headers["www-authenticate"] == challenge
-    assert response.json()["code"] == "UNAUTHENTICATED"
+    assert status == 401
+    assert headers[b"www-authenticate"].decode() == challenge
+    assert json.loads(body)["code"] == "UNAUTHENTICATED"
     records = [
         json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")
     ]

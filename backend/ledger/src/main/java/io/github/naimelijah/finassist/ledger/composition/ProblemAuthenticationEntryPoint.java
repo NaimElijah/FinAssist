@@ -77,6 +77,8 @@ final class ProblemAuthenticationEntryPoint implements AuthenticationEntryPoint 
     /** The scheme prefix a bearer credential follows, matched ignoring case as RFC 9110 says a scheme is. */
     private static final String BEARER_PREFIX = "bearer ";
 
+    private static final char NO_BREAK_SPACE = '\u00A0';
+
     private static final String BEARER_CHALLENGE = "Bearer";
     private static final String INVALID_TOKEN_CHALLENGE = "Bearer error=\"invalid_token\"";
 
@@ -117,7 +119,27 @@ final class ProblemAuthenticationEntryPoint implements AuthenticationEntryPoint 
         if (header == null || !header.regionMatches(true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length())) {
             return "";
         }
-        return header.substring(BEARER_PREFIX.length()).strip();
+        String credential = header.substring(BEARER_PREFIX.length());
+        int start = 0;
+        int end = credential.length();
+        while (start < end && isSpaceToTheAssistant(credential.charAt(start))) {
+            start++;
+        }
+        while (end > start && isSpaceToTheAssistant(credential.charAt(end - 1))) {
+            end--;
+        }
+        return credential.substring(start, end);
+    }
+
+    /**
+     * The characters Python's {@code str.strip()} removes within ISO-8859-1, the charset both servers
+     * read a header in, as far as they can reach this class. {@link String#strip()} alone keeps
+     * {@code U+00A0}, so {@code Bearer} followed only by one would carry a credential here and none on
+     * the assistant. The other such character, {@code U+0085}, is a control character, which Spring
+     * Security's firewall refuses with 400 before authentication runs.
+     */
+    private static boolean isSpaceToTheAssistant(char character) {
+        return Character.isWhitespace(character) || character == NO_BREAK_SPACE;
     }
 
     /**
