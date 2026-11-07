@@ -42,6 +42,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.servlet.function.support.RouterFunctionMapping;
 import org.springframework.web.servlet.mvc.condition.ConsumesRequestCondition;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
@@ -190,6 +191,11 @@ class LedgerAuthorizationIT extends PostgresFixture {
     @Qualifier("requestMappingHandlerMapping")
     private RequestMappingHandlerMapping handlerMapping;
 
+    /** Serves every {@code RouterFunction} bean, which {@link #handlerMapping} never sees. */
+    @Autowired
+    @Qualifier("routerFunctionMapping")
+    private RouterFunctionMapping routerFunctionMapping;
+
     /**
      * Reads the server's own handler inventory rather than trusting the lists above to be complete:
      * {@link #READS} and {@link #WRITES} are what this test claims exist, and this is what proves
@@ -261,6 +267,20 @@ class LedgerAuthorizationIT extends PostgresFixture {
                     .as("body required by %s", info.getPatternValues())
                     .isTrue();
         });
+    }
+
+    /**
+     * Both checks above read {@code requestMappingHandlerMapping} alone. A functional endpoint, a
+     * {@code RouterFunction} bean, is served by {@code routerFunctionMapping} instead, which neither
+     * sees, while the chain's {@code POST /api/v1/**} rule would admit it. None exists, and this keeps
+     * it so until both checks read that mapping too. Proven to fail: a {@code RouterFunction} bean
+     * answering {@code POST /api/v1/stray} turned this red, and it was removed.
+     */
+    @Test
+    void Given_the_running_ledger_When_its_router_functions_are_read_Then_there_are_none() {
+        assertThat(routerFunctionMapping.getRouterFunction())
+                .as("the router function routerFunctionMapping serves")
+                .isNull();
     }
 
     private static boolean answersPost(RequestMappingInfo info) {
