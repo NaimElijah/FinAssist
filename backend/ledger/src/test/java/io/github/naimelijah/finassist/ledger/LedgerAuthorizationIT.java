@@ -42,6 +42,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.servlet.function.support.RouterFunctionMapping;
+import org.springframework.web.servlet.mvc.condition.ConsumesRequestCondition;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import tools.jackson.databind.JsonNode;
@@ -167,6 +169,16 @@ class LedgerAuthorizationIT extends PostgresFixture {
             new Endpoint(HttpMethod.GET, "/v3/api-docs.yaml"),
             new Endpoint(ANY_METHOD, "/error"));
 
+    /**
+     * The paths of the {@link #KNOWN_NON_BUSINESS_ENDPOINTS} that answer POST, which the JSON-only
+     * check leaves out: today only {@code /error}, a forward target a direct request is denied.
+     */
+    private static final Set<String> NON_BUSINESS_POST_PATHS = KNOWN_NON_BUSINESS_ENDPOINTS.stream()
+            .filter(endpoint ->
+                    endpoint.method().equals(ANY_METHOD) || endpoint.method().equals(HttpMethod.POST))
+            .map(Endpoint::path)
+            .collect(Collectors.toUnmodifiableSet());
+
     @Autowired
     private MockMvc mvc;
 
@@ -178,6 +190,11 @@ class LedgerAuthorizationIT extends PostgresFixture {
     @Autowired
     @Qualifier("requestMappingHandlerMapping")
     private RequestMappingHandlerMapping handlerMapping;
+
+    /** Serves every {@code RouterFunction} bean, which {@link #handlerMapping} never sees. */
+    @Autowired
+    @Qualifier("routerFunctionMapping")
+    private RouterFunctionMapping routerFunctionMapping;
 
     /**
      * Reads the server's own handler inventory rather than trusting the lists above to be complete:
@@ -208,6 +225,67 @@ class LedgerAuthorizationIT extends PostgresFixture {
                         .toList();
         return info.getPatternValues().stream()
                 .flatMap(pattern -> inventoried.stream().map(method -> new Endpoint(method, pattern)));
+    }
+
+    /**
+     * Every write accepts {@code application/json} alone, so a cross-site form, multipart or {@code
+     * text/plain} post is refused 415 before a handler runs (ADR-030). Each controller test pins its
+     * own 415; this reads the running server's mappings, so a POST added later without {@code
+     * consumes} fails the build whether or not its author wrote that test. A mapping that names no
+     * method answers POST too, so it is held to the same rule. Every path is read, not only those
+     * under {@code /api/v1}; only a known non-business mapping that answers POST, the container's
+     * {@code /error} forward, is left out, by name.
+     *
+     * <p>Each body must also be required. Spring matches {@code consumes} only against a request
+     * that has a body, unless the body is required, so behind an optional {@code @RequestBody} an
+     * empty {@code text/plain} post would reach the handler (spring-webmvc 7.0.10's {@code
+     * ConsumesRequestCondition.getMatchingCondition}).
+     *
+     * <p>Proven to fail: dropping {@code consumes} from {@code PlannedFlowController}'s cancel
+     * mapping turned this red, as did making its body optional, and both were restored.
+     */
+    @Test
+    void Given_the_running_ledger_When_its_post_mappings_are_read_Then_each_consumes_only_json() {
+        List<RequestMappingInfo> writes = handlerMapping.getHandlerMethods().keySet().stream()
+                .filter(LedgerAuthorizationIT::answersPost)
+                .filter(info -> !NON_BUSINESS_POST_PATHS.containsAll(info.getPatternValues()))
+                .toList();
+
+        assertThat(writes.stream().flatMap(info -> info.getPatternValues().stream()))
+                .as("paths of the POST mappings outside %s", NON_BUSINESS_POST_PATHS)
+                .containsExactlyInAnyOrderElementsOf(
+                        WRITES.stream().map(Endpoint::path).toList());
+        assertThat(writes).allSatisfy(info -> {
+            ConsumesRequestCondition consumes = info.getConsumesCondition();
+            assertThat(consumes.getExpressions())
+                    .as("consumes of %s", info.getPatternValues())
+                    .singleElement()
+                    .satisfies(
+                            expression -> assertThat(expression.isNegated()).isFalse(),
+                            expression -> assertThat(expression.getMediaType()).isEqualTo(MediaType.APPLICATION_JSON));
+            assertThat(consumes.isBodyRequired())
+                    .as("body required by %s", info.getPatternValues())
+                    .isTrue();
+        });
+    }
+
+    /**
+     * Both checks above read {@code requestMappingHandlerMapping} alone. A functional endpoint, a
+     * {@code RouterFunction} bean, is served by {@code routerFunctionMapping} instead, which neither
+     * sees, while the chain's {@code POST /api/v1/**} rule would admit it. None exists, and this keeps
+     * it so until both checks read that mapping too. Proven to fail: a {@code RouterFunction} bean
+     * answering {@code POST /api/v1/stray} turned this red, and it was removed.
+     */
+    @Test
+    void Given_the_running_ledger_When_its_router_functions_are_read_Then_there_are_none() {
+        assertThat(routerFunctionMapping.getRouterFunction())
+                .as("the router function routerFunctionMapping serves")
+                .isNull();
+    }
+
+    private static boolean answersPost(RequestMappingInfo info) {
+        Set<RequestMethod> methods = info.getMethodsCondition().getMethods();
+        return methods.isEmpty() || methods.contains(RequestMethod.POST);
     }
 
     @ParameterizedTest

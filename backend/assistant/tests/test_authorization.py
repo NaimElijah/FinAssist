@@ -18,14 +18,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, Final
 
 import jwt
 import pytest
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.routing import APIRoute, RouteContext, iter_route_contexts
 from fastapi.testclient import TestClient
+from starlette.convertors import Convertor, FloatConvertor, IntegerConvertor, UUIDConvertor
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 from starlette.status import WS_1008_POLICY_VIOLATION
@@ -475,6 +477,81 @@ def Given_a_websocket_route_and_a_plain_route_When_inspected_Then_both_are_found
     app.add_route(_PLAIN_PATH, plain)
 
     assert _unguarded(app) == [_STREAM_PATH, _PLAIN_PATH]
+
+
+_NON_JSON_BODIES = [
+    pytest.param("application/x-www-form-urlencoded", b"quantity=1", id="form"),
+    pytest.param(
+        "multipart/form-data; boundary=finassist",
+        b"--finassist\r\n"
+        b'Content-Disposition: form-data; name="quantity"\r\n\r\n'
+        b"1\r\n--finassist--\r\n",
+        id="multipart",
+    ),
+    pytest.param("text/plain", b'{"quantity": "1"}', id="text-plain"),
+    pytest.param(None, b'{"quantity": "1"}', id="no-content-type"),
+    pytest.param("application/xml", b"<quantity>1</quantity>", id="xml"),
+]
+
+
+_PATH_PARAMETER_SAMPLES: dict[type[Convertor[Any]], Any] = {
+    IntegerConvertor: 1,
+    FloatConvertor: 1.0,
+    UUIDConvertor: uuid.UUID(int=1),
+}
+"""A value of the right type for each typed path parameter, so a request reaches the route it was
+built for rather than a 404 or another route; any other parameter takes :data:`_SAMPLE_SEGMENT`."""
+
+_SAMPLE_SEGMENT: Final = "VOO"
+
+
+def _posts(app: FastAPI) -> list[str]:
+    """A URL for every route *app* serves that answers POST, each path parameter filled with a
+    value its convertor accepts.
+
+    Public paths included: :func:`_routes` leaves them out because they need no permission, but a
+    POST on ``/ready`` would take a body all the same, and with no token at all. A route of another
+    type than ``APIRoute`` is already refused by the permission coverage check above, so only the
+    methods a route declares are read here.
+    """
+    urls = []
+    for route in iter_route_contexts(app.routes):
+        if route.path_format is None or "POST" not in (route.methods or set()):
+            continue
+        convertors: dict[str, Convertor[Any]] = getattr(route, "param_convertors", {})
+        values = {
+            name: convertor.to_string(_PATH_PARAMETER_SAMPLES.get(type(convertor), _SAMPLE_SEGMENT))
+            for name, convertor in convertors.items()
+        }
+        urls.append(route.path_format.format(**values))
+    return urls
+
+
+@pytest.mark.parametrize(("content_type", "body"), _NON_JSON_BODIES)
+def Given_a_body_that_is_not_json_When_any_post_route_receives_it_Then_it_is_415(
+    app: FastAPI, client: TestClient, content_type: str | None, body: bytes
+) -> None:
+    """Every write accepts ``application/json`` alone (ADR-030), whatever route a later change
+    adds. A page on another origin can send a form, multipart or ``text/plain`` body, or one with no
+    ``Content-Type`` at all, without a CORS preflight, and no CORS configuration exists to approve
+    any other; an XML body stands for every other type. Each must be refused 415 before a handler
+    runs. The ledger's mirror is ``LedgerAuthorizationIT``'s
+    ``Given_the_running_ledger_When_its_post_mappings_are_read_Then_each_consumes_only_json``.
+
+    Sent with the owner's token, so the permission dependency admits it and only the media type
+    can refuse it. Proven to fail: dropping ``Depends(_require_json)`` from the disposal route in
+    ``router.py`` turned this red, as did a guard that let a missing ``Content-Type`` through, and
+    both were restored.
+    """
+    posts = _posts(app)
+    assert posts, "no POST route to check, so this test would pass vacuously"
+    headers = {"Content-Type": content_type} if content_type is not None else {}
+
+    for path in posts:
+        response = client.post(path, content=body, headers=headers)
+
+        assert response.status_code == 415, path
+        assert response.json()["code"] == "UNSUPPORTED_MEDIA_TYPE", path
 
 
 def Given_the_public_paths_When_compared_Then_they_are_exactly_health_ready_and_openapi() -> None:
