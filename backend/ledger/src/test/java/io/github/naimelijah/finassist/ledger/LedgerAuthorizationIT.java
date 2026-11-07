@@ -42,6 +42,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.servlet.mvc.condition.ConsumesRequestCondition;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import tools.jackson.databind.JsonNode;
@@ -216,9 +217,15 @@ class LedgerAuthorizationIT extends PostgresFixture {
      * text/plain} post is refused 415 before a handler runs (ADR-030). Each controller test pins its
      * own 415; this reads the running server's mappings, so a POST added later without {@code
      * consumes} fails the build whether or not its author wrote that test. A mapping that names no
-     * method answers POST too, so it is held to the same rule. Proven to fail: dropping {@code
-     * consumes} from {@code PlannedFlowController}'s cancel mapping turned this red, and it was
-     * restored.
+     * method answers POST too, so it is held to the same rule.
+     *
+     * <p>Each body must also be required. Spring matches {@code consumes} only against a request
+     * that has a body, unless the body is required, so behind an optional {@code @RequestBody} an
+     * empty {@code text/plain} post would reach the handler (spring-webmvc 7.0.10's {@code
+     * ConsumesRequestCondition.getMatchingCondition}).
+     *
+     * <p>Proven to fail: dropping {@code consumes} from {@code PlannedFlowController}'s cancel
+     * mapping turned this red, as did making its body optional, and both were restored.
      */
     @Test
     void Given_the_running_ledger_When_its_post_mappings_are_read_Then_each_consumes_only_json() {
@@ -227,14 +234,18 @@ class LedgerAuthorizationIT extends PostgresFixture {
                 .toList();
 
         assertThat(writes).as("POST mappings under %s", API_PREFIX).hasSameSizeAs(WRITES);
-        assertThat(writes)
-                .allSatisfy(info -> assertThat(info.getConsumesCondition().getExpressions())
-                        .as("consumes of %s", info.getPatternValues())
-                        .singleElement()
-                        .satisfies(
-                                expression -> assertThat(expression.isNegated()).isFalse(),
-                                expression ->
-                                        assertThat(expression.getMediaType()).isEqualTo(MediaType.APPLICATION_JSON)));
+        assertThat(writes).allSatisfy(info -> {
+            ConsumesRequestCondition consumes = info.getConsumesCondition();
+            assertThat(consumes.getExpressions())
+                    .as("consumes of %s", info.getPatternValues())
+                    .singleElement()
+                    .satisfies(
+                            expression -> assertThat(expression.isNegated()).isFalse(),
+                            expression -> assertThat(expression.getMediaType()).isEqualTo(MediaType.APPLICATION_JSON));
+            assertThat(consumes.isBodyRequired())
+                    .as("body required by %s", info.getPatternValues())
+                    .isTrue();
+        });
     }
 
     private static boolean answersPostUnderTheApi(RequestMappingInfo info) {
