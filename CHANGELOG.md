@@ -357,8 +357,8 @@ process, decides whether generating this file from the
   the assistant logged both `malformed`. It also answered a `Basic` header, or `Bearer` with nothing
   after it, with `Bearer error="invalid_token"`, where the assistant sent a bare `Bearer`. The
   ledger now reads the request as the assistant does:
-  - a token whose header cannot be read, or names an algorithm other than RS256, is refused
-    `malformed` before any key is looked up, so it costs no key-set fetch;
+  - a token whose header cannot be read, that is not a signed JWT, or whose header names an
+    algorithm other than RS256, is refused `malformed` before any key is looked up;
   - a bearer credential that cannot be read is `malformed`;
   - a request carrying no bearer credential at all is `missing`, with the bare challenge.
 

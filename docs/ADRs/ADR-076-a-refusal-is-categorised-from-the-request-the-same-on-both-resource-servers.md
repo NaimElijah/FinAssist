@@ -78,9 +78,10 @@ in `test_authorization.py`.
   Only `ops/smoke/auth_smoke.py` reads the ledger's challenge, for a request with no
   `Authorization` header, whose challenge is unchanged. The gateway relays the 401 unread, and the
   web client never reads the header.
-- **An algorithm-confusion token costs no JWKS fetch and no Nimbus processing.** The header is
-  parsed twice for an RS256 token, once here and once by the decoder. That is a few microseconds
-  against a signature check.
+- **An RS256 token's header is parsed twice,** once by the check and once by the decoder. That is a
+  few microseconds against a signature check. The check saves no JWKS fetch on the ledger: Nimbus's
+  key selector already asks the key source nothing for an algorithm it does not allow, where the
+  assistant's `PyJWKClient` would look a key up by `kid` first.
 - **A token in an `access_token` parameter is ignored by both services.** Neither enables Spring's
   query or form resolution: `DefaultBearerTokenResolver` reads the parameter only when
   `allowUriQueryParameter` or `allowFormEncodedBodyParameter` is set, and both default to off.

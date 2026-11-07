@@ -22,7 +22,8 @@ import org.springframework.security.oauth2.jwt.JwtValidationException;
  * {@code _require_algorithm} decides it. Left to Nimbus, an HS256 token is refused with "Another
  * algorithm expected, or no matching key(s) found", which {@link ProblemAuthenticationEntryPoint}
  * could only read as {@code unknown_key}, though the algorithm says nothing about which keys exist.
- * Refusing first also spares the key source a fetch for a token no key could ever verify.
+ * It saves no fetch: Nimbus's key selector already asks the key source nothing for an algorithm it
+ * does not allow, which is why the assistant's reason for checking first does not carry over.
  *
  * <p>The refusal is a {@link JwtValidationException} carrying the category as its error's
  * description, the typed channel the token validators already use, so the entry point reads it
