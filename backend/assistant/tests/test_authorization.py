@@ -494,14 +494,16 @@ _NON_JSON_BODIES = [
 
 
 def _posts(app: FastAPI) -> list[str]:
-    """The path of every route in :func:`_routes` that answers POST, each path parameter filled in.
+    """The path of every route *app* serves that answers POST, each path parameter filled in.
 
-    A route of another type than ``APIRoute`` is already refused by the permission coverage check
-    above, so only the methods a route declares are read here.
+    Public paths included: :func:`_routes` leaves them out because they need no permission, but a
+    POST on ``/ready`` would take a body all the same, and with no token at all. A route of another
+    type than ``APIRoute`` is already refused by the permission coverage check above, so only the
+    methods a route declares are read here.
     """
     return [
         re.sub(r"\{[^}]*\}", "VOO", route.path)
-        for route in _routes(app)
+        for route in iter_route_contexts(app.routes)
         if route.path is not None and "POST" in (route.methods or set())
     ]
 
