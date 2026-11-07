@@ -16,18 +16,22 @@ committed, because a rule that has never failed is not evidence.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import uuid
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, Final
 
 import jwt
 import pytest
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.routing import APIRoute, RouteContext, iter_route_contexts
 from fastapi.testclient import TestClient
+from starlette.convertors import Convertor, FloatConvertor, IntegerConvertor, UUIDConvertor
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 from starlette.status import WS_1008_POLICY_VIOLATION
+from starlette.types import Message
 from starlette.websockets import WebSocketDisconnect
 
 from finassist_assistant.adapters.app import CORRELATION_ID_HEADER, create_app
@@ -172,6 +176,93 @@ def Given_a_refused_token_When_answered_Then_a_correlation_id_is_carried_and_onl
     assert warnings[0]["reason"] == "malformed"
     assert warnings[0]["correlation_id"] == response.headers[CORRELATION_ID_HEADER]
     assert token not in captured
+
+
+def _answer(app: FastAPI, authorization: bytes) -> tuple[int, dict[bytes, bytes], bytes]:
+    """Sends one ``GET`` straight to *app*, its ``Authorization`` header exactly *authorization*.
+
+    Not through ``TestClient``, which encodes every header value as UTF-8 again, so a byte above
+    0x7F would arrive as two. A real h11 server passes the byte through as one, which only a scope
+    built by hand reproduces.
+
+    :returns: the status, the response headers and the body.
+    """
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": POSITION_URL,
+        "raw_path": POSITION_URL.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"host", b"testserver"), (b"authorization", authorization)],
+        "client": ("127.0.0.1", 50000),
+        "server": ("testserver", 80),
+    }
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    asyncio.run(app(scope, receive, send))
+    start = next(message for message in sent if message["type"] == "http.response.start")
+    body = b"".join(
+        message.get("body", b"") for message in sent if message["type"] == "http.response.body"
+    )
+    return start["status"], dict(start["headers"]), body
+
+
+@pytest.mark.parametrize(
+    ("header", "challenge", "reason"),
+    [
+        (b"Bearer abc", _INVALID_TOKEN_CHALLENGE, "malformed"),
+        (b"Bearer a b", _INVALID_TOKEN_CHALLENGE, "malformed"),
+        (b"Bearer a,b", _INVALID_TOKEN_CHALLENGE, "malformed"),
+        (b"bearer a b", _INVALID_TOKEN_CHALLENGE, "malformed"),
+        (b"Bearer", "Bearer", "missing"),
+        (b"Bearer    ", "Bearer", "missing"),
+        (b"Bearer \xa0", "Bearer", "missing"),
+        (b"Basic dXNlcjpwYXNz", "Bearer", "missing"),
+    ],
+    ids=[
+        "not-a-jwt",
+        "two-words",
+        "comma",
+        "lowercase-scheme",
+        "scheme-only",
+        "blank-token",
+        "no-break-space",
+        "basic-scheme",
+    ],
+)
+def Given_an_authorization_header_without_a_usable_bearer_token_When_refused_Then_its_shape_sets_the_reason_and_the_challenge(  # noqa: E501 - the name is the specification
+    app: FastAPI,
+    capsys: pytest.CaptureFixture[str],
+    header: bytes,
+    challenge: str,
+    reason: str,
+) -> None:
+    """The mirror of the ledger's ``LedgerAuthorizationIT`` case of the same name (ADR-076): a
+    credential that is there but cannot be read is ``malformed``, and a header that carries no
+    bearer credential at all is ``missing``, with the bare challenge. Byte 0xA0 counts as no
+    credential, because ``str.strip`` removes it; the ledger strips it too."""
+    capsys.readouterr()
+
+    status, headers, body = _answer(app, header)
+
+    assert status == 401
+    assert headers[b"www-authenticate"].decode() == challenge
+    assert json.loads(body)["code"] == "UNAUTHENTICATED"
+    records = [
+        json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")
+    ]
+    warnings = [record for record in records if record.get("level") == "warning"]
+    assert [warning["reason"] for warning in warnings] == [reason]
 
 
 def Given_an_unknown_route_When_requested_with_no_token_Then_it_is_401_not_404(
@@ -386,6 +477,81 @@ def Given_a_websocket_route_and_a_plain_route_When_inspected_Then_both_are_found
     app.add_route(_PLAIN_PATH, plain)
 
     assert _unguarded(app) == [_STREAM_PATH, _PLAIN_PATH]
+
+
+_NON_JSON_BODIES = [
+    pytest.param("application/x-www-form-urlencoded", b"quantity=1", id="form"),
+    pytest.param(
+        "multipart/form-data; boundary=finassist",
+        b"--finassist\r\n"
+        b'Content-Disposition: form-data; name="quantity"\r\n\r\n'
+        b"1\r\n--finassist--\r\n",
+        id="multipart",
+    ),
+    pytest.param("text/plain", b'{"quantity": "1"}', id="text-plain"),
+    pytest.param(None, b'{"quantity": "1"}', id="no-content-type"),
+    pytest.param("application/xml", b"<quantity>1</quantity>", id="xml"),
+]
+
+
+_PATH_PARAMETER_SAMPLES: dict[type[Convertor[Any]], Any] = {
+    IntegerConvertor: 1,
+    FloatConvertor: 1.0,
+    UUIDConvertor: uuid.UUID(int=1),
+}
+"""A value of the right type for each typed path parameter, so a request reaches the route it was
+built for rather than a 404 or another route; any other parameter takes :data:`_SAMPLE_SEGMENT`."""
+
+_SAMPLE_SEGMENT: Final = "VOO"
+
+
+def _posts(app: FastAPI) -> list[str]:
+    """A URL for every route *app* serves that answers POST, each path parameter filled with a
+    value its convertor accepts.
+
+    Public paths included: :func:`_routes` leaves them out because they need no permission, but a
+    POST on ``/ready`` would take a body all the same, and with no token at all. A route of another
+    type than ``APIRoute`` is already refused by the permission coverage check above, so only the
+    methods a route declares are read here.
+    """
+    urls = []
+    for route in iter_route_contexts(app.routes):
+        if route.path_format is None or "POST" not in (route.methods or set()):
+            continue
+        convertors: dict[str, Convertor[Any]] = getattr(route, "param_convertors", {})
+        values = {
+            name: convertor.to_string(_PATH_PARAMETER_SAMPLES.get(type(convertor), _SAMPLE_SEGMENT))
+            for name, convertor in convertors.items()
+        }
+        urls.append(route.path_format.format(**values))
+    return urls
+
+
+@pytest.mark.parametrize(("content_type", "body"), _NON_JSON_BODIES)
+def Given_a_body_that_is_not_json_When_any_post_route_receives_it_Then_it_is_415(
+    app: FastAPI, client: TestClient, content_type: str | None, body: bytes
+) -> None:
+    """Every write accepts ``application/json`` alone (ADR-030), whatever route a later change
+    adds. A page on another origin can send a form, multipart or ``text/plain`` body, or one with no
+    ``Content-Type`` at all, without a CORS preflight, and no CORS configuration exists to approve
+    any other; an XML body stands for every other type. Each must be refused 415 before a handler
+    runs. The ledger's mirror is ``LedgerAuthorizationIT``'s
+    ``Given_the_running_ledger_When_its_post_mappings_are_read_Then_each_consumes_only_json``.
+
+    Sent with the owner's token, so the permission dependency admits it and only the media type
+    can refuse it. Proven to fail: dropping ``Depends(_require_json)`` from the disposal route in
+    ``router.py`` turned this red, as did a guard that let a missing ``Content-Type`` through, and
+    both were restored.
+    """
+    posts = _posts(app)
+    assert posts, "no POST route to check, so this test would pass vacuously"
+    headers = {"Content-Type": content_type} if content_type is not None else {}
+
+    for path in posts:
+        response = client.post(path, content=body, headers=headers)
+
+        assert response.status_code == 415, path
+        assert response.json()["code"] == "UNSUPPORTED_MEDIA_TYPE", path
 
 
 def Given_the_public_paths_When_compared_Then_they_are_exactly_health_ready_and_openapi() -> None:

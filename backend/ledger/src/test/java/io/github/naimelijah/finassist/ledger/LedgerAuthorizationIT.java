@@ -42,6 +42,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.servlet.function.support.RouterFunctionMapping;
+import org.springframework.web.servlet.mvc.condition.ConsumesRequestCondition;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import tools.jackson.databind.JsonNode;
@@ -167,6 +169,16 @@ class LedgerAuthorizationIT extends PostgresFixture {
             new Endpoint(HttpMethod.GET, "/v3/api-docs.yaml"),
             new Endpoint(ANY_METHOD, "/error"));
 
+    /**
+     * The paths of the {@link #KNOWN_NON_BUSINESS_ENDPOINTS} that answer POST, which the JSON-only
+     * check leaves out: today only {@code /error}, a forward target a direct request is denied.
+     */
+    private static final Set<String> NON_BUSINESS_POST_PATHS = KNOWN_NON_BUSINESS_ENDPOINTS.stream()
+            .filter(endpoint ->
+                    endpoint.method().equals(ANY_METHOD) || endpoint.method().equals(HttpMethod.POST))
+            .map(Endpoint::path)
+            .collect(Collectors.toUnmodifiableSet());
+
     @Autowired
     private MockMvc mvc;
 
@@ -178,6 +190,11 @@ class LedgerAuthorizationIT extends PostgresFixture {
     @Autowired
     @Qualifier("requestMappingHandlerMapping")
     private RequestMappingHandlerMapping handlerMapping;
+
+    /** Serves every {@code RouterFunction} bean, which {@link #handlerMapping} never sees. */
+    @Autowired
+    @Qualifier("routerFunctionMapping")
+    private RouterFunctionMapping routerFunctionMapping;
 
     /**
      * Reads the server's own handler inventory rather than trusting the lists above to be complete:
@@ -208,6 +225,67 @@ class LedgerAuthorizationIT extends PostgresFixture {
                         .toList();
         return info.getPatternValues().stream()
                 .flatMap(pattern -> inventoried.stream().map(method -> new Endpoint(method, pattern)));
+    }
+
+    /**
+     * Every write accepts {@code application/json} alone, so a cross-site form, multipart or {@code
+     * text/plain} post is refused 415 before a handler runs (ADR-030). Each controller test pins its
+     * own 415; this reads the running server's mappings, so a POST added later without {@code
+     * consumes} fails the build whether or not its author wrote that test. A mapping that names no
+     * method answers POST too, so it is held to the same rule. Every path is read, not only those
+     * under {@code /api/v1}; only a known non-business mapping that answers POST, the container's
+     * {@code /error} forward, is left out, by name.
+     *
+     * <p>Each body must also be required. Spring matches {@code consumes} only against a request
+     * that has a body, unless the body is required, so behind an optional {@code @RequestBody} an
+     * empty {@code text/plain} post would reach the handler (spring-webmvc 7.0.10's {@code
+     * ConsumesRequestCondition.getMatchingCondition}).
+     *
+     * <p>Proven to fail: dropping {@code consumes} from {@code PlannedFlowController}'s cancel
+     * mapping turned this red, as did making its body optional, and both were restored.
+     */
+    @Test
+    void Given_the_running_ledger_When_its_post_mappings_are_read_Then_each_consumes_only_json() {
+        List<RequestMappingInfo> writes = handlerMapping.getHandlerMethods().keySet().stream()
+                .filter(LedgerAuthorizationIT::answersPost)
+                .filter(info -> !NON_BUSINESS_POST_PATHS.containsAll(info.getPatternValues()))
+                .toList();
+
+        assertThat(writes.stream().flatMap(info -> info.getPatternValues().stream()))
+                .as("paths of the POST mappings outside %s", NON_BUSINESS_POST_PATHS)
+                .containsExactlyInAnyOrderElementsOf(
+                        WRITES.stream().map(Endpoint::path).toList());
+        assertThat(writes).allSatisfy(info -> {
+            ConsumesRequestCondition consumes = info.getConsumesCondition();
+            assertThat(consumes.getExpressions())
+                    .as("consumes of %s", info.getPatternValues())
+                    .singleElement()
+                    .satisfies(
+                            expression -> assertThat(expression.isNegated()).isFalse(),
+                            expression -> assertThat(expression.getMediaType()).isEqualTo(MediaType.APPLICATION_JSON));
+            assertThat(consumes.isBodyRequired())
+                    .as("body required by %s", info.getPatternValues())
+                    .isTrue();
+        });
+    }
+
+    /**
+     * Both checks above read {@code requestMappingHandlerMapping} alone. A functional endpoint, a
+     * {@code RouterFunction} bean, is served by {@code routerFunctionMapping} instead, which neither
+     * sees, while the chain's {@code POST /api/v1/**} rule would admit it. None exists, and this keeps
+     * it so until both checks read that mapping too. Proven to fail: a {@code RouterFunction} bean
+     * answering {@code POST /api/v1/stray} turned this red, and it was removed.
+     */
+    @Test
+    void Given_the_running_ledger_When_its_router_functions_are_read_Then_there_are_none() {
+        assertThat(routerFunctionMapping.getRouterFunction())
+                .as("the router function routerFunctionMapping serves")
+                .isNull();
+    }
+
+    private static boolean answersPost(RequestMappingInfo info) {
+        Set<RequestMethod> methods = info.getMethodsCondition().getMethods();
+        return methods.isEmpty() || methods.contains(RequestMethod.POST);
     }
 
     @ParameterizedTest
@@ -278,13 +356,12 @@ class LedgerAuthorizationIT extends PostgresFixture {
 
     /**
      * Each shape {@link #categorisedBadTokens()} lists is refused in exactly one log line, at WARN, whose
-     * {@code reason} is the category ADR-030 names for it. For those shapes it is also the category the
-     * assistant's {@code test_auth.py} expects, because a rule written against one service must read the
-     * other (root {@code CLAUDE.md}, "Security and operations"). Not every bad token is listed: an HS256
-     * token and a malformed {@code Bearer} header are categorised differently by the two services, which
-     * is #352, and neither is pinned here until it is settled. {@code unknown_key} and {@code malformed}
-     * are read from Nimbus's English messages by {@code ProblemAuthenticationEntryPoint.reasonFor}, so a
-     * library upgrade rewording one would fail here rather than quietly logging {@code rejected}.
+     * {@code reason} is the category ADR-030 names for it. It is also the category the assistant's
+     * {@code test_auth.py} and {@code test_authorization.py} expect for the same shape, because a rule
+     * written against one service must read the other (root {@code CLAUDE.md}, "Security and
+     * operations"; ADR-076). {@code unknown_key} and a malformed payload are still read from Nimbus's
+     * English messages by {@code ProblemAuthenticationEntryPoint.reasonFor}, so a library upgrade
+     * rewording one would fail here rather than quietly logging {@code rejected}.
      */
     @ParameterizedTest(name = "{0}")
     @MethodSource("categorisedBadTokens")
@@ -293,6 +370,39 @@ class LedgerAuthorizationIT extends PostgresFixture {
         mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
 
         assertTheOneRefusalLine(output, reason);
+    }
+
+    /**
+     * An {@code Authorization} header that is not one readable bearer token, refused as the assistant
+     * refuses it (ADR-076). A credential that is there but cannot be read is {@code malformed}, with
+     * {@code invalid_token}. A header that carries no bearer credential at all, whether {@code Bearer}
+     * with nothing after it or another scheme, is {@code missing}, with the bare challenge RFC 6750
+     * section 3 asks for when a request carries no authentication information.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("unreadableAuthorizationHeaders")
+    void
+            Given_an_authorization_header_without_a_usable_bearer_token_When_refused_Then_its_shape_sets_the_reason_and_the_challenge(
+                    String header, String challenge, String reason, CapturedOutput output) throws Exception {
+        mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, header))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, challenge))
+                .andExpect(problem(UNAUTHENTICATED));
+
+        assertTheOneRefusalLine(output, reason);
+    }
+
+    private static Stream<Arguments> unreadableAuthorizationHeaders() {
+        String invalidToken = "Bearer error=\"invalid_token\"";
+        return Stream.of(
+                Arguments.of("Bearer abc", invalidToken, "malformed"),
+                Arguments.of("Bearer a b", invalidToken, "malformed"),
+                Arguments.of("Bearer a,b", invalidToken, "malformed"),
+                Arguments.of("bearer a b", invalidToken, "malformed"),
+                Arguments.of("Bearer", "Bearer", "missing"),
+                Arguments.of("Bearer    ", "Bearer", "missing"),
+                Arguments.of("Bearer \u00a0", "Bearer", "missing"),
+                Arguments.of("Basic dXNlcjpwYXNz", "Bearer", "missing"));
     }
 
     @Test
@@ -456,16 +566,9 @@ class LedgerAuthorizationIT extends PostgresFixture {
         return bothLists().stream().map(Arguments::of);
     }
 
-    /**
-     * Every bad token, categorised or not. HS256 is refused 401, and its refusal is logged though the
-     * token never is, but its category is not asserted: the ledger logs it {@code unknown_key}, from Nimbus's "Another algorithm expected,
-     * or no matching key(s) found", where the assistant refuses the same shape {@code malformed}. That
-     * asymmetry is #352, and is not pinned here either way until it is settled.
-     */
+    /** Every bad token, each refused under the category {@link #categorisedBadTokens()} pairs it with. */
     private static Stream<Arguments> badTokens() {
-        return Stream.concat(
-                categorisedBadTokens().map(shape -> Arguments.of(shape.get()[1])),
-                Stream.of(Arguments.of(TestTokens.hmacConfused())));
+        return categorisedBadTokens().map(shape -> Arguments.of(shape.get()[1]));
     }
 
     /** Every shape of bad token, with the reason category it is logged under (ADR-030's vocabulary). */
@@ -480,6 +583,11 @@ class LedgerAuthorizationIT extends PostgresFixture {
                 Arguments.of("wrong issuer", TestTokens.wrongIssuer(), "issuer"),
                 Arguments.of("no sub", TestTokens.noSubject(), "subject"),
                 Arguments.of("alg none", TestTokens.unsigned(), "malformed"),
+                Arguments.of("HS256", TestTokens.hmacConfused(), "malformed"),
+                Arguments.of("RS512", TestTokens.rs512(), "malformed"),
+                Arguments.of("header that is JSON null", TestTokens.nullHeader(), "malformed"),
+                Arguments.of("negative PBES2 count", TestTokens.negativePbes2Count(), "malformed"),
+                Arguments.of("encrypted, naming RS256", TestTokens.encryptedNamingRs256(), "malformed"),
                 Arguments.of("unpublished key", TestTokens.foreignKey(), "unknown_key"),
                 Arguments.of("tampered payload", TestTokens.tamperedSignature(), "rejected"));
     }

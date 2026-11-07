@@ -13,6 +13,19 @@ process, decides whether generating this file from the
 
 ### Added
 
+- **A POST that would accept a body other than JSON fails the build, on the ledger and the
+  assistant.** Every existing write was already JSON only, so a cross-site form post is refused
+  415 before a handler runs (ADR-030), but only each endpoint's own test said so.
+  - The ledger's `LedgerAuthorizationIT` reads every POST mapping the running server answers,
+    the container's `/error` forward excepted. It requires `consumes` to be `application/json`
+    alone and the body to be required, since Spring skips the check for an empty request
+    behind an optional body. It also fails on any `RouterFunction`, which no check reads.
+  - The assistant's `test_authorization.py` posts a form, a multipart, a `text/plain` and an
+    XML body, and one with no `Content-Type`, to every POST route, public paths included, and
+    requires 415.
+
+  Each check was shown to fail on a mapping or route without its guard
+  ([#426](https://github.com/NaimElijah/FinAssist/issues/426)).
 - **Two Make targets run what CI used to check inline.** `make check-web-api` regenerates the web
   client's contract types and fails on any diff, untracked files included. `make check-compose`
   validates `docker-compose.yml` under every profile and checks its restart, log and readiness
@@ -352,6 +365,19 @@ process, decides whether generating this file from the
 
 ### Fixed
 
+- **The ledger and the assistant name one refused request the same way.** The ledger logged a
+  token signed HS256 as `unknown_key` and an `Authorization: Bearer a b` header as `missing`, where
+  the assistant logged both `malformed`. It also answered a `Basic` header, or `Bearer` with nothing
+  after it, with `Bearer error="invalid_token"`, where the assistant sent a bare `Bearer`. The
+  ledger now reads the request as the assistant does:
+  - a token whose header cannot be read, that is not a signed JWT, or whose header names an
+    algorithm other than RS256, is refused `malformed` before any key is looked up;
+  - a bearer credential that cannot be read is `malformed`;
+  - a request carrying no bearer credential at all is `missing`, with the bare challenge.
+
+  Every refusal is still a 401 that never logs the token
+  ([ADR-076](docs/ADRs/ADR-076-a-refusal-is-categorised-from-the-request-the-same-on-both-resource-servers.md),
+  [#352](https://github.com/NaimElijah/FinAssist/issues/352)).
 - **A clear, a reconcile or a void of a transaction that has since moved on is refused, not stored
   and not a 500.** Two moves decided on one read of a transaction could both reach the journal: a
   clear and a void stored `PENDING, CLEARED, VOIDED`, though whoever voided it never saw it cleared,

@@ -35,7 +35,7 @@ append-only history: to change course, add a new record and mark the old one
 | [027](ADR-027-defer-authentication-and-bind-to-loopback.md) | Authentication deferred, and every service bound to loopback | Superseded by 030 |
 | [028](ADR-028-http-wire-conventions.md) | HTTP wire conventions, for both services | Accepted, extended by 030, 056, 058, 068 and 075 |
 | [029](ADR-029-web-client-stack.md) | The web client's routing, server state, contract types and styling | Accepted, extended by 030, 047, 056, 057, 062 and 069 |
-| [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, 053, 057, 058 and 067, corrected by 047 |
+| [030](ADR-030-oidc-authentication-through-a-bff-gateway.md) | OIDC authentication through a backend-for-frontend gateway | Accepted, extended by 037, 053, 057, 058, 067 and 076, corrected by 047 |
 | [031](ADR-031-keycloak-as-the-identity-provider.md) | Keycloak as the identity provider | Accepted, extended by 036, 060, 073 and 074, corrected by 047 and 064 |
 | [032](ADR-032-role-based-authorization-per-service.md) | Role-based authorization, owned by each service | Accepted, corrected by 047 |
 | [033](ADR-033-the-journal-records-who.md) | The journal records who wrote each row, from `V1_2` onward | Accepted, corrected by 035, extended by 075 |
@@ -81,6 +81,7 @@ append-only history: to change course, add a new record and mark the old one
 | [073](ADR-073-every-realm-locks-out-a-guessed-sign-in-for-a-while-never-for-good.md) | Every realm locks out a guessed sign-in for a while, never for good | Accepted |
 | [074](ADR-074-the-master-realm-is-configured-from-the-repository.md) | The `master` realm is configured from the repository | Accepted |
 | [075](ADR-075-a-transition-is-stored-only-against-the-state-it-was-validated-on.md) | A transition is stored only against the state it was validated on | Accepted |
+| [076](ADR-076-a-refusal-is-categorised-from-the-request-the-same-on-both-resource-servers.md) | A refusal is categorised from the request, the same on both resource servers | Accepted |
 
 **Proposed** means written down and not yet ratified — nothing implements it, and it can
 still change cheaply. No record is Proposed today.
@@ -453,3 +454,14 @@ migration, no contract change and no new problem code; `V1_4`'s header lines 19 
 describe the old `save`, and 075 replaces them. The interval between a page's read and its `POST`
 stays open, and one owner with two tabs can reach it, so [#443](https://github.com/NaimElijah/FinAssist/issues/443) tracks it
 ([#370](https://github.com/NaimElijah/FinAssist/issues/370)).
+
+076 extends 030 on 2026-11-07. 030 fixed the reason categories a refused token is logged under, and a
+bare challenge for a request that sent no token, without saying how either is decided, and the two
+resource servers decided differently: the ledger logged an HS256 token `unknown_key` and `Bearer a b`
+`missing`, where the assistant logged both `malformed`, and it challenged a `Basic` header or a blank
+`Bearer` with `invalid_token`, where the assistant sent a bare `Bearer`. The owner chose the
+assistant's reading for both. The ledger now refuses a token whose header cannot be read or names an
+algorithm but RS256 as `malformed` before any key lookup, through `RefuseUnexpectedAlgorithm`, and
+reads the `Authorization` header itself: a non-blank `Bearer` credential that cannot be read is
+`malformed`, and no credential at all is `missing` with the bare challenge
+([#352](https://github.com/NaimElijah/FinAssist/issues/352)).

@@ -16,6 +16,7 @@ import com.nimbusds.jwt.SignedJWT;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 
@@ -233,9 +234,50 @@ public final class TestTokens {
                 .claim("roles", roles);
     }
 
+    /**
+     * RS512, signed by the very key the JWKS publishes: a genuine signature under an asymmetric
+     * algorithm the ledger does not accept. Nimbus alone would report it as "no matching key(s)",
+     * which reads as {@code unknown_key}, where the assistant refuses it {@code malformed}.
+     */
+    public static String rs512() {
+        return signed(claims("owner-user", List.of("owner")).build(), JWSAlgorithm.RS512);
+    }
+
+    /**
+     * A header that decodes to JSON {@code null}. Nimbus throws an unchecked exception reading it,
+     * where it reports most unreadable headers as a {@code ParseException}.
+     */
+    public static String nullHeader() {
+        return segment("null") + ".e30.c2ln";
+    }
+
+    /**
+     * Five parts, the shape of an encrypted token, whose header gives a negative PBES2 iteration
+     * count: another header Nimbus refuses with an unchecked exception.
+     */
+    public static String negativePbes2Count() {
+        return segment("{\"alg\":\"PBES2-HS256+A128KW\",\"enc\":\"A128GCM\",\"p2c\":-1}") + ".e30.AAAA.AAAA.AAAA";
+    }
+
+    /**
+     * Five parts, the shape of an encrypted token, whose header names {@code RS256}. Nimbus compares
+     * algorithms by name, so it matches the one the ledger accepts, though it is no signed token.
+     */
+    public static String encryptedNamingRs256() {
+        return segment("{\"alg\":\"RS256\",\"enc\":\"A128GCM\"}") + ".e30.AAAA.AAAA.AAAA";
+    }
+
+    private static String segment(String json) {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes(StandardCharsets.UTF_8));
+    }
+
     private static String signed(JWTClaimsSet claimsSet) {
+        return signed(claimsSet, JWSAlgorithm.RS256);
+    }
+
+    private static String signed(JWTClaimsSet claimsSet, JWSAlgorithm algorithm) {
         RSAKey key = TestJwks.instance().signingKey();
-        JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.RS256)
+        JWSHeader header = new JWSHeader.Builder(algorithm)
                 .type(JOSEObjectType.JWT)
                 .keyID(key.getKeyID())
                 .build();

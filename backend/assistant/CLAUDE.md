@@ -104,6 +104,11 @@ From `backend/assistant`:
   outage, and failures are mapped only inside `_KeySetClient.fetch_data`, which never sees a
   token. Pinned by `tests/test_authorization.py`. `tests/test_auth.py` serves the assistant the
   same key-set bodies that `LedgerJwksBodyTest` serves the ledger: keep the two in step.
+- **A refusal is categorised from the request, and the ledger reads it the same way** (ADR-076).
+  `_require_algorithm` and `_bearer_token` decide the category and the challenge, and the ledger's
+  `RefuseUnexpectedAlgorithm` and `ProblemAuthenticationEntryPoint` mirror them. The header table
+  in `tests/test_authorization.py` and the one in `LedgerAuthorizationIT` share a test name: keep
+  the two in step. It drives a raw ASGI scope, because `TestClient` re-encodes a header as UTF-8.
 - **The key source trusts only the set it last fetched** (ADR-059). `_KeySetClient` is built with
   `cache_keys=False` and a 300 s set lifespan (`JWKS_CACHE_LIFESPAN_SECONDS`), so a key the realm
   removed stops verifying once the set is refetched, and an outage past the lifespan is a 503, as
