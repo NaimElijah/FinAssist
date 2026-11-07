@@ -488,6 +488,7 @@ _CROSS_SITE_BODIES = [
         id="multipart",
     ),
     pytest.param("text/plain", b'{"quantity": "1"}', id="text-plain"),
+    pytest.param(None, b'{"quantity": "1"}', id="no-content-type"),
 ]
 
 
@@ -506,23 +507,25 @@ def _posts(app: FastAPI) -> list[str]:
 
 @pytest.mark.parametrize(("content_type", "body"), _CROSS_SITE_BODIES)
 def Given_a_body_a_cross_site_page_can_send_When_any_post_route_receives_it_Then_it_is_415(
-    app: FastAPI, client: TestClient, content_type: str, body: bytes
+    app: FastAPI, client: TestClient, content_type: str | None, body: bytes
 ) -> None:
     """Every write accepts ``application/json`` alone (ADR-030), whatever route a later change
-    adds. A page on another origin can send these three media types without a CORS preflight, and
-    no CORS configuration exists to approve any other, so each must be refused 415 before a
-    handler runs. The ledger's mirror is ``LedgerAuthorizationIT``'s
+    adds. A page on another origin can send these three media types, or none at all, without a
+    CORS preflight, and no CORS configuration exists to approve any other, so each must be refused
+    415 before a handler runs. The ledger's mirror is ``LedgerAuthorizationIT``'s
     ``Given_the_running_ledger_When_its_post_mappings_are_read_Then_each_consumes_only_json``.
 
     Sent with the owner's token, so the permission dependency admits it and only the media type
     can refuse it. Proven to fail: dropping ``Depends(_require_json)`` from the disposal route in
-    ``router.py`` turned this red, and it was restored.
+    ``router.py`` turned this red, as did a guard that let a missing ``Content-Type`` through, and
+    both were restored.
     """
     posts = _posts(app)
     assert posts, "no POST route to check, so this test would pass vacuously"
+    headers = {"Content-Type": content_type} if content_type is not None else {}
 
     for path in posts:
-        response = client.post(path, content=body, headers={"Content-Type": content_type})
+        response = client.post(path, content=body, headers=headers)
 
         assert (path, response.status_code) == (path, 415)
         assert response.json()["code"] == "UNSUPPORTED_MEDIA_TYPE"
