@@ -26,8 +26,9 @@ import java.util.List;
  * ProblemAuthenticationEntryPoint} answers 503 {@code AUTHENTICATION_UNAVAILABLE}. A set that holds
  * keys, only not this token's, is left a refusal.
  *
- * <p>A token with a disallowed algorithm is left alone: the wrapped selector refuses it without
- * touching the source, and so does this, so an algorithm-confusion attempt still costs no fetch and
+ * <p>A token with a disallowed algorithm is left alone. {@link RefuseUnexpectedAlgorithm} refuses it
+ * before the decoder runs, and were one to arrive here, the wrapped selector would refuse it without
+ * touching the source, as would this, so an algorithm-confusion attempt still costs no fetch and
  * stays a 401 while the JWKS is down. The extra lookup otherwise runs only once a token's key was
  * already missing. On a non-empty set it is answered from the cache. On an empty one, Nimbus fetches
  * the set again, as it does whenever a selection comes back empty, and Spring builds the source

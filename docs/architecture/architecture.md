@@ -877,7 +877,13 @@ as its own scrubbed text, because the renderer would otherwise turn it into text
 - **Ledger and assistant.** Each logs a refused token at WARN with one reason category —
   `missing`, `malformed`, `rejected`, `lifetime`, `issuer`, `audience`, `subject` or
   `unknown_key` — and never the token or its claims: `ProblemAuthenticationEntryPoint` on the
-  ledger, `BearerAuthentication` on the assistant (ADR-030). The ninth category, `key_source`, is
+  ledger, `BearerAuthentication` on the assistant (ADR-030). Both decide the category from the
+  request where they can, rather than from a library's message. A token whose header cannot be
+  read, that is not a signed JWT, or whose header names an algorithm but RS256 is `malformed`
+  before any key lookup
+  (`RefuseUnexpectedAlgorithm` on the ledger, `_require_algorithm` on the assistant), and a request
+  whose `Authorization` header is not `Bearer` followed by a credential is `missing`, with a bare
+  `Bearer` challenge (ADR-076). The ninth category, `key_source`, is
   the exception: an unreachable key source means nobody can authenticate at all, so both services
   log it at ERROR under a message of its own rather than the refusal line's, still carrying the
   category and nothing else (`ProblemAuthenticationEntryPointTest`,

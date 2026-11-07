@@ -37,20 +37,21 @@ import tools.jackson.databind.json.JsonMapper;
  * class branches on.
  *
  * <p>{@code WWW-Authenticate} tells the caller which of the two 401 cases it hit, per RFC 6750: a
- * bare {@code Bearer} when the request carried no {@code Authorization} header at all, or {@code
+ * bare {@code Bearer} when the request carried no bearer credential at all, or {@code
  * Bearer error="invalid_token"} when it did and the token was refused. Reading the request's own
  * header for that choice, rather than the exception type, is what keeps it correct regardless of
- * which filter raised the exception.
+ * which filter raised the exception. An {@code Authorization} header of another scheme, or {@code
+ * Bearer} with nothing after it, carries no credential, as on the assistant (ADR-076).
  *
  * <p>Every refusal is logged once at WARN, carrying only one of the reason categories ADR-030
  * names — never the token, never a claim. The one exception is the {@code key_source} outage
  * above, which is logged at ERROR under its own message: a refused token is one caller's problem,
  * while an unreachable key source means nobody can authenticate at all. The category comes from
- * the decoder's own exception: a {@link JwtValidationException} carries the {@link OAuth2Error}
- * {@code LedgerSecurityConfiguration}'s validators built, whose description already <em>is</em> the
- * category; anything else is read from Nimbus's own (English-language, not machine-typed) failure
- * message, which is the only signal it gives for a malformed token, an algorithm it refused, or a
- * key it could not find.
+ * the decoder's own exception where it can: a {@link JwtValidationException} carries the {@link
+ * OAuth2Error} that {@code LedgerSecurityConfiguration}'s validators or {@link
+ * RefuseUnexpectedAlgorithm} built, whose description already <em>is</em> the category. A key it
+ * could not find, a bad signature, and a payload that is not a claims set are read from Nimbus's
+ * own (English-language, not machine-typed) failure message, the only signal it gives for them.
  */
 final class ProblemAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
@@ -72,6 +73,11 @@ final class ProblemAuthenticationEntryPoint implements AuthenticationEntryPoint 
     static final String SUBJECT = "subject";
     static final String UNKNOWN_KEY = "unknown_key";
     static final String KEY_SOURCE = "key_source";
+
+    /** The scheme prefix a bearer credential follows, matched ignoring case as RFC 9110 says a scheme is. */
+    private static final String BEARER_PREFIX = "bearer ";
+
+    private static final char NO_BREAK_SPACE = '\u00A0';
 
     private static final String BEARER_CHALLENGE = "Bearer";
     private static final String INVALID_TOKEN_CHALLENGE = "Bearer error=\"invalid_token\"";
@@ -95,18 +101,56 @@ final class ProblemAuthenticationEntryPoint implements AuthenticationEntryPoint 
             send(response, HttpStatus.SERVICE_UNAVAILABLE, UNAVAILABLE_BODY);
             return;
         }
-        log(reasonFor(authException));
-        boolean tokenWasSent = request.getHeader(HttpHeaders.AUTHORIZATION) != null;
-        response.setHeader(HttpHeaders.WWW_AUTHENTICATE, tokenWasSent ? INVALID_TOKEN_CHALLENGE : BEARER_CHALLENGE);
+        boolean credentialWasSent = !bearerCredential(request).isEmpty();
+        log(reasonFor(authException, credentialWasSent));
+        response.setHeader(
+                HttpHeaders.WWW_AUTHENTICATE, credentialWasSent ? INVALID_TOKEN_CHALLENGE : BEARER_CHALLENGE);
         send(response, HttpStatus.UNAUTHORIZED, UNAUTHENTICATED_BODY);
     }
 
     /**
-     * A {@link JwtValidationException}'s errors already carry the category, because {@code
-     * LedgerSecurityConfiguration}'s validators build them that way; every other rejection is
-     * categorised from Nimbus's own message, since it gives nothing more structured than English.
+     * The bearer credential the request presented, or {@code ""} when it presented none: no {@code
+     * Authorization} header, another scheme such as {@code Basic}, or {@code Bearer} with nothing
+     * after it. The assistant's {@code _bearer_token} reads the header the same way, so the two
+     * services agree on which requests carried a credential at all (ADR-076).
      */
-    private static String reasonFor(AuthenticationException exception) {
+    private static String bearerCredential(HttpServletRequest request) {
+        String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (header == null || !header.regionMatches(true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length())) {
+            return "";
+        }
+        String credential = header.substring(BEARER_PREFIX.length());
+        int start = 0;
+        int end = credential.length();
+        while (start < end && isSpaceToTheAssistant(credential.charAt(start))) {
+            start++;
+        }
+        while (end > start && isSpaceToTheAssistant(credential.charAt(end - 1))) {
+            end--;
+        }
+        return credential.substring(start, end);
+    }
+
+    /**
+     * The characters Python's {@code str.strip()} removes within ISO-8859-1, the charset both servers
+     * read a header in, as far as they can reach this class. {@link String#strip()} alone keeps
+     * {@code U+00A0}, so {@code Bearer} followed only by one would carry a credential here and none on
+     * the assistant. The other such character, {@code U+0085}, is a control character, which Spring
+     * Security's firewall refuses with 400 before authentication runs.
+     */
+    private static boolean isSpaceToTheAssistant(char character) {
+        return Character.isWhitespace(character) || character == NO_BREAK_SPACE;
+    }
+
+    /**
+     * A {@link JwtValidationException}'s errors already carry the category, because {@code
+     * LedgerSecurityConfiguration}'s validators and {@link RefuseUnexpectedAlgorithm} build them that
+     * way. A refusal with no {@link JwtException} behind it never reached the decoder: it is {@code
+     * malformed} when a credential was sent, because Spring's bearer-token resolver refused to read
+     * it, and {@code missing} otherwise. Every other rejection is categorised from Nimbus's own
+     * message, since it gives nothing more structured than English.
+     */
+    private static String reasonFor(AuthenticationException exception, boolean credentialWasSent) {
         Throwable cause = exception.getCause();
         if (cause instanceof JwtValidationException validation) {
             return validation.getErrors().stream()
@@ -115,10 +159,10 @@ final class ProblemAuthenticationEntryPoint implements AuthenticationEntryPoint 
                     .orElse(REJECTED);
         }
         if (!(cause instanceof JwtException jwtException)) {
-            return MISSING;
+            return credentialWasSent ? MALFORMED : MISSING;
         }
         String message = String.valueOf(jwtException.getMessage()).toLowerCase(Locale.ROOT);
-        if (message.contains("malformed") || message.contains("unsupported algorithm")) {
+        if (message.contains("malformed")) {
             return MALFORMED;
         }
         if (message.contains("no matching key")) {

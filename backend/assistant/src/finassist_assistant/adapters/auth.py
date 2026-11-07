@@ -452,9 +452,9 @@ def _require_algorithm(token: str) -> None:
     check exists so the reason is the same whichever key source is asked. The real
     ``PyJWKClient`` looks a key up by the header's ``kid`` first, and an ``alg: none`` token names
     none, so it would be refused ``unknown_key`` there and ``malformed`` against any key source
-    that returned a key (#124). Here it is ``malformed`` on both, as on the ledger, whose Nimbus
-    refuses an "Unsupported algorithm of none" before it looks for a key. Refusing first also
-    spares the key source a fetch for a token no key could ever verify.
+    that returned a key (#124). Here it is ``malformed`` on both, as on the ledger, whose
+    ``RefuseUnexpectedAlgorithm`` makes the same check before it looks for a key (ADR-076).
+    Refusing first also spares the key source a fetch for a token no key could ever verify.
 
     :raises TokenRefused: the header cannot be read, or names another algorithm.
     """
