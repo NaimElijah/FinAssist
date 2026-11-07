@@ -879,7 +879,8 @@ as its own scrubbed text, because the renderer would otherwise turn it into text
   `unknown_key` — and never the token or its claims: `ProblemAuthenticationEntryPoint` on the
   ledger, `BearerAuthentication` on the assistant (ADR-030). Both decide the category from the
   request where they can, rather than from a library's message. A token whose header cannot be
-  read or names an algorithm but RS256 is `malformed` before any key lookup
+  read, that is not a signed JWT, or whose header names an algorithm but RS256 is `malformed`
+  before any key lookup
   (`RefuseUnexpectedAlgorithm` on the ledger, `_require_algorithm` on the assistant), and a request
   whose `Authorization` header is not `Bearer` followed by a credential is `missing`, with a bare
   `Bearer` challenge (ADR-076). The ninth category, `key_source`, is

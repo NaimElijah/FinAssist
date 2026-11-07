@@ -40,14 +40,16 @@ attack under two names, and the ledger's categories rested on a library's wordin
 **The ledger reads the request the way the assistant does.** The owner chose this direction on
 2026-11-07.
 
-- **A token whose header cannot be read, or names any algorithm but RS256, is `malformed`,** and is
-  refused before the key source is asked. On the ledger, `RefuseUnexpectedAlgorithm` wraps the
+- **A token whose header cannot be read, that is not a signed JWT, or whose header names any
+  algorithm but RS256, is `malformed`,** and is refused before the key source is asked. On the
+  ledger, `RefuseUnexpectedAlgorithm` wraps the
   decoder and reports the category through the same `JwtValidationException` the token validators
   use, so the entry point reads it typed. The decoder's own `jwsAlgorithm(RS256)` stays the
   defence, as `jwt.decode`'s allow-list does on the assistant.
 - **A request carries a bearer credential only when its `Authorization` header is `Bearer`,
   matched ignoring case, followed by a non-blank credential.** `Bearer` alone, `Bearer` with only
-  spaces after it, and any other scheme carry none.
+  whitespace after it, and any other scheme carry none. Whitespace is what Python's `str.strip`
+  removes, U+00A0 included, so the ledger strips that set rather than Java's own.
   - With none: `missing`, and the bare `Bearer` challenge. RFC 6750 §3 asks for no error code when
     a request lacks any authentication information.
   - With one that cannot be read: `malformed`, and `Bearer error="invalid_token"`.
@@ -57,8 +59,8 @@ attack under two names, and the ledger's categories rested on a library's wordin
 
 | Request | Both services |
 |---|---|
-| HS256, `alg: none`, a header that cannot be read, `Bearer a b`, `Bearer a,b` | 401 `malformed`, `invalid_token` |
-| No header, `Bearer`, `Bearer   `, `Basic …` | 401 `missing`, bare `Bearer` |
+| HS256, RS512, `alg: none`, an encrypted token, a header that cannot be read, `Bearer a b`, `Bearer a,b`, `bearer a b` | 401 `malformed`, `invalid_token` |
+| No header, `Bearer`, `Bearer   `, `Bearer` and U+00A0, `Basic …` | 401 `missing`, bare `Bearer` |
 
 Pinned on the ledger by `LedgerAuthorizationIT`: the `HS256`, `RS512`, `alg none` and unreadable
 header rows of `categorisedBadTokens`, and
@@ -85,6 +87,15 @@ in `test_authorization.py`.
 - **A token in an `access_token` parameter is ignored by both services.** Neither enables Spring's
   query or form resolution: `DefaultBearerTokenResolver` reads the parameter only when
   `allowUriQueryParameter` or `allowFormEncodedBodyParameter` is set, and both default to off.
+- **Three shapes still differ, each predating this record.**
+  - A valid token after two or more spaces is admitted by the assistant and refused by the
+    ledger, whose resolver allows exactly one.
+  - A header carrying a control character is refused 400 by the ledger's firewall before
+    authentication runs.
+  - A signature segment that is not base64url is `rejected` on the ledger.
+
+  Each needs a choice of which side moves, so
+  [#447](https://github.com/NaimElijah/FinAssist/issues/447) tracks them.
 
 ## Alternatives considered
 

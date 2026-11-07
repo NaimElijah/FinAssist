@@ -268,8 +268,9 @@ bounded context (ADR-006, ADR-024).
   the ledger the same key-set bodies that `tests/test_auth.py` serves the assistant: keep the two
   in step.
 - **A refusal is categorised from the request, as on the assistant** (ADR-076).
-  `RefuseUnexpectedAlgorithm` wraps the decoder and refuses a token whose header cannot be read or
-  names an algorithm but RS256 as `malformed`, before any key lookup.
+  `RefuseUnexpectedAlgorithm` wraps the decoder and refuses a token whose header cannot be read,
+  that is not a signed JWT, or whose header names an algorithm but RS256 as `malformed`, before
+  any key lookup. It catches Nimbus's unchecked exceptions too, or a crafted header is a 500.
   `ProblemAuthenticationEntryPoint` reads the `Authorization` header itself, as the assistant's
   `_bearer_token` does, for the category and the challenge. Pinned by `LedgerAuthorizationIT`; keep
   its header table in step with `test_authorization.py`'s.
