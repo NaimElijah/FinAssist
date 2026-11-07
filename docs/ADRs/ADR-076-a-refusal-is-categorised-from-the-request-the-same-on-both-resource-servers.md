@@ -81,11 +81,9 @@ Pinned on the assistant by `test_auth.py`'s HS256 and `alg: none` cases and
 - **An algorithm-confusion token costs no JWKS fetch and no Nimbus processing.** The header is
   parsed twice for an RS256 token, once here and once by the decoder. That is a few microseconds
   against a signature check.
-- **The ledger still refuses a request carrying both an `Authorization` header and an
-  `access_token` parameter.** Spring's resolver calls it "multiple bearer tokens", and the
-  assistant ignores the parameter. That refusal is now logged `malformed`. The two services answer
-  that request differently, which is outside this record: no browser request carries the
-  parameter, because the gateway relays only the header.
+- **A token in an `access_token` parameter is ignored by both services.** Neither enables Spring's
+  query or form resolution: `DefaultBearerTokenResolver` reads the parameter only when
+  `allowUriQueryParameter` or `allowFormEncodedBodyParameter` is set, and both default to off.
 
 ## Alternatives considered
 
