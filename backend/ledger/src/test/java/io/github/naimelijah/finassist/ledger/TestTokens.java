@@ -259,6 +259,14 @@ public final class TestTokens {
         return segment("{\"alg\":\"PBES2-HS256+A128KW\",\"enc\":\"A128GCM\",\"p2c\":-1}") + ".e30.AAAA.AAAA.AAAA";
     }
 
+    /**
+     * Five parts, the shape of an encrypted token, whose header names {@code RS256}. Nimbus compares
+     * algorithms by name, so it matches the one the ledger accepts, though it is no signed token.
+     */
+    public static String encryptedNamingRs256() {
+        return segment("{\"alg\":\"RS256\",\"enc\":\"A128GCM\"}") + ".e30.AAAA.AAAA.AAAA";
+    }
+
     private static String segment(String json) {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes(StandardCharsets.UTF_8));
     }

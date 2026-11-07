@@ -693,6 +693,21 @@ def Given_a_header_the_ledgers_parser_throws_on_When_verified_Then_it_is_malform
     assert refused.value.reason == REASON_MALFORMED
 
 
+def Given_an_encrypted_token_whose_header_names_RS256_When_verified_Then_it_is_malformed(
+    static_key_source: KeySource, fixed_clock: Clock
+) -> None:
+    """Five parts, the shape of an encrypted token, under a header naming RS256: its algorithm
+    passes the header check, and PyJWT then refuses the token it cannot split as a signed one. The
+    ledger's ``RefuseUnexpectedAlgorithm`` refuses the same shape ``malformed`` for not being a
+    signed JWT (``LedgerAuthorizationIT``'s row of the same name, ADR-076)."""
+    header = _b64url(json.dumps({"alg": "RS256", "enc": "A128GCM"}).encode())
+    token = f"{header}.e30.AAAA.AAAA.AAAA"
+
+    with pytest.raises(TokenRefused) as refused:
+        _verifier(static_key_source, fixed_clock)(token)
+    assert refused.value.reason == REASON_MALFORMED
+
+
 def Given_a_token_signed_RS512_with_the_published_key_When_verified_Then_it_is_malformed(
     rsa_key_pair: tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey],
     static_key_source: KeySource,

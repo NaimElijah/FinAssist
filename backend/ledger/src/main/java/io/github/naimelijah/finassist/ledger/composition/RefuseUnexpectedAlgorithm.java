@@ -1,8 +1,9 @@
 package io.github.naimelijah.finassist.ledger.composition;
 
-import com.nimbusds.jose.Algorithm;
 import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jwt.JWT;
 import com.nimbusds.jwt.JWTParser;
+import com.nimbusds.jwt.SignedJWT;
 import java.text.ParseException;
 import java.util.List;
 import org.springframework.security.oauth2.core.OAuth2Error;
@@ -13,10 +14,10 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtValidationException;
 
 /**
- * Refuses a token whose header cannot be read, or names any algorithm but RS256, as {@code
- * malformed}, before a key is looked up (ADR-076).
+ * Refuses a token whose header cannot be read, that is not a signed JWT, or whose header names any
+ * algorithm but RS256, as {@code malformed}, before a key is looked up (ADR-076).
  *
- * <p>The decoder it wraps refuses both on its own, since it accepts RS256 alone, and stays the
+ * <p>The decoder it wraps refuses each on its own, since it accepts RS256 alone, and stays the
  * defence. This check exists for the category, decided from the header the way the assistant's
  * {@code _require_algorithm} decides it. Left to Nimbus, an HS256 token is refused with "Another
  * algorithm expected, or no matching key(s) found", which {@link ProblemAuthenticationEntryPoint}
@@ -29,7 +30,7 @@ import org.springframework.security.oauth2.jwt.JwtValidationException;
  */
 final class RefuseUnexpectedAlgorithm implements JwtDecoder {
 
-    private static final String REFUSAL = "The token's header cannot be read, or names an algorithm other than RS256";
+    private static final String REFUSAL = "The token's header cannot be read, or it is not a JWT signed with RS256";
 
     private final JwtDecoder delegate;
 
@@ -40,7 +41,7 @@ final class RefuseUnexpectedAlgorithm implements JwtDecoder {
     /**
      * Wraps the decoder that verifies a token once its header names RS256.
      *
-     * @param delegate the decoder to call for a token whose header names RS256
+     * @param delegate the decoder to call for a signed token whose header names RS256
      * @return a decoder refusing every other token as {@code malformed}
      */
     static RefuseUnexpectedAlgorithm around(JwtDecoder delegate) {
@@ -48,17 +49,18 @@ final class RefuseUnexpectedAlgorithm implements JwtDecoder {
     }
 
     /**
-     * Decodes {@code token} through the wrapped decoder, once its header names RS256.
+     * Decodes {@code token} through the wrapped decoder, once it is a signed JWT whose header names
+     * RS256.
      *
-     * @throws JwtValidationException if the header cannot be read or names another algorithm, its one
-     *     error describing the category {@code malformed}
+     * @throws JwtValidationException if the header cannot be read, the token is unsigned or encrypted,
+     *     or its header names another algorithm, its one error describing the category {@code malformed}
      * @throws JwtException whatever the wrapped decoder throws for a token it refuses
      */
     @Override
     public Jwt decode(String token) throws JwtException {
-        Algorithm algorithm;
+        JWT parsed;
         try {
-            algorithm = JWTParser.parse(token).getHeader().getAlgorithm();
+            parsed = JWTParser.parse(token);
         } catch (ParseException | RuntimeException unreadable) {
             // Nimbus does not report every unreadable header as a ParseException: a header that is
             // JSON null throws a NullPointerException, a negative PBES2 count an
@@ -68,7 +70,10 @@ final class RefuseUnexpectedAlgorithm implements JwtDecoder {
             // not read, and nothing about a refusal may carry the token (ADR-030).
             throw malformed();
         }
-        if (!JWSAlgorithm.RS256.equals(algorithm)) {
+        // Nimbus compares algorithms by name alone, so an encrypted token whose header names RS256
+        // would match without the type check.
+        if (!(parsed instanceof SignedJWT)
+                || !JWSAlgorithm.RS256.equals(parsed.getHeader().getAlgorithm())) {
             throw malformed();
         }
         return delegate.decode(token);
