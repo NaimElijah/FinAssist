@@ -238,7 +238,7 @@ def _answer(app: FastAPI, authorization: bytes) -> tuple[int, dict[bytes, bytes]
         "basic-scheme",
     ],
 )
-def Given_an_authorization_header_with_no_readable_bearer_token_When_refused_Then_it_is_categorised_as_the_ledger_does(  # noqa: E501 - the name is the specification
+def Given_an_authorization_header_without_a_usable_bearer_token_When_refused_Then_its_shape_sets_the_reason_and_the_challenge(  # noqa: E501 - the name is the specification
     app: FastAPI,
     capsys: pytest.CaptureFixture[str],
     header: bytes,

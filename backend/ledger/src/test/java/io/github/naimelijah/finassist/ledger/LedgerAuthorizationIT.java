@@ -304,7 +304,7 @@ class LedgerAuthorizationIT extends PostgresFixture {
     @ParameterizedTest(name = "{0}")
     @MethodSource("unreadableAuthorizationHeaders")
     void
-            Given_an_authorization_header_with_no_readable_bearer_token_When_refused_Then_it_is_categorised_as_the_assistant_does(
+            Given_an_authorization_header_without_a_usable_bearer_token_When_refused_Then_its_shape_sets_the_reason_and_the_challenge(
                     String header, String challenge, String reason, CapturedOutput output) throws Exception {
         mvc.perform(withHost(get("/api/v1/accounts")).header(HttpHeaders.AUTHORIZATION, header))
                 .andExpect(status().isUnauthorized())

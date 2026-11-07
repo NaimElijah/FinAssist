@@ -60,11 +60,11 @@ attack under two names, and the ledger's categories rested on a library's wordin
 | HS256, `alg: none`, a header that cannot be read, `Bearer a b`, `Bearer a,b` | 401 `malformed`, `invalid_token` |
 | No header, `Bearer`, `Bearer   `, `Basic …` | 401 `missing`, bare `Bearer` |
 
-Pinned on the ledger by `LedgerAuthorizationIT`: the `HS256` and `alg none` rows of
-`categorisedBadTokens`, and
-`Given_an_authorization_header_with_no_readable_bearer_token_When_refused_Then_it_is_categorised_as_the_assistant_does`.
-Pinned on the assistant by `test_auth.py`'s HS256 and `alg: none` cases and
-`test_authorization.py`'s mirror of that test.
+Pinned on the ledger by `LedgerAuthorizationIT`: the `HS256`, `RS512`, `alg none` and unreadable
+header rows of `categorisedBadTokens`, and
+`Given_an_authorization_header_without_a_usable_bearer_token_When_refused_Then_its_shape_sets_the_reason_and_the_challenge`.
+Pinned on the assistant by the matching cases in `test_auth.py` and by the test of the same name
+in `test_authorization.py`.
 
 ## Consequences
 
