@@ -456,7 +456,7 @@ services:
 
   prometheus:
     profiles: [monitoring]
-    image: prom/prometheus:v3.7.3
+    image: prom/prometheus:v3.16.0
     restart: *restart-policy
     logging: *bounded-logs
     stop_grace_period: *stop-grace-period
